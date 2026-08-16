@@ -1,0 +1,4 @@
+.gx_deploy_secret
+.DS_Store
+.clasp.json
+node_modules/

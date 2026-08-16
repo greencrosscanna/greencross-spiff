@@ -1,0 +1,119 @@
+/* GX SPIFF — app shell styling.
+   Built on gx-theme tokens (--gx-*) so this app matches the rest of the suite.
+   Anything visual that is specific to SPIFF lives here; shared primitives stay in gx-theme.css. */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--gx-font, 'Inter', system-ui, sans-serif);
+  background: var(--gx-bg);
+  color: var(--gx-text);
+}
+
+/* ------------------------------------------------------------------ topbar */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--gx-gap-lg, 20px);
+  padding: 12px 20px;
+  background: var(--gx-surface);
+  border-bottom: 1px solid var(--gx-border);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.brand { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.brand-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 26px; height: 26px;
+  border-radius: var(--gx-radius-sm, 6px);
+  background: var(--gx-green);
+  color: var(--gx-green-ink, #04170c);
+  font-weight: 900;
+  font-size: 18px;
+  line-height: 1;
+}
+.brand-name {
+  font-family: 'Montserrat', var(--gx-font), sans-serif;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+.brand-name strong { font-weight: 900; }
+
+/* -------------------------------------------------------------------- tabs */
+.tabs { display: flex; gap: 4px; flex: 1; overflow-x: auto; }
+.tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--gx-text-dim);
+  font: inherit;
+  font-size: 14px;
+  padding: 7px 14px;
+  border-radius: var(--gx-radius-pill, 999px);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tab:hover { color: var(--gx-text); background: var(--gx-surface-2); }
+.tab.is-active {
+  color: var(--gx-green-bright, var(--gx-green));
+  border-color: var(--gx-green-hair, var(--gx-border-strong));
+  background: var(--gx-green-soft, var(--gx-surface-2));
+}
+
+.topbar-actions { display: flex; align-items: center; gap: 10px; }
+
+/* Connection dot — honest about GX Core reachability; never silently blank. */
+.conn { font-size: 12px; color: var(--gx-text-mute); white-space: nowrap; }
+.conn.is-connected { color: var(--gx-green); }
+.conn.is-GX-Core-unreachable { color: var(--gx-red); }
+
+/* --------------------------------------------------------------- workspace */
+.workspace { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+.panel { display: none; }
+.panel.is-active { display: block; }
+
+.gx-section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+.gx-section-head h2 {
+  font-family: 'Montserrat', var(--gx-font), sans-serif;
+  font-size: 20px;
+  margin: 0;
+}
+
+.dim { color: var(--gx-text-dim); font-size: 14px; margin: 4px 0 20px; }
+
+/* ------------------------------------------------------- empty / stub state */
+.empty {
+  border: 1px dashed var(--gx-border-strong, var(--gx-border));
+  border-radius: var(--gx-radius-lg, 12px);
+  background: var(--gx-surface-dashed, var(--gx-surface));
+  padding: 40px 24px;
+  text-align: center;
+}
+.empty p { margin: 0 0 8px; }
+.empty .dim { margin-bottom: 20px; }
+
+/* Placeholder for a surface that is scoped but not yet built — deliberately visible
+   rather than a blank panel, so it is obvious what is coming and what is not here yet. */
+.stub {
+  min-height: 220px;
+  border: 1px dashed var(--gx-border);
+  border-radius: var(--gx-radius-lg, 12px);
+  background: var(--gx-surface);
+  display: grid;
+  place-items: center;
+}
+.stub::after {
+  content: 'Not built yet — run /gxwhatsnext to pick this up';
+  color: var(--gx-text-mute);
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .topbar { flex-wrap: wrap; }
+  .workspace { padding: 16px; }
+}

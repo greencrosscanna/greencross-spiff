@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Green Cross SPIFF</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<!-- Shared GX suite theme (tokens + .gx-* primitives) -->
+<link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
+<link rel="stylesheet" href="spiff.css?v=1"/>
+</head>
+<body>
+<div id="app" class="gx-app">
+
+  <!-- ============ TOP BAR ============ -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">+</span>
+      <span class="brand-name">Green Cross <strong>SPIFF</strong></span>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="tab is-active" data-tab="programs">Programs</button>
+      <button class="tab" data-tab="calculator">Calculator</button>
+      <button class="tab" data-tab="progress">Progress</button>
+      <button class="tab" data-tab="reports">Reports</button>
+      <button class="tab" data-tab="history">History</button>
+    </nav>
+    <div class="topbar-actions">
+      <span class="conn" id="conn" title="GX Core connection">&#9679; connecting&hellip;</span>
+      <button class="gx-btn" id="btnSettings" title="Settings">&#9881;</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+
+    <!-- ============ PROGRAMS ============ -->
+    <section class="panel is-active" id="panel-programs">
+      <div class="gx-section-head">
+        <h2>SPIFF programs</h2>
+        <button class="gx-btn gx-btn-green" id="btnNewProgram">+ New program</button>
+      </div>
+      <div class="empty" id="programsEmpty">
+        <p>No programs yet.</p>
+        <p class="dim">Seed from the <b>Green Cross SPIFF Calculator</b> sheet (19 vendor tabs) or start one from scratch.</p>
+        <button class="gx-btn" id="btnImportCalc">Import from Calculator sheet</button>
+      </div>
+      <div id="programsList" hidden></div>
+    </section>
+
+    <!-- ============ CALCULATOR ============ -->
+    <!-- The vendor-facing ROI model. Every input recomputes cost, investment, ROI and
+         per-store / per-budtender targets live — it is a sales tool as much as a form. -->
+    <section class="panel" id="panel-calculator">
+      <div class="gx-section-head"><h2>Vendor calculator</h2></div>
+      <p class="dim">Live ROI model — replaces the per-vendor tabs in the Calculator sheet.</p>
+      <div class="stub" data-build="calculator"></div>
+    </section>
+
+    <!-- ============ PROGRESS ============ -->
+    <!-- The budtender matrix, fed from Dutchie directly — no per-store Excel export/paste. -->
+    <section class="panel" id="panel-progress">
+      <div class="gx-section-head"><h2>Live progress</h2></div>
+      <p class="dim">Units by budtender by store against target, straight from Dutchie.</p>
+      <div class="stub" data-build="progress"></div>
+    </section>
+
+    <!-- ============ REPORTS ============ -->
+    <section class="panel" id="panel-reports">
+      <div class="gx-section-head"><h2>Close-out &amp; reports</h2></div>
+      <p class="dim">Vendor PDF &rarr; Drive, a drafted vendor email for review, and the gift-card buy list.</p>
+      <div class="stub" data-build="reports"></div>
+    </section>
+
+    <!-- ============ HISTORY ============ -->
+    <section class="panel" id="panel-history">
+      <div class="gx-section-head"><h2>History</h2></div>
+      <p class="dim">Every closed program by pay period &mdash; "what did we run 9 periods ago", "last time we did Wyld".</p>
+      <div class="stub" data-build="history"></div>
+    </section>
+
+  </main>
+</div>
+
+<script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-client.js"></script>
+<script src="spiff.js?v=1"></script>
+</body>
+</html>
