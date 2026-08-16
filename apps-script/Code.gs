@@ -155,9 +155,15 @@ function importCalculator_(opts) {
     out.push(parsed);
   }
 
+  flagDuplicateActuals_(out);
   if (opts.save) out.forEach(function (p) { saveProgram_(p); });
 
-  return { ok: true, imported: out.length, saved: !!opts.save, skipped: skipped, programs: out };
+  return {
+    ok: true, imported: out.length, saved: !!opts.save, skipped: skipped,
+    suspect: out.filter(function (p) { return p.actual_json && p.actual_json.duplicate_of.length; })
+                .map(function (p) { return { title: p.title, shares_with: p.actual_json.duplicate_of }; }),
+    programs: out
+  };
 }
 
 function parseCalcTab_(sheet, stores) {
@@ -224,15 +230,17 @@ function parseCalcTab_(sheet, stores) {
     }
   }
 
+  var period = periodOf_(name);
+
   return {
     program_id:    slug_(name),
-    vendor:        vendorOf_(name),
+    vendor:        period.vendor,
     title:         name,
     status:        actual ? 'closed' : 'draft',
-    start_date:    '',            // the Calculator carries no dates — set on activation
-    end_date:      '',
-    pay_period:    '',
-    match_json:    { brand: vendorOf_(name), category: '', filter_text: '', products: [] },
+    start_date:    period.start_date,
+    end_date:      period.end_date,
+    pay_period:    '',            // set when a program is tied to a Leaderboard pay period
+    match_json:    { brand: period.vendor, category: '', filter_text: '', products: [] },
     stores_json:   storeIds,
     cost_json:     { mode: blended ? 'blended' : 'flat', per_unit: costPerUnit, source_label: blended || 'Cost Per Unit' },
     payout_type:   'flat',
@@ -243,6 +251,26 @@ function parseCalcTab_(sheet, stores) {
     source:        'calculator:' + name,
     unmatched_stores: baseTable.unmatched.concat(tgtTable.unmatched)
   };
+}
+
+/* Duplicating a vendor tab copies its hard-typed ROI cells while the formula cells
+   recalculate, so a stale panel looks plausible on its own. Two programs reporting the
+   same units sold, budtenders hit AND investment is not a coincidence — mark both so a
+   stale panel can't be mistaken for a real result. */
+function flagDuplicateActuals_(programs) {
+  var seen = {};
+  programs.forEach(function (p) {
+    if (!p.actual_json) return;
+    var a = p.actual_json;
+    var key = [a.units_sold, a.bts_hit, a.investment].join('|');
+    (seen[key] = seen[key] || []).push(p);
+  });
+  programs.forEach(function (p) {
+    if (!p.actual_json) return;
+    var a = p.actual_json;
+    var group = seen[[a.units_sold, a.bts_hit, a.investment].join('|')] || [];
+    a.duplicate_of = group.filter(function (q) { return q !== p; }).map(function (q) { return q.title; });
+  });
 }
 
 /* Multi-SKU programs blend the cost. Return the label used, so the import is
@@ -482,10 +510,42 @@ function slug_(s) {
   return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-// 'Gron Chocolate - Ratio 10pks' → 'Gron';  'Wyld 10pc' → 'Wyld'
-function vendorOf_(title) {
-  var t = String(title).split(/\s+[-–]\s+/)[0];
-  return t.replace(/\s+(all skus|all products|\d+\s*p(c|k)s?|carts?.*|joints?.*)$/i, '').trim() || t.trim();
+/* Tab names carry the program's period as an MMYY suffix — 'National 0825' ran in
+   Aug 2025, 'Buddies 0626-0726' spans Jun–Jul 2026. That is the only date the
+   Calculator records, and History ("what did we run 9 pay periods ago", "last time
+   we did Wyld") is built on it, so it gets parsed rather than discarded.
+   Returns { vendor, start_date, end_date } with dates as TEXT. */
+function periodOf_(title) {
+  var t = String(title).trim();
+  var m = t.match(/\s(\d{4})(?:\s*[-–]\s*(\d{4}))?\s*$/);
+  if (!m) return { vendor: cleanVendor_(t), start_date: '', end_date: '' };
+
+  var from = mmyy_(m[1]);
+  var to   = m[2] ? mmyy_(m[2]) : from;
+  if (!from || !to) return { vendor: cleanVendor_(t), start_date: '', end_date: '' };
+
+  return {
+    vendor:     cleanVendor_(t.slice(0, m.index)),
+    start_date: from.y + '-' + pad2_(from.m) + '-01',
+    end_date:   to.y + '-' + pad2_(to.m) + '-' + pad2_(new Date(to.y, to.m, 0).getDate())
+  };
+}
+
+// '0825' → Aug 2025. Rejects anything whose month isn't 01–12 (so a SKU count
+// like '10pc' or a stray year never gets read as a period).
+function mmyy_(s) {
+  var mo = parseInt(s.slice(0, 2), 10), yr = parseInt(s.slice(2), 10);
+  if (!(mo >= 1 && mo <= 12)) return null;
+  return { m: mo, y: 2000 + yr };
+}
+
+function pad2_(n) { return (n < 10 ? '0' : '') + n; }
+
+// 'Gron Chocolate - Ratio 10pks' → 'Gron';  'Mule Extracts -' → 'Mule Extracts'
+function cleanVendor_(s) {
+  var t = String(s).split(/\s+[-–]\s+/)[0];
+  t = t.replace(/\s+(all skus|all products|\d+\s*p(c|k)s?|carts?.*|joints?.*)$/i, '');
+  return t.replace(/[\s\-–]+$/, '').trim() || String(s).trim();
 }
 
 function findCellCol_(grid, label) {

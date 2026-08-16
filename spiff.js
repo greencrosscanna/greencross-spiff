@@ -120,9 +120,21 @@
         ? ' <span class="flag" title="Modelled at ' + money(pay) + ', settled at ' + money(a.spiff_amount) + '">rate ' + money(pay) + '&rarr;' + money(a.spiff_amount) + '</span>'
         : '';
 
-      return '<tr>'
-        + '<td><b>' + esc(p.title) + '</b>' + rateFlag + '</td>'
+      // Duplicated ROI panels in the source sheet. Shown, not hidden — these numbers
+      // look plausible on their own, and quietly trusting them would put someone else's
+      // result in a vendor report.
+      var dupFlag = a && a.duplicate_of && a.duplicate_of.length
+        ? ' <span class="flag is-warn" title="Identical units sold, budtenders hit and investment as: ' + esc(a.duplicate_of.join(', ')) + ' — likely a copied tab, verify before using">actuals match ' + esc(a.duplicate_of.join(', ')) + '</span>'
+        : '';
+
+      var period = p.start_date
+        ? esc(p.start_date) + (p.end_date && p.end_date.slice(0, 7) !== p.start_date.slice(0, 7) ? ' &rarr; ' + esc(p.end_date) : '')
+        : '<span class="hint">no period</span>';
+
+      return '<tr' + (dupFlag ? ' class="is-suspect"' : '') + '>'
+        + '<td><b>' + esc(p.title) + '</b>' + rateFlag + dupFlag + '</td>'
         + '<td>' + esc(p.vendor) + '</td>'
+        + '<td class="period">' + period + '</td>'
         + '<td><span class="status is-' + esc(p.status) + '">' + esc(p.status) + '</span></td>'
         + '<td class="num">' + money(pay) + '</td>'
         + '<td class="num">' + money(cost.per_unit) + (cost.mode === 'blended' ? ' <span class="hint" title="' + esc(cost.source_label) + '">blended</span>' : '') + '</td>'
@@ -136,7 +148,7 @@
 
     list.innerHTML =
       '<table class="grid"><thead><tr>'
-      + '<th>Program</th><th>Vendor</th><th>Status</th><th class="num">SPIFF</th><th class="num">Cost/unit</th>'
+      + '<th>Program</th><th>Vendor</th><th>Period</th><th>Status</th><th class="num">SPIFF</th><th class="num">Cost/unit</th>'
       + '<th class="num">Target</th><th class="num">Sold</th><th class="num">BTs hit</th><th class="num">ROI</th><th class="num">Stores</th>'
       + '</tr></thead><tbody>' + rows + '</tbody></table>';
   }

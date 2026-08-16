@@ -135,7 +135,10 @@ body {
   margin-left: 6px;
   white-space: nowrap;
 }
+.flag.is-warn { color: var(--gx-red); border-color: var(--gx-red); }
+.grid tr.is-suspect td { background: var(--gx-red-soft, transparent); }
 .hint { font-size: 11px; color: var(--gx-text-mute); cursor: help; }
+.grid .period { color: var(--gx-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 13px; }
 
 /* Placeholder for a surface that is scoped but not yet built — deliberately visible
    rather than a blank panel, so it is obvious what is coming and what is not here yet. */
