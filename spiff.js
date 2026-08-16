@@ -17,9 +17,12 @@
   /* ---------------------------------------------------------------- config */
   var GXCORE = 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec';
   var APP    = 'spiff';
-  var ENGINE = '';   // this app's own Apps Script /exec — set once the engine is deployed
+  // This app's own Apps Script engine. Same two-hop /exec as GX Core, so it gets the
+  // same retry-aware client rather than a hand-rolled fetch.
+  var ENGINE = 'https://script.google.com/macros/s/AKfycbw0JUgI01c7iaJRnuQgHdjUazDPtyEiEHZvlYkjflLSIVMY7qs-0Bkv4gPoxt8o2e6JZw/exec';
 
-  var GX = GXClient(GXCORE);
+  var GX  = GXClient(GXCORE);
+  var ENG = GXClient(ENGINE);
 
   /* ----------------------------------------------------------------- state */
   var state = {
@@ -74,11 +77,115 @@
     }
   }
 
+  /* -------------------------------------------------------------- programs */
+
+  function money(n) { return '$' + (Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 }); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+  }); }
+
+  async function loadPrograms() {
+    var list  = $('#programsList');
+    var empty = $('#programsEmpty');
+    try {
+      var r = await ENG.jsonp('programs', {});
+      state.programs = (r && r.programs) || [];
+    } catch (err) {
+      console.error('[spiff] programs load failed:', err);
+      empty.hidden = false;
+      list.hidden = true;
+      $('#programsEmpty p').textContent = "Couldn't reach the SPIFF engine.";
+      return;
+    }
+    renderPrograms();
+  }
+
+  function renderPrograms() {
+    var list  = $('#programsList');
+    var empty = $('#programsEmpty');
+    if (!state.programs.length) { empty.hidden = false; list.hidden = true; return; }
+
+    empty.hidden = true;
+    list.hidden = false;
+
+    var rows = state.programs.map(function (p) {
+      var a   = p.actual_json;
+      var pay = (p.payout_json && p.payout_json.amount) || 0;
+      var tgt = (p.target_json && p.target_json.units) || 0;
+      var cost = p.cost_json || {};
+
+      // A program whose paid rate diverged from the modelled rate is worth seeing at a
+      // glance — it changes what the vendor was actually billed.
+      var rateFlag = a && a.rate_changed
+        ? ' <span class="flag" title="Modelled at ' + money(pay) + ', settled at ' + money(a.spiff_amount) + '">rate ' + money(pay) + '&rarr;' + money(a.spiff_amount) + '</span>'
+        : '';
+
+      // Duplicated ROI panels in the source sheet. Shown, not hidden — these numbers
+      // look plausible on their own, and quietly trusting them would put someone else's
+      // result in a vendor report.
+      var dupFlag = a && a.duplicate_of && a.duplicate_of.length
+        ? ' <span class="flag is-warn" title="Identical units sold, budtenders hit and investment as: ' + esc(a.duplicate_of.join(', ')) + ' — likely a copied tab, verify before using">actuals match ' + esc(a.duplicate_of.join(', ')) + '</span>'
+        : '';
+
+      var period = p.start_date
+        ? esc(p.start_date) + (p.end_date && p.end_date.slice(0, 7) !== p.start_date.slice(0, 7) ? ' &rarr; ' + esc(p.end_date) : '')
+        : '<span class="hint">no period</span>';
+
+      return '<tr' + (dupFlag ? ' class="is-suspect"' : '') + '>'
+        + '<td><b>' + esc(p.title) + '</b>' + rateFlag + dupFlag + '</td>'
+        + '<td>' + esc(p.vendor) + '</td>'
+        + '<td class="period">' + period + '</td>'
+        + '<td><span class="status is-' + esc(p.status) + '">' + esc(p.status) + '</span></td>'
+        + '<td class="num">' + money(pay) + '</td>'
+        + '<td class="num">' + money(cost.per_unit) + (cost.mode === 'blended' ? ' <span class="hint" title="' + esc(cost.source_label) + '">blended</span>' : '') + '</td>'
+        + '<td class="num">' + tgt.toLocaleString() + '</td>'
+        + '<td class="num">' + (a ? a.units_sold.toLocaleString() : '&mdash;') + '</td>'
+        + '<td class="num">' + (a ? a.bts_hit : '&mdash;') + '</td>'
+        + '<td class="num ' + (a && a.roi < 0 ? 'neg' : '') + '">' + (a ? money(a.roi) : '&mdash;') + '</td>'
+        + '<td class="num">' + (p.stores_json || []).length + '</td>'
+        + '</tr>';
+    }).join('');
+
+    list.innerHTML =
+      '<table class="grid"><thead><tr>'
+      + '<th>Program</th><th>Vendor</th><th>Period</th><th>Status</th><th class="num">SPIFF</th><th class="num">Cost/unit</th>'
+      + '<th class="num">Target</th><th class="num">Sold</th><th class="num">BTs hit</th><th class="num">ROI</th><th class="num">Stores</th>'
+      + '</tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+
+  async function importCalculator(btn) {
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Importing…';
+    try {
+      var r = await ENG.jsonp('importCalc', {});
+      if (!r || !r.ok) throw new Error((r && r.error) || 'import failed');
+      await loadPrograms();
+      if (r.skipped && r.skipped.length) {
+        console.info('[spiff] skipped tabs:', r.skipped);
+      }
+    } catch (err) {
+      console.error('[spiff] import failed:', err);
+      btn.textContent = 'Import failed — see console';
+      setTimeout(function () { btn.textContent = label; btn.disabled = false; }, 4000);
+      return;
+    }
+    btn.textContent = label;
+    btn.disabled = false;
+  }
+
+  function wirePrograms() {
+    var b = $('#btnImportCalc');
+    if (b) b.addEventListener('click', function () { importCalculator(b); });
+  }
+
   /* ------------------------------------------------------------------ boot */
   function boot() {
     wireTabs();
+    wirePrograms();
     showTab('programs');
     loadShared();
+    loadPrograms();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

@@ -37,6 +37,24 @@ Two spreadsheets, and one genuinely painful loop:
 - Vendor close-outs land in **[this Drive folder](https://drive.google.com/drive/folders/1c8Yj23OkEusskHylLKYzHsqPYIgAHP1t)**
   (format precedent: `SPIFF_Sales Report - Gron - 092925.pdf`).
 
+## The engine
+
+Its own Apps Script project, bound to the **GX SPIFF Engine** spreadsheet (that sheet is the datastore —
+the `programs` tab holds one row per program).
+
+| | |
+|---|---|
+| `/exec` | `https://script.google.com/macros/s/AKfycbw0JUgI01c7iaJRnuQgHdjUazDPtyEiEHZvlYkjflLSIVMY7qs-0Bkv4gPoxt8o2e6JZw/exec` |
+| script id | `1RZw4VDq06d-gdZT1RYpIDOhS9TcrzZ6qJGlTR692O15FZaAg1mKlCor-` (in `.clasp.json`) |
+| datastore | sheet `1IXtgygVInEOak83RRC81bAUvr_zukdT0GJOLaqzuT44` |
+| ship | `clasp push --force` then `clasp update-deployment <id>` — **update**, never create, so `/exec` holds |
+
+**Writes ride on GET.** The browser calls the engine cross-origin via JSONP and Apps Script serves no CORS
+headers for POST, so mutating actions (`importCalc`) are exposed on `doGet` too. Same pattern as GX Core.
+
+**After any scope change**, open the script editor and run `authorize()` once — the web app returns
+Google's consent HTML instead of JSON until the owner has authorized.
+
 ## The rules that matter
 
 - **Payout model.** All 19 historical programs are **flat**: a fixed dollar bounty to each budtender who
