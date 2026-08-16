@@ -97,6 +97,46 @@ body {
 .empty p { margin: 0 0 8px; }
 .empty .dim { margin-bottom: 20px; }
 
+/* ------------------------------------------------------------ program grid */
+.grid { width: 100%; border-collapse: collapse; font-size: 14px; }
+.grid th, .grid td { padding: 10px 12px; border-bottom: 1px solid var(--gx-border); text-align: left; }
+.grid th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--gx-text-mute);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.grid tbody tr:hover { background: var(--gx-surface-2); }
+.grid .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.grid .neg { color: var(--gx-red); }
+
+.status {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: 2px 8px;
+  border-radius: var(--gx-radius-pill, 999px);
+  border: 1px solid var(--gx-border-strong, var(--gx-border));
+  color: var(--gx-text-dim);
+}
+.status.is-closed { color: var(--gx-text-mute); }
+.status.is-active { color: var(--gx-green); border-color: var(--gx-green-hair, var(--gx-green)); background: var(--gx-green-soft, transparent); }
+.status.is-draft  { color: var(--gx-amber, var(--gx-gold)); border-color: var(--gx-gold-line, var(--gx-border-strong)); }
+
+/* Paid rate diverged from the modelled rate — visible, not buried in a JSON blob. */
+.flag {
+  font-size: 11px;
+  color: var(--gx-amber, var(--gx-gold));
+  border: 1px solid var(--gx-gold-line, var(--gx-border-strong));
+  border-radius: var(--gx-radius-sm, 6px);
+  padding: 1px 6px;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+.hint { font-size: 11px; color: var(--gx-text-mute); cursor: help; }
+
 /* Placeholder for a surface that is scoped but not yet built — deliberately visible
    rather than a blank panel, so it is obvious what is coming and what is not here yet. */
 .stub {
