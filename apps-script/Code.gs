@@ -106,7 +106,7 @@ function doGet(e) {
   try {
     switch (p.action) {
       case 'ping':        out = { ok: true, app: APP, ts: nowStamp_() };            break;
-      case 'programs':    out = { ok: true, programs: listPrograms_() };            break;
+      case 'programs':    out = { ok: true, programs: listProgramsCached_() };      break;
       case 'program':     out = getProgram_(p.id);                                  break;
       case 'previewCalc': out = importCalculator_({ save: false });                 break;
       // Writes ride on GET because the browser calls this cross-origin via JSONP —
@@ -424,6 +424,30 @@ function forceTextDates_(sh) {
   cols.forEach(function (i) { sh.getRange(2, i + 1, rows, 1).setNumberFormat('@'); });
 }
 
+/* Reading the sheet costs ~3.6s, which is most of the JSONP timeout budget before the
+   caller has done anything. Cache the parsed list briefly; every write clears it, so a
+   correction is visible immediately rather than after a TTL. */
+var PROGRAMS_CACHE_KEY = 'spiff_programs_v1';
+
+function listProgramsCached_() {
+  var c = CacheService.getScriptCache();
+  try {
+    var hit = c.get(PROGRAMS_CACHE_KEY);
+    if (hit) return JSON.parse(hit);
+  } catch (e) {}
+  var all = listPrograms_();
+  // CacheService caps a value at 100KB; skip the cache rather than throw if we outgrow it.
+  try {
+    var body = JSON.stringify(all);
+    if (body.length < 95000) c.put(PROGRAMS_CACHE_KEY, body, 300);
+  } catch (e) {}
+  return all;
+}
+
+function invalidatePrograms_() {
+  try { CacheService.getScriptCache().remove(PROGRAMS_CACHE_KEY); } catch (e) {}
+}
+
 function listPrograms_(status) {
   var sh = dataSheet_();
   if (sh.getLastRow() < 2) return [];
@@ -439,7 +463,7 @@ function listPrograms_(status) {
 
 function getProgram_(id) {
   if (!id) return { ok: false, error: 'id required' };
-  var all = listPrograms_();
+  var all = listPrograms_();   // uncached: edits read-modify-write and must see the truth
   for (var i = 0; i < all.length; i++) if (all[i].program_id === id) return { ok: true, program: all[i] };
   return { ok: false, error: 'not found: ' + id };
 }
@@ -471,10 +495,12 @@ function saveProgram_(p, opts) {
       // An import must not erase who corrected this row; an edit stamps itself.
       var rowAudit = audit || (priorBy ? { edited_by: priorBy, edited_at: textDate_(rows[i][atCol]) } : null);
       sh.getRange(i + 2, 1, 1, PROGRAM_HEADERS.length).setValues([programToRow_(p, rowAudit)]);
+      invalidatePrograms_();
       return { ok: true, program_id: p.program_id, updated: true };
     }
   }
   sh.appendRow(programToRow_(p, audit));
+  invalidatePrograms_();
   return { ok: true, program_id: p.program_id, created: true };
 }
 
@@ -664,7 +690,7 @@ function clientView_(p) {
   };
   if (pass !== expected) return deny();
 
-  var all = listPrograms_().filter(function (x) { return norm_(x.contact_email) === email; });
+  var all = listProgramsCached_().filter(function (x) { return norm_(x.contact_email) === email; });
 
   var prog = null;
   if (token) {

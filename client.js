@@ -37,7 +37,10 @@
 
     $('#cvMsg').textContent = 'Opening…';
     try {
-      var r = await ENG.jsonp('clientView', { t: tok || token(), email: email, pass: pass });
+      // The engine reads a sheet and may hit GX Core; 8s is too tight for a cold call,
+      // and each retry repeats the work. Fewer tries, more patience.
+      var r = await ENG.jsonp('clientView', { t: tok || token(), email: email, pass: pass },
+                              { timeoutMs: 25000, retries: 2 });
       if (!r || !r.ok) throw new Error((r && r.error) || 'Could not open this proposal.');
       if (r.choices) { renderChoices(r.choices); return; }
       render(r.program);
