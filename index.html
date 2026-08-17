@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff.css?v=8"/>
+<link rel="stylesheet" href="spiff.css?v=9"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -106,9 +106,13 @@
 
     <!-- ============ REPORTS ============ -->
     <section class="panel" id="panel-reports">
-      <div class="gx-section-head"><h2>Close-out &amp; reports</h2></div>
-      <p class="dim">Vendor PDF &rarr; Drive, a drafted vendor email for review, and the gift-card buy list.</p>
-      <div class="stub" data-build="reports"></div>
+      <div class="gx-section-head">
+        <h2>Close-out &amp; reports</h2>
+        <select class="gx-input" id="repProgram" title="Which program to close out"></select>
+      </div>
+      <p class="dim">Vendor PDF saved to Drive, the vendor email drafted for you to send, and the
+         gift-card buy list. <b>Nothing is sent from here</b> &mdash; the vendor hears from Tawny.</p>
+      <div id="repBody"></div>
     </section>
 
     <!-- ============ HISTORY ============ -->
@@ -146,6 +150,6 @@
 </div>
 
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-client.js"></script>
-<script src="spiff.js?v=8"></script>
+<script src="spiff.js?v=9"></script>
 </body>
 </html>

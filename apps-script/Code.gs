@@ -105,6 +105,9 @@ function doGet(e) {
       case 'createProgram': out = createProgram_(p);                                break;
       case 'employees':   out = gxEmployees_();                                     break;
       case 'diag':        out = diag_();                                            break;
+      case 'buildReport': out = buildReport_(p);                                    break;
+      case 'emailDraft':  out = emailDraft_(p);                                     break;
+      case 'giftCards':   out = giftCardList_(p);                                   break;
       case 'sellthrough': out = notImplemented_('sellthrough');                     break;
       case 'payouts':     out = notImplemented_('payouts');                         break;
       case 'history':     out = { ok: true, programs: listPrograms_('closed') };    break;
@@ -126,8 +129,8 @@ function doPost(e) {
       case 'saveProgram':   out = saveProgram_(body.program);         break;
       case 'editProgram':   out = editProgram_(body);                 break;
       case 'closeProgram':  out = notImplemented_('closeProgram');    break;
-      case 'buildReport':   out = notImplemented_('buildReport');     break;
-      case 'draftEmail':    out = notImplemented_('draftEmail');      break;
+      case 'buildReport':   out = buildReport_(body);                 break;
+      case 'draftEmail':    out = emailDraft_(body);                   break;
       case 'pushPayouts':   out = notImplemented_('pushPayouts');     break;
       default:              out = { ok: false, error: 'Unknown action: ' + (body.action || '(none)') };
     }
@@ -607,6 +610,150 @@ function computePayouts_(rows, targets, payout) {
 
 /* ---------------------------- GX CORE ---------------------------- */
 
+/* ============================ CLOSE-OUT =============================
+ * Tawny sends the vendor a report; the vendor credits us against the next buy; we turn
+ * that credit into gift cards for the budtenders who hit their number.
+ *
+ * NOTHING IS SENT FROM HERE. The PDF is saved to Drive and the email is returned as
+ * text for a human to send — that is a rule in CLAUDE.md, not an oversight.
+ *
+ * Format follows the precedent in the Drive folder ("SPIFF_Sales Report - Gron -
+ * 092925.pdf"): header stats, then the per-budtender matrix. The matrix needs
+ * per-budtender sell-through, which lands with Progress; until then the report renders
+ * everything else and says plainly that the breakdown is missing rather than shipping a
+ * vendor a blank grid.
+ * ==================================================================== */
+
+function reportHtml_(p, matrix) {
+  var a    = p.actual_json || {};
+  var t    = p.target_json || {};
+  var rate = a.spiff_amount || (p.payout_json || {}).amount || 0;
+  var owed = (a.bts_hit || 0) * rate;
+  var esc  = function (s) { return String(s == null ? '' : s).replace(/[&<>]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); };
+  var money = function (n) { return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+
+  var storeRows = (p.stores_json || []).map(function (s) {
+    var tgt = (t.by_store || {})[s] || 0;
+    var act = matrix && matrix.by_store ? (matrix.by_store[s] || 0) : null;
+    return '<tr><td>' + esc(s) + '</td><td class="n">' + tgt + '</td><td class="n">'
+      + (act == null ? '&mdash;' : act) + '</td></tr>';
+  }).join('');
+
+  var matrixHtml = matrix && matrix.rows && matrix.rows.length
+    ? '<h2>By budtender</h2><table><tr><th>Budtender</th><th>Store</th><th class="n">Units</th><th class="n">Target</th><th>Hit</th></tr>'
+      + matrix.rows.map(function (r) {
+          return '<tr><td>' + esc(r.name) + '</td><td>' + esc(r.store_id) + '</td><td class="n">' + r.units
+            + '</td><td class="n">' + r.target + '</td><td>' + (r.hit ? '✓' : '') + '</td></tr>';
+        }).join('') + '</table>'
+    : '<p class="note">Per-budtender breakdown is not included: this program\'s sell-through was '
+      + 'recorded in aggregate. Programs tracked in SPIFF carry the full budtender matrix.</p>';
+
+  return '<html><head><meta charset="utf-8"><style>'
+    + 'body{font-family:Helvetica,Arial,sans-serif;color:#111;margin:36px}'
+    + 'h1{font-size:18px;margin:0 0 2px} h2{font-size:13px;margin:22px 0 6px;text-transform:uppercase;letter-spacing:.06em;color:#555}'
+    + '.sub{color:#666;font-size:12px;margin:0 0 18px}'
+    + '.stats{display:flex;gap:28px;margin:0 0 8px} .stat{}'
+    + '.stat b{display:block;font-size:22px} .stat span{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.05em}'
+    + 'table{border-collapse:collapse;width:100%;font-size:12px} th,td{border-bottom:1px solid #ddd;padding:6px 8px;text-align:left}'
+    + 'th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#666} .n{text-align:right}'
+    + '.owed{margin-top:18px;padding:12px 14px;border:2px solid #111;display:inline-block}'
+    + '.owed b{font-size:20px} .note{font-size:11px;color:#666;font-style:italic}'
+    + '</style></head><body>'
+    + '<h1>Green Cross SPIFF Performance Report</h1>'
+    + '<p class="sub">' + esc(p.program_name || p.title) + ' &middot; ' + esc(p.vendor)
+    +   (p.start_date ? ' &middot; ' + esc(p.start_date) + ' to ' + esc(p.end_date || '') : '') + '</p>'
+    + '<div class="stats">'
+    +   '<div class="stat"><b>' + (a.units_sold || 0).toLocaleString() + '</b><span>Units sold</span></div>'
+    +   '<div class="stat"><b>' + (t.units || 0).toLocaleString() + '</b><span>Target</span></div>'
+    +   '<div class="stat"><b>' + (a.bts_hit || 0) + '</b><span>Budtenders hit</span></div>'
+    +   '<div class="stat"><b>' + money(rate) + '</b><span>SPIFF each</span></div>'
+    + '</div>'
+    + '<div class="owed"><span>Credit due Green Cross</span><br><b>' + money(owed) + '</b>'
+    +   '<br><span>' + (a.bts_hit || 0) + ' budtenders × ' + money(rate) + '</span></div>'
+    + '<h2>By store</h2><table><tr><th>Store</th><th class="n">Target</th><th class="n">Sold</th></tr>' + storeRows + '</table>'
+    + matrixHtml
+    + '<p class="note">Generated by Green Cross SPIFF on ' + today_() + '.</p>'
+    + '</body></html>';
+}
+
+/* Save the vendor PDF to the close-out folder. Filename follows the precedent already in
+   that folder: "SPIFF_Sales Report - <Vendor> - MMDDYY.pdf". */
+function buildReport_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) return { ok: false, error: 'Your role cannot file reports' };
+
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var prog = res.program;
+
+  var d    = new Date();
+  var mmddyy = Utilities.formatDate(d, 'America/Los_Angeles', 'MMddyy');
+  var name = 'SPIFF_Sales Report - ' + (prog.vendor || prog.title) + ' - ' + mmddyy + '.pdf';
+
+  try {
+    var blob   = Utilities.newBlob(reportHtml_(prog, null), 'text/html', 'r.html').getAs('application/pdf').setName(name);
+    var folder = DriveApp.getFolderById(REPORT_FOLDER_ID);
+    var file   = folder.createFile(blob);
+    return { ok: true, name: name, file_id: file.getId(), url: file.getUrl(), by: auth.user };
+  } catch (e) {
+    return { ok: false, error: 'Could not write to the reports folder: ' + (e && e.message || e) };
+  }
+}
+
+/* The vendor email, as TEXT for a human to send. The engine has no send capability and
+   should not get one — a vendor hears from Tawny, not from an app. */
+function emailDraft_(p) {
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var prog = res.program, a = prog.actual_json || {}, t = prog.target_json || {};
+  var rate = a.spiff_amount || (prog.payout_json || {}).amount || 0;
+  var owed = (a.bts_hit || 0) * rate;
+  var m    = function (n) { return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+
+  var period = prog.start_date ? prog.start_date + ' through ' + (prog.end_date || '') : 'the program period';
+  var hitPct = t.units ? Math.round((a.units_sold || 0) / t.units * 100) : null;
+
+  return {
+    ok: true,
+    subject: 'SPIFF results — ' + (prog.program_name || prog.title) + ' (' + (prog.vendor || '') + ')',
+    body:
+      'Hi,\n\n' +
+      'Here are the final numbers for the ' + (prog.program_name || prog.title) + ' SPIFF, ' + period + '.\n\n' +
+      '  Units sold:        ' + (a.units_sold || 0).toLocaleString() +
+        (t.units ? '  (target ' + t.units.toLocaleString() + (hitPct != null ? ', ' + hitPct + '% of goal' : '') + ')' : '') + '\n' +
+      '  Budtenders who hit their target: ' + (a.bts_hit || 0) + '\n' +
+      '  SPIFF per budtender: ' + m(rate) + '\n' +
+      '  Total credit due:  ' + m(owed) + '\n\n' +
+      'The full report is attached. Please apply ' + m(owed) + ' as a credit against our next order.\n\n' +
+      'Thanks for supporting the team —\n\n' +
+      'Tawny\nGreen Cross Cannabis Emporium\n',
+    attach_hint: 'Attach the PDF saved to the SPIFF close-out folder in Drive.'
+  };
+}
+
+/* Who gets a gift card, and for how much. Needs per-budtender sell-through, so for
+   aggregate-only historical programs it reports the total and says what is missing
+   rather than inventing a split. */
+function giftCardList_(p) {
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var prog = res.program, a = prog.actual_json || {};
+  var rate = a.spiff_amount || (prog.payout_json || {}).amount || 0;
+
+  return {
+    ok: true,
+    program: prog.program_name || prog.title,
+    rate: rate,
+    count: a.bts_hit || 0,
+    total: (a.bts_hit || 0) * rate,
+    lines: [],   // filled from Progress once per-budtender sell-through is available
+    note: 'Per-budtender names require sell-through detail (Progress). This program recorded '
+        + (a.bts_hit || 0) + ' budtenders at ' + rate + ' each.'
+  };
+}
+
 /* Is the GXCore library reachable, and what does it actually see from here? Libraries run
    in the CALLER's context, so this distinguishes "we can't read GX Core" from "the tab is
    empty" — two failures that look identical from the outside. */
@@ -615,6 +762,10 @@ function diag_() {
   try { d.stores    = (GXCore.getStores()    || []).length; } catch (e) { d.stores    = 'ERR ' + e.message; }
   try { d.employees = (GXCore.getEmployees() || []).length; } catch (e) { d.employees = 'ERR ' + e.message; }
   try { d.products  = (GXCore.getProducts()  || []).length; } catch (e) { d.products  = 'ERR ' + e.message; }
+  // Reports write into a folder this script did not create, which needs the full drive
+  // scope — drive.file would silently only cover our own files.
+  try { d.reportFolder = DriveApp.getFolderById(REPORT_FOLDER_ID).getName(); }
+  catch (e) { d.reportFolder = 'ERR ' + (e && e.message || e); }
   return d;
 }
 

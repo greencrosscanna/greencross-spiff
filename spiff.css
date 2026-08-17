@@ -211,6 +211,31 @@ body {
 
 @media (max-width: 1000px) { .calc-grid { grid-template-columns: 1fr; } }
 
+/* ---------------------------------------------------------------- reports */
+.rep-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.rep-card {
+  border: 1px solid var(--gx-border);
+  border-radius: var(--gx-radius-lg, 12px);
+  background: var(--gx-surface);
+  padding: 18px;
+}
+.rep-card h4 { margin: 0 0 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--gx-text-mute); }
+.rep-card .gx-btn { margin-top: 12px; }
+.rep-owed { display: flex; flex-direction: column; gap: 2px; margin-bottom: 14px; }
+.rep-owed b {
+  font-family: 'Montserrat', var(--gx-font), sans-serif;
+  font-size: 30px; font-weight: 800; line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  color: var(--gx-green-bright, var(--gx-green));
+}
+.rep-owed span { font-size: 12px; color: var(--gx-text-dim); }
+.rep-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0 0 4px; font-size: 13px; }
+.rep-facts dt { color: var(--gx-text-mute); }
+.rep-facts dd { margin: 0; font-variant-numeric: tabular-nums; }
+.rep-mail { width: 100%; margin-top: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; resize: vertical; }
+#repSubj { width: 100%; }
+.rep-card code { font-size: 11px; background: var(--gx-surface-2); padding: 1px 5px; border-radius: 4px; }
+
 /* ------------------------------------------------------------ record modal */
 .modal-back {
   position: fixed; inset: 0; z-index: 60;

@@ -642,16 +642,119 @@
       }).join('');
   }
 
+  /* -------------------------------------------------------------- close-out
+   *
+   * The loop: send the vendor a report → they credit us against the next buy → we turn
+   * that credit into gift cards. The app drafts and files; a human sends.
+   */
+
+  function wireReports() {
+    $('#repProgram').addEventListener('change', renderReport);
+    $('#repBody').addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-act]');
+      if (!b) return;
+      if (b.dataset.act === 'pdf')   fileReport(b);
+      if (b.dataset.act === 'copy')  copyEmail(b);
+    });
+  }
+
+  function fillReportPicker() {
+    var sel = $('#repProgram');
+    if (!sel) return;
+    var closed = sortPrograms(state.programs.filter(function (p) { return p.actual_json; }));
+    sel.innerHTML = closed.map(function (p) {
+      return '<option value="' + esc(p.program_id) + '">' + esc(p.program_name || p.title) + '</option>';
+    }).join('');
+    if (closed.length) renderReport();
+  }
+
+  async function renderReport() {
+    var p = state.programs.filter(function (x) { return x.program_id === $('#repProgram').value; })[0];
+    if (!p) { $('#repBody').innerHTML = '<p class="hint">No closed programs yet.</p>'; return; }
+
+    var a    = p.actual_json || {};
+    var rate = a.spiff_amount || (p.payout_json || {}).amount || 0;
+    var owed = (a.bts_hit || 0) * rate;
+
+    var suspect = a.duplicate_of && a.duplicate_of.length
+      ? '<div class="notice is-warn"><b>Check these numbers before sending.</b> This program\'s actuals are '
+        + 'identical to <b>' + esc(a.duplicate_of.join(', ')) + '</b> and may be copied from another tab. '
+        + 'A vendor credit built on them would be wrong.</div>'
+      : '';
+
+    var mail = { subject: '', body: '' };
+    try {
+      var r = await ENG.jsonp('emailDraft', { id: p.program_id });
+      if (r && r.ok) mail = r;
+    } catch (e) { console.error('[spiff] email draft failed:', e); }
+
+    $('#repBody').innerHTML = suspect
+      + '<div class="rep-grid">'
+      +   '<div class="rep-card">'
+      +     '<h4>What the vendor owes</h4>'
+      +     '<div class="rep-owed"><b>' + money(owed) + '</b>'
+      +       '<span>' + (a.bts_hit || 0) + ' budtenders × ' + money(rate) + '</span></div>'
+      +     '<dl class="rep-facts">'
+      +       '<dt>Units sold</dt><dd>' + (a.units_sold || 0).toLocaleString() + '</dd>'
+      +       '<dt>Target</dt><dd>' + ((p.target_json || {}).units || 0).toLocaleString() + '</dd>'
+      +       '<dt>Period</dt><dd>' + (p.start_date ? esc(p.start_date) + ' → ' + esc(p.end_date || '') : '—') + '</dd>'
+      +     '</dl>'
+      +     '<button class="gx-btn gx-btn-green" data-act="pdf">Save PDF to Drive</button>'
+      +     '<p class="hint">Files it in the SPIFF close-out folder as '
+      +       '<code>SPIFF_Sales Report - ' + esc(p.vendor) + ' - MMDDYY.pdf</code>.</p>'
+      +   '</div>'
+      +   '<div class="rep-card">'
+      +     '<h4>Vendor email &mdash; draft</h4>'
+      +     '<input class="gx-input" id="repSubj" value="' + esc(mail.subject) + '" readonly>'
+      +     '<textarea class="gx-input rep-mail" id="repMail" rows="14" readonly>' + esc(mail.body) + '</textarea>'
+      +     '<button class="gx-btn" data-act="copy">Copy email</button>'
+      +     '<p class="hint">Copy into your mail client, attach the PDF, and send it yourself. '
+      +       'The app has no ability to email a vendor.</p>'
+      +   '</div>'
+      +   '<div class="rep-card">'
+      +     '<h4>Gift cards</h4>'
+      +     '<div class="rep-owed"><b>' + money(owed) + '</b><span>to buy in gift cards</span></div>'
+      +     '<p class="hint">Per-budtender names need sell-through detail, which arrives with the '
+      +       'Progress tab. This program recorded <b>' + (a.bts_hit || 0) + '</b> budtenders at '
+      +       money(rate) + ' each.</p>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  async function fileReport(btn) {
+    if (!canEdit()) { alert('Sign in from a program record first — filing a vendor report is limited to Tawny and Sky.'); return; }
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      var r = await ENG.jsonp('buildReport', { token: (session() || {}).token, id: $('#repProgram').value });
+      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+      btn.textContent = 'Saved to Drive';
+      btn.insertAdjacentHTML('afterend', ' <a class="hint" href="' + esc(r.url) + '" target="_blank" rel="noopener">open ' + esc(r.name) + '</a>');
+    } catch (err) {
+      btn.textContent = 'Failed — ' + (err.message || err);
+      console.error('[spiff] report failed:', err);
+    }
+    setTimeout(function () { btn.disabled = false; }, 1500);
+  }
+
+  function copyEmail(btn) {
+    var t = $('#repMail');
+    t.select();
+    try { document.execCommand('copy'); btn.textContent = 'Copied'; }
+    catch (e) { btn.textContent = 'Select and copy manually'; }
+    setTimeout(function () { btn.textContent = 'Copy email'; }, 2000);
+  }
+
   /* ------------------------------------------------------------------ boot */
   function boot() {
     wireTabs();
     wirePrograms();
     wireCalculator();
+    wireReports();
     showTab('programs');
     // Sequential, not parallel. Two GXClients firing in the same tick is what exposed the
     // shared callback-name collision; staggering them keeps SPIFF correct even on a client
     // that hasn't picked up the fix yet.
-    loadShared().then(calcInit).then(loadPrograms).then(fillCalcLoad);
+    loadShared().then(calcInit).then(loadPrograms).then(function () { fillCalcLoad(); fillReportPicker(); });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
