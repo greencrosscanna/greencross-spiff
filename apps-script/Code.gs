@@ -102,6 +102,7 @@ function doGet(e) {
       // Apps Script serves no CORS headers for POST. Same pattern GX Core uses.
       case 'importCalc':  out = importCalculator_({ save: true });                  break;
       case 'editProgram': out = editProgram_(p);                                    break;
+      case 'createProgram': out = createProgram_(p);                                break;
       case 'sellthrough': out = notImplemented_('sellthrough');                     break;
       case 'payouts':     out = notImplemented_('payouts');                         break;
       case 'history':     out = { ok: true, programs: listPrograms_('closed') };    break;
@@ -486,6 +487,32 @@ function editProgram_(p) {
   var res = saveProgram_(merged, { editedBy: auth.user });
   res.changed = changed;
   res.edited_by = auth.user;
+  return res;
+}
+
+/* Create a program from the Calculator. Same role gate as editing — a new program is a
+   commitment to a vendor, not a scratch calculation. */
+function createProgram_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) {
+    return { ok: false, error: 'Your role (' + auth.role + ') cannot create SPIFF programs' };
+  }
+
+  var draft = parseJson_(p.program, null);
+  if (!draft || !draft.program_name) return { ok: false, error: 'program_name required' };
+
+  var id = slug_(draft.program_name) + '-' + today_().slice(0, 7).replace('-', '');
+  if (getProgram_(id).ok) return { ok: false, error: 'A program with id "' + id + '" already exists' };
+
+  draft.program_id = id;
+  draft.title      = draft.program_name;
+  draft.status     = 'draft';       // becomes active when Tawny starts it
+  draft.source     = 'calculator-app:' + auth.user;
+  draft.match_json = draft.match_json || { brand: draft.vendor || '', category: '', filter_text: '', products: [] };
+
+  var res = saveProgram_(draft, { editedBy: auth.user });
+  res.program_id = id;
   return res;
 }
 

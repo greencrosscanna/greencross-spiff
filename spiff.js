@@ -66,11 +66,13 @@
   async function loadShared() {
     try {
       var s = await GX.jsonp('stores', {});
-      state.stores = (s && s.stores) || [];
+      if (!s || !Array.isArray(s.stores)) throw new Error('stores: unexpected response');
+      state.stores = s.stores;
 
-      var e = await GX.jsonp('employees', {});
-      state.employees = (e && e.employees) || [];
-
+      // NOTE: the roster is NOT fetched here. GX Core exposes no public `employees`
+      // action — it lives behind the bound GXCore library, so only the engine can read
+      // it. This used to call action=employees and silently swallow "Unknown action",
+      // leaving state.employees permanently empty while looking fine.
       conn('GX Core', 'connected');
     } catch (err) {
       conn('offline', 'GX Core unreachable');
@@ -414,15 +416,242 @@
     }
   }
 
+  /* --------------------------------------------------------- the calculator
+   *
+   * The vendor ROI model — a sales tool as much as a form. Every formula here is the
+   * Calculator sheet's, verified against the imported programs:
+   *
+   *   revenue        = units × cost per unit        (the vendor's take, as the sheet means it)
+   *   investment     = SPIFF × budtenders
+   *   ROI $          = revenue increase − investment      ← identity holds on all 22 programs
+   *   ROI %          = ROI $ / investment
+   *   store target   = round(store baseline × targetUnits / baselineUnits)
+   *   per-budtender  = round(that store's figure / its budtenders)
+   *
+   * Budtenders default to an even split across participating stores, which is what the
+   * sheet assumes; it reproduces 109 of 125 historical per-budtender targets. The 16
+   * misses are stores that don't staff evenly, so each store's count is editable. The
+   * roster would settle it, but GX Core exposes no public `employees` action — the
+   * engine will have to read it through the GXCore library.
+   */
+
+  var calc = {
+    name: '', vendor: '', cost: 10, spiff: 25, target: 0,
+    stores: []   // [{ store_id, name, on, baseline, bts }]
+  };
+
+  function calcInit() {
+    if (calc.stores.length || !state.stores.length) return;
+    calc.stores = state.stores.map(function (s) {
+      return { store_id: s.store_id, name: s.display_name || s.store_id, on: true, baseline: 0, bts: 6 };
+    });
+    renderCalcStores();
+    recalc();
+  }
+
+  function calcModel() {
+    var on = calc.stores.filter(function (s) { return s.on; });
+    var baseUnits = on.reduce(function (n, s) { return n + (Number(s.baseline) || 0); }, 0);
+    var bts       = on.reduce(function (n, s) { return n + (Number(s.bts) || 0); }, 0);
+    var target    = Number(calc.target) || 0;
+    var cost      = Number(calc.cost) || 0;
+    var ratio     = baseUnits ? target / baseUnits : 0;
+
+    var baseRev   = baseUnits * cost;
+    var targetRev = target * cost;
+    var revInc    = targetRev - baseRev;
+    var invest    = (Number(calc.spiff) || 0) * bts;
+
+    return {
+      on: on, baseUnits: baseUnits, bts: bts, ratio: ratio,
+      baseRev: baseRev, targetRev: targetRev,
+      unitInc: target - baseUnits,
+      revInc: revInc,
+      growth: baseUnits ? (target - baseUnits) / baseUnits : 0,
+      invest: invest,
+      roi: revInc - invest,
+      roiPct: invest ? (revInc - invest) / invest : 0
+    };
+  }
+
+  function recalc() {
+    var m = calcModel();
+
+    // Lead with what the vendor cares about: what it costs them, what it returns.
+    $('#calcHero').innerHTML =
+        heroStat('Investment', money(m.invest), (m.bts || 0) + ' budtenders × ' + money(calc.spiff))
+      + heroStat('Revenue increase', money(m.revInc), money(m.baseRev) + ' → ' + money(m.targetRev))
+      + heroStat('ROI', money(m.roi), pct(m.roiPct) + ' return', m.roi < 0 ? 'neg' : 'pos')
+      + heroStat('Unit lift', (m.unitInc > 0 ? '+' : '') + m.unitInc.toLocaleString(), pct(m.growth) + ' over baseline');
+
+    var rows = m.on.map(function (s) {
+      var base = Number(s.baseline) || 0;
+      var n    = Number(s.bts) || 0;
+      var tgt  = Math.round(base * m.ratio);
+      return '<tr>'
+        + '<td>' + esc(s.name) + '</td>'
+        + '<td class="num">' + base.toLocaleString() + '</td>'
+        + '<td class="num">' + (n ? Math.round(base / n) : '&mdash;') + '</td>'
+        + '<td class="num strong">' + tgt.toLocaleString() + '</td>'
+        + '<td class="num strong">' + (n ? Math.round(Math.round(base / n) * m.ratio) : '&mdash;') + '</td>'
+        + '<td class="num">' + money(tgt * (Number(calc.cost) || 0)) + '</td>'
+        + '</tr>';
+    }).join('');
+
+    $('#calcTable').innerHTML = m.on.length
+      ? '<div class="grid-wrap"><table class="grid"><thead><tr>'
+        + '<th>Store</th><th class="num">Baseline</th><th class="num">Per BT</th>'
+        + '<th class="num">Target</th><th class="num">Per BT</th><th class="num">Target value</th>'
+        + '</tr></thead><tbody>' + rows
+        + '<tr class="total"><td>Total</td><td class="num">' + m.baseUnits.toLocaleString() + '</td><td></td>'
+        + '<td class="num strong">' + (Number(calc.target) || 0).toLocaleString() + '</td><td></td>'
+        + '<td class="num">' + money(m.targetRev) + '</td></tr>'
+        + '</tbody></table></div>'
+      : '<p class="hint">Tick at least one store.</p>';
+  }
+
+  function heroStat(label, value, sub, tone) {
+    return '<div class="hero-stat' + (tone ? ' is-' + tone : '') + '">'
+      + '<span class="hero-label">' + esc(label) + '</span>'
+      + '<span class="hero-value">' + value + '</span>'
+      + '<span class="hero-sub">' + sub + '</span></div>';
+  }
+
+  function renderCalcStores() {
+    $('#calcStores').innerHTML = calc.stores.map(function (s, i) {
+      return '<div class="calc-store">'
+        + '<label class="calc-store-on"><input type="checkbox" data-i="' + i + '" data-f="on"' + (s.on ? ' checked' : '') + '> ' + esc(s.name) + '</label>'
+        + '<label class="fld"><span>Baseline units</span><input class="gx-input" type="number" data-i="' + i + '" data-f="baseline" value="' + (s.baseline || 0) + '"></label>'
+        + '<label class="fld"><span>Budtenders</span><input class="gx-input" type="number" data-i="' + i + '" data-f="bts" value="' + (s.bts || 0) + '"></label>'
+        + '</div>';
+    }).join('');
+  }
+
+  function wireCalculator() {
+    ['cName', 'cVendor', 'cCost', 'cSpiff'].forEach(function (id) {
+      $('#' + id).addEventListener('input', function () {
+        calc[{ cName: 'name', cVendor: 'vendor', cCost: 'cost', cSpiff: 'spiff' }[id]] = $('#' + id).value;
+        recalc();
+      });
+    });
+
+    // Target units and growth % are two views of one number — editing either updates the
+    // other, so Tawny can pitch "1,200 units" or "+40%" whichever way the vendor thinks.
+    $('#cTarget').addEventListener('input', function () {
+      calc.target = Number($('#cTarget').value) || 0;
+      var base = calcModel().baseUnits;
+      $('#cGrowth').value = base ? Math.round(((calc.target - base) / base) * 100) : 0;
+      recalc();
+    });
+    $('#cGrowth').addEventListener('input', function () {
+      var base = calcModel().baseUnits;
+      calc.target = Math.round(base * (1 + (Number($('#cGrowth').value) || 0) / 100));
+      $('#cTarget').value = calc.target;
+      recalc();
+    });
+
+    $('#calcStores').addEventListener('input', function (e) {
+      var el = e.target, i = el.dataset.i;
+      if (i == null) return;
+      var s = calc.stores[i];
+      if (el.dataset.f === 'on') s.on = el.checked;
+      else s[el.dataset.f] = Number(el.value) || 0;
+      if (el.dataset.f !== 'bts') {
+        var base = calcModel().baseUnits;
+        $('#cGrowth').value = base ? Math.round(((calc.target - base) / base) * 100) : 0;
+      }
+      recalc();
+    });
+
+    $('#calcLoad').addEventListener('change', loadIntoCalc);
+    $('#calcSave').addEventListener('click', saveCalcProgram);
+  }
+
+  // Model a new deal off a past one — "what if we ran Wyld again, but at $50?"
+  function loadIntoCalc() {
+    var p = state.programs.filter(function (x) { return x.program_id === $('#calcLoad').value; })[0];
+    if (!p) return;
+    var base = p.baseline_json || {}, tgt = p.target_json || {};
+    calc.name   = p.program_name || p.title;
+    calc.vendor = p.vendor;
+    calc.cost   = (p.cost_json || {}).per_unit || 0;
+    calc.spiff  = (p.payout_json || {}).amount || 0;
+    calc.target = tgt.units || 0;
+    calc.stores = state.stores.map(function (s) {
+      var b = (base.by_store || {})[s.store_id];
+      var perBt = (base.per_bt || {})[s.store_id];
+      return {
+        store_id: s.store_id, name: s.display_name || s.store_id,
+        on: (p.stores_json || []).indexOf(s.store_id) >= 0,
+        baseline: b || 0,
+        bts: perBt ? Math.max(1, Math.round((b || 0) / perBt)) : 6
+      };
+    });
+    $('#cName').value = calc.name; $('#cVendor').value = calc.vendor;
+    $('#cCost').value = calc.cost; $('#cSpiff').value = calc.spiff;
+    $('#cTarget').value = calc.target;
+    var m = calcModel();
+    $('#cGrowth').value = m.baseUnits ? Math.round(m.growth * 100) : 0;
+    renderCalcStores();
+    recalc();
+  }
+
+  async function saveCalcProgram() {
+    if (!canEdit()) { alert('Sign in from a program record to save — SPIFF programs are edited by Tawny and Sky.'); return; }
+    var m = calcModel();
+    if (!calc.name) { alert('Give the program a name first.'); return; }
+
+    var byStore = {}, perBt = {};
+    m.on.forEach(function (s) {
+      byStore[s.store_id] = Math.round((Number(s.baseline) || 0) * m.ratio);
+      perBt[s.store_id]   = s.bts ? Math.round(Math.round(s.baseline / s.bts) * m.ratio) : 0;
+    });
+
+    var btn = $('#calcSave');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      var r = await ENG.jsonp('createProgram', {
+        token: (session() || {}).token,
+        program: JSON.stringify({
+          program_name: calc.name, vendor: calc.vendor,
+          cost_json:   { mode: 'flat', per_unit: Number(calc.cost) || 0, source_label: 'calculator' },
+          payout_type: 'flat',
+          payout_json: { amount: Number(calc.spiff) || 0 },
+          stores_json: m.on.map(function (s) { return s.store_id; }),
+          baseline_json: { units: m.baseUnits, revenue: m.baseRev },
+          target_json:   { units: Number(calc.target) || 0, revenue: m.targetRev, by_store: byStore, per_bt: perBt }
+        })
+      });
+      if (!r || !r.ok) throw new Error((r && r.error) || 'save failed');
+      btn.textContent = 'Saved';
+      await loadPrograms();
+      fillCalcLoad();
+    } catch (err) {
+      btn.textContent = 'Save failed';
+      console.error('[spiff] save program failed:', err);
+    }
+    setTimeout(function () { btn.textContent = 'Save as program'; btn.disabled = false; }, 2500);
+  }
+
+  function fillCalcLoad() {
+    var sel = $('#calcLoad');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Start from scratch…</option>'
+      + sortPrograms(state.programs).map(function (p) {
+        return '<option value="' + esc(p.program_id) + '">' + esc(p.program_name || p.title) + '</option>';
+      }).join('');
+  }
+
   /* ------------------------------------------------------------------ boot */
   function boot() {
     wireTabs();
     wirePrograms();
+    wireCalculator();
     showTab('programs');
     // Sequential, not parallel. Two GXClients firing in the same tick is what exposed the
     // shared callback-name collision; staggering them keeps SPIFF correct even on a client
     // that hasn't picked up the fix yet.
-    loadShared().then(loadPrograms);
+    loadShared().then(calcInit).then(loadPrograms).then(fillCalcLoad);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
