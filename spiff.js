@@ -409,6 +409,7 @@
       }
       $('#recordMsg').textContent = 'Saved (' + (r.changed || []).join(', ') + ')';
       await loadPrograms();
+      renderHistory();
       state.record = state.programs.filter(function (x) { return x.program_id === p.program_id; })[0] || p;
       renderRecord(state.record);
     } catch (err) {
@@ -744,17 +745,136 @@
     setTimeout(function () { btn.textContent = 'Copy email'; }, 2000);
   }
 
+  /* --------------------------------------------------------------- history
+   *
+   * The lookup surface: "what did we run 9 pay periods ago", "last time we did a Wyld
+   * SPIFF". Grouped by month so a period reads as a unit, and the same record modal
+   * opens from here — this is where legacy records get corrected, so the fix is one
+   * click from the thing that looks wrong.
+   */
+
+  function wireHistory() {
+    ['hSearch', 'hVendor', 'hYear', 'hSuspect'].forEach(function (id) {
+      var el = $('#' + id);
+      if (el) el.addEventListener('input', renderHistory);
+    });
+    $('#hList').addEventListener('click', function (e) {
+      var row = e.target.closest('[data-id]');
+      if (row) openRecord(row.dataset.id);
+    });
+  }
+
+  function fillHistoryFilters() {
+    var vendors = {}, years = {};
+    state.programs.forEach(function (p) {
+      if (p.vendor) vendors[p.vendor] = 1;
+      if (p.start_date) years[p.start_date.slice(0, 4)] = 1;
+    });
+    $('#hVendor').innerHTML = '<option value="">All vendors</option>'
+      + Object.keys(vendors).sort().map(function (v) { return '<option>' + esc(v) + '</option>'; }).join('');
+    $('#hYear').innerHTML = '<option value="">All time</option>'
+      + Object.keys(years).sort().reverse().map(function (y) { return '<option>' + esc(y) + '</option>'; }).join('');
+    renderHistory();
+  }
+
+  function renderHistory() {
+    var q       = ($('#hSearch').value || '').trim().toLowerCase();
+    var vendor  = $('#hVendor').value;
+    var year    = $('#hYear').value;
+    var suspect = $('#hSuspect').checked;
+
+    var list = state.programs.filter(function (p) {
+      var a = p.actual_json;
+      if (suspect && !(a && ((a.duplicate_of || []).length || a.rate_changed))) return false;
+      if (vendor && p.vendor !== vendor) return false;
+      if (year && (p.start_date || '').slice(0, 4) !== year) return false;
+      if (q) {
+        var hay = ((p.vendor || '') + ' ' + (p.program_name || '') + ' ' + (p.title || '')).toLowerCase();
+        if (hay.indexOf(q) < 0) return false;
+      }
+      return true;
+    });
+
+    // Totals answer "what has this vendor cost us and returned" without opening anything.
+    var t = list.reduce(function (acc, p) {
+      var a = p.actual_json || {};
+      acc.units  += a.units_sold || 0;
+      acc.spend  += (a.bts_hit || 0) * (a.spiff_amount || (p.payout_json || {}).amount || 0);
+      acc.roi    += a.roi || 0;
+      return acc;
+    }, { units: 0, spend: 0, roi: 0 });
+
+    $('#hStats').innerHTML =
+        histStat(list.length, list.length === 1 ? 'program' : 'programs')
+      + histStat(t.units.toLocaleString(), 'units sold')
+      + histStat(money(t.spend), 'paid in SPIFF')
+      + histStat(money(t.roi), 'net return', t.roi < 0 ? 'neg' : 'pos');
+
+    if (!list.length) { $('#hList').innerHTML = '<p class="hint">Nothing matches.</p>'; return; }
+
+    // Group by month — a pay period lives inside one, and it makes "9 periods ago"
+    // countable by eye.
+    var groups = {};
+    sortPrograms(list).forEach(function (p) {
+      var k = p.start_date ? p.start_date.slice(0, 7) : 'No period';
+      (groups[k] = groups[k] || []).push(p);
+    });
+
+    var keys = Object.keys(groups).sort(function (a, b) {
+      if (a === 'No period') return 1;
+      if (b === 'No period') return -1;
+      return b.localeCompare(a);
+    });
+
+    $('#hList').innerHTML = keys.map(function (k) {
+      return '<div class="hist-group"><h3>' + esc(monthLabel(k)) + '</h3>'
+        + groups[k].map(histRow).join('') + '</div>';
+    }).join('');
+  }
+
+  function histStat(value, label, tone) {
+    return '<div class="hist-stat' + (tone ? ' is-' + tone : '') + '"><b>' + value + '</b><span>' + esc(label) + '</span></div>';
+  }
+
+  function monthLabel(k) {
+    if (k === 'No period') return 'No period recorded';
+    var m = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    var parts = k.split('-');
+    return m[Number(parts[1]) - 1] + ' ' + parts[0];
+  }
+
+  function histRow(p) {
+    var a    = p.actual_json || {};
+    var rate = a.spiff_amount || (p.payout_json || {}).amount || 0;
+    var flags = '';
+    if ((a.duplicate_of || []).length) flags += '<span class="flag is-warn">actuals may be copied</span>';
+    if (a.rate_changed) flags += '<span class="flag">rate ' + money((p.payout_json || {}).amount) + '&rarr;' + money(a.spiff_amount) + '</span>';
+    if (p.edited_by) flags += '<span class="flag is-ok">corrected by ' + esc(p.edited_by) + '</span>';
+
+    return '<div class="hist-row" data-id="' + esc(p.program_id) + '" tabindex="0">'
+      + '<div class="hist-main"><b>' + esc(p.program_name || p.title) + '</b>'
+      +   '<span class="hist-sub">' + esc(p.vendor) + ' · ' + esc(p.start_date || '—') + ' → ' + esc(p.end_date || '—') + '</span>'
+      +   (flags ? '<div class="hist-flags">' + flags + '</div>' : '')
+      + '</div>'
+      + '<div class="hist-nums">'
+      +   '<span><b>' + (a.units_sold || 0).toLocaleString() + '</b> sold</span>'
+      +   '<span><b>' + (a.bts_hit || 0) + '</b> hit × ' + money(rate) + '</span>'
+      +   '<span class="' + (a.roi < 0 ? 'neg' : '') + '"><b>' + money(a.roi) + '</b> ROI</span>'
+      + '</div></div>';
+  }
+
   /* ------------------------------------------------------------------ boot */
   function boot() {
     wireTabs();
     wirePrograms();
     wireCalculator();
     wireReports();
+    wireHistory();
     showTab('programs');
     // Sequential, not parallel. Two GXClients firing in the same tick is what exposed the
     // shared callback-name collision; staggering them keeps SPIFF correct even on a client
     // that hasn't picked up the fix yet.
-    loadShared().then(calcInit).then(loadPrograms).then(function () { fillCalcLoad(); fillReportPicker(); });
+    loadShared().then(calcInit).then(loadPrograms).then(function () { fillCalcLoad(); fillReportPicker(); fillHistoryFilters(); });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

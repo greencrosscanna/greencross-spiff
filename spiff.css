@@ -211,6 +211,49 @@ body {
 
 @media (max-width: 1000px) { .calc-grid { grid-template-columns: 1fr; } }
 
+/* ---------------------------------------------------------------- history */
+.hist-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.hist-bar #hSearch { min-width: 240px; flex: 1; max-width: 360px; }
+.hist-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--gx-text-dim); white-space: nowrap; }
+
+.hist-stats { display: flex; gap: 28px; flex-wrap: wrap; padding: 14px 0 20px; border-bottom: 1px solid var(--gx-border); margin-bottom: 20px; }
+.hist-stat { display: flex; flex-direction: column; gap: 2px; }
+.hist-stat b {
+  font-family: 'Montserrat', var(--gx-font), sans-serif;
+  font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.hist-stat span { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--gx-text-mute); }
+.hist-stat.is-pos b { color: var(--gx-green-bright, var(--gx-green)); }
+.hist-stat.is-neg b { color: var(--gx-red); }
+
+.hist-group { margin-bottom: 26px; }
+.hist-group h3 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--gx-text-mute); margin: 0 0 8px; font-weight: 600;
+}
+.hist-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  padding: 12px 14px; margin-bottom: 6px; cursor: pointer;
+  border: 1px solid var(--gx-border);
+  border-radius: var(--gx-radius-md, 8px);
+  background: var(--gx-surface);
+}
+.hist-row:hover { border-color: var(--gx-border-strong, var(--gx-green-hair)); background: var(--gx-surface-2); }
+.hist-row:focus-visible { outline: 2px solid var(--gx-green); outline-offset: -2px; }
+.hist-main b { display: block; font-size: 14px; }
+.hist-sub { font-size: 12px; color: var(--gx-text-mute); font-variant-numeric: tabular-nums; }
+.hist-flags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.hist-flags .flag { margin-left: 0; }
+.flag.is-ok { color: var(--gx-green); border-color: var(--gx-green-hair, var(--gx-green)); }
+.hist-nums { display: flex; gap: 22px; text-align: right; font-size: 12px; color: var(--gx-text-dim); white-space: nowrap; }
+.hist-nums b { display: block; font-size: 15px; color: var(--gx-text); font-variant-numeric: tabular-nums; }
+.hist-nums .neg b { color: var(--gx-red); }
+
+@media (max-width: 720px) {
+  .hist-row { flex-direction: column; align-items: flex-start; }
+  .hist-nums { gap: 16px; }
+}
+
 /* ---------------------------------------------------------------- reports */
 .rep-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
 .rep-card {

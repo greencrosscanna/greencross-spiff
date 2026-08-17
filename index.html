@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff.css?v=9"/>
+<link rel="stylesheet" href="spiff.css?v=10"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -118,8 +118,17 @@
     <!-- ============ HISTORY ============ -->
     <section class="panel" id="panel-history">
       <div class="gx-section-head"><h2>History</h2></div>
-      <p class="dim">Every closed program by pay period &mdash; "what did we run 9 periods ago", "last time we did Wyld".</p>
-      <div class="stub" data-build="history"></div>
+      <p class="dim">Every closed program, newest first. Click any row to open &mdash; and correct &mdash; the record.</p>
+
+      <div class="hist-bar">
+        <input class="gx-input" id="hSearch" type="search" placeholder="Search vendor or program…">
+        <select class="gx-input" id="hVendor"><option value="">All vendors</option></select>
+        <select class="gx-input" id="hYear"><option value="">All time</option></select>
+        <label class="hist-check"><input type="checkbox" id="hSuspect"> Only flagged records</label>
+      </div>
+
+      <div class="hist-stats" id="hStats"></div>
+      <div id="hList"></div>
     </section>
 
   </main>
@@ -150,6 +159,6 @@
 </div>
 
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-client.js"></script>
-<script src="spiff.js?v=9"></script>
+<script src="spiff.js?v=10"></script>
 </body>
 </html>
