@@ -337,6 +337,8 @@
       + '<div class="fld-grid">'
       +   field('Vendor', 'vendor', p.vendor)
       +   field('Program name (Calculator A3)', 'program_name', p.program_name)
+      +   field('Vendor contact', 'contact_name', p.contact_name)
+      +   field('Contact email (their login)', 'contact_email', p.contact_email)
       +   field('Status', 'status', p.status)
       +   field('Start date', 'start_date', p.start_date)
       +   field('End date', 'end_date', p.end_date)
@@ -357,12 +359,68 @@
       +   field('ROI % (as decimal)', 'actual_json.roi_pct', a.roi_pct, 'number')
       + '</div>';
 
+    // Minting a vendor link exposes this program to an outside party, so it sits behind
+    // the same role gate as editing and says plainly what it does.
+    if (canEdit()) {
+      $('#recordBody').insertAdjacentHTML('beforeend',
+        '<h4>Vendor link</h4>'
+        + '<p class="hint">A read-only page showing only this program. To open it they enter '
+        + '<b>their own email</b> and the shared password — so set the contact email above first, '
+        + 'or the link opens nothing.</p>'
+        + '<div class="share-row">'
+        +   '<button class="gx-btn" id="btnShare">' + (p.share_token ? 'Copy vendor link' : 'Create vendor link') + '</button>'
+        +   (p.share_token ? '<button class="gx-btn" id="btnRevoke">Revoke</button>' : '')
+        +   '<input class="gx-input" id="shareUrl" readonly hidden>'
+        + '</div>');
+      $('#btnShare').addEventListener('click', function () { makeShare(p, this); });
+      if (p.share_token) $('#btnRevoke').addEventListener('click', function () { revokeShare(p, this); });
+    }
+
     var s = session();
     $('#recordSave').hidden   = !canEdit();
     $('#recordSignIn').hidden = canEdit();
     $('#recordMsg').textContent = s
       ? 'Signed in as ' + s.user + (canEdit() ? ' (' + s.role + ')' : ' — role ' + s.role + ' cannot edit')
       : 'Read-only. Sign in to correct this record.';
+  }
+
+  function clientUrl(tok) {
+    return location.origin + location.pathname.replace(/[^/]*$/, '') + 'client.html?t=' + tok;
+  }
+
+  async function makeShare(p, btn) {
+    btn.disabled = true;
+    try {
+      var r = await ENG.jsonp('shareLink', { token: (session() || {}).token, id: p.program_id });
+      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+      p.share_token = r.token;
+      var box = $('#shareUrl');
+      box.hidden = false;
+      box.value = clientUrl(r.token);
+      box.select();
+      try { document.execCommand('copy'); btn.textContent = 'Link copied'; }
+      catch (e) { btn.textContent = 'Link ready — copy it'; }
+    } catch (err) {
+      btn.textContent = 'Failed: ' + (err.message || err);
+    }
+    btn.disabled = false;
+  }
+
+  async function revokeShare(p, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Revoking…';
+    try {
+      var r = await ENG.jsonp('shareLink', { token: (session() || {}).token, id: p.program_id, revoke: '1' });
+      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+      p.share_token = '';
+      btn.textContent = 'Revoked';
+      var box = $('#shareUrl'); if (box) { box.hidden = true; box.value = ''; }
+      $('#btnShare').textContent = 'Create vendor link';
+    } catch (err) {
+      btn.textContent = 'Failed';
+      console.error('[spiff] revoke failed:', err);
+    }
+    btn.disabled = false;
   }
 
   // Credentials go to GX Core, which owns sign-on; SPIFF never stores a password.

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Green Cross SPIFF Proposal</title>
+<meta name="robots" content="noindex, nofollow"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
+<link rel="stylesheet" href="spiff.css?v=15"/>
+<link rel="stylesheet" href="client.css?v=15"/>
+</head>
+<body class="client">
+
+<header class="client-top">
+  <span class="brand-mark">+</span>
+  <span class="brand-name">Green Cross <strong>SPIFF</strong></span>
+</header>
+
+<main class="client-main" id="main">
+  <!-- Gate. Rendered first; the program is never fetched until the password checks out. -->
+  <section class="client-gate" id="gate">
+    <h1>SPIFF proposal</h1>
+    <p>Shared with you by Green Cross. Enter your email address and the password you were given.</p>
+    <label class="fld"><span>Your email</span><input class="gx-input" id="cvEmail" type="email" autocomplete="email"></label>
+    <label class="fld"><span>Password</span><input class="gx-input" id="cvPass" type="password" autocomplete="off"></label>
+    <button class="gx-btn gx-btn-green" id="cvGo">View proposal</button>
+    <p class="client-msg" id="cvMsg"></p>
+  </section>
+
+  <section id="view" hidden></section>
+</main>
+
+<footer class="client-foot">
+  Green Cross Cannabis Emporium &middot; figures are estimates based on recent sell-through.
+</footer>
+
+<script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-client.js"></script>
+<script src="client.js?v=15"></script>
+</body>
+</html>

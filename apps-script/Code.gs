@@ -74,8 +74,13 @@ var PROGRAM_HEADERS = [
   'program_id', 'vendor', 'program_name', 'title', 'status', 'start_date', 'end_date', 'pay_period',
   'match_json', 'stores_json', 'cost_json', 'payout_type', 'payout_json',
   'baseline_json', 'target_json', 'actual_json', 'source', 'updated_at',
-  'edited_by', 'edited_at'
+  'edited_by', 'edited_at', 'share_token', 'contact_name', 'contact_email'
 ];
+
+// Shared passphrase for vendor-facing links. Set it from the script editor:
+//   PropertiesService.getScriptProperties().setProperty('CLIENT_VIEW_PASSWORD', '…')
+// Never hardcode it here — this file is a public GitHub repo.
+var CLIENT_PASS_PROP = 'CLIENT_VIEW_PASSWORD';
 
 // Who may edit a historical record. Role comes from GX Core app_access for app 'spiff';
 // the check runs server-side on every write, so hiding the UI is not the control.
@@ -90,7 +95,8 @@ var EDIT_ROLES = ['admin', 'editor', 'director'];
 // audit columns) is engine-owned.
 var EDITABLE_FIELDS = [
   'vendor', 'program_name', 'status', 'start_date', 'end_date', 'pay_period',
-  'payout_json', 'cost_json', 'target_json', 'baseline_json', 'actual_json'
+  'payout_json', 'cost_json', 'target_json', 'baseline_json', 'actual_json',
+  'contact_name', 'contact_email'
 ];
 
 /* ---------------------------- ROUTER ---------------------------- */
@@ -113,6 +119,8 @@ function doGet(e) {
       case 'buildReport': out = buildReport_(p);                                    break;
       case 'emailDraft':  out = emailDraft_(p);                                     break;
       case 'giftCards':   out = giftCardList_(p);                                   break;
+      case 'clientView':  out = clientView_(p);                                     break;
+      case 'shareLink':   out = shareLink_(p);                                      break;
       case 'sellthrough': out = notImplemented_('sellthrough');                     break;
       case 'payouts':     out = notImplemented_('payouts');                         break;
       case 'history':     out = { ok: true, programs: listPrograms_('closed') };    break;
@@ -552,7 +560,8 @@ function programToRow_(p, audit) {
     JSON.stringify(p.baseline_json || {}),
     JSON.stringify(p.target_json   || {}),
     p.actual_json ? JSON.stringify(p.actual_json) : '',
-    p.source || '', nowStamp_(), by, at
+    p.source || '', nowStamp_(), by, at, p.share_token || '',
+    p.contact_name || '', p.contact_email || ''
   ];
 }
 
@@ -569,7 +578,8 @@ function rowToProgram_(r) {
     target_json:   parseJson_(r[14], {}),
     actual_json:   parseJson_(r[15], null),
     source: r[16], updated_at: textDate_(r[17]),
-    edited_by: r[18] || '', edited_at: textDate_(r[19])
+    edited_by: r[18] || '', edited_at: textDate_(r[19]), share_token: r[20] || '',
+    contact_name: r[21] || '', contact_email: r[22] || ''
   };
 }
 
@@ -614,6 +624,135 @@ function computePayouts_(rows, targets, payout) {
 }
 
 /* ---------------------------- GX CORE ---------------------------- */
+
+/* ========================== VENDOR CLIENT VIEW =======================
+ * A read-only link Tawny sends a vendor so they can see the proposal themselves.
+ *
+ * TWO gates, deliberately:
+ *   1. an unguessable per-program token in the URL — so a link opens exactly ONE
+ *      program. A shared password alone would mean Wyld's credentials open Grön's
+ *      numbers, which is a competitor seeing another brand's costs and targets.
+ *   2. the shared passphrase, so a forwarded link is not self-serving.
+ *
+ * The response is a hand-built subset. It never returns the stored row, so internal
+ * fields (source, edited_by, other programs) cannot leak by accident when the schema
+ * grows — a new column is invisible here until someone deliberately adds it.
+ * ==================================================================== */
+
+function clientView_(p) {
+  var token = String(p.t || '').trim();
+  var pass  = String(p.pass || '');
+  var email = norm_(p.email || '');
+
+  if (!email || !pass) return { ok: false, error: 'Enter your email and the password.' };
+
+  // Cheap brute-force brake: a shared passphrase is guessable given time, and Apps
+  // Script has no rate limiting of its own.
+  var cache = CacheService.getScriptCache();
+  var key   = 'cv_fail_' + (token || email);
+  var fails = Number(cache.get(key) || 0);
+  if (fails >= 8) return { ok: false, error: 'Too many attempts — try again later.' };
+
+  var expected = PropertiesService.getScriptProperties().getProperty(CLIENT_PASS_PROP);
+  if (!expected) return { ok: false, error: 'Vendor access is not set up yet.' };
+
+  // One generic failure for a wrong password OR an unknown email — telling them apart
+  // would let someone confirm which reps we work with.
+  var deny = function () {
+    cache.put(key, String(fails + 1), 900);
+    return { ok: false, error: 'That email and password combination does not match an active proposal.' };
+  };
+  if (pass !== expected) return deny();
+
+  var all = listPrograms_().filter(function (x) { return norm_(x.contact_email) === email; });
+
+  var prog = null;
+  if (token) {
+    // The link scopes to one program AND the email must be that program's contact.
+    for (var i = 0; i < all.length; i++) if (all[i].share_token === token) prog = all[i];
+    if (!prog) return deny();
+  } else {
+    // No link: show what this rep is on. More than one, let them pick.
+    var shared = all.filter(function (x) { return x.share_token; });
+    if (!shared.length) return deny();
+    if (shared.length > 1) {
+      return { ok: true, choices: shared.map(function (x) {
+        return { token: x.share_token, name: x.program_name || x.title, period: x.start_date || '' };
+      }) };
+    }
+    prog = shared[0];
+  }
+
+  var t = prog.target_json || {}, b = prog.baseline_json || {}, a = prog.actual_json;
+  var cost = (prog.cost_json || {}).per_unit || 0;
+  var rate = (prog.payout_json || {}).amount || 0;
+
+  // Store-level detail uses display names, not internal ids.
+  var stores = gxStores_(), nameOf = {};
+  stores.forEach(function (s) { nameOf[s.store_id] = s.display_name || s.store_id; });
+
+  var byStore = (prog.stores_json || []).map(function (id) {
+    return { store: nameOf[id] || id, baseline: (b.by_store || {})[id] || 0, target: (t.by_store || {})[id] || 0 };
+  });
+
+  var bts     = Object.keys(t.per_bt || {}).length ? sumVals_(b.by_store) : 0;
+  var invest  = a ? (a.bts_hit || 0) * (a.spiff_amount || rate) : 0;
+  var revInc  = ((t.units || 0) - (b.units || 0)) * cost;
+
+  return {
+    ok: true,
+    program: {
+      name: prog.program_name || prog.title,
+      vendor: prog.vendor,
+      contact_name: prog.contact_name || '',
+      status: prog.status,
+      start_date: prog.start_date,
+      end_date: prog.end_date,
+      cost_per_unit: cost,
+      spiff_per_budtender: rate,
+      baseline_units: b.units || 0,
+      target_units: t.units || 0,
+      unit_lift: (t.units || 0) - (b.units || 0),
+      revenue_increase: revInc,
+      by_store: byStore,
+      // Results only once the program has actually closed.
+      results: a ? {
+        units_sold: a.units_sold, budtenders_hit: a.bts_hit,
+        rate_paid: a.spiff_amount || rate, investment: invest
+      } : null
+    }
+  };
+}
+
+function sumVals_(o) {
+  var n = 0;
+  Object.keys(o || {}).forEach(function (k) { n += Number(o[k]) || 0; });
+  return n;
+}
+
+/* Mint (or reuse) a program's share token. Admin-gated — creating a link that exposes
+   a program to an outside party is a write, not a read. */
+function shareLink_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) return { ok: false, error: 'Your role cannot create vendor links' };
+
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var prog = res.program;
+
+  if (p.revoke === '1') {
+    prog.share_token = '';
+    saveProgram_(prog, { editedBy: auth.user });
+    return { ok: true, revoked: true };
+  }
+
+  if (!prog.share_token) {
+    prog.share_token = Utilities.getUuid().replace(/-/g, '');
+    saveProgram_(prog, { editedBy: auth.user });
+  }
+  return { ok: true, token: prog.share_token, program_id: prog.program_id };
+}
 
 /* ============================ CLOSE-OUT =============================
  * Tawny sends the vendor a report; the vendor credits us against the next buy; we turn

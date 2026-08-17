@@ -358,3 +358,7 @@ body {
 
 /* Signed-in state on the topbar chip — visible from every surface. */
 #btnAuth.is-in { color: var(--gx-green); border-color: var(--gx-green-hair, var(--gx-green)); }
+
+/* Vendor link controls inside the record modal. */
+.share-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.share-row #shareUrl { flex: 1; min-width: 240px; font-size: 12px; }
