@@ -76,3 +76,6 @@ body.client { background: var(--gx-bg); }
 .client-choices { margin-top: 26px; }
 .client-choice { display: block; width: 100%; text-align: left; margin-bottom: 8px; }
 .client-choice span { color: var(--gx-text-mute); font-size: 12px; margin-left: 6px; }
+
+.client-grid .total td { border-top: 1px solid var(--gx-border-strong, var(--gx-border)); font-weight: 700; }
+.client-fine { font-size: 12px; color: var(--gx-text-mute); line-height: 1.5; margin: 10px 0 0; }

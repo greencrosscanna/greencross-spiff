@@ -121,7 +121,7 @@ function doGet(e) {
       case 'giftCards':   out = giftCardList_(p);                                   break;
       case 'clientView':  out = clientView_(p);                                     break;
       case 'shareLink':   out = shareLink_(p);                                      break;
-      case 'sellthrough': out = notImplemented_('sellthrough');                     break;
+      case 'sellthrough': out = sellthrough_(p);                                    break;
       case 'payouts':     out = notImplemented_('payouts');                         break;
       case 'history':     out = { ok: true, programs: listPrograms_('closed') };    break;
       default:            out = { ok: false, error: 'Unknown action: ' + (p.action || '(none)') };
@@ -653,6 +653,155 @@ function computePayouts_(rows, targets, payout) {
 }
 
 /* ---------------------------- GX CORE ---------------------------- */
+
+/* ============================= PROGRESS =============================
+ * The budtender matrix — units by budtender by store against target — that the
+ * SPIFF_Sales Report builds by hand: export a Dutchie Excel per store, paste into six
+ * tabs, filter, count. This replaces that loop entirely.
+ *
+ * Sell-through comes from GX Core's `sales_by_employee` connector (core-admin, 2026-08-16),
+ * NOT from Dutchie directly — Sky's call, so one connector serves SPIFF and GX Crew and
+ * the store API keys live in one place. It is secret-gated, so only the engine can call
+ * it; the browser never sees the secret.
+ *
+ * Attribution is by NAME (Dutchie's completedByUser), because GX Core's employees tab is
+ * empty and Leaderboard's incentive inputs key on name too. When the roster is seeded,
+ * employee_id becomes the sturdier join — the rows already carry it.
+ * ==================================================================== */
+
+var GX_SECRET_PROP = 'GX_DEPLOY_SECRET';   // set in Script Properties; never in this repo
+
+// The connector takes 5000 line items per store per call with no pagination, so a long
+// range on a busy store can silently truncate. Chunk the window and stitch.
+var SELLTHROUGH_CHUNK_DAYS = 14;
+
+function sellthrough_(p) {
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var prog = res.program;
+
+  var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  if (!secret) return { ok: false, error: 'GX_DEPLOY_SECRET is not set on this script — Progress cannot read sell-through.' };
+
+  var from = p.from || prog.start_date;
+  var to   = p.to   || prog.end_date;
+  if (!from || !to) return { ok: false, error: 'This program has no date range. Set start and end dates on the record first.' };
+
+  var match  = prog.match_json || {};
+  var stores = (prog.stores_json || []).join(',');
+
+  var rows = [], chunks = dateChunks_(from, to, SELLTHROUGH_CHUNK_DAYS), truncated = false;
+  for (var c = 0; c < chunks.length; c++) {
+    var r = gxSalesByEmployee_(secret, chunks[c][0], chunks[c][1], stores, match);
+    if (!r.ok) return { ok: false, error: r.error || 'sell-through fetch failed', window: chunks[c] };
+    if (r.truncated) truncated = true;
+    rows = rows.concat(r.rows || []);
+  }
+
+  return buildMatrix_(prog, rows, from, to, truncated, chunks.length);
+}
+
+function gxSalesByEmployee_(secret, from, to, stores, match) {
+  var url = GXCORE_URL + '?action=sales_by_employee'
+    + '&secret='  + encodeURIComponent(secret)
+    + '&from='    + encodeURIComponent(from)
+    + '&to='      + encodeURIComponent(to)
+    + (stores            ? '&stores='      + encodeURIComponent(stores)            : '')
+    + (match.brand       ? '&brand='       + encodeURIComponent(match.brand)       : '')
+    + (match.category    ? '&category='    + encodeURIComponent(match.category)    : '')
+    + (match.filter_text ? '&filter_text=' + encodeURIComponent(match.filter_text) : '')
+    + ((match.products && match.products.length) ? '&products=' + encodeURIComponent(match.products.join(',')) : '');
+
+  try {
+    var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+    var body = resp.getContentText();
+    if (body.indexOf('<') === 0) return { ok: false, error: 'GX Core returned HTML (auth or redirect issue)' };
+    return JSON.parse(body);
+  } catch (e) {
+    return { ok: false, error: 'GX Core unreachable: ' + (e && e.message || e) };
+  }
+}
+
+/* Split [from,to] into <= days-long windows so the connector's 5000-row take can't
+   silently drop the tail of a busy store's range. */
+function dateChunks_(from, to, days) {
+  var out = [], startMs = ptMs_(from), endMs = ptMs_(to);
+  var step = days * 24 * 60 * 60 * 1000;
+  for (var s = startMs; s <= endMs; s += step) {
+    var e = Math.min(s + step - 24 * 60 * 60 * 1000, endMs);
+    out.push([fmtDate_(s), fmtDate_(e)]);
+  }
+  return out.length ? out : [[from, to]];
+}
+
+function ptMs_(d) {
+  var m = String(d).split('-');
+  return new Date(Number(m[0]), Number(m[1]) - 1, Number(m[2])).getTime();
+}
+function fmtDate_(ms) {
+  return Utilities.formatDate(new Date(ms), 'America/Los_Angeles', 'yyyy-MM-dd');
+}
+
+/* Roll the line-item rows into the matrix, and decide who hit.
+   A budtender's target is their store's target spread across that store's budtenders —
+   the Calculator's "Target Sales Budtender" column. */
+function buildMatrix_(prog, rows, from, to, truncated, chunkCount) {
+  var t = prog.target_json || {};
+  var perBt = t.per_bt || {};
+
+  var byStore = {}, people = {};
+  rows.forEach(function (r) {
+    var store = slug_(r.store_id || '');
+    var name  = String(r.employee_name || '').trim();
+    if (!name) return;
+    var key = store + '|' + name;
+    var e = people[key] || (people[key] = {
+      name: name, employee_id: r.employee_id || '', store_id: store, units: 0, revenue: 0
+    });
+    e.units   += Number(r.units) || 0;
+    e.revenue += Number(r.revenue) || 0;
+    byStore[store] = (byStore[store] || 0) + (Number(r.units) || 0);
+  });
+
+  var list = Object.keys(people).map(function (k) { return people[k]; });
+
+  // Where the Calculator recorded no per-budtender target, fall back to the store target
+  // divided by the people who actually sold — better than showing everyone as "hit".
+  var counts = {};
+  list.forEach(function (e) { counts[e.store_id] = (counts[e.store_id] || 0) + 1; });
+
+  var totalHit = 0, totalUnits = 0;
+  list.forEach(function (e) {
+    var target = Number(perBt[e.store_id]) || 0;
+    if (!target) {
+      var storeTarget = Number((t.by_store || {})[e.store_id]) || 0;
+      target = counts[e.store_id] ? Math.round(storeTarget / counts[e.store_id]) : 0;
+    }
+    e.target = target;
+    e.hit    = target > 0 && e.units >= target;
+    if (e.hit) totalHit++;
+    totalUnits += e.units;
+  });
+
+  list.sort(function (a, b) { return b.units - a.units; });
+
+  var rate = (prog.payout_json || {}).amount || 0;
+  return {
+    ok: true,
+    program_id: prog.program_id,
+    from: from, to: to,
+    rows: list,
+    by_store: byStore,
+    total_units: totalUnits,
+    budtenders: list.length,
+    hit: totalHit,
+    owed: totalHit * rate,
+    rate: rate,
+    target_units: t.units || 0,
+    chunks: chunkCount,
+    truncated: !!truncated   // surfaced, not swallowed: a truncated pull undercounts
+  };
+}
 
 /* ========================== VENDOR CLIENT VIEW =======================
  * A read-only link Tawny sends a vendor so they can see the proposal themselves.

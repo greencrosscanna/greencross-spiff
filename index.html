@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff.css?v=16"/>
+<link rel="stylesheet" href="spiff.css?v=17"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -100,9 +100,17 @@
     <!-- ============ PROGRESS ============ -->
     <!-- The budtender matrix, fed from Dutchie directly — no per-store Excel export/paste. -->
     <section class="panel" id="panel-progress">
-      <div class="gx-section-head"><h2>Live progress</h2></div>
-      <p class="dim">Units by budtender by store against target, straight from Dutchie.</p>
-      <div class="stub" data-build="progress"></div>
+      <div class="gx-section-head">
+        <h2>Live progress</h2>
+        <span class="calc-actions">
+          <select class="gx-input" id="pgProgram" title="Which program to track"></select>
+          <button class="gx-btn" id="pgRefresh">Refresh</button>
+        </span>
+      </div>
+      <p class="dim">Units by budtender by store against target, pulled from Dutchie through GX Core.
+         No per-store exports, no pasting.</p>
+      <div class="hist-stats" id="pgStats"></div>
+      <div id="pgBody"></div>
     </section>
 
     <!-- ============ REPORTS ============ -->
@@ -160,6 +168,6 @@
 </div>
 
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-client.js"></script>
-<script src="spiff.js?v=16"></script>
+<script src="spiff.js?v=17"></script>
 </body>
 </html>

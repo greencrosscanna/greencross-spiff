@@ -955,6 +955,89 @@
       + '</div></div>';
   }
 
+  /* -------------------------------------------------------------- progress
+   *
+   * The budtender matrix the SPIFF_Sales Report builds by hand — six Dutchie exports
+   * pasted into six tabs. Here it is one call.
+   */
+
+  function wireProgress() {
+    $('#pgProgram').addEventListener('change', loadProgress);
+    $('#pgRefresh').addEventListener('click', loadProgress);
+  }
+
+  function fillProgressPicker() {
+    var sel = $('#pgProgram');
+    if (!sel) return;
+    sel.innerHTML = sortPrograms(state.programs).map(function (p) {
+      return '<option value="' + esc(p.program_id) + '">' + esc(p.program_name || p.title) + '</option>';
+    }).join('');
+  }
+
+  async function loadProgress() {
+    var id = $('#pgProgram').value;
+    if (!id) return;
+    $('#pgStats').innerHTML = '';
+    $('#pgBody').innerHTML = '<p class="hint">Pulling sell-through from Dutchie…</p>';
+    try {
+      // Six stores × a date range through two Apps Script hops — this is the slowest
+      // call in the app, so give it room rather than retrying a timeout.
+      var r = await ENG.jsonp('sellthrough', { id: id }, { timeoutMs: 120000, retries: 1 });
+      if (!r || !r.ok) throw new Error((r && r.error) || 'Could not load sell-through');
+      renderProgress(r);
+    } catch (err) {
+      $('#pgBody').innerHTML = '<div class="notice is-warn"><b>Could not load progress.</b> ' + esc(err.message || err) + '</div>';
+    }
+  }
+
+  function renderProgress(r) {
+    $('#pgStats').innerHTML =
+        histStat(r.total_units.toLocaleString(), 'units sold')
+      + histStat(r.target_units ? r.target_units.toLocaleString() : '—', 'target')
+      + histStat(r.hit + ' / ' + r.budtenders, 'budtenders hit')
+      + histStat(money(r.owed), 'owed so far', 'pos');
+
+    var warn = r.truncated
+      ? '<div class="notice is-warn"><b>This pull may be incomplete.</b> The connector caps each '
+        + 'store at 5,000 line items per window and one window hit that cap, so these counts '
+        + 'undercount. Narrow the date range.</div>'
+      : '';
+
+    if (!r.rows.length) {
+      $('#pgBody').innerHTML = warn + '<p class="hint">No matching sales in ' + esc(r.from) + ' → ' + esc(r.to)
+        + '. Check the program\'s brand, category and product filters on its record.</p>';
+      return;
+    }
+
+    // Grouped by store, mirroring the report Tawny already sends.
+    var byStore = {};
+    r.rows.forEach(function (e) { (byStore[e.store_id] = byStore[e.store_id] || []).push(e); });
+
+    var storeName = {};
+    state.stores.forEach(function (s) { storeName[s.store_id] = s.display_name || s.store_id; });
+
+    var cols = Object.keys(byStore).sort().map(function (sid) {
+      var people = byStore[sid];
+      var target = people.length ? people[0].target : 0;
+      var units  = people.reduce(function (n, e) { return n + e.units; }, 0);
+      return '<div class="pg-store">'
+        + '<h3>' + esc(storeName[sid] || sid) + '<span>' + units.toLocaleString() + ' units</span></h3>'
+        + '<p class="pg-target">Target ' + target + ' each</p>'
+        + people.map(function (e) {
+            return '<div class="pg-bt' + (e.hit ? ' is-hit' : '') + '">'
+              + '<span class="pg-name">' + esc(e.name) + '</span>'
+              + '<span class="pg-units">' + e.units + '</span></div>';
+          }).join('')
+        + '</div>';
+    }).join('');
+
+    $('#pgBody').innerHTML = warn
+      + '<p class="hint">' + esc(r.from) + ' → ' + esc(r.to)
+      + (r.chunks > 1 ? ' · pulled in ' + r.chunks + ' windows' : '')
+      + ' · green = hit their target</p>'
+      + '<div class="pg-grid">' + cols + '</div>';
+  }
+
   /* ------------------------------------------------------------------ boot */
   function boot() {
     wireAuthChip();     // first: every write path depends on it
@@ -964,11 +1047,12 @@
     wireCalculator();
     wireReports();
     wireHistory();
+    wireProgress();
     showTab('programs');
     // Sequential, not parallel. Two GXClients firing in the same tick is what exposed the
     // shared callback-name collision; staggering them keeps SPIFF correct even on a client
     // that hasn't picked up the fix yet.
-    loadShared().then(calcInit).then(loadPrograms).then(function () { fillCalcLoad(); fillReportPicker(); fillHistoryFilters(); });
+    loadShared().then(calcInit).then(loadPrograms).then(function () { fillCalcLoad(); fillReportPicker(); fillHistoryFilters(); fillProgressPicker(); });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

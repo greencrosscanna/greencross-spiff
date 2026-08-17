@@ -84,10 +84,20 @@
           stat('SPIFF per budtender', money(p.spiff_per_budtender)),
           stat('Added revenue', money(p.revenue_increase), 'accent') ];
 
+    // Totals shown explicitly. These are BEFORE/TARGET figures — they do not sum to
+    // "units sold", which counts the program period itself. Leaving a reader to work
+    // that out invites them to distrust the whole report.
+    var baseTotal = 0, tgtTotal = 0;
     var rows = (p.by_store || []).map(function (s) {
+      baseTotal += Number(s.baseline) || 0;
+      tgtTotal  += Number(s.target) || 0;
       return '<tr><td>' + esc(s.store) + '</td><td class="n">' + num(s.baseline)
         + '</td><td class="n strong">' + num(s.target) + '</td></tr>';
     }).join('');
+    if (rows) {
+      rows += '<tr class="total"><td>Total</td><td class="n">' + num(baseTotal)
+            + '</td><td class="n strong">' + num(tgtTotal) + '</td></tr>';
+    }
 
     v.innerHTML =
         '<h1>' + esc(p.name) + '</h1>'
@@ -102,8 +112,12 @@
             + 'bounty; the program is funded as a credit against our next order.</p>')
       + (rows
           ? '<h2>By store</h2><div class="grid-wrap"><table class="grid client-grid"><thead><tr>'
-            + '<th>Store</th><th class="n">Recent</th><th class="n">Target</th>'
+            + '<th>Store</th><th class="n">Before SPIFF</th><th class="n">Goal</th>'
             + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+            + '<p class="client-fine">"Before SPIFF" is each store\'s sell-through in the '
+            + 'comparable period before the program; "Goal" is the target it was set. '
+            + (p.results ? 'Units sold above counts the program period itself, so it will not match these columns.' : '')
+            + '</p>'
           : '');
   }
 

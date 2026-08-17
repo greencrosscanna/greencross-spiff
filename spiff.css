@@ -362,3 +362,27 @@ body {
 /* Vendor link controls inside the record modal. */
 .share-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .share-row #shareUrl { flex: 1; min-width: 240px; font-size: 12px; }
+
+/* ---------------------------------------------------------------- progress */
+.pg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; align-items: start; }
+.pg-store {
+  border: 1px solid var(--gx-border);
+  border-radius: var(--gx-radius-lg, 12px);
+  background: var(--gx-surface);
+  padding: 14px;
+}
+.pg-store h3 {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  margin: 0 0 2px; font-size: 13px; font-weight: 700;
+}
+.pg-store h3 span { font-size: 11px; color: var(--gx-text-mute); font-weight: 500; font-variant-numeric: tabular-nums; }
+.pg-target { margin: 0 0 10px; font-size: 11px; color: var(--gx-text-mute); text-transform: uppercase; letter-spacing: .05em; }
+.pg-bt {
+  display: flex; justify-content: space-between; gap: 10px;
+  padding: 5px 8px; border-radius: var(--gx-radius-sm, 6px);
+  font-size: 13px; color: var(--gx-text-dim);
+}
+/* Green means paid — the same signal the printed report uses. */
+.pg-bt.is-hit { background: var(--gx-green-soft, transparent); color: var(--gx-green-bright, var(--gx-green)); font-weight: 600; }
+.pg-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-units { font-variant-numeric: tabular-nums; }
