@@ -271,8 +271,12 @@
     b.classList.toggle('is-in', !!s);
   }
 
+  // Delegated from document rather than bound to the button: sign-in is the entry point
+  // for every write in the app, so it must not depend on when (or whether) a particular
+  // wiring step ran. A direct listener here proved flaky on first click after load.
   function wireAuthChip() {
-    $('#btnAuth').addEventListener('click', function () {
+    document.addEventListener('click', function (e) {
+      if (!e.target.closest || !e.target.closest('#btnAuth')) return;
       if (session()) {
         clearSession();
         renderAuthChip();
@@ -895,13 +899,13 @@
 
   /* ------------------------------------------------------------------ boot */
   function boot() {
+    wireAuthChip();     // first: every write path depends on it
+    renderAuthChip();
     wireTabs();
     wirePrograms();
     wireCalculator();
     wireReports();
     wireHistory();
-    wireAuthChip();
-    renderAuthChip();
     showTab('programs');
     // Sequential, not parallel. Two GXClients firing in the same tick is what exposed the
     // shared callback-name collision; staggering them keeps SPIFF correct even on a client
