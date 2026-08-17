@@ -92,12 +92,18 @@
     var empty = $('#programsEmpty');
     try {
       var r = await ENG.jsonp('programs', {});
-      state.programs = (r && r.programs) || [];
+      // Insist on the shape we asked for. Treating any object as success turns a wrong
+      // or errored response into a silent empty table, which reads as "no data" — the
+      // failure mode that hid a JSONP callback collision.
+      if (!r || !r.ok || !Array.isArray(r.programs)) {
+        throw new Error((r && r.error) || 'Engine returned an unexpected response');
+      }
+      state.programs = r.programs;
     } catch (err) {
       console.error('[spiff] programs load failed:', err);
       empty.hidden = false;
       list.hidden = true;
-      $('#programsEmpty p').textContent = "Couldn't reach the SPIFF engine.";
+      $('#programsEmpty p').textContent = 'Couldn’t load programs: ' + (err.message || err);
       return;
     }
     renderPrograms();
@@ -411,8 +417,10 @@
     wireTabs();
     wirePrograms();
     showTab('programs');
-    loadShared();
-    loadPrograms();
+    // Sequential, not parallel. Two GXClients firing in the same tick is what exposed the
+    // shared callback-name collision; staggering them keeps SPIFF correct even on a client
+    // that hasn't picked up the fix yet.
+    loadShared().then(loadPrograms);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
