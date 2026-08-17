@@ -101,6 +101,16 @@ by URL from gx-theme — this file (CLAUDE.md) is intentionally NOT synced.
 prioritized work — the Command Center's dependency-ordered build sequence, filtered to this app — so you
 can build here without switching to the CC. It reads the app key above automatically.
 
+**Pre-launch: work live on `main`.** SPIFF is not in anyone's hands yet, so skip the PR-per-change
+dance other spokes use — commit and push straight to `main`, verify on Pages, and keep moving. Revisit
+this the moment Tawny is actually using it; from then on it ships like every other spoke (PR → Sky
+merges). Still `./deploy.sh` after each ship so `version_history` stays honest.
+
+**The Sheets are a one-time seed, not a sync.** The point is to leave the Calculator and SPIFF_Sales
+Report behind entirely — this app becomes the system of record. `importCalc` exists to seed history
+once; don't build features that assume re-importing. (Hand-corrected rows are stamped `edited_by` and
+skipped by the importer purely as a guardrail against a stray re-run.)
+
 **Close the loop when you're done:** When a dispatched or `/gxwhatsnext`-started task's goals look met —
 the moment you'd naturally say "that should do it" — proactively tell Sky and **offer to ship/close it
 out; don't wait to be asked.** Shipping (spoke apps: open/return the PR → `dev_update … status=in_review`;

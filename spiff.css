@@ -4,6 +4,11 @@
 
 * { box-sizing: border-box; }
 
+/* [hidden] is only `display:none` in the UA stylesheet, so ANY author `display` rule
+   beats it — gx-theme's .gx-btn does exactly that, which left a read-only viewer
+   looking at a Save button. Make the attribute mean what it says. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   font-family: var(--gx-font, 'Inter', system-ui, sans-serif);
