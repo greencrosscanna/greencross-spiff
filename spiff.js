@@ -169,12 +169,14 @@
         + '</tr>';
     }).join('');
 
+    // The table scrolls inside its own container, never the page — this app also runs as
+    // an iframe tab inside Inventory, where the viewport is narrower still.
     list.innerHTML =
-      '<table class="grid"><thead><tr>'
+      '<div class="grid-wrap"><table class="grid"><thead><tr>'
       + '<th>Vendor</th><th>Period</th><th>Program</th><th>Status</th><th class="num">SPIFF</th><th class="num">Cost/unit</th>'
       + '<th class="num">Target</th><th class="num">Sold</th><th class="num">BTs hit</th><th class="num">ROI</th>'
       + '<th class="num">ROI %</th><th class="num">Stores</th>'
-      + '</tr></thead><tbody>' + rows + '</tbody></table>';
+      + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
   /* Active programs first — they're the ones you can still act on — then newest to

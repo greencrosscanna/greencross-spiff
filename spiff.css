@@ -103,8 +103,15 @@ body {
 .empty .dim { margin-bottom: 20px; }
 
 /* ------------------------------------------------------------ program grid */
+/* Scroll the table, not the document. At 12 columns this overflows a laptop viewport,
+   and ROI % — the last data column — would otherwise sit off-screen with no way to
+   reach it except scrolling the whole page sideways. Narrower still inside Inventory. */
+.grid-wrap { overflow-x: auto; }
+
 .grid { width: 100%; border-collapse: collapse; font-size: 14px; }
-.grid th, .grid td { padding: 10px 12px; border-bottom: 1px solid var(--gx-border); text-align: left; }
+.grid th, .grid td { padding: 8px 10px; border-bottom: 1px solid var(--gx-border); text-align: left; }
+/* Vendor and period read as single units; wrapping them doubled every row's height. */
+.grid td:first-child, .grid th:first-child { white-space: nowrap; }
 .grid th {
   font-size: 11px;
   text-transform: uppercase;
