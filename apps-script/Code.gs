@@ -103,6 +103,8 @@ function doGet(e) {
       case 'importCalc':  out = importCalculator_({ save: true });                  break;
       case 'editProgram': out = editProgram_(p);                                    break;
       case 'createProgram': out = createProgram_(p);                                break;
+      case 'employees':   out = gxEmployees_();                                     break;
+      case 'diag':        out = diag_();                                            break;
       case 'sellthrough': out = notImplemented_('sellthrough');                     break;
       case 'payouts':     out = notImplemented_('payouts');                         break;
       case 'history':     out = { ok: true, programs: listPrograms_('closed') };    break;
@@ -604,6 +606,51 @@ function computePayouts_(rows, targets, payout) {
 }
 
 /* ---------------------------- GX CORE ---------------------------- */
+
+/* Is the GXCore library reachable, and what does it actually see from here? Libraries run
+   in the CALLER's context, so this distinguishes "we can't read GX Core" from "the tab is
+   empty" — two failures that look identical from the outside. */
+function diag_() {
+  var d = { app: APP, ts: nowStamp_() };
+  try { d.stores    = (GXCore.getStores()    || []).length; } catch (e) { d.stores    = 'ERR ' + e.message; }
+  try { d.employees = (GXCore.getEmployees() || []).length; } catch (e) { d.employees = 'ERR ' + e.message; }
+  try { d.products  = (GXCore.getProducts()  || []).length; } catch (e) { d.products  = 'ERR ' + e.message; }
+  return d;
+}
+
+/* The roster. GX Core exposes NO public `employees` HTTP action — it lives behind the
+   bound GXCore library, so only an engine can read it (the browser cannot). SPIFF reads
+   it and never writes it; the Command Center owns the roster.
+
+   Returns the active staff plus a per-store headcount, which is what the Calculator needs
+   for per-budtender targets and what payouts will need for attribution. */
+function gxEmployees_(opts) {
+  opts = opts || {};
+  var rows;
+  try {
+    rows = GXCore.getEmployees() || [];
+  } catch (e) {
+    return { ok: false, error: 'GXCore library unavailable: ' + (e && e.message || e) };
+  }
+
+  var out = [], byStore = {}, roles = {};
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var status = String(r.status || 'active').toLowerCase();
+    if (status !== 'active' && status !== 'true' && status !== '') continue;
+
+    var store = slug_(r.home_store || '');
+    var role  = String(r.role_title || '').trim();
+    roles[role || '(blank)'] = (roles[role || '(blank)'] || 0) + 1;
+
+    out.push({
+      employee_id: r.employee_id, full_name: r.full_name, home_store: store,
+      dutchie_employee_id: r.dutchie_employee_id || '', role_title: role
+    });
+    if (store) byStore[store] = (byStore[store] || 0) + 1;
+  }
+  return { ok: true, employees: out, by_store: byStore, roles: roles, count: out.length };
+}
 
 // Stores are shared truth — pulled, never hardcoded, so Command Center edits flow through.
 function gxStores_() {
