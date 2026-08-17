@@ -424,9 +424,12 @@ function forceTextDates_(sh) {
   cols.forEach(function (i) { sh.getRange(2, i + 1, rows, 1).setNumberFormat('@'); });
 }
 
-/* Reading the sheet costs ~3.6s, which is most of the JSONP timeout budget before the
-   caller has done anything. Cache the parsed list briefly; every write clears it, so a
-   correction is visible immediately rather than after a TTL. */
+/* Trims the sheet read out of the request. Worth having, but keep the cost in
+   proportion: a no-op action still costs ~2.4s of Apps Script /exec round trip, and a
+   COLD start was measured at 8.7s — which alone blew GXClient's old 8s timeout and is
+   why the vendor view failed intermittently rather than always. The generous client
+   timeout is the actual fix; this just stops us spending budget we don't need to.
+   Every write clears the cache, so a correction is visible immediately, not after a TTL. */
 var PROGRAMS_CACHE_KEY = 'spiff_programs_v1';
 
 function listProgramsCached_() {
