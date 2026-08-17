@@ -46,11 +46,22 @@ the `programs` tab holds one row per program).
 |---|---|
 | `/exec` | `https://script.google.com/macros/s/AKfycbw0JUgI01c7iaJRnuQgHdjUazDPtyEiEHZvlYkjflLSIVMY7qs-0Bkv4gPoxt8o2e6JZw/exec` |
 | script id | `1RZw4VDq06d-gdZT1RYpIDOhS9TcrzZ6qJGlTR692O15FZaAg1mKlCor-` (in `.clasp.json`) |
-| datastore | sheet `1IXtgygVInEOak83RRC81bAUvr_zukdT0GJOLaqzuT44` |
+| datastore | sheet `1IXtgygVInEOak83RRC81bAUvr_zukdT0GJOLaqzuT44` — lives in **[GX2 Dashboard](https://drive.google.com/drive/folders/1BXH5SrK9dWupl-w1UW5Bjt5oSORednLD)** |
 | ship | `clasp push --force` then `clasp update-deployment <id>` — **update**, never create, so `/exec` holds |
 
 **Writes ride on GET.** The browser calls the engine cross-origin via JSONP and Apps Script serves no CORS
 headers for POST, so mutating actions (`importCalc`) are exposed on `doGet` too. Same pattern as GX Core.
+
+**Every file this app creates in Drive belongs in
+[GX2 Dashboard](https://drive.google.com/drive/folders/1BXH5SrK9dWupl-w1UW5Bjt5oSORednLD)** —
+datastores, engine-bound sheets, anything an app owns. `clasp create-script --type sheets` drops the new
+spreadsheet at Drive **root**, so it must be moved after creation; that is how the SPIFF engine sheet ended
+up loose. Business documents are the exception: vendor close-out PDFs stay in the **SPIFF Reports** folder
+under **Incentive Program**, where the business already keeps them and Tawny expects to find them.
+
+**Script properties this engine needs** (Project Settings → Script Properties; never in the repo):
+`CLIENT_VIEW_PASSWORD` (vendor link passphrase) and `GX_DEPLOY_SECRET` (calls GX Core's secret-gated
+`sales_by_employee` for Progress).
 
 **After any scope change**, open the script editor and run `authorize()` once — the web app returns
 Google's consent HTML instead of JSON until the owner has authorized.
