@@ -257,7 +257,7 @@
   function clearSession() { try { sessionStorage.removeItem('spiff_session'); } catch (e) {} }
   function canEdit() {
     var s = session();
-    return !!(s && ['admin', 'director'].indexOf(s.role) >= 0);
+    return !!(s && ['admin', 'editor', 'director'].indexOf(s.role) >= 0);
   }
 
   function openRecord(id) {

@@ -79,7 +79,12 @@ var PROGRAM_HEADERS = [
 
 // Who may edit a historical record. Role comes from GX Core app_access for app 'spiff';
 // the check runs server-side on every write, so hiding the UI is not the control.
-var EDIT_ROLES = ['admin', 'director'];
+//
+// These are the suite's own role names (gx-conventions.md: admin · editor · viewer) —
+// `editor` is by definition the role that can edit, so leaving it out would let someone
+// sign in and then be refused on save. `director` is included because Leaderboard and
+// Performance grant it to the same people. `viewer` stays read-only.
+var EDIT_ROLES = ['admin', 'editor', 'director'];
 
 // Fields a human may change on an imported record. Everything else (ids, source,
 // audit columns) is engine-owned.
