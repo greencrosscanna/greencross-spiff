@@ -355,3 +355,6 @@ body {
   .topbar { flex-wrap: wrap; }
   .workspace { padding: 16px; }
 }
+
+/* Signed-in state on the topbar chip — visible from every surface. */
+#btnAuth.is-in { color: var(--gx-green); border-color: var(--gx-green-hair, var(--gx-green)); }

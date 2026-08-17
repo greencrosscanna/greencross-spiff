@@ -260,6 +260,34 @@
     return !!(s && ['admin', 'editor', 'director'].indexOf(s.role) >= 0);
   }
 
+  /* Sign-in belongs in the topbar, reachable from any surface — filing a report from
+     Reports shouldn't send you hunting for a program record to sign in from. */
+  function renderAuthChip() {
+    var b = $('#btnAuth');
+    if (!b) return;
+    var s = session();
+    b.textContent = s ? s.user + ' · sign out' : 'Sign in';
+    b.title = s ? 'Signed in as ' + s.user + ' (' + s.role + ')' : 'Sign in to edit records';
+    b.classList.toggle('is-in', !!s);
+  }
+
+  function wireAuthChip() {
+    $('#btnAuth').addEventListener('click', function () {
+      if (session()) {
+        clearSession();
+        renderAuthChip();
+        if (state.record) renderRecord(state.record);
+        return;
+      }
+      state.record = null;
+      $('#recordTitle').textContent = 'Sign in';
+      $('#recordSub').textContent = 'SPIFF records are edited by Tawny and Sky.';
+      $('#recordMsg').textContent = '';
+      $('#recordBack').hidden = false;
+      renderSignIn();
+    });
+  }
+
   function openRecord(id) {
     var p = state.programs.filter(function (x) { return x.program_id === id; })[0];
     if (!p) return;
@@ -359,7 +387,9 @@
       if (!r || !r.ok) throw new Error((r && r.error) || 'Sign-in failed');
       setSession({ user: r.user, role: r.role, token: r.token, expiresAt: r.expiresAt });
       $('#recordMsg').textContent = '';
-      renderRecord(state.record);
+      renderAuthChip();
+      if (state.record) renderRecord(state.record);
+      else { closeRecord(); if (state.tab === 'reports') renderReport(); }
     } catch (err) {
       $('#recordMsg').textContent = String(err.message || err);
     }
@@ -598,7 +628,7 @@
   }
 
   async function saveCalcProgram() {
-    if (!canEdit()) { alert('Sign in from a program record to save — SPIFF programs are edited by Tawny and Sky.'); return; }
+    if (!canEdit()) { $('#btnAuth').click(); return; }
     var m = calcModel();
     if (!calc.name) { alert('Give the program a name first.'); return; }
 
@@ -723,7 +753,7 @@
   }
 
   async function fileReport(btn) {
-    if (!canEdit()) { alert('Sign in from a program record first — filing a vendor report is limited to Tawny and Sky.'); return; }
+    if (!canEdit()) { $('#btnAuth').click(); return; }
     btn.disabled = true; btn.textContent = 'Saving…';
     try {
       var r = await ENG.jsonp('buildReport', { token: (session() || {}).token, id: $('#repProgram').value });
@@ -870,6 +900,8 @@
     wireCalculator();
     wireReports();
     wireHistory();
+    wireAuthChip();
+    renderAuthChip();
     showTab('programs');
     // Sequential, not parallel. Two GXClients firing in the same tick is what exposed the
     // shared callback-name collision; staggering them keeps SPIFF correct even on a client
