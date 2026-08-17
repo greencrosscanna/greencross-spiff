@@ -386,3 +386,5 @@ body {
 .pg-bt.is-hit { background: var(--gx-green-soft, transparent); color: var(--gx-green-bright, var(--gx-green)); font-weight: 600; }
 .pg-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pg-units { font-variant-numeric: tabular-nums; }
+.pg-store.is-loading { opacity: .55; }
+.pg-store.is-failed { border-color: var(--gx-red); }

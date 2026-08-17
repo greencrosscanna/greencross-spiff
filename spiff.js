@@ -974,19 +974,145 @@
     }).join('');
   }
 
+  // Cost is per store AND per volume: measured 9s for a quiet store across a whole
+  // month, 49s for a busy one, and Google terminates /exec near 60s. So: stores run in
+  // parallel, each walking its own date windows sequentially, and the grid fills in as
+  // results land instead of blocking on the slowest store.
+  var PROGRESS_WINDOW_DAYS = 10;
+
+  function dateWindows(from, to, days) {
+    var out = [], cur = from;
+    while (cur <= to) {
+      var end = addDays(cur, days - 1);
+      if (end > to) end = to;
+      out.push([cur, end]);
+      cur = addDays(end, 1);
+    }
+    return out.length ? out : [[from, to]];
+  }
+
+  function addDays(d, n) {
+    var p = d.split('-');
+    var dt = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]) + n);
+    return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+  }
+
+  async function pullStore(id, store, windows, onPartial) {
+    var merged = null;
+    for (var i = 0; i < windows.length; i++) {
+      var r = await ENG.jsonp('sellthrough',
+        { id: id, store: store, from: windows[i][0], to: windows[i][1] },
+        { timeoutMs: 65000, retries: 1 });
+      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+      merged = merged ? mergeWindow(merged, r) : r;
+      if (onPartial) onPartial(merged);
+    }
+    return merged;
+  }
+
+  // Same person can appear in several windows; sum them, then re-decide who hit.
+  function mergeWindow(a, b) {
+    var by = {};
+    a.rows.concat(b.rows).forEach(function (e) {
+      var k = e.name;
+      if (!by[k]) by[k] = { name: e.name, employee_id: e.employee_id, store_id: e.store_id, units: 0, revenue: 0, target: e.target };
+      by[k].units   += e.units;
+      by[k].revenue += e.revenue;
+    });
+    var rows = Object.keys(by).map(function (k) { return by[k]; });
+    var hit = 0, units = 0;
+    rows.forEach(function (e) {
+      e.hit = e.target > 0 && e.units >= e.target;
+      if (e.hit) hit++;
+      units += e.units;
+    });
+    rows.sort(function (x, y) { return y.units - x.units; });
+    return { ok: true, store_id: a.store_id, from: a.from, to: b.to, target: a.target, rate: a.rate,
+             rows: rows, units: units, hit: hit, budtenders: rows.length };
+  }
+
   async function loadProgress() {
     var id = $('#pgProgram').value;
     if (!id) return;
+    var prog = state.programs.filter(function (x) { return x.program_id === id; })[0];
+    if (!prog) return;
+    if (!prog.start_date || !prog.end_date) {
+      $('#pgBody').innerHTML = '<div class="notice is-warn">This program has no date range. Set start and end dates on its record first.</div>';
+      return;
+    }
+
+    var stores  = prog.stores_json || [];
+    var windows = dateWindows(prog.start_date, prog.end_date, PROGRESS_WINDOW_DAYS);
+    var results = {}, failed = {};
+
     $('#pgStats').innerHTML = '';
-    $('#pgBody').innerHTML = '<p class="hint">Pulling sell-through from Dutchie…</p>';
-    try {
-      // Six stores × a date range through two Apps Script hops — this is the slowest
-      // call in the app, so give it room rather than retrying a timeout.
-      var r = await ENG.jsonp('sellthrough', { id: id }, { timeoutMs: 120000, retries: 1 });
-      if (!r || !r.ok) throw new Error((r && r.error) || 'Could not load sell-through');
-      renderProgress(r);
-    } catch (err) {
-      $('#pgBody').innerHTML = '<div class="notice is-warn"><b>Could not load progress.</b> ' + esc(err.message || err) + '</div>';
+    $('#pgBody').innerHTML = '<p class="hint">Pulling ' + stores.length + ' stores × '
+      + windows.length + ' window' + (windows.length > 1 ? 's' : '') + ' from Dutchie…</p><div class="pg-grid" id="pgGrid"></div>';
+
+    await Promise.all(stores.map(function (st) {
+      return pullStore(id, st, windows, function (partial) {
+        results[st] = partial;
+        paintProgress(prog, results, failed, stores);
+      }).catch(function (err) {
+        failed[st] = err.message || String(err);
+        paintProgress(prog, results, failed, stores);
+      });
+    }));
+
+    paintProgress(prog, results, failed, stores, true);
+  }
+
+  function paintProgress(prog, results, failed, stores, done) {
+    var storeName = {};
+    state.stores.forEach(function (s) { storeName[s.store_id] = s.display_name || s.store_id; });
+
+    var units = 0, hit = 0, bts = 0;
+    stores.forEach(function (st) {
+      var r = results[st];
+      if (!r) return;
+      units += r.units; hit += r.hit; bts += r.budtenders;
+    });
+    var rate = (prog.payout_json || {}).amount || 0;
+
+    $('#pgStats').innerHTML =
+        histStat(units.toLocaleString(), 'units sold')
+      + histStat(((prog.target_json || {}).units || 0).toLocaleString(), 'target')
+      + histStat(hit + ' / ' + bts, 'budtenders hit')
+      + histStat(money(hit * rate), 'owed so far', 'pos');
+
+    var grid = $('#pgGrid');
+    if (!grid) return;
+    grid.innerHTML = stores.map(function (st) {
+      var name = esc(storeName[st] || st);
+      if (failed[st]) {
+        return '<div class="pg-store is-failed"><h3>' + name + '</h3>'
+          + '<p class="pg-target">Could not load — ' + esc(failed[st]) + '</p></div>';
+      }
+      var r = results[st];
+      if (!r) return '<div class="pg-store is-loading"><h3>' + name + '</h3><p class="pg-target">Loading…</p></div>';
+      return '<div class="pg-store"><h3>' + name + '<span>' + r.units.toLocaleString() + ' units</span></h3>'
+        + '<p class="pg-target">Target ' + r.target + ' each</p>'
+        + (r.rows.length ? r.rows.map(function (e) {
+            return '<div class="pg-bt' + (e.hit ? ' is-hit' : '') + '">'
+              + '<span class="pg-name">' + esc(e.name) + '</span>'
+              + '<span class="pg-units">' + e.units + '</span></div>';
+          }).join('') : '<p class="pg-target">No matching sales</p>')
+        + '</div>';
+    }).join('');
+
+    if (done) {
+      var miss = Object.keys(failed);
+      $('#pgBody').querySelector('.hint, .notice') &&
+        ($('#pgBody').querySelector('.hint, .notice').outerHTML = '');
+      var head = '<p class="hint">' + esc(prog.start_date) + ' → ' + esc(prog.end_date)
+        + ' · green = hit their target</p>';
+      if (miss.length) {
+        head = '<div class="notice is-warn"><b>' + miss.length + ' store'
+          + (miss.length > 1 ? 's' : '') + ' failed to load.</b> The totals above exclude '
+          + esc(miss.map(function (m) { return storeName[m] || m; }).join(', '))
+          + ', so they undercount. Try again — a busy store can exceed the request limit.</div>' + head;
+      }
+      $('#pgBody').insertAdjacentHTML('afterbegin', head);
     }
   }
 

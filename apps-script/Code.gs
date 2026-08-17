@@ -671,10 +671,6 @@ function computePayouts_(rows, targets, payout) {
 
 var GX_SECRET_PROP = 'GX_DEPLOY_SECRET';   // set in Script Properties; never in this repo
 
-// The connector takes 5000 line items per store per call with no pagination, so a long
-// range on a busy store can silently truncate. Chunk the window and stitch.
-var SELLTHROUGH_CHUNK_DAYS = 14;
-
 function sellthrough_(p) {
   var res = getProgram_(p.id);
   if (!res.ok) return res;
@@ -687,26 +683,63 @@ function sellthrough_(p) {
   var to   = p.to   || prog.end_date;
   if (!from || !to) return { ok: false, error: 'This program has no date range. Set start and end dates on the record first.' };
 
-  var match  = prog.match_json || {};
-  var stores = (prog.stores_json || []).join(',');
+  // ONE store per request. Measured: ~9s per store regardless of range length, so six
+  // stores in a single call lands at ~54s and Google terminates /exec around 60s. The
+  // client loops stores and stitches, which also lets the grid fill in as it goes.
+  var store = slug_(p.store || '');
+  if (!store) return { ok: false, error: 'store required' };
 
-  var rows = [], chunks = dateChunks_(from, to, SELLTHROUGH_CHUNK_DAYS), truncated = false;
-  for (var c = 0; c < chunks.length; c++) {
-    var r = gxSalesByEmployee_(secret, chunks[c][0], chunks[c][1], stores, match);
-    if (!r.ok) return { ok: false, error: r.error || 'sell-through fetch failed', window: chunks[c] };
-    if (r.truncated) truncated = true;
-    rows = rows.concat(r.rows || []);
+  var r = gxSalesByEmployee_(secret, from, to, store, prog.match_json || {});
+  if (!r.ok) return { ok: false, error: r.error || 'sell-through fetch failed', store: store };
+
+  var t     = prog.target_json || {};
+  var perBt = Number((t.per_bt || {})[store]) || 0;
+  var rate  = (prog.payout_json || {}).amount || 0;
+
+  var people = {};
+  (r.rows || []).forEach(function (row) {
+    var name = String(row.employee_name || '').trim();
+    if (!name) return;
+    var e = people[name] || (people[name] = {
+      name: name, employee_id: row.employee_id || '', store_id: store, units: 0, revenue: 0
+    });
+    e.units   += Number(row.units) || 0;
+    e.revenue += Number(row.revenue) || 0;
+  });
+
+  var list = Object.keys(people).map(function (k) { return people[k]; });
+
+  // No per-budtender target recorded? Split the store's target across whoever sold,
+  // rather than marking everyone as having hit.
+  var target = perBt;
+  if (!target) {
+    var storeTarget = Number((t.by_store || {})[store]) || 0;
+    target = list.length ? Math.round(storeTarget / list.length) : 0;
   }
 
-  return buildMatrix_(prog, rows, from, to, truncated, chunks.length);
+  var hit = 0, units = 0;
+  list.forEach(function (e) {
+    e.target = target;
+    e.hit    = target > 0 && e.units >= target;
+    if (e.hit) hit++;
+    units += e.units;
+  });
+  list.sort(function (a, b) { return b.units - a.units; });
+
+  return {
+    ok: true, program_id: prog.program_id, store_id: store,
+    from: from, to: to, target: target, rate: rate,
+    rows: list, units: units, hit: hit, budtenders: list.length,
+    errors: r.errors || []
+  };
 }
 
-function gxSalesByEmployee_(secret, from, to, stores, match) {
+function gxSalesByEmployee_(secret, from, to, store, match) {
   var url = GXCORE_URL + '?action=sales_by_employee'
     + '&secret='  + encodeURIComponent(secret)
     + '&from='    + encodeURIComponent(from)
     + '&to='      + encodeURIComponent(to)
-    + (stores            ? '&stores='      + encodeURIComponent(stores)            : '')
+    + (store             ? '&stores='      + encodeURIComponent(store)             : '')
     + (match.brand       ? '&brand='       + encodeURIComponent(match.brand)       : '')
     + (match.category    ? '&category='    + encodeURIComponent(match.category)    : '')
     + (match.filter_text ? '&filter_text=' + encodeURIComponent(match.filter_text) : '')
@@ -720,87 +753,6 @@ function gxSalesByEmployee_(secret, from, to, stores, match) {
   } catch (e) {
     return { ok: false, error: 'GX Core unreachable: ' + (e && e.message || e) };
   }
-}
-
-/* Split [from,to] into <= days-long windows so the connector's 5000-row take can't
-   silently drop the tail of a busy store's range. */
-function dateChunks_(from, to, days) {
-  var out = [], startMs = ptMs_(from), endMs = ptMs_(to);
-  var step = days * 24 * 60 * 60 * 1000;
-  for (var s = startMs; s <= endMs; s += step) {
-    var e = Math.min(s + step - 24 * 60 * 60 * 1000, endMs);
-    out.push([fmtDate_(s), fmtDate_(e)]);
-  }
-  return out.length ? out : [[from, to]];
-}
-
-function ptMs_(d) {
-  var m = String(d).split('-');
-  return new Date(Number(m[0]), Number(m[1]) - 1, Number(m[2])).getTime();
-}
-function fmtDate_(ms) {
-  return Utilities.formatDate(new Date(ms), 'America/Los_Angeles', 'yyyy-MM-dd');
-}
-
-/* Roll the line-item rows into the matrix, and decide who hit.
-   A budtender's target is their store's target spread across that store's budtenders —
-   the Calculator's "Target Sales Budtender" column. */
-function buildMatrix_(prog, rows, from, to, truncated, chunkCount) {
-  var t = prog.target_json || {};
-  var perBt = t.per_bt || {};
-
-  var byStore = {}, people = {};
-  rows.forEach(function (r) {
-    var store = slug_(r.store_id || '');
-    var name  = String(r.employee_name || '').trim();
-    if (!name) return;
-    var key = store + '|' + name;
-    var e = people[key] || (people[key] = {
-      name: name, employee_id: r.employee_id || '', store_id: store, units: 0, revenue: 0
-    });
-    e.units   += Number(r.units) || 0;
-    e.revenue += Number(r.revenue) || 0;
-    byStore[store] = (byStore[store] || 0) + (Number(r.units) || 0);
-  });
-
-  var list = Object.keys(people).map(function (k) { return people[k]; });
-
-  // Where the Calculator recorded no per-budtender target, fall back to the store target
-  // divided by the people who actually sold — better than showing everyone as "hit".
-  var counts = {};
-  list.forEach(function (e) { counts[e.store_id] = (counts[e.store_id] || 0) + 1; });
-
-  var totalHit = 0, totalUnits = 0;
-  list.forEach(function (e) {
-    var target = Number(perBt[e.store_id]) || 0;
-    if (!target) {
-      var storeTarget = Number((t.by_store || {})[e.store_id]) || 0;
-      target = counts[e.store_id] ? Math.round(storeTarget / counts[e.store_id]) : 0;
-    }
-    e.target = target;
-    e.hit    = target > 0 && e.units >= target;
-    if (e.hit) totalHit++;
-    totalUnits += e.units;
-  });
-
-  list.sort(function (a, b) { return b.units - a.units; });
-
-  var rate = (prog.payout_json || {}).amount || 0;
-  return {
-    ok: true,
-    program_id: prog.program_id,
-    from: from, to: to,
-    rows: list,
-    by_store: byStore,
-    total_units: totalUnits,
-    budtenders: list.length,
-    hit: totalHit,
-    owed: totalHit * rate,
-    rate: rate,
-    target_units: t.units || 0,
-    chunks: chunkCount,
-    truncated: !!truncated   // surfaced, not swallowed: a truncated pull undercounts
-  };
 }
 
 /* ========================== VENDOR CLIENT VIEW =======================
