@@ -136,6 +136,70 @@ body {
   white-space: nowrap;
 }
 .flag.is-warn { color: var(--gx-red); border-color: var(--gx-red); }
+
+/* Rows open the historical record. */
+.grid tbody tr { cursor: pointer; }
+.grid tbody tr:focus-visible { outline: 2px solid var(--gx-green); outline-offset: -2px; }
+.tabname { display: block; font-size: 11px; color: var(--gx-text-mute); font-variant-numeric: tabular-nums; }
+
+/* Sold vs target — mirrors Inventory's velocity cell: the figure, then the delta. */
+.vel-cell .vel-primary { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.vel-cell .vel-trend { display: block; font-size: 10px; color: var(--gx-text-mute); font-variant-numeric: tabular-nums; }
+.vel-cell .vel-trend.up { color: var(--gx-green); }
+.vel-cell .vel-trend.down { color: var(--gx-red); }
+
+/* ------------------------------------------------------------ record modal */
+.modal-back {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(0, 0, 0, .6);
+  display: grid; place-items: center;
+  padding: 24px;
+}
+.modal-back[hidden] { display: none; }
+.modal {
+  width: min(760px, 100%);
+  max-height: 88vh;
+  display: flex; flex-direction: column;
+  background: var(--gx-surface);
+  border: 1px solid var(--gx-border-strong, var(--gx-border));
+  border-radius: var(--gx-radius-lg, 12px);
+  box-shadow: var(--gx-shadow-lg, 0 20px 60px rgba(0,0,0,.5));
+}
+.modal-head, .modal-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 16px 20px;
+}
+.modal-head { border-bottom: 1px solid var(--gx-border); }
+.modal-foot { border-top: 1px solid var(--gx-border); }
+.modal-foot-actions { display: flex; gap: 8px; }
+.modal-head h3 { margin: 0; font-family: 'Montserrat', var(--gx-font), sans-serif; font-size: 17px; }
+.modal-sub { margin: 2px 0 0; font-size: 12px; color: var(--gx-text-mute); }
+.modal-body { padding: 16px 20px; overflow-y: auto; }
+.modal-body h4 {
+  margin: 20px 0 8px; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--gx-text-mute);
+}
+.modal-msg { font-size: 12px; color: var(--gx-text-dim); }
+
+.fld-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.fld { display: flex; flex-direction: column; gap: 4px; }
+.fld span { font-size: 11px; color: var(--gx-text-mute); text-transform: uppercase; letter-spacing: .05em; }
+.fld input { width: 100%; }
+.fld input[readonly] { opacity: .65; cursor: not-allowed; }
+
+.notice {
+  border: 1px solid var(--gx-border-strong, var(--gx-border));
+  border-left-width: 3px;
+  border-radius: var(--gx-radius-sm, 6px);
+  padding: 10px 12px; margin-bottom: 12px;
+  font-size: 13px; line-height: 1.45;
+  color: var(--gx-text-dim);
+}
+.notice.is-warn { border-left-color: var(--gx-red); background: var(--gx-red-soft, transparent); }
+.notice.is-ok   { border-left-color: var(--gx-green); }
+
+.signin { display: flex; flex-direction: column; gap: 12px; max-width: 320px; }
+.signin p { font-size: 13px; color: var(--gx-text-dim); margin: 0; }
 .grid tr.is-suspect td { background: var(--gx-red-soft, transparent); }
 .hint { font-size: 11px; color: var(--gx-text-mute); cursor: help; }
 .grid .period { color: var(--gx-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 13px; }

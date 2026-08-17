@@ -71,9 +71,21 @@ var SALES_REPORT_SHEET_ID = '1aYWKC5QTkgIK3I8DSMZR6o2yHRO8vGZiQUBcvshfNn8';
 
 var PROGRAMS_TAB = 'programs';
 var PROGRAM_HEADERS = [
-  'program_id', 'vendor', 'title', 'status', 'start_date', 'end_date', 'pay_period',
+  'program_id', 'vendor', 'program_name', 'title', 'status', 'start_date', 'end_date', 'pay_period',
   'match_json', 'stores_json', 'cost_json', 'payout_type', 'payout_json',
-  'baseline_json', 'target_json', 'actual_json', 'source', 'updated_at'
+  'baseline_json', 'target_json', 'actual_json', 'source', 'updated_at',
+  'edited_by', 'edited_at'
+];
+
+// Who may edit a historical record. Role comes from GX Core app_access for app 'spiff';
+// the check runs server-side on every write, so hiding the UI is not the control.
+var EDIT_ROLES = ['admin', 'director'];
+
+// Fields a human may change on an imported record. Everything else (ids, source,
+// audit columns) is engine-owned.
+var EDITABLE_FIELDS = [
+  'vendor', 'program_name', 'status', 'start_date', 'end_date', 'pay_period',
+  'payout_json', 'cost_json', 'target_json', 'baseline_json', 'actual_json'
 ];
 
 /* ---------------------------- ROUTER ---------------------------- */
@@ -89,6 +101,7 @@ function doGet(e) {
       // Writes ride on GET because the browser calls this cross-origin via JSONP —
       // Apps Script serves no CORS headers for POST. Same pattern GX Core uses.
       case 'importCalc':  out = importCalculator_({ save: true });                  break;
+      case 'editProgram': out = editProgram_(p);                                    break;
       case 'sellthrough': out = notImplemented_('sellthrough');                     break;
       case 'payouts':     out = notImplemented_('payouts');                         break;
       case 'history':     out = { ok: true, programs: listPrograms_('closed') };    break;
@@ -108,6 +121,7 @@ function doPost(e) {
     switch (body.action) {
       case 'importCalc':    out = importCalculator_({ save: true });  break;
       case 'saveProgram':   out = saveProgram_(body.program);         break;
+      case 'editProgram':   out = editProgram_(body);                 break;
       case 'closeProgram':  out = notImplemented_('closeProgram');    break;
       case 'buildReport':   out = notImplemented_('buildReport');     break;
       case 'draftEmail':    out = notImplemented_('draftEmail');      break;
@@ -156,10 +170,16 @@ function importCalculator_(opts) {
   }
 
   flagDuplicateActuals_(out);
-  if (opts.save) out.forEach(function (p) { saveProgram_(p); });
+
+  var preserved = [];
+  if (opts.save) out.forEach(function (p) {
+    var r = saveProgram_(p, { fromImport: true });
+    if (r.preserved) preserved.push({ title: p.title, edited_by: r.edited_by });
+  });
 
   return {
     ok: true, imported: out.length, saved: !!opts.save, skipped: skipped,
+    preserved: preserved,   // hand-corrected rows the import deliberately left alone
     suspect: out.filter(function (p) { return p.actual_json && p.actual_json.duplicate_of.length; })
                 .map(function (p) { return { title: p.title, shares_with: p.actual_json.duplicate_of }; }),
     programs: out
@@ -232,9 +252,15 @@ function parseCalcTab_(sheet, stores) {
 
   var period = periodOf_(name);
 
+  // A3 carries the descriptive program name — 'Hellavated 0326' (the tab) is
+  // 'Hellavated Joints' (the program). Some tabs put only the vendor there; going
+  // forward Tawny names the program, so A3 wins and the tab name is the fallback.
+  var programName = String(grid[2] && grid[2][0] || '').trim() || name;
+
   return {
     program_id:    slug_(name),
     vendor:        period.vendor,
+    program_name:  programName,
     title:         name,
     status:        actual ? 'closed' : 'draft',
     start_date:    period.start_date,
@@ -333,7 +359,50 @@ function dataSheet_() {
     sh.getRange(1, 1, 1, PROGRAM_HEADERS.length).setValues([PROGRAM_HEADERS]).setFontWeight('bold');
     sh.setFrozenRows(1);
   }
+  migrateHeaders_(sh);
+  forceTextDates_(sh);
   return sh;
+}
+
+/* Adding a column shifts every later one, so existing rows must be remapped BY NAME
+   rather than trusted to line up. Re-importing would repair machine-written rows, but
+   not a record Tawny hand-corrected — so this migrates in place instead of clearing. */
+function migrateHeaders_(sh) {
+  var width = Math.max(sh.getLastColumn(), PROGRAM_HEADERS.length);
+  var old   = sh.getRange(1, 1, 1, width).getValues()[0].map(function (h) { return String(h || '').trim(); });
+
+  var same = PROGRAM_HEADERS.every(function (h, i) { return old[i] === h; }) && old.length === PROGRAM_HEADERS.length;
+  if (same) return;
+
+  var last = sh.getLastRow();
+  var rows = last >= 2 ? sh.getRange(2, 1, last - 1, width).getValues() : [];
+
+  var remapped = rows.map(function (r) {
+    return PROGRAM_HEADERS.map(function (h) {
+      var i = old.indexOf(h);
+      return i >= 0 ? r[i] : '';
+    });
+  });
+
+  sh.clear();
+  sh.getRange(1, 1, 1, PROGRAM_HEADERS.length).setValues([PROGRAM_HEADERS]).setFontWeight('bold');
+  sh.setFrozenRows(1);
+  if (remapped.length) sh.getRange(2, 1, remapped.length, PROGRAM_HEADERS.length).setValues(remapped);
+}
+
+/* Writing '2025-08-01' into a default-formatted cell does NOT store text — Sheets
+   coerces it to a Date, which reads back as an ISO timestamp and is one timezone
+   mismatch away from shifting a day. Pin the date columns to plain-text format so the
+   convention ("dates are TEXT") actually holds at rest, not just in our variables. */
+function forceTextDates_(sh) {
+  var cols = [
+    PROGRAM_HEADERS.indexOf('start_date'),
+    PROGRAM_HEADERS.indexOf('end_date'),
+    PROGRAM_HEADERS.indexOf('pay_period'),
+    PROGRAM_HEADERS.indexOf('updated_at')
+  ];
+  var rows = Math.max(sh.getMaxRows() - 1, 1);
+  cols.forEach(function (i) { sh.getRange(2, i + 1, rows, 1).setNumberFormat('@'); });
 }
 
 function listPrograms_(status) {
@@ -356,29 +425,87 @@ function getProgram_(id) {
   return { ok: false, error: 'not found: ' + id };
 }
 
-/* Upsert by program_id — re-running the import updates rows instead of duplicating them. */
-function saveProgram_(p) {
+/* Upsert by program_id — re-running the import updates rows instead of duplicating them.
+   opts.fromImport marks a machine write: those never overwrite a record a human has
+   corrected, because the Calculator is exactly the source those corrections fix. */
+function saveProgram_(p, opts) {
   if (!p || !p.program_id) return { ok: false, error: 'program_id required' };
+  opts = opts || {};
   var sh   = dataSheet_();
-  var row  = programToRow_(p);
   var last = sh.getLastRow();
 
+  var audit = opts.editedBy ? { edited_by: opts.editedBy, edited_at: nowStamp_() } : null;
+
   if (last >= 2) {
-    var ids = sh.getRange(2, 1, last - 1, 1).getValues();
-    for (var i = 0; i < ids.length; i++) {
-      if (String(ids[i][0]) === p.program_id) {
-        sh.getRange(i + 2, 1, 1, PROGRAM_HEADERS.length).setValues([row]);
-        return { ok: true, program_id: p.program_id, updated: true };
+    var rows  = sh.getRange(2, 1, last - 1, PROGRAM_HEADERS.length).getValues();
+    var idCol = PROGRAM_HEADERS.indexOf('program_id');
+    var byCol = PROGRAM_HEADERS.indexOf('edited_by');
+    var atCol = PROGRAM_HEADERS.indexOf('edited_at');
+
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][idCol]) !== p.program_id) continue;
+
+      var priorBy = String(rows[i][byCol] || '').trim();
+      if (opts.fromImport && priorBy) {
+        return { ok: true, program_id: p.program_id, preserved: true, edited_by: priorBy };
       }
+      // An import must not erase who corrected this row; an edit stamps itself.
+      var rowAudit = audit || (priorBy ? { edited_by: priorBy, edited_at: textDate_(rows[i][atCol]) } : null);
+      sh.getRange(i + 2, 1, 1, PROGRAM_HEADERS.length).setValues([programToRow_(p, rowAudit)]);
+      return { ok: true, program_id: p.program_id, updated: true };
     }
   }
-  sh.appendRow(row);
+  sh.appendRow(programToRow_(p, audit));
   return { ok: true, program_id: p.program_id, created: true };
 }
 
-function programToRow_(p) {
+/* Apply a human edit. The role check is here, server-side — the modal hiding its Save
+   button is convenience, not the control. */
+function editProgram_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) {
+    return { ok: false, error: 'Your role (' + auth.role + ') cannot edit SPIFF records' };
+  }
+
+  var patch = parseJson_(p.patch, null);
+  if (!patch || !p.id) return { ok: false, error: 'id and patch required' };
+
+  var current = getProgram_(p.id);
+  if (!current.ok) return current;
+
+  var merged = current.program, changed = [];
+  EDITABLE_FIELDS.forEach(function (f) {
+    if (!patch.hasOwnProperty(f)) return;
+    if (JSON.stringify(merged[f]) === JSON.stringify(patch[f])) return;
+    merged[f] = patch[f];
+    changed.push(f);
+  });
+  if (!changed.length) return { ok: true, program_id: p.id, unchanged: true };
+
+  var res = saveProgram_(merged, { editedBy: auth.user });
+  res.changed = changed;
+  res.edited_by = auth.user;
+  return res;
+}
+
+/* Validate a GX Core session token and resolve this user's role on `spiff`. */
+function gxAuth_(token) {
+  if (!token) return { ok: false, error: 'Not signed in' };
+  try {
+    var url = GXCORE_URL + '?action=validate&app=' + encodeURIComponent(APP) + '&token=' + encodeURIComponent(token);
+    var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+    return JSON.parse(res.getContentText());
+  } catch (e) {
+    return { ok: false, error: 'Could not reach GX Core to verify your session' };
+  }
+}
+
+function programToRow_(p, audit) {
+  var by = audit ? (audit.edited_by || '') : '';
+  var at = audit ? (audit.edited_at || '') : '';
   return [
-    p.program_id, p.vendor || '', p.title || '', p.status || 'draft',
+    p.program_id, p.vendor || '', p.program_name || '', p.title || '', p.status || 'draft',
     p.start_date || '', p.end_date || '', p.pay_period || '',
     JSON.stringify(p.match_json    || {}),
     JSON.stringify(p.stores_json   || []),
@@ -388,23 +515,24 @@ function programToRow_(p) {
     JSON.stringify(p.baseline_json || {}),
     JSON.stringify(p.target_json   || {}),
     p.actual_json ? JSON.stringify(p.actual_json) : '',
-    p.source || '', nowStamp_()
+    p.source || '', nowStamp_(), by, at
   ];
 }
 
 function rowToProgram_(r) {
   return {
-    program_id: r[0], vendor: r[1], title: r[2], status: r[3],
-    start_date: r[4], end_date: r[5], pay_period: r[6],
-    match_json:    parseJson_(r[7],  {}),
-    stores_json:   parseJson_(r[8],  []),
-    cost_json:     parseJson_(r[9],  {}),
-    payout_type:   r[10],
-    payout_json:   parseJson_(r[11], {}),
-    baseline_json: parseJson_(r[12], {}),
-    target_json:   parseJson_(r[13], {}),
-    actual_json:   parseJson_(r[14], null),
-    source: r[15], updated_at: r[16]
+    program_id: r[0], vendor: r[1], program_name: r[2], title: r[3], status: r[4],
+    start_date: textDate_(r[5]), end_date: textDate_(r[6]), pay_period: textDate_(r[7]),
+    match_json:    parseJson_(r[8],  {}),
+    stores_json:   parseJson_(r[9],  []),
+    cost_json:     parseJson_(r[10], {}),
+    payout_type:   r[11],
+    payout_json:   parseJson_(r[12], {}),
+    baseline_json: parseJson_(r[13], {}),
+    target_json:   parseJson_(r[14], {}),
+    actual_json:   parseJson_(r[15], null),
+    source: r[16], updated_at: textDate_(r[17]),
+    edited_by: r[18] || '', edited_at: textDate_(r[19])
   };
 }
 
@@ -540,6 +668,13 @@ function mmyy_(s) {
 }
 
 function pad2_(n) { return (n < 10 ? '0' : '') + n; }
+
+/* Belt to forceTextDates_'s braces: any Date that already made it into the sheet (or
+   sneaks in later) reads back as 'YYYY-MM-DD' rather than an ISO timestamp. */
+function textDate_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, 'America/Los_Angeles', 'yyyy-MM-dd');
+  return String(v == null ? '' : v).trim();
+}
 
 // 'Gron Chocolate - Ratio 10pks' → 'Gron';  'Mule Extracts -' → 'Mule Extracts'
 function cleanVendor_(s) {
