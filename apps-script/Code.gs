@@ -74,7 +74,7 @@ var PROGRAM_HEADERS = [
   'program_id', 'vendor', 'program_name', 'title', 'status', 'start_date', 'end_date', 'pay_period',
   'match_json', 'stores_json', 'cost_json', 'payout_type', 'payout_json',
   'baseline_json', 'target_json', 'actual_json', 'source', 'updated_at',
-  'edited_by', 'edited_at', 'share_token', 'contact_name', 'contact_email'
+  'edited_by', 'edited_at', 'share_token', 'contact_name', 'contact_email', 'doc_json'
 ];
 
 // Shared passphrase for vendor-facing links. Set it from the script editor:
@@ -121,6 +121,10 @@ function doGet(e) {
       case 'giftCards':   out = giftCardList_(p);                                   break;
       case 'clientView':  out = clientView_(p);                                     break;
       case 'shareLink':   out = shareLink_(p);                                      break;
+      case 'importDocs':  out = importDocs_(p);                                     break;
+      // Parse-only, no writes — lets the parser be verified against the real docs
+      // without a session. Reads no more than `programs` already exposes.
+      case 'previewDocs': out = previewDocs_(p);                                    break;
       case 'sellthrough': out = sellthrough_(p);                                    break;
       case 'payouts':     out = notImplemented_('payouts');                         break;
       case 'history':     out = { ok: true, programs: listPrograms_('closed') };    break;
@@ -590,7 +594,7 @@ function programToRow_(p, audit) {
     JSON.stringify(p.target_json   || {}),
     p.actual_json ? JSON.stringify(p.actual_json) : '',
     p.source || '', nowStamp_(), by, at, p.share_token || '',
-    p.contact_name || '', p.contact_email || ''
+    p.contact_name || '', p.contact_email || '', JSON.stringify(p.doc_json || {})
   ];
 }
 
@@ -608,7 +612,7 @@ function rowToProgram_(r) {
     actual_json:   parseJson_(r[15], null),
     source: r[16], updated_at: textDate_(r[17]),
     edited_by: r[18] || '', edited_at: textDate_(r[19]), share_token: r[20] || '',
-    contact_name: r[21] || '', contact_email: r[22] || ''
+    contact_name: r[21] || '', contact_email: r[22] || '', doc_json: parseJson_(r[23], {})
   };
 }
 
@@ -629,10 +633,12 @@ function rowToProgram_(r) {
  * @return {Object} { ok, lines, hit, total_owed, total_units }
  */
 function computePayouts_(rows, targets, payout) {
-  if (!payout || payout.type !== 'flat') {
-    return { ok: false, error: 'payout type "' + (payout && payout.type) + '" not implemented yet (flat only)' };
+  var type = (payout && payout.type) || 'flat';
+  if (type !== 'flat' && type !== 'per_unit') {
+    return { ok: false, error: 'payout type "' + type + '" not implemented yet' };
   }
-  var amount = Number(payout.amount) || 0;
+  var amount  = Number(payout && payout.amount) || 0;
+  var perUnit = Number(payout && payout.per_unit) || 0;
   var lines = [], hit = 0, totalUnits = 0;
 
   for (var i = 0; i < rows.length; i++) {
@@ -644,12 +650,15 @@ function computePayouts_(rows, targets, payout) {
     totalUnits += units;
     if (made) hit++;
 
+    // per_unit pays on volume, so there is no target to clear — everyone who sold earns.
+    var earned = type === 'per_unit' ? units * perUnit : (made ? amount : 0);
     lines.push({
       employee_id: r.employee_id, name: r.name, store_id: r.store_id,
-      units: units, target: target, hit: made, earned: made ? amount : 0
+      units: units, target: target, hit: type === 'per_unit' ? units > 0 : made, earned: earned
     });
   }
-  return { ok: true, lines: lines, hit: hit, total_owed: hit * amount, total_units: totalUnits };
+  var owed = lines.reduce(function (n, l) { return n + l.earned; }, 0);
+  return { ok: true, type: type, lines: lines, hit: hit, total_owed: owed, total_units: totalUnits };
 }
 
 /* ---------------------------- GX CORE ---------------------------- */
@@ -1097,6 +1106,10 @@ function gxStores_() {
 function matchStore_(label, stores) {
   var want = norm_(label);
   if (!want) return null;
+  // Tawny's older SPIF docs say "South" where the newer ones (and GX Core) say
+  // "Commercial" — the South Commercial St store. Without this every South doc becomes
+  // its own orphan program.
+  if (want === 'south') want = 'commercial';
 
   for (var i = 0; i < stores.length; i++) {
     var s = stores[i];
@@ -1243,4 +1256,331 @@ function authorize() {
   catch (e) { report.stores = 'ERR ' + e.message; }
   Logger.log('Authorized. ' + JSON.stringify(report));
   return report;
+}
+
+/* ======================= SPIF DOCUMENTS (SOURCE OF TRUTH) ======================
+ * Tawny's SPIF program docs in Drive — the staff-facing announcement for each program.
+ * These are AUTHORITATIVE over the Calculator import, because they carry the two things
+ * the Calculator never recorded:
+ *
+ *   1. EXACT DATES. The filename ends "- 7.20.26-8.3.26". The Calculator only had a
+ *      MMYY tab name, so program windows were previously inferred as calendar months —
+ *      wrong enough that BeGOAT's live pull missed a third of its units.
+ *   2. THE REAL INDIVIDUAL GOAL. Docs state store goal AND per-budtender goal, instead
+ *      of us dividing a store target by whoever happened to sell.
+ *
+ * Two layouts, both handled:
+ *   • per-store  — "Location: Bend",  goals as Storewide Goal / Individual Target
+ *   • all-stores — "Location: All Locations", one goals row per location
+ * Per-store docs for the same program+period merge into ONE program record.
+ * ============================================================================== */
+
+var SPIF_CURRENT_FOLDER  = '1oqbOo0caiYRQtN7WEQCZCO4bkK6FPW7b';
+var SPIF_ARCHIVE_FOLDER  = '1eXnl2CCYgRbWqfP_Kgy5F_WzSxM1Tayo';
+var DOCS_INDEX_PROP      = 'SPIF_DOC_INDEX';
+
+/* Build the file list once and stash it, so a chunked import has a stable cursor —
+   Drive iterators cannot be resumed across executions. */
+function docsIndex_(rebuild) {
+  var props = PropertiesService.getScriptProperties();
+  if (!rebuild) {
+    var cached = props.getProperty(DOCS_INDEX_PROP);
+    if (cached) { try { return JSON.parse(cached); } catch (e) {} }
+  }
+  var list = [];
+  [[SPIF_CURRENT_FOLDER, 'current'], [SPIF_ARCHIVE_FOLDER, 'archive']].forEach(function (pair) {
+    var it = DriveApp.getFolderById(pair[0]).getFiles();
+    while (it.hasNext()) {
+      var f = it.next();
+      list.push({ id: f.getId(), name: f.getName(), bucket: pair[1] });
+    }
+  });
+  list.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+  props.setProperty(DOCS_INDEX_PROP, JSON.stringify(list));
+  return list;
+}
+
+/* "Bend - Kaprikorn Spiff - 4.13.26-4.26.26.docx"
+   -> { store:'bend', program:'Kaprikorn Spiff', start:'2026-04-13', end:'2026-04-26' } */
+function parseDocName_(name, stores) {
+  var n = String(name).replace(/\.(docx?|pdf)$/i, '').replace(/^Copy of\s+/i, '').trim();
+
+  var m = n.match(/(\d{1,2}\.\d{1,2}\.\d{2})\s*-\s*\.?(\d{1,2}\.\d{1,2}\.\d{2})\s*$/);
+  if (!m) return null;
+  var start = mdy_(m[1]), end = mdy_(m[2]);
+  if (!start || !end) return null;
+
+  var head = n.slice(0, m.index).replace(/[\s-]+$/, '').trim();
+
+  // A leading "Store - " prefix, when it names a store we know.
+  var store = '', program = head;
+  var dash = head.indexOf(' - ');
+  if (dash > 0) {
+    var maybe = matchStore_(head.slice(0, dash), stores);
+    if (maybe) { store = maybe; program = head.slice(dash + 3).trim(); }
+  }
+  return { store: store, program: program, start: start, end: end };
+}
+
+// "4.13.26" -> "2026-04-13"  (TEXT, never a Date object)
+function mdy_(s) {
+  var p = String(s).split('.');
+  if (p.length !== 3) return '';
+  var mo = Number(p[0]), d = Number(p[1]), y = Number(p[2]);
+  if (!(mo >= 1 && mo <= 12) || !(d >= 1 && d <= 31)) return '';
+  return (2000 + y) + '-' + pad2_(mo) + '-' + pad2_(d);
+}
+
+/* These are real .docx files, not Google Docs — Tawny writes them in Word and they were
+   never converted. DocumentApp cannot open one, and reading the blob as a string just
+   returns zip bytes. Converting via Drive would cost a copy + export + delete per file
+   (three API calls x 112 docs); unzipping in place costs one read.
+
+   A .docx IS a zip, and word/document.xml holds the content. Table cells and paragraphs
+   are turned back into pipes and newlines so the same parser handles both these and the
+   Google-Doc export format. */
+function docText_(id) {
+  var file = DriveApp.getFileById(id);
+  var type = file.getMimeType();
+
+  if (type === MimeType.GOOGLE_DOCS) {
+    try { return DocumentApp.openById(id).getBody().getText(); } catch (e) { return ''; }
+  }
+  return docxText_(file);
+}
+
+function docxText_(file) {
+  try {
+    var blob = file.getBlob().setContentType('application/zip');
+    var parts = Utilities.unzip(blob);
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].getName() !== 'word/document.xml') continue;
+      var xml = parts[i].getDataAsString();
+      return xml
+        .replace(/<w:tab[^>]*\/>/g, ' ')
+        .replace(/<\/w:tc>/g, ' | ')      // cell boundary -> the pipe the parser expects
+        .replace(/<\/w:tr>/g, '\n')
+        .replace(/<\/w:p>/g, '\n')
+        .replace(/<[^>]+>/g, '')          // drop every remaining tag
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+        .replace(/[ \t]+/g, ' ')
+        // Each cell carries its own paragraph, so a row arrives as
+        //   "Storewide Goal\n | Total units...\n | 48\n | "
+        // Pull the pipes back onto one line or no row ever forms.
+        .replace(/\n\s*\|/g, ' |')
+        .replace(/\n{3,}/g, '\n\n');
+    }
+    return '';
+  } catch (e) {
+    return '';
+  }
+}
+
+function afterLabel_(text, label) {
+  var re = new RegExp('\\b' + label + '\\s*:\\s*([^\\n|]*)', 'i');
+  var m = text.match(re);
+  return m ? m[1].trim() : '';
+}
+
+/* Pull the goals out of either layout. Returns { by_store:{}, per_bt:{}, location } */
+function parseDocGoals_(text, doc, stores) {
+  var out = { by_store: {}, per_bt: {} };
+  var lines = text.split('\n');
+
+  // all-locations: "Bend | 330 | 55"
+  for (var i = 0; i < lines.length; i++) {
+    var cells = lines[i].split('|').map(function (c) { return c.trim(); }).filter(function (c) { return c !== ''; });
+    if (cells.length < 3) continue;
+    var sid = matchStore_(cells[0], stores);
+    if (!sid) continue;
+    var storeGoal = num_(cells[1]), indGoal = num_(cells[2]);
+    if (!storeGoal && !indGoal) continue;
+    out.by_store[sid] = storeGoal;
+    out.per_bt[sid]   = indGoal;
+  }
+  if (Object.keys(out.by_store).length) return out;
+
+  // per-store: "Storewide Goal | … | 84" and "Individual Target | … | 14"
+  var storeGoal = 0, indGoal = 0;
+  lines.forEach(function (ln) {
+    var cells = ln.split('|').map(function (c) { return c.trim(); });
+    var joined = cells.join(' ').toLowerCase();
+    var last = num_(cells[cells.length - 2] || cells[cells.length - 1]);
+    if (/storewide goal/.test(joined) && last) storeGoal = last;
+    if (/individual target/.test(joined) && last) indGoal = last;
+  });
+  if (!indGoal) indGoal = num_(afterLabel_(text, 'Sales Requirement'));
+
+  if (doc.store && (storeGoal || indGoal)) {
+    out.by_store[doc.store] = storeGoal;
+    out.per_bt[doc.store]   = indGoal;
+  }
+  return out;
+}
+
+function parseSpifDoc_(file, stores) {
+  var doc = parseDocName_(file.name, stores);
+  if (!doc) return null;
+
+  var text = docText_(file.id);
+  if (!text) return null;
+
+  var goals = parseDocGoals_(text, doc, stores);
+  var products = {
+    name:     afterLabel_(text, 'Product Name'),
+    category: afterLabel_(text, 'Category'),
+    sku:      afterLabel_(text, 'SKU')
+  };
+  // The eligible-products row is one table line; split it back apart.
+  var prodLine = (text.split('\n').filter(function (l) { return /Product Name:/i.test(l); })[0] || '');
+  if (prodLine.indexOf('|') >= 0) {
+    prodLine.split('|').forEach(function (cell) {
+      var c = cell.trim();
+      if (/^Product Name:/i.test(c)) products.name     = c.replace(/^Product Name:\s*/i, '').trim();
+      if (/^Category:/i.test(c))     products.category = c.replace(/^Category:\s*/i, '').trim();
+      if (/^SKU:/i.test(c))          products.sku      = c.replace(/^SKU:\s*/i, '').trim();
+    });
+  }
+
+  var reward = afterLabel_(text, 'Reward');
+  var payout = (text.match(/gift cards on\s+(\d{1,2}\.\d{1,2}\.\d{2})/i) || [])[1] || '';
+
+  // Not every program is a flat bounty. "Reward: $1 for every unit sold" is a real
+  // per-unit program (Hapy Kitchen, Feb 2026) — the Calculator flattened it, which is
+  // why the imported history looked uniformly flat. Read the payout model off the doc.
+  var perUnit = reward.match(/\$\s*(\d+(?:\.\d+)?)\s*(?:for|per)\s+(?:every\s+)?unit/i);
+  var payoutType = perUnit ? 'per_unit' : 'flat';
+  var payoutJson = perUnit ? { per_unit: Number(perUnit[1]) } : { amount: num_(reward) };
+
+  var vendorName = afterLabel_(text, 'Vendor Name');
+
+  return {
+    key: slug_((vendorName || doc.program) + '-' + doc.start + '-' + doc.end),
+    program: doc.program,
+    store: doc.store,
+    start: doc.start,
+    end: doc.end,
+    bucket: file.bucket,
+    vendor: afterLabel_(text, 'Vendor Name'),
+    notes: afterLabel_(text, 'Vendor Notes'),
+    products: products,
+    reward: reward,
+    reward_amount: num_(reward),
+    payout_type: payoutType,
+    payout_json: payoutJson,
+    payout_date: payout ? mdy_(payout) : '',
+    goals: goals,
+    doc_id: file.id,
+    doc_name: file.name
+  };
+}
+
+function previewDocs_(p) {
+  var index  = docsIndex_(String(p.rebuild) === '1');
+  var start  = Number(p.start) || 0;
+  var count  = Math.min(Number(p.count) || 8, 20);
+  var stores = gxStores_();
+  var out = [], skipped = [];
+  index.slice(start, start + count).forEach(function (f) {
+    var d = null;
+    try { d = parseSpifDoc_(f, stores); } catch (e) { skipped.push({ name: f.name, why: String(e.message || e) }); return; }
+    if (!d) { skipped.push({ name: f.name, why: 'unparsed' }); return; }
+    if (String(p.raw) === '1') d.raw_text = docText_(f.id).slice(0, 2500);
+    out.push(d);
+  });
+  return { ok: true, total: index.length, start: start, docs: out, skipped: skipped };
+}
+
+/* Chunked because Drive reads are slow and /exec dies near 60s. The client walks the
+   cursor; each call reports exactly where it got to. */
+function importDocs_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) return { ok: false, error: 'Your role cannot import' };
+
+  var index  = docsIndex_(String(p.rebuild) === '1');
+  var start  = Number(p.start) || 0;
+  var count  = Math.min(Number(p.count) || 12, 25);
+  var slice  = index.slice(start, start + count);
+  var stores = gxStores_();
+
+  var parsed = [], skipped = [];
+  slice.forEach(function (f) {
+    var d = null;
+    try { d = parseSpifDoc_(f, stores); } catch (e) { skipped.push({ name: f.name, why: String(e.message || e) }); return; }
+    if (!d) { skipped.push({ name: f.name, why: 'could not read name or body' }); return; }
+    parsed.push(d);
+  });
+
+  var saved = mergeDocsIntoPrograms_(parsed, auth.user);
+
+  return {
+    ok: true, total: index.length, start: start, processed: slice.length,
+    next: (start + count < index.length) ? start + count : null,
+    parsed: parsed.length, saved: saved, skipped: skipped
+  };
+}
+
+/* Per-store docs of one program merge into a single record. Docs win on dates and goals;
+   anything the Calculator knew that a doc doesn't mention (cost, baseline) is kept. */
+function mergeDocsIntoPrograms_(docs, user) {
+  var groups = {};
+  docs.forEach(function (d) { (groups[d.key] = groups[d.key] || []).push(d); });
+
+  var out = [];
+  Object.keys(groups).forEach(function (key) {
+    var list = groups[key], first = list[0];
+
+    var by_store = {}, per_bt = {}, docIds = [], docNames = [];
+    list.forEach(function (d) {
+      Object.keys(d.goals.by_store).forEach(function (s) { by_store[s] = d.goals.by_store[s]; });
+      Object.keys(d.goals.per_bt).forEach(function (s) { per_bt[s] = d.goals.per_bt[s]; });
+      docIds.push(d.doc_id); docNames.push(d.doc_name);
+    });
+
+    var existing = getProgram_(key);
+    var prog = existing.ok ? existing.program : {
+      program_id: key, payout_type: 'flat', cost_json: {}, baseline_json: {}, actual_json: null
+    };
+
+    var totalUnits = 0;
+    Object.keys(by_store).forEach(function (s) { totalUnits += Number(by_store[s]) || 0; });
+
+    prog.program_id   = key;
+    prog.program_name = first.program;
+    prog.title        = first.program;
+    prog.vendor       = first.vendor || prog.vendor || '';
+    prog.start_date   = first.start;
+    prog.end_date     = first.end;
+    prog.pay_period   = first.payout_date || prog.pay_period || '';
+    prog.status       = first.bucket === 'current' ? 'active' : 'closed';
+    prog.payout_type  = first.payout_type || 'flat';
+    prog.payout_json  = first.payout_type === 'per_unit'
+      ? first.payout_json
+      : { amount: first.reward_amount || (prog.payout_json || {}).amount || 0 };
+    prog.target_json  = Object.assign({}, prog.target_json || {}, {
+      units: totalUnits || (prog.target_json || {}).units || 0,
+      by_store: by_store, per_bt: per_bt
+    });
+    prog.stores_json  = Object.keys(by_store);
+    prog.match_json   = {
+      brand: first.vendor || '',
+      category: (first.products.category || '').replace(/^All Categories$/i, ''),
+      filter_text: '',
+      products: (first.products.name && !/^All Products$/i.test(first.products.name))
+        ? first.products.name.split(/,\s*/).slice(0, 4) : []
+    };
+    prog.doc_json = {
+      notes: first.notes, reward: first.reward, sku: first.products.sku,
+      product_name: first.products.name, category: first.products.category,
+      doc_ids: docIds, doc_names: docNames, location_docs: list.length
+    };
+    prog.source = 'spif-doc:' + first.doc_name;
+
+    saveProgram_(prog, { editedBy: user });
+    out.push({ program_id: key, name: first.program, start: first.start, end: first.end,
+               stores: prog.stores_json.length, docs: list.length });
+  });
+  return out;
 }
