@@ -22,6 +22,12 @@
   var ENGINE = 'https://script.google.com/macros/s/AKfycbw0JUgI01c7iaJRnuQgHdjUazDPtyEiEHZvlYkjflLSIVMY7qs-0Bkv4gPoxt8o2e6JZw/exec';
 
   var GX  = GXClient(GXCORE);
+  // Single-sourced from the ?v=N cache-buster on this script tag, the same value deploy.sh records,
+  // so the version shown to a user cannot drift from the version that shipped.
+  var APP_VERSION = (function () {
+    var m = /[?&]v=(\d+)/.exec((document.currentScript && document.currentScript.src) || '');
+    return m ? 'v' + m[1] : 'dev';
+  })();
   var ENG = GXClient(ENGINE);
 
   /* ----------------------------------------------------------------- state */
@@ -48,14 +54,14 @@
   /* ------------------------------------------------------------------ tabs */
   function showTab(name) {
     state.tab = name;
-    $$('#tabs .tab').forEach(function (b) { b.classList.toggle('is-active', b.dataset.tab === name); });
+    $$('#tabs .gx-topnav-tab').forEach(function (b) { b.classList.toggle('is-active', b.dataset.tab === name); });
     $$('.panel').forEach(function (p) { p.classList.toggle('is-active', p.id === 'panel-' + name); });
   }
 
   function wireTabs() {
     var bar = $('#tabs');
     if (bar) bar.addEventListener('click', function (e) {
-      var b = e.target.closest('.tab');
+      var b = e.target.closest('.gx-topnav-tab');
       if (b) showTab(b.dataset.tab);
     });
   }
@@ -263,13 +269,45 @@
   /* Sign-in belongs in the topbar, reachable from any surface — filing a report from
      Reports shouldn't send you hunting for a program record to sign in from. */
   function renderAuthChip() {
-    var b = $('#btnAuth');
+    var b = $('#btnAuth'), slot = $('#userSlot');
     if (!b) return;
     var s = session();
-    b.textContent = s ? s.user + ' · sign out' : 'Sign in';
-    b.title = s ? 'Signed in as ' + s.user + ' (' + s.role + ')' : 'Sign in to edit records';
-    b.classList.toggle('is-in', !!s);
+    // Signed OUT: keep the plain Sign in button -- SPIFF is fully readable without a session, so the
+    // header must not imply otherwise. Signed IN: the shared avatar+name chip, same as every app.
+    b.hidden = !!s;
+    if (!slot) return;
+    if (!s) { slot.innerHTML = ''; return; }
+    var name = s.user || '';
+    var initials = String(name).trim().split(/[\s._-]+/).map(function (w) { return w.charAt(0); })
+                     .join('').slice(0, 2).toUpperCase() || 'GX';
+    slot.innerHTML =
+      '<div class="gx-user">' +
+        '<button class="gx-user-btn" aria-haspopup="menu" aria-expanded="false">' +
+          '<span class="gx-user-ava">' + initials + '</span>' +
+          '<span class="gx-user-name">' + name + '</span>' +
+        '</button>' +
+        '<div class="gx-user-menu" role="menu" hidden>' +
+          '<div class="gx-user-head">' + name + '<span>' + (s.role || 'SPIFF') + '</span></div>' +
+          '<button class="gx-user-item" data-gx-action="settings">Settings</button>' +
+          '<button class="gx-user-item" data-gx-action="version">Version <span class="gx-user-ver">' + APP_VERSION + '</span></button>' +
+          '<button class="gx-user-item is-danger" data-gx-action="logout">Sign out</button>' +
+        '</div>' +
+      '</div>';
+    if (window.GXTopNav) GXTopNav.init(slot);
   }
+
+  /* The shared header emits gx-topnav:action; what each action MEANS stays here. */
+  document.addEventListener('gx-topnav:action', function (e) {
+    var a = e.detail && e.detail.action;
+    if (a === 'logout') {
+      clearSession(); renderAuthChip();
+      if (state.record) renderRecord(state.record);
+    } else if (a === 'settings') {
+      var sb = $('#btnSettings'); if (sb) sb.click();
+    } else if (a === 'version') {
+      alert('GX SPIFF ' + APP_VERSION);
+    }
+  });
 
   // Delegated from document rather than bound to the button: sign-in is the entry point
   // for every write in the app, so it must not depend on when (or whether) a particular
@@ -1165,7 +1203,15 @@
   }
 
   /* ------------------------------------------------------------------ boot */
+  /* Chrome is not session state: start the clock and load store colours at boot so the header is
+     never showing placeholder dashes, signed in or out. */
+  function startChrome() {
+    if (window.GXTopNav) GXTopNav.startClock();
+    if (window.GXStores) GXStores.load(GXCORE).catch(function () { /* colours are a nicety */ });
+  }
+
   function boot() {
+    startChrome();
     wireAuthChip();     // first: every write path depends on it
     renderAuthChip();
     wireTabs();
