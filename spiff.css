@@ -336,3 +336,9 @@ body {
 .pg-units { font-variant-numeric: tabular-nums; }
 .pg-store.is-loading { opacity: .55; }
 .pg-store.is-failed { border-color: var(--gx-red); }
+
+/* Gated state: the app shell stays in the DOM (wiring depends on it) but must not be visible behind
+   the sign-in card -- a header and tab row peeking around a login box reads as a half-loaded page. */
+body.is-gated > .gx-app,
+body.is-gated .gx-topnav,
+body.is-gated .workspace { display: none !important; }
