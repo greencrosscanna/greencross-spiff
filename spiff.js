@@ -317,8 +317,10 @@
   document.addEventListener('gx-topnav:action', function (e) {
     var a = e.detail && e.detail.action;
     if (a === 'logout') {
-      clearSession(); renderAuthChip();
-      if (state.record) renderRecord(state.record);
+      clearSession();
+      // Back to the gate: with SPIFF gated, an unauthenticated app shell is not a state to leave a
+      // user sitting in.
+      location.reload();
     } else if (a === 'version') {
       alert('GX SPIFF ' + APP_VERSION);
     }
@@ -1235,8 +1237,60 @@
     if (window.GXStores) GXStores.load(GXCORE).catch(function () { /* colours are a nicety */ });
   }
 
+  /* Full-page sign-in gate. SPIFF holds compensation data, and it is heading INSIDE Inventory the way
+     Price Cards did -- so it should behave like the apps it will live beside, not like a public page
+     with an optional login. Uses the shared .gx-login, so it is the same sign-in as everywhere else. */
+  function renderGate(errMsg) {
+    document.body.classList.add('is-gated');
+    var wrap = document.getElementById('authGate');
+    if (!wrap) { wrap = document.createElement('div'); wrap.id = 'authGate'; document.body.appendChild(wrap); }
+    wrap.className = 'gx-login';
+    wrap.innerHTML =
+      '<div class="gx-login-card">' +
+        '<div class="gx-login-head">' +
+          '<img class="gx-login-mark" src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross">' +
+          '<div class="gx-login-sub">SPIFF</div>' +
+        '</div>' +
+        '<form class="gx-login-form" id="gateForm">' +
+          '<label class="gx-login-field"><span>Username</span>' +
+            '<input class="gx-input" id="gateUser" autocomplete="username" required></label>' +
+          '<label class="gx-login-field"><span>Password</span>' +
+            '<input class="gx-input" id="gatePass" type="password" autocomplete="current-password" required></label>' +
+          '<button type="submit" class="gx-btn gx-btn-green gx-login-submit">Sign in</button>' +
+          '<div class="gx-login-err">' + (errMsg || '') + '</div>' +
+        '</form>' +
+      '</div>';
+    document.getElementById('gateForm').addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      var btn = wrap.querySelector('button'), err = wrap.querySelector('.gx-login-err');
+      var u = document.getElementById('gateUser').value.trim();
+      var pw = document.getElementById('gatePass').value;
+      btn.disabled = true; btn.textContent = 'Signing in…'; err.textContent = '';
+      try {
+        var r = await GX.jsonp('login', { user: u, pass: pw, app: APP });
+        if (!r || !r.ok) throw new Error((r && r.error) || 'Sign-in failed');
+        setSession({ user: r.user, name: r.displayName || r.user, avatar: r.avatarConfig || null,
+                     role: r.role, token: r.token, expiresAt: r.expiresAt });
+        wrap.remove();
+        document.body.classList.remove('is-gated');
+        start();
+      } catch (e) {
+        err.textContent = (e && e.message) || 'Sign-in failed';
+        btn.disabled = false; btn.textContent = 'Sign in';
+        document.getElementById('gatePass').value = '';
+      }
+    });
+    document.getElementById('gateUser').focus();
+  }
+
   function boot() {
     startChrome();
+    // Gate FIRST: nothing loads and no request goes out until there is a session.
+    if (!session()) { renderGate(); return; }
+    start();
+  }
+
+  function start() {
     wireAuthChip();     // first: every write path depends on it
     renderAuthChip();
     wireTabs();
