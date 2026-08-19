@@ -24,6 +24,17 @@ Four surfaces, one spine:
 4. **History** — every closed program by pay period, so "what did we run 9 periods ago" and "last time we
    did a Wyld SPIFF" are lookups.
 
+### The source of truth
+
+Tawny's **SPIF program docs** in Drive are authoritative — one `.docx` per store per program, named
+`<Store> - <Program> - <M.D.YY>-<M.D.YY>.docx`, in
+**[Current SPIF / Archived SPIF](https://drive.google.com/drive/folders/1ux44BjJf9PDUFbIaecnmFOwZDy4LTQVa)**.
+They carry the two things the Calculator never recorded: **exact program windows** (in the filename) and
+the **real per-budtender goal** (in the body). 112 docs → 22 programs. Programs group by **vendor +
+window**, not title — the same program is named differently store to store. **"South" is the old name for
+the Commercial St store.** The docs are `.docx`, so the engine unzips `word/document.xml` rather than
+using DocumentApp, and stitches table cells back into rows.
+
 ### What it replaces
 
 Two spreadsheets, and one genuinely painful loop:
@@ -68,20 +79,23 @@ Google's consent HTML instead of JSON until the owner has authorized.
 
 ## The rules that matter
 
-- **Payout model.** All 19 historical programs are **flat**: a fixed dollar bounty to each budtender who
-  hits their individual target. Total owed = amount × budtenders who hit (`SPIFF $25 × 17 BTs = $425`).
-  A budtender's target is their store's target spread across that store's budtenders. `payout_type` also
-  declares `per_unit` and `tiered` — schema'd, deliberately **not** implemented; adding one is a handler,
-  not a migration. Don't invent a payout rule that no vendor has asked for.
+- **Payout model.** Most programs are **flat**: a fixed dollar bounty to each budtender who hits their
+  individual target (`SPIFF $25 × 17 BTs = $425`). But **`per_unit` is real and implemented** — Hapy
+  Kitchen (2.16–3.1.26) paid "$1 for every unit sold", with "Unit Based"/"You Decide" where the goals
+  normally sit. The Calculator flattened it, which is why the imported history looked uniformly flat;
+  the SPIF docs show the truth. `tiered` remains schema'd and unimplemented. Read the payout model off
+  the doc rather than assuming.
 - **Cost, not payout, is where programs vary.** Multi-SKU programs blend it — the sheet's
   `Combined WS Cost` / `Average Cost` / `Combined Total for 20pc & 2pc`. `cost_json` supports
   `flat` and `blended`.
 - **SPIFF reads the roster, never writes it.** `employees` and `stores` come from GX Core; don't
   re-hardcode store names — Command Center edits must flow through on the next load.
-- **SPIFF writes `spiff_payouts`.** That is a written column contract: Leaderboard's Incentive tab and
-  Performance read it. Today Mike hand-types a SPIFF dollar per employee per pay period
-  (`{nameKey: {att, spiff}}` in `greencross-leaderboard`). Replacing that hand-entry is the point of the
-  Asana to-do **"connect to SPIFF"**. Don't change those columns without updating both sides in one change.
+- **SPIFF writes `spiff_payouts`.** That is a written column contract, read through GX Core — never
+  app-to-app. Incentive is being pulled out of Leaderboard into **GX Crew** (decision 2026-08-16), and
+  GX Crew consumes these payouts for its bonus calc; the "connect to SPIFF" to-dos now target GX Crew,
+  not Leaderboard. Today Mike still hand-types a SPIFF dollar per employee per pay period
+  (`{nameKey: {att, spiff}}`), and replacing that hand-entry is the point. Don't change these columns
+  without updating both sides in one change.
 - **Nothing goes to a vendor without a human.** Reports are drafted and saved; sending is Tawny's or
   Sky's click, not the app's.
 - **Dates are TEXT** (`YYYY-MM-DD`), never Date objects — a sheet/script timezone mismatch silently shifts
