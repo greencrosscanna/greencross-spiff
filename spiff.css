@@ -17,59 +17,8 @@ body {
 }
 
 /* ------------------------------------------------------------------ topbar */
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: var(--gx-gap-lg, 20px);
-  padding: 12px 20px;
-  background: var(--gx-surface);
-  border-bottom: 1px solid var(--gx-border);
-  position: sticky;
-  top: 0;
-  z-index: 20;
-}
-
-.brand { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
-.brand-mark {
-  display: inline-grid;
-  place-items: center;
-  width: 26px; height: 26px;
-  border-radius: var(--gx-radius-sm, 6px);
-  background: var(--gx-green);
-  color: var(--gx-green-ink, #04170c);
-  font-weight: 900;
-  font-size: 18px;
-  line-height: 1;
-}
-.brand-name {
-  font-family: 'Montserrat', var(--gx-font), sans-serif;
-  font-weight: 600;
-  letter-spacing: .01em;
-}
-.brand-name strong { font-weight: 900; }
 
 /* -------------------------------------------------------------------- tabs */
-.tabs { display: flex; gap: 4px; flex: 1; overflow-x: auto; }
-.tab {
-  appearance: none;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--gx-text-dim);
-  font: inherit;
-  font-size: 14px;
-  padding: 7px 14px;
-  border-radius: var(--gx-radius-pill, 999px);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.tab:hover { color: var(--gx-text); background: var(--gx-surface-2); }
-.tab.is-active {
-  color: var(--gx-green-bright, var(--gx-green));
-  border-color: var(--gx-green-hair, var(--gx-border-strong));
-  background: var(--gx-green-soft, var(--gx-surface-2));
-}
-
-.topbar-actions { display: flex; align-items: center; gap: 10px; }
 
 /* Connection dot — honest about GX Core reachability; never silently blank. */
 .conn { font-size: 12px; color: var(--gx-text-mute); white-space: nowrap; }
@@ -352,7 +301,6 @@ body {
 }
 
 @media (max-width: 720px) {
-  .topbar { flex-wrap: wrap; }
   .workspace { padding: 16px; }
 }
 
