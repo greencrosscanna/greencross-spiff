@@ -167,7 +167,17 @@
   </div>
 </div>
 
+<script src="gx-dev.js"></script>
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-client.js"></script>
+<script>
+  // Dev guard: non-mutating actions. Anything NOT listed is blocked when this page is served
+  // from localhost, until writes are armed (banner button / ?arm=1 / GXDev.arm()). Inert in
+  // production. Add new READS here; leave writes off the list.
+  // Guarded writes: buildReport, createProgram, editProgram, importCalc, shareLink
+  if (window.GXDev) window.GXDev.declareReads([
+    'clientView', 'emailDraft', 'login', 'programs', 'sellthrough', 'stores'
+  ]);
+</script>
 <script src="spiff.js?v=18"></script>
 </body>
 </html>
