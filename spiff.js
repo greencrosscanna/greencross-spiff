@@ -339,6 +339,8 @@
       state.record = null;
       $('#recordTitle').textContent = 'Sign in';
       $('#recordSub').textContent = 'SPIFF records are edited by Tawny and Sky.';
+      // The record modal's Close button is redundant beside the corner x on the sign-in view.
+      var closeBtn = $('#recordCancel'); if (closeBtn) closeBtn.hidden = true;
       $('#recordMsg').textContent = '';
       $('#recordBack').hidden = false;
       renderSignIn();
@@ -348,6 +350,7 @@
   function openRecord(id) {
     var p = state.programs.filter(function (x) { return x.program_id === id; })[0];
     if (!p) return;
+    var closeBtn = $('#recordCancel'); if (closeBtn) closeBtn.hidden = false;   // hidden by the sign-in view
     state.record = p;
     $('#recordTitle').textContent = p.program_name || p.title;
     $('#recordSub').textContent = p.vendor + ' · tab "' + p.title + '"' + (p.source ? ' · ' + p.source : '');
@@ -479,11 +482,15 @@
   // Credentials go to GX Core, which owns sign-on; SPIFF never stores a password.
   function renderSignIn() {
     $('#recordBody').innerHTML =
+      // No explanatory paragraph: the modal header (#recordSub) already says exactly this and the body
+      // was repeating it word for word. Fields use the shared .gx-login-field/.gx-input so this reads
+      // as the same sign-in as every other app rather than a third treatment.
       '<div class="signin">'
-      + '<p>SPIFF records are edited by Tawny and Sky. Sign in with your Green Cross account.</p>'
-      + '<label class="fld"><span>User</span><input class="gx-input" id="siUser" autocomplete="username"></label>'
-      + '<label class="fld"><span>Password</span><input class="gx-input" id="siPass" type="password" autocomplete="current-password"></label>'
-      + '<button class="gx-btn gx-btn-green" id="siGo">Sign in</button>'
+      + '<label class="gx-login-field"><span>User</span>'
+      +   '<input class="gx-input" id="siUser" autocomplete="username"></label>'
+      + '<label class="gx-login-field"><span>Password</span>'
+      +   '<input class="gx-input" id="siPass" type="password" autocomplete="current-password"></label>'
+      + '<button class="gx-btn gx-btn-green gx-login-submit" id="siGo">Sign in</button>'
       + '</div>';
     $('#recordSave').hidden = true;
     $('#recordSignIn').hidden = true;
