@@ -29,13 +29,12 @@
       <button class="gx-topnav-tab" data-tab="history">History</button>
     </nav>
     <div class="gx-topnav-right">
-      <span class="conn" id="conn" title="GX Core connection">&#9679; connecting&hellip;</span>
+      <span class="conn" id="conn" hidden title="GX Core connection">&#9679; connecting&hellip;</span>
       <div class="gx-clock"><div class="gx-clock-time">&mdash;</div><div class="gx-clock-date">&mdash;</div></div>
       <!-- SPIFF is readable signed OUT (auth is "sign in to edit"), so the sign-in button stays and
            spiff.js swaps in the user chip once there is a session. -->
       <button class="gx-btn" id="btnAuth" title="Sign in to edit records">Sign in</button>
       <div id="userSlot"></div>
-      <button class="gx-btn" id="btnSettings" title="Settings">&#9881;</button>
     </div>
   </header>
 
@@ -176,6 +175,7 @@
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-client.js"></script>
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-topnav.js"></script>
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-stores.js"></script>
+<script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-avatar.js"></script>
 <script>
   // Dev guard: non-mutating actions. Anything NOT listed is blocked when this page is served
   // from localhost, until writes are armed (banner button / ?arm=1 / GXDev.arm()). Inert in

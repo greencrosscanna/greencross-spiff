@@ -277,23 +277,40 @@
     b.hidden = !!s;
     if (!slot) return;
     if (!s) { slot.innerHTML = ''; return; }
-    var name = s.user || '';
-    var initials = String(name).trim().split(/[\s._-]+/).map(function (w) { return w.charAt(0); })
-                     .join('').slice(0, 2).toUpperCase() || 'GX';
-    slot.innerHTML =
-      '<div class="gx-user">' +
-        '<button class="gx-user-btn" aria-haspopup="menu" aria-expanded="false">' +
-          '<span class="gx-user-ava">' + initials + '</span>' +
-          '<span class="gx-user-name">' + name + '</span>' +
-        '</button>' +
-        '<div class="gx-user-menu" role="menu" hidden>' +
-          '<div class="gx-user-head">' + name + '<span>' + (s.role || 'SPIFF') + '</span></div>' +
-          '<button class="gx-user-item" data-gx-action="settings">Settings</button>' +
-          '<button class="gx-user-item" data-gx-action="version">Version <span class="gx-user-ver">' + APP_VERSION + '</span></button>' +
-          '<button class="gx-user-item is-danger" data-gx-action="logout">Sign out</button>' +
-        '</div>' +
-      '</div>';
-    if (window.GXTopNav) GXTopNav.init(slot);
+    var name = s.name || s.user || '';
+    // Real avatar when the roster has one; GXAvatar owns the DiceBear rules.
+    var ava = window.GXAvatar ? GXAvatar.chip(s.avatar, name) : null;
+    var connEl = document.getElementById('conn');
+    // Menu built from CONFIG by the shared component -- adding an item later (Settings, when it
+    // exists) is one entry here, and it matches every other app automatically.
+    // Guarded: the shared scripts come from Pages with a 10-minute cache, so there is always a
+    // window where this app has shipped and the shared layer it calls has not arrived yet. An
+    // unguarded call throws inside boot() and takes the WHOLE app down over a header detail.
+    if (!window.GXTopNav || !GXTopNav.renderUser) {
+      // Degrade to the plain Sign in button rather than nothing. Hiding it AND failing to draw the
+      // chip leaves the user with no account control at all -- a worse outcome than the old button.
+      b.hidden = false; slot.innerHTML = ''; return;
+    }
+    GXTopNav.renderUser(slot, {
+      name: name,
+      role: s.role || '',
+      avatar: ava,
+      items: [
+        // No action -> a static info row. GX Core status is diagnostic: checked when something looks
+        // wrong, not worth a permanent slot in the header.
+        { label: connEl ? connEl.textContent.trim() : 'GX Core' },
+        { action: 'version', label: 'Version', value: APP_VERSION },
+        { action: 'logout',  label: 'Sign out', danger: true }
+      ]
+    });
+    // Keep the status row live: #conn is written to by the app, so refresh the row when the menu opens
+    // rather than leaving whatever was true at render time.
+    var btn = slot.querySelector('.gx-user-btn');
+    if (btn) btn.addEventListener('click', function () {
+      var src = document.getElementById('conn');
+      var row = slot.querySelector('.gx-user-menu .gx-user-item');
+      if (src && row) row.textContent = src.textContent.trim();
+    });
   }
 
   /* The shared header emits gx-topnav:action; what each action MEANS stays here. */
@@ -302,8 +319,6 @@
     if (a === 'logout') {
       clearSession(); renderAuthChip();
       if (state.record) renderRecord(state.record);
-    } else if (a === 'settings') {
-      var sb = $('#btnSettings'); if (sb) sb.click();
     } else if (a === 'version') {
       alert('GX SPIFF ' + APP_VERSION);
     }
@@ -485,7 +500,10 @@
     try {
       var r = await GX.jsonp('login', { user: user, pass: pass, app: APP });
       if (!r || !r.ok) throw new Error((r && r.error) || 'Sign-in failed');
-      setSession({ user: r.user, role: r.role, token: r.token, expiresAt: r.expiresAt });
+      // r.user is the SLUG ('sky'); r.displayName is the person's name, and avatarConfig is their
+      // roster avatar. The chip showed the slug and bare initials because neither was stored.
+      setSession({ user: r.user, name: r.displayName || r.user, avatar: r.avatarConfig || null,
+                   role: r.role, token: r.token, expiresAt: r.expiresAt });
       $('#recordMsg').textContent = '';
       renderAuthChip();
       if (state.record) renderRecord(state.record);
