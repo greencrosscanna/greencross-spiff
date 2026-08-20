@@ -1283,11 +1283,26 @@
     document.getElementById('gateUser').focus();
   }
 
-  function boot() {
+  async function boot() {
     startChrome();
     // Gate FIRST: nothing loads and no request goes out until there is a session.
-    if (!session()) { renderGate(); return; }
-    start();
+    if (session()) { start(); return; }
+
+    /* Nested, inherit the host's sign-in rather than asking again. Different origin means separate
+       storage, so without this a user signs in to Inventory and then again to SPIFF to reach one
+       screen. The token is GX Core's and validates here because the signing secret is shared.
+       Resolves null when standalone or when the host has no session, and then the gate shows. */
+    if (window.GXSession) {
+      var inherited = await GXSession.request(6000);
+      if (inherited && inherited.token) {
+        setSession({ user: inherited.user, name: inherited.displayName || inherited.user,
+                     avatar: inherited.avatarConfig || null, role: inherited.role,
+                     token: inherited.token, expiresAt: inherited.expiresAt });
+        start();
+        return;
+      }
+    }
+    renderGate();
   }
 
   function start() {
