@@ -31,12 +31,11 @@ body {
 .panel { display: none; }
 .panel.is-active { display: block; }
 
-.gx-section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
-.gx-section-head h2 {
-  font-family: 'Montserrat', var(--gx-font), sans-serif;
-  font-size: 20px;
-  margin: 0;
-}
+/* The section head itself is gx-theme's, untouched — it is the same small-caps label in all six
+   apps. Only the right-hand control cluster is ours: the shared rule is a label/description
+   pattern with nowhere to put an action, so we push our own element over instead of redefining
+   .gx-section-head and quietly diverging from the suite. */
+.head-actions { margin-left: auto; }
 
 .dim { color: var(--gx-text-dim); font-size: 14px; margin: 4px 0 20px; }
 

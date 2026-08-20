@@ -19,7 +19,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff.css?v=18"/>
+<link rel="stylesheet" href="spiff.css?v=20"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -57,7 +57,7 @@
     <section class="panel is-active" id="panel-programs">
       <div class="gx-section-head">
         <h2>SPIFF programs</h2>
-        <button class="gx-btn gx-btn-green" id="btnNewProgram">+ New program</button>
+        <button class="gx-btn gx-btn-green head-actions" id="btnNewProgram">+ New program</button>
       </div>
       <div class="empty" id="programsEmpty">
         <p>No programs yet.</p>
@@ -73,7 +73,7 @@
     <section class="panel" id="panel-calculator">
       <div class="gx-section-head">
         <h2>Vendor calculator</h2>
-        <span class="calc-actions">
+        <span class="calc-actions head-actions">
           <select class="gx-input" id="calcLoad" title="Model from a past program">
             <option value="">Start from scratch…</option>
           </select>
@@ -119,7 +119,7 @@
     <section class="panel" id="panel-progress">
       <div class="gx-section-head">
         <h2>Live progress</h2>
-        <span class="calc-actions">
+        <span class="calc-actions head-actions">
           <select class="gx-input" id="pgProgram" title="Which program to track"></select>
           <button class="gx-btn" id="pgRefresh">Refresh</button>
         </span>
@@ -134,7 +134,7 @@
     <section class="panel" id="panel-reports">
       <div class="gx-section-head">
         <h2>Close-out &amp; reports</h2>
-        <select class="gx-input" id="repProgram" title="Which program to close out"></select>
+        <select class="gx-input head-actions" id="repProgram" title="Which program to close out"></select>
       </div>
       <p class="dim">Vendor PDF saved to Drive, the vendor email drafted for you to send, and the
          gift-card buy list. <b>Nothing is sent from here</b> &mdash; the vendor hears from Tawny.</p>
@@ -223,6 +223,6 @@
     'clientView', 'emailDraft', 'login', 'programs', 'sellthrough', 'stores'
   ];
 </script>
-<script src="spiff.js?v=19"></script>
+<script src="spiff.js?v=20"></script>
 </body>
 </html>
