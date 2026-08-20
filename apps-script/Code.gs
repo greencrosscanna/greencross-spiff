@@ -1042,6 +1042,10 @@ function giftCardList_(p) {
    empty" — two failures that look identical from the outside. */
 function diag_() {
   var d = { app: APP, ts: nowStamp_() };
+  // A library call runs the version this app PINS, not gx_core.gs as it reads today, and a
+  // pushed pin only takes effect once the deployment is updated. Report what we're actually
+  // running so the pin is checkable from the live url instead of from the manifest.
+  try { d.coreVersion = GXCore.libVersion(); } catch (e) { d.coreVersion = 'ERR ' + e.message; }
   try { d.stores    = (GXCore.getStores()    || []).length; } catch (e) { d.stores    = 'ERR ' + e.message; }
   try { d.employees = (GXCore.getEmployees() || []).length; } catch (e) { d.employees = 'ERR ' + e.message; }
   try { d.products  = (GXCore.getProducts()  || []).length; } catch (e) { d.products  = 'ERR ' + e.message; }
