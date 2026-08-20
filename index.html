@@ -26,7 +26,10 @@
 
   <!-- ============ TOP BAR ============ -->
   <!-- Shared chrome from gx-theme.css, so a refinement there reaches SPIFF automatically. -->
-  <header class="gx-topnav">
+  <!-- data-gx-keep-nested: SPIFF's OWN tabs live in this bar, so when nested the bar stays and only
+       the host-provided parts (brand, clock, user chip) are dropped. Without it SPIFF would lose its
+       navigation inside Inventory. -->
+  <header class="gx-topnav" data-gx-keep-nested>
     <div class="gx-topnav-brand">
       <img class="gx-topnav-logo" src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross">
       <span class="gx-topnav-sub">SPIFF</span>
