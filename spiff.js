@@ -1258,6 +1258,12 @@
             '<input class="gx-input" id="gatePass" type="password" autocomplete="current-password" required></label>' +
           '<button type="submit" class="gx-btn gx-btn-green gx-login-submit">Sign in</button>' +
           '<div class="gx-login-err">' + (errMsg || '') + '</div>' +
+          // Nested, say WHY the host's session did not carry over. Inside an iframe a console
+          // message is effectively invisible, and "just sign in again" hides a real failure.
+          (GXTopNavEmbedded() && state.gateReason
+            ? '<div style="margin-top:10px;font-size:11px;color:var(--gx-text-mute)">nested sign-in: '
+              + state.gateReason + '</div>'
+            : '') +
         '</form>' +
       '</div>';
     document.getElementById('gateForm').addEventListener('submit', async function (ev) {
@@ -1283,6 +1289,11 @@
     document.getElementById('gateUser').focus();
   }
 
+  function GXTopNavEmbedded() {
+    try { return window.GXTopNav ? GXTopNav.isEmbedded() : (window.self !== window.top); }
+    catch (e) { return true; }
+  }
+
   async function boot() {
     startChrome();
     // Gate FIRST: nothing loads and no request goes out until there is a session.
@@ -1295,17 +1306,32 @@
     if (window.GXSession) {
       var inherited = await GXSession.request(6000);
       if (inherited && inherited.token) {
+        /* Deliberately do NOT copy the host's expiresAt. The host may have been signed in longer than
+           its own token is valid for -- Inventory never enforces expiry -- and SPIFF's session() self-
+           expires on that field, which would adopt the session and then drop it a moment later. The
+           BACKEND is the authority on whether a token is still good: if it is not, the first call
+           returns needsAuth and the gate appears with a real reason. */
         setSession({ user: inherited.user, name: inherited.displayName || inherited.user,
                      avatar: inherited.avatarConfig || null, role: inherited.role,
-                     token: inherited.token, expiresAt: inherited.expiresAt });
+                     token: inherited.token });
         start();
         return;
       }
+      state.gateReason = inherited ? 'host replied with no token' : 'no reply from host';
+    } else {
+      state.gateReason = 'gx-session.js not loaded';
     }
+    if (!GXTopNavEmbedded()) state.gateReason = 'standalone';
+    // If the app is already running, never replace it with a gate. A late or duplicate boot showing
+    // the login over a working screen is exactly the "it disappears then comes back" symptom.
+    if (_started) return;
     renderGate();
   }
 
+  var _started = false;
   function start() {
+    if (_started) return;   // never re-enter: a second pass would rewire every handler
+    _started = true;
     wireAuthChip();     // first: every write path depends on it
     renderAuthChip();
     wireTabs();
