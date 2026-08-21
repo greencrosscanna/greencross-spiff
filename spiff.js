@@ -103,6 +103,18 @@
     var empty = $('#programsEmpty');
     try {
       var r = await ENG.jsonp('programs', { token: (session() || {}).token });
+      /* This is the FIRST read after boot, so it is where a bad session surfaces. Now that the
+         engine actually checks, "Couldn't load programs: Invalid session" would leave someone
+         staring at an empty app shell holding a token that will never work again -- the answer
+         to that is the sign-in gate, not an error message. Route it the same way boot does:
+         no_access is a grant problem and gets the panel, everything else gets the gate. */
+      if (r && r.needsAuth) {
+        var who = (session() || {}).user;
+        clearSession();
+        if (r.code === 'no_access') renderNoAccess(who);
+        else renderGate(r.error || 'Please sign in again');
+        return;
+      }
       // Insist on the shape we asked for. Treating any object as success turns a wrong
       // or errored response into a silent empty table, which reads as "no data" — the
       // failure mode that hid a JSONP callback collision.
