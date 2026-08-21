@@ -99,6 +99,24 @@ var EDITABLE_FIELDS = [
   'contact_name', 'contact_email'
 ];
 
+/* Which GXCore version THIS DEPLOYMENT is bound to, over HTTP. Requested by inventory, and it
+   answers the question that cost us fifteen versions of drift: appsscript.json at HEAD, gx_core.gs
+   as it reads today, and what the live deployment actually runs can all disagree, and pushing a pin
+   without deploying looks identical to success from the push output.
+
+   Ungated on purpose (it leaks one integer) and it REPORTS its errors rather than throwing: a
+   pre-v153 pin has no libVersion(), and letting that blow up would break the diagnostic exactly
+   when it matters most. Compare against GX Core's public ?action=health.lib_version. */
+function libVersion_() {
+  try {
+    if (typeof GXCore === 'undefined' || !GXCore) return { ok: false, error: 'GXCore not bound' };
+    if (typeof GXCore.libVersion !== 'function') return { ok: false, error: 'pinned GXCore has no libVersion() - pre-v153' };
+    return { ok: true, app: APP, gxcore: GXCore.libVersion() };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message || e) };
+  }
+}
+
 /* ------------------------- WHO MAY CALL WHAT -------------------------
  * These reads used to require NOTHING. The frontend's sign-in gate is real, but
  * the gate and the data live on different servers, so being signed in was never
@@ -149,6 +167,7 @@ function doGet(e) {
     if (denied) return reply_(denied, p.callback);
     switch (p.action) {
       case 'ping':        out = { ok: true, app: APP, ts: nowStamp_() };            break;
+      case 'libversion': out = libVersion_();                                        break;
       case 'programs':    out = { ok: true, programs: listProgramsCached_() };      break;
       case 'program':     out = getProgram_(p.id);                                  break;
       case 'previewCalc': out = importCalculator_({ save: false });                 break;
