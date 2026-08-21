@@ -547,7 +547,7 @@
   // Collect only what actually changed, so an edit to one field can't silently rewrite
   // the rest of the record.
   function collectPatch(p) {
-    var patch = {}, nested = {};
+    var patch = Object.create(null), nested = Object.create(null);
     $$('#recordBody [data-key]').forEach(function (el) {
       var key = el.dataset.key, raw = el.value.trim();
       var val = el.type === 'number' ? (raw === '' ? null : Number(raw)) : raw;
@@ -781,7 +781,7 @@
     var m = calcModel();
     if (!calc.name) { alert('Give the program a name first.'); return; }
 
-    var byStore = {}, perBt = {};
+    var byStore = Object.create(null), perBt = Object.create(null);
     m.on.forEach(function (s) {
       byStore[s.store_id] = Math.round((Number(s.baseline) || 0) * m.ratio);
       perBt[s.store_id]   = s.bts ? Math.round(Math.round(s.baseline / s.bts) * m.ratio) : 0;
@@ -944,7 +944,7 @@
   }
 
   function fillHistoryFilters() {
-    var vendors = {}, years = {};
+    var vendors = Object.create(null), years = Object.create(null);
     state.programs.forEach(function (p) {
       if (p.vendor) vendors[p.vendor] = 1;
       if (p.start_date) years[p.start_date.slice(0, 4)] = 1;
@@ -993,7 +993,7 @@
 
     // Group by month — a pay period lives inside one, and it makes "9 periods ago"
     // countable by eye.
-    var groups = {};
+    var groups = Object.create(null);   // keys are YYYY-MM, but no map earns a prototype
     sortPrograms(list).forEach(function (p) {
       var k = p.start_date ? p.start_date.slice(0, 7) : 'No period';
       (groups[k] = groups[k] || []).push(p);
@@ -1099,7 +1099,11 @@
 
   // Same person can appear in several windows; sum them, then re-decide who hit.
   function mergeWindow(a, b) {
-    var by = {};
+    /* Keyed on the budtender NAME from Dutchie -- data we do not control. On a plain object,
+       k="constructor" makes `!by[k]` false because the INHERITED member is truthy, so the
+       initialiser is skipped and the += lands on the Object constructor itself. This is the
+       frontend twin of the same merge in the engine; both are null-prototype now. */
+    var by = Object.create(null);
     a.rows.concat(b.rows).forEach(function (e) {
       var k = e.name;
       if (!by[k]) by[k] = { name: e.name, employee_id: e.employee_id, store_id: e.store_id, units: 0, revenue: 0, target: e.target };
@@ -1130,7 +1134,7 @@
 
     var stores  = prog.stores_json || [];
     var windows = dateWindows(prog.start_date, prog.end_date, PROGRESS_WINDOW_DAYS);
-    var results = {}, failed = {};
+    var results = Object.create(null), failed = Object.create(null);
 
     $('#pgStats').innerHTML = '';
     $('#pgBody').innerHTML = '<p class="hint">Pulling ' + stores.length + ' stores × '
@@ -1150,7 +1154,7 @@
   }
 
   function paintProgress(prog, results, failed, stores, done) {
-    var storeName = {};
+    var storeName = Object.create(null);
     state.stores.forEach(function (s) { storeName[s.store_id] = s.display_name || s.store_id; });
 
     var units = 0, hit = 0, bts = 0;
@@ -1223,10 +1227,10 @@
     }
 
     // Grouped by store, mirroring the report Tawny already sends.
-    var byStore = {};
+    var byStore = Object.create(null);
     r.rows.forEach(function (e) { (byStore[e.store_id] = byStore[e.store_id] || []).push(e); });
 
-    var storeName = {};
+    var storeName = Object.create(null);
     state.stores.forEach(function (s) { storeName[s.store_id] = s.display_name || s.store_id; });
 
     var cols = Object.keys(byStore).sort().map(function (sid) {

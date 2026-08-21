@@ -1053,7 +1053,7 @@ function clientView_(p) {
   var rate = (prog.payout_json || {}).amount || 0;
 
   // Store-level detail uses display names, not internal ids.
-  var stores = gxStores_(), nameOf = {};
+  var stores = gxStores_(), nameOf = Object.create(null);
   stores.forEach(function (s) { nameOf[s.store_id] = s.display_name || s.store_id; });
 
   var byStore = (prog.stores_json || []).map(function (id) {
@@ -1297,7 +1297,12 @@ function gxEmployees_(opts) {
     return { ok: false, error: 'GXCore library unavailable: ' + (e && e.message || e) };
   }
 
-  var out = [], byStore = {}, roles = {};
+  /* Null-prototype, and these are the ones I MISSED on the first sweep: pricecards found the
+     same class in their live telemetry, where bucket[action] || 0 hit the inherited function and
+     concatenated onto it -- "function Object() { [native code] }1" in a counter. `roles` here is
+     keyed on role_title straight off the employees sheet, so a title of "constructor" does exactly
+     that. A corrupted count is worse than no count: nobody doubts a number. */
+  var out = [], byStore = Object.create(null), roles = Object.create(null);
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
     var status = String(r.status || 'active').toLowerCase();
@@ -1762,7 +1767,7 @@ function mergeDocsIntoPrograms_(docs, user) {
   Object.keys(groups).forEach(function (key) {
     var list = groups[key], first = list[0];
 
-    var by_store = {}, per_bt = {}, docIds = [], docNames = [];
+    var by_store = Object.create(null), per_bt = Object.create(null), docIds = [], docNames = [];
     list.forEach(function (d) {
       Object.keys(d.goals.by_store).forEach(function (s) { by_store[s] = d.goals.by_store[s]; });
       Object.keys(d.goals.per_bt).forEach(function (s) { per_bt[s] = d.goals.per_bt[s]; });
