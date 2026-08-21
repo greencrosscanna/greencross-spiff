@@ -89,6 +89,13 @@ var CLIENT_PASS_PROP = 'CLIENT_VIEW_PASSWORD';
 // `editor` is by definition the role that can edit, so leaving it out would let someone
 // sign in and then be refused on save. `director` is included because Leaderboard and
 // Performance grant it to the same people. `viewer` stays read-only.
+//
+// MANAGER IS EXCLUDED ON PURPOSE -- intent, not drift. Sky ruled it 2026-08-20, after
+// pricecards flagged that Core's GX_EDIT_ROLES also counts `manager`. A SPIFF program is a
+// vendor negotiation with real payout dollars behind it, so editing one is Tawny-and-above.
+// The ~12 store managers are the audience for the READ-ONLY employee flyer, not for changing
+// vendor terms. Deliberately narrower than Core, which is the safe direction: a local
+// allowlist narrower than the canonical one can fail closed but never open.
 var EDIT_ROLES = ['admin', 'editor', 'director'];
 
 // Fields a human may change on an imported record. Everything else (ids, source,

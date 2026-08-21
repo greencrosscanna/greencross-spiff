@@ -1,0 +1,124 @@
+/* GX SPIFF — employee flyer.
+   Phone-first on purpose: a budtender checks this on the floor between customers, not at a desk.
+   One card, big numbers, no tabs and no navigation — there is exactly one thing to look at. */
+
+body.flyer {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--gx-bg, #0b0f0d);
+  color: var(--gx-text, #e9efe9);
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+}
+
+.fl-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 16px;
+}
+
+.fl-boot { color: var(--gx-text-mute); font-size: 13px; padding: 40px 0; }
+
+.fl-card {
+  width: 100%;
+  max-width: 460px;
+  background: var(--gx-panel, #121815);
+  border: 1px solid var(--gx-line, #223029);
+  border-radius: 16px;
+  padding: 20px;
+}
+.fl-card-msg { text-align: center; }
+.fl-card-msg .gx-btn { margin-top: 16px; }
+
+.fl-top {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 18px;
+}
+.fl-who { font-weight: 700; font-size: 14px; }
+.fl-out { font-size: 12px; padding: 5px 10px; }
+
+.fl-prog { margin-bottom: 18px; }
+.fl-vendor {
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--gx-text-mute); margin-bottom: 4px;
+}
+.fl-h1 {
+  font-family: Montserrat, Inter, sans-serif;
+  font-size: 22px; font-weight: 800; margin: 0 0 8px; line-height: 1.2;
+}
+.fl-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fl-tag {
+  font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 999px; border: 1px solid currentColor;
+}
+.fl-tag.is-live { color: var(--gx-green-bright, #6ee787); }
+.fl-tag.is-done { color: var(--gx-text-mute, #8a9a90); }
+.fl-when { font-size: 12px; color: var(--gx-text-mute); }
+
+/* The one number this page exists to show. */
+.fl-hero {
+  text-align: center;
+  padding: 22px 12px;
+  border-radius: 12px;
+  background: var(--gx-bg-soft, rgba(255,255,255,.03));
+  border: 1px solid var(--gx-line, #223029);
+  margin-bottom: 16px;
+}
+.fl-hero.is-paid { border-color: var(--gx-green, #3fb950); }
+.fl-hero-label {
+  font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--gx-text-mute); margin-bottom: 6px;
+}
+.fl-hero-amt {
+  font-family: Montserrat, Inter, sans-serif;
+  font-size: 44px; font-weight: 900; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.fl-hero.is-paid .fl-hero-amt { color: var(--gx-green-bright, #6ee787); }
+.fl-hero-sub { margin-top: 8px; font-size: 13px; color: var(--gx-text-dim, #b3c2b8); }
+
+.fl-bar {
+  height: 8px; border-radius: 999px; overflow: hidden;
+  background: var(--gx-line, #223029); margin-bottom: 16px;
+}
+.fl-bar-fill {
+  height: 100%; border-radius: 999px;
+  background: var(--gx-text-mute, #8a9a90);
+  transition: width .4s ease;
+}
+.fl-bar-fill.is-hit { background: var(--gx-green, #3fb950); }
+
+.fl-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.fl-num {
+  text-align: center; padding: 12px 6px; border-radius: 10px;
+  background: var(--gx-bg-soft, rgba(255,255,255,.03));
+}
+.fl-num-v {
+  display: block; font-weight: 800; font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.fl-num-k {
+  display: block; margin-top: 3px;
+  font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--gx-text-mute);
+}
+
+.fl-lead { font-size: 14px; line-height: 1.45; margin: 0 0 10px; }
+.fl-note { font-size: 12px; line-height: 1.5; color: var(--gx-text-mute); margin: 0; }
+.fl-msg { text-align: left; }
+.fl-msg .gx-btn { width: 100%; margin-top: 16px; }
+
+.fl-foot {
+  text-align: center; padding: 16px;
+  font-size: 11px; color: var(--gx-text-mute);
+}
+
+/* 340, not 380: 375 is the standard iPhone width, so a 380 breakpoint stacked the stat row on
+   nearly every phone that will ever open this page — three tiles fit fine at 375. */
+@media (max-width: 340px) {
+  .fl-hero-amt { font-size: 36px; }
+  .fl-nums { grid-template-columns: 1fr; }
+}
