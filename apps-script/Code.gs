@@ -132,27 +132,45 @@ function libVersion_() {
  * passphrase) because vendors have no GX Core account. `flyer` authenticates
  * itself, because it also has to resolve WHICH employee is asking.
  */
-var GATED_READS = ['programs', 'program', 'history', 'sellthrough', 'employees',
-                   'giftCards', 'emailDraft', 'previewCalc', 'previewDocs'];
+/* PUBLIC is a SHORT CLOSED LIST; everything else needs a live GX Core session with a grant
+   on spiff. This started life the other way round -- a list of what to PROTECT -- and
+   pricecards' finding is what turned it around. Their bug was a lookup table used as a
+   whitelist, but the transferable lesson is about which way a gate FAILS when someone
+   forgets a line:
 
-/* Writes that never checked anyone. importCalc re-imports the Calculator and rewrites
-   the programs tab, and it was reachable on a bare GET. The edited_by skip is damage
-   control against a stray re-run, not a permission check -- it was never meant to be
-   the only thing standing between a stranger and the datastore. */
+     list what to protect  -> forget one, and a new action is PUBLIC. Silent, and the
+                              payload is whatever sits after the switch.
+     list what is public   -> forget one, and a new action is merely UNREACHABLE, which
+                              whoever added it reports within a minute.
+
+   Only one of those failure modes shows up on its own. So: private by default.
+
+   `ping`, `diag` and `libversion` are health checks the deploy loop verifies a re-pin
+   against -- they report counts and a library version, never a person, and needing a
+   session to ask "did my deploy land" is how a check stops being run. `clientView` keeps
+   its own two gates (per-program token + passphrase) because vendors have no GX Core
+   account. `flyer` authenticates itself, because it must resolve WHICH employee is asking.
+
+   Spiff is NOT exposed to pricecards' actual bug -- the router is a switch with an explicit
+   default, so ?action=toString and ?action=__proto__ answer "Unknown action" rather than
+   falling through. Verified against live, all six inherited names. A switch is immune where
+   a map lookup is not. */
+var PUBLIC_ACTIONS = ['ping', 'diag', 'libversion', 'clientView', 'flyer'];
+
+/* Actions that additionally need an editor role. The rest of the write surface checks its own
+   role after this, because each has its own message about what the role cannot do. */
 var GATED_WRITES = ['importCalc'];
 
-/* The caller must hold a live GX Core session with a grant on spiff. Returns null when
-   the call may proceed, or the response to send back when it may not. Forwards GX Core's
-   stable `code` (v164) untouched so the browser can tell "no grant" from "expired". */
+/* Returns null when the call may proceed, or the response to send when it may not. Forwards
+   GX Core's stable `code` untouched so the browser can tell "no grant" from "expired". */
 function guard_(action, p) {
-  var isWrite = GATED_WRITES.indexOf(action) >= 0;
-  if (!isWrite && GATED_READS.indexOf(action) < 0) return null;
+  if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
   var auth = gxAuth_(p.token);
   if (!auth.ok) {
     return { ok: false, error: auth.error || 'Not signed in',
              code: auth.code || 'auth_required', needsAuth: true };
   }
-  if (isWrite && EDIT_ROLES.indexOf(String(auth.role)) < 0) {
+  if (GATED_WRITES.indexOf(action) >= 0 && EDIT_ROLES.indexOf(String(auth.role)) < 0) {
     return { ok: false, error: 'Your role (' + auth.role + ') cannot import SPIFF programs' };
   }
   return null;
@@ -382,7 +400,7 @@ function parseCalcTab_(sheet, stores) {
    same units sold, budtenders hit AND investment is not a coincidence — mark both so a
    stale panel can't be mistaken for a real result. */
 function flagDuplicateActuals_(programs) {
-  var seen = {};
+  var seen = Object.create(null);   // keyed by joined actuals; null-proto so no key can inherit
   programs.forEach(function (p) {
     if (!p.actual_json) return;
     var a = p.actual_json;
@@ -603,7 +621,9 @@ function editProgram_(p) {
 
   var merged = current.program, changed = [];
   EDITABLE_FIELDS.forEach(function (f) {
-    if (!patch.hasOwnProperty(f)) return;
+    // patch is JSON.parse'd from the request: a key literally named "hasOwnProperty" would
+    // shadow the method and turn this into a TypeError. Call it off the prototype instead.
+    if (!Object.prototype.hasOwnProperty.call(patch, f)) return;
     if (JSON.stringify(merged[f]) === JSON.stringify(patch[f])) return;
     merged[f] = patch[f];
     changed.push(f);
@@ -642,14 +662,28 @@ function createProgram_(p) {
   return res;
 }
 
-/* Validate a GX Core session token and resolve this user's role on `spiff`. */
+/* Validate a GX Core session token and resolve this user's role on `spiff`.
+   Memoised for the life of ONE execution: guard_ now validates before the switch, and the
+   write functions still check their own role afterwards, so without this every write would
+   pay two ~1s round trips to Core to ask the same question twice.
+
+   Object.create(null), not {} -- this is a map indexed by RAW USER INPUT, the exact shape
+   pricecards got bitten by. With a plain object, token='toString' would hit the inherited
+   function, return it as the cached answer, and `auth.ok` would read undefined. That happens
+   to fail CLOSED here, but relying on which way an accident falls is not a control. */
+var _authMemo = Object.create(null);
 function gxAuth_(token) {
   if (!token) return { ok: false, error: 'Not signed in' };
+  if (_authMemo[token]) return _authMemo[token];
   try {
     var url = GXCORE_URL + '?action=validate&app=' + encodeURIComponent(APP) + '&token=' + encodeURIComponent(token);
     var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
-    return JSON.parse(res.getContentText());
+    var parsed = JSON.parse(res.getContentText());
+    _authMemo[token] = parsed;
+    return parsed;
   } catch (e) {
+    /* Deliberately NOT memoised: a transient Core hiccup must not pin this execution into a
+       failure it would recover from on the next call. */
     return { ok: false, error: 'Could not reach GX Core to verify your session' };
   }
 }
@@ -780,7 +814,11 @@ function sellthrough_(p) {
   var perBt = Number((t.per_bt || {})[store]) || 0;
   var rate  = (prog.payout_json || {}).amount || 0;
 
-  var people = {};
+  /* Object.create(null): `name` is Dutchie's completedByUser, i.e. data we do not control.
+     On a plain object a budtender named "constructor" or "valueOf" would find the INHERITED
+     member truthy, skip the initialiser, and start adding units onto a function. Absurd as a
+     name, but it is the same class pricecards hit and the fix is free. */
+  var people = Object.create(null);
   (r.rows || []).forEach(function (row) {
     var name = String(row.employee_name || '').trim();
     if (!name) return;
@@ -1717,7 +1755,7 @@ function importDocs_(p) {
 /* Per-store docs of one program merge into a single record. Docs win on dates and goals;
    anything the Calculator knew that a doc doesn't mention (cost, baseline) is kept. */
 function mergeDocsIntoPrograms_(docs, user) {
-  var groups = {};
+  var groups = Object.create(null);   // keyed off doc filenames — external, so no prototype
   docs.forEach(function (d) { (groups[d.key] = groups[d.key] || []).push(d); });
 
   var out = [];
