@@ -99,11 +99,54 @@ var EDITABLE_FIELDS = [
   'contact_name', 'contact_email'
 ];
 
+/* ------------------------- WHO MAY CALL WHAT -------------------------
+ * These reads used to require NOTHING. The frontend's sign-in gate is real, but
+ * the gate and the data live on different servers, so being signed in was never
+ * a precondition for reading -- the same shape GX Core found in Price Cards'
+ * writes, on our read side. With no token at all these returned the full roster,
+ * per-budtender sell-through (names, dutchie ids, units, revenue, who hit) and
+ * program payout totals to anyone holding the /exec URL, which ships in
+ * index.html on public GitHub Pages. "You would need the URL" is not a control.
+ *
+ * `ping` and `diag` stay OPEN deliberately: they are the health checks the deploy
+ * loop verifies a re-pin against, and they report counts and a library version,
+ * never a person. `clientView` keeps its own two gates (per-program token +
+ * passphrase) because vendors have no GX Core account. `flyer` authenticates
+ * itself, because it also has to resolve WHICH employee is asking.
+ */
+var GATED_READS = ['programs', 'program', 'history', 'sellthrough', 'employees',
+                   'giftCards', 'emailDraft', 'previewCalc', 'previewDocs'];
+
+/* Writes that never checked anyone. importCalc re-imports the Calculator and rewrites
+   the programs tab, and it was reachable on a bare GET. The edited_by skip is damage
+   control against a stray re-run, not a permission check -- it was never meant to be
+   the only thing standing between a stranger and the datastore. */
+var GATED_WRITES = ['importCalc'];
+
+/* The caller must hold a live GX Core session with a grant on spiff. Returns null when
+   the call may proceed, or the response to send back when it may not. Forwards GX Core's
+   stable `code` (v164) untouched so the browser can tell "no grant" from "expired". */
+function guard_(action, p) {
+  var isWrite = GATED_WRITES.indexOf(action) >= 0;
+  if (!isWrite && GATED_READS.indexOf(action) < 0) return null;
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) {
+    return { ok: false, error: auth.error || 'Not signed in',
+             code: auth.code || 'auth_required', needsAuth: true };
+  }
+  if (isWrite && EDIT_ROLES.indexOf(String(auth.role)) < 0) {
+    return { ok: false, error: 'Your role (' + auth.role + ') cannot import SPIFF programs' };
+  }
+  return null;
+}
+
 /* ---------------------------- ROUTER ---------------------------- */
 function doGet(e) {
   var p = (e && e.parameter) || {};
   var out;
   try {
+    var denied = guard_(p.action, p);
+    if (denied) return reply_(denied, p.callback);
     switch (p.action) {
       case 'ping':        out = { ok: true, app: APP, ts: nowStamp_() };            break;
       case 'programs':    out = { ok: true, programs: listProgramsCached_() };      break;
@@ -128,6 +171,7 @@ function doGet(e) {
       case 'sellthrough': out = sellthrough_(p);                                    break;
       case 'payouts':     out = notImplemented_('payouts');                         break;
       case 'history':     out = { ok: true, programs: listPrograms_('closed') };    break;
+      case 'flyer':       out = flyer_(p);                                          break;
       default:            out = { ok: false, error: 'Unknown action: ' + (p.action || '(none)') };
     }
   } catch (err) {
@@ -141,6 +185,18 @@ function doPost(e) {
   try { body = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) {}
   var out;
   try {
+    /* Every doPost action is a write, and saveProgram / importCalc checked nobody at all.
+       Nothing in the frontend uses doPost -- the browser calls this engine cross-origin via
+       JSONP, which is GET-only -- so this path was an unauthenticated write surface reachable
+       by anyone with curl and the URL, serving no caller. Gate the lot. */
+    var auth = gxAuth_(body.token);
+    if (!auth.ok) {
+      return reply_({ ok: false, error: auth.error || 'Not signed in',
+                      code: auth.code || 'auth_required', needsAuth: true }, null);
+    }
+    if (EDIT_ROLES.indexOf(String(auth.role)) < 0) {
+      return reply_({ ok: false, error: 'Your role (' + auth.role + ') cannot write SPIFF records' }, null);
+    }
     switch (body.action) {
       case 'importCalc':    out = importCalculator_({ save: true });  break;
       case 'saveProgram':   out = saveProgram_(body.program);         break;
@@ -740,6 +796,119 @@ function sellthrough_(p) {
     from: from, to: to, target: target, rate: rate,
     rows: list, units: units, hit: hit, budtenders: list.length,
     errors: r.errors || []
+  };
+}
+
+/* ==================== EMPLOYEE FLYER (standalone) ====================
+ * The budtender-facing view: what is running, what is my number, what do I have
+ * coming. Sky's ruling is that a SPIFF user with NO Inventory access gets this,
+ * not the operator app -- and once Send-to-Managers reaches ~12 managers, most
+ * SPIFF users will be in exactly that position.
+ *
+ * SCOPED IS THE WHOLE POINT OF THE ROUTE. Progress returns the full matrix: every
+ * budtender at a store, by name, with units and revenue. A budtender must not see
+ * their coworkers' numbers, so this returns exactly ONE person -- the caller. Like
+ * clientView_ it hand-builds its response instead of returning stored rows, so a
+ * column added to `programs` later stays invisible here until someone deliberately
+ * exposes it. Revenue is omitted on purpose: a flyer needs units and dollars owed,
+ * not the store's takings.
+ *
+ * It REUSES sellthrough_ rather than re-deriving targets. If the flyer decided "did
+ * I hit" its own way, a budtender's screen could disagree with the matrix Tawny pays
+ * from -- and the budtender would be right to trust neither.
+ * ==================================================================== */
+
+/* Join key for user_id, and NOT slug_. spiff's slug_ rewrites '_' to '-' while GX Core's
+   gxSlug_ only lowercases, so slug_('sam_keck') is 'sam-keck' against a stored 'sam_keck'
+   and the join would miss EVERY row while looking perfectly reasonable. Strip to
+   alphanumerics so either convention lands on the same key. */
+function userKey_(s) { return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ''); }
+
+function flyerEmployee_(user) {
+  var want = userKey_(user);
+  if (!want) return null;
+  var rows;
+  try { rows = GXCore.getEmployees() || []; } catch (e) { return null; }
+  for (var i = 0; i < rows.length; i++) {
+    if (userKey_(rows[i].user_id) === want) return rows[i];
+  }
+  return null;
+}
+
+function flyer_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) {
+    return { ok: false, error: auth.error || 'Not signed in',
+             code: auth.code || 'auth_required', needsAuth: true };
+  }
+
+  var emp = flyerEmployee_(auth.user);
+  if (!emp) {
+    /* Sam Keck's gap precisely: a real account whose employees.user_id was never set, so
+       the join resolves to nothing. Say that, and name the fix. Do NOT fall back to
+       matching on display name -- a near-miss there would show one person another
+       person's earnings, which is worse than showing nothing. */
+    return { ok: true, linked: false, user: auth.user,
+             error: 'Your sign-in is not linked to an employee record, so SPIFF cannot tell '
+                  + 'which numbers are yours. Ask Sky to set user_id on your row in the Command Center.' };
+  }
+
+  var store = slug_(emp.home_store || '');
+  var me = { name: emp.full_name || auth.user, home_store: store };
+  if (!store) return { ok: true, linked: true, employee: me, program: null,
+                       note: 'Your employee record has no home store, so there is nothing to measure you against yet.' };
+
+  /* Dates are TEXT (YYYY-MM-DD) and compared as text. Lexicographic order IS chronological
+     for that format, so this never coerces a Date and never trips the timezone shift. */
+  var today = nowStamp_().slice(0, 10);
+  var running = null, recent = null;
+  listPrograms_().forEach(function (pr) {
+    var st = String(pr.status || '').toLowerCase(), s = pr.start_date || '', e = pr.end_date || '';
+    if (!e) return;
+    if (st !== 'closed' && s && s <= today && today <= e) {
+      if (!running || e < running.end_date) running = pr;   // the one ending soonest
+    }
+    if (e <= today && (!recent || e > recent.end_date)) recent = pr;
+  });
+
+  /* No program running is a REAL state, not an error -- today every program on record is
+     closed. Fall back to the most recently ended one so the page can still answer "what do
+     I have coming", and flag which it is rather than letting the page guess. */
+  var prog = running || recent;
+  if (!prog) return { ok: true, linked: true, employee: me, program: null,
+                      note: 'No SPIFF program on record yet.' };
+
+  var st = sellthrough_({ id: prog.program_id, store: store });
+  if (!st.ok) return { ok: false, error: st.error || 'Could not read sell-through' };
+
+  /* Prefer the dutchie id: it is the join Crew reweighted their duplicate scorer to favour
+     precisely because a name can be spelled two ways or belong to two people. Name is the
+     fallback, and only when the id gives nothing. */
+  var mine = null, wantId = String(emp.dutchie_employee_id || ''), wantName = userKey_(emp.full_name);
+  (st.rows || []).forEach(function (r) {
+    if (wantId && String(r.employee_id) === wantId) mine = r;
+  });
+  if (!mine && wantName) {
+    (st.rows || []).forEach(function (r) { if (!mine && userKey_(r.name) === wantName) mine = r; });
+  }
+
+  var units = mine ? Number(mine.units) || 0 : 0;
+  var hit   = mine ? !!mine.hit : false;
+  /* per_unit is REAL and implemented -- Hapy Kitchen paid $1 a unit. Assuming flat here
+     would quietly under-report what a budtender is owed on those programs. */
+  var payout = String(prog.payout_type || 'flat').toLowerCase() === 'per_unit'
+    ? units * (Number(st.rate) || 0)
+    : (hit ? (Number(st.rate) || 0) : 0);
+
+  return {
+    ok: true, linked: true, is_current: !!running,
+    employee: me,
+    program: {
+      vendor: prog.vendor || '', name: prog.program_name || prog.title || '',
+      start_date: prog.start_date || '', end_date: prog.end_date || '',
+      status: prog.status || '', payout_type: prog.payout_type || 'flat'
+    },
+    mine: { units: units, target: Number(st.target) || 0, hit: hit, payout: payout, rate: Number(st.rate) || 0 }
   };
 }
 

@@ -95,11 +95,14 @@
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
   }); }
 
+  /* Reads carry the session token now. They did not used to: the engine served programs,
+     sell-through, the roster and payout totals to anyone with the /exec URL, which ships in
+     index.html on public Pages. The gate was real but it guarded the wrong server. */
   async function loadPrograms() {
     var list  = $('#programsList');
     var empty = $('#programsEmpty');
     try {
-      var r = await ENG.jsonp('programs', {});
+      var r = await ENG.jsonp('programs', { token: (session() || {}).token });
       // Insist on the shape we asked for. Treating any object as success turns a wrong
       // or errored response into a silent empty table, which reads as "no data" — the
       // failure mode that hid a JSONP callback collision.
@@ -207,7 +210,7 @@
     btn.disabled = true;
     btn.textContent = 'Importing…';
     try {
-      var r = await ENG.jsonp('importCalc', {});
+      var r = await ENG.jsonp('importCalc', { token: (session() || {}).token });
       if (!r || !r.ok) throw new Error((r && r.error) || 'import failed');
       await loadPrograms();
       if (r.skipped && r.skipped.length) {
@@ -849,7 +852,7 @@
 
     var mail = { subject: '', body: '' };
     try {
-      var r = await ENG.jsonp('emailDraft', { id: p.program_id });
+      var r = await ENG.jsonp('emailDraft', { token: (session() || {}).token, id: p.program_id });
       if (r && r.ok) mail = r;
     } catch (e) { console.error('[spiff] email draft failed:', e); }
 
@@ -1073,7 +1076,7 @@
     var merged = null;
     for (var i = 0; i < windows.length; i++) {
       var r = await ENG.jsonp('sellthrough',
-        { id: id, store: store, from: windows[i][0], to: windows[i][1] },
+        { token: (session() || {}).token, id: id, store: store, from: windows[i][0], to: windows[i][1] },
         { timeoutMs: 65000, retries: 1 });
       if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
       merged = merged ? mergeWindow(merged, r) : r;
