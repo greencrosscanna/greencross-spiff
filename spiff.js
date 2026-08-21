@@ -508,6 +508,13 @@
     $('#recordMsg').textContent = 'Signing in…';
     try {
       var r = await GX.jsonp('login', { user: user, pass: pass, app: APP });
+      // Same `code` contract as the full-page gate, but NOT the same treatment: this modal is
+      // reached from an app the user is already reading, so a full-page takeover would be a
+      // worse answer than a plain sentence. Say the true thing and leave them where they are.
+      if (r && r.code === 'no_access') {
+        $('#recordMsg').textContent = 'Your account does not have access to SPIFF. Ask Sky to grant it.';
+        return;
+      }
       if (!r || !r.ok) throw new Error((r && r.error) || 'Sign-in failed');
       // r.user is the SLUG ('sky'); r.displayName is the person's name, and avatarConfig is their
       // roster avatar. The chip showed the slug and bare initials because neither was stored.
@@ -1274,6 +1281,12 @@
       btn.disabled = true; btn.textContent = 'Signing in…'; err.textContent = '';
       try {
         var r = await GX.jsonp('login', { user: u, pass: pw, app: APP });
+        // Branch on `code`, NEVER on `error`. GX Core v164 ships `error` as human prose it
+        // reserves the right to reword, and `code` as the contract that will not change.
+        // no_access means the password was RIGHT and there is simply no grant on SPIFF --
+        // showing "Invalid username or password" there sends a legitimate user off to retry
+        // a password that can never work.
+        if (r && r.code === 'no_access') { wrap.remove(); renderNoAccess(u); return; }
         if (!r || !r.ok) throw new Error((r && r.error) || 'Sign-in failed');
         setSession({ user: r.user, name: r.displayName || r.user, avatar: r.avatarConfig || null,
                      role: r.role, token: r.token, expiresAt: r.expiresAt });
@@ -1287,6 +1300,41 @@
       }
     });
     document.getElementById('gateUser').focus();
+  }
+
+  /* The dead end this closes: a user who IS signed in, whose token is perfectly valid, and who
+     simply holds no grant on SPIFF. Before GX Core v164 that was indistinguishable from a bad
+     token, so the only thing we could do was show the sign-in gate -- which invites them to sign
+     in again, succeed again, and land right back here. A loop that blames the user for a config
+     gap. GX Core now returns code:"no_access" for exactly this case, so we can say the true
+     thing instead: your sign-in worked, the grant is missing, here is who fixes it. */
+  function renderNoAccess(who) {
+    document.body.classList.add('is-gated');
+    var gate = document.getElementById('authGate');
+    if (gate) gate.remove();
+    var wrap = document.createElement('div');
+    wrap.id = 'noAccess';
+    wrap.className = 'gx-login';
+    wrap.innerHTML =
+      '<div class="gx-login-card">' +
+        '<div class="gx-login-head">' +
+          '<img class="gx-login-mark" src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross">' +
+          '<div class="gx-login-sub">SPIFF</div>' +
+        '</div>' +
+        '<div class="noaccess-body">' +
+          '<p class="noaccess-lead">You are signed in' + (who ? ' as <strong>' + esc(who) + '</strong>' : '') +
+            ', but your account has not been granted SPIFF.</p>' +
+          '<p class="noaccess-note">Nothing is wrong with your password. Access is granted per app in ' +
+            'the GX Command Center &mdash; ask Sky to add SPIFF to your account, then reload.</p>' +
+          '<button class="gx-btn" id="naOther">Sign in as someone else</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(wrap);
+    document.getElementById('naOther').addEventListener('click', function () {
+      clearSession();
+      wrap.remove();
+      renderGate();
+    });
   }
 
   function GXTopNavEmbedded() {
@@ -1315,6 +1363,7 @@
                      avatar: inherited.avatarConfig || null, role: inherited.role,
                      token: inherited.token });
         start();
+        confirmInheritedGrant(inherited.token, inherited.user);
         return;
       }
       state.gateReason = inherited ? 'host replied with no token' : 'no reply from host';
@@ -1326,6 +1375,24 @@
     // the login over a working screen is exactly the "it disappears then comes back" symptom.
     if (_started) return;
     renderGate();
+  }
+
+  /* Inheriting the host's token is AUTHENTICATION and never becomes AUTHORISATION: it proves who
+     the user is, not that they hold SPIFF. Inventory now gates the tab on the grant, so a
+     no-grant user reaching us is rare -- revoked mid-session, or a host that nests without
+     gating -- and this is the belt to that braces.
+
+     Deliberately NON-BLOCKING, and fired AFTER start(). core-admin measured the grants round trip
+     at ~7 SECONDS against the live two-hop /exec; making every boot wait on it to catch the rare
+     case would tax everyone for the exception. So: start now, swap to the panel if the answer
+     comes back no_access. Any OTHER outcome -- expired, invalid, Core unreachable -- is left
+     alone on purpose. Those are the gate's business, and the write path already fails closed on
+     them via gxAuth_; blanking a working screen because Core hiccuped is the failure mode we
+     avoid everywhere else in the suite. */
+  function confirmInheritedGrant(token, who) {
+    GX.jsonp('validate', { app: APP, token: token }).then(function (r) {
+      if (r && r.code === 'no_access') { clearSession(); renderNoAccess(who); }
+    }).catch(function () { /* unreachable Core is not a no_access answer */ });
   }
 
   var _started = false;

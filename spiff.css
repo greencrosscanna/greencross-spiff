@@ -341,3 +341,15 @@ body {
 body.is-gated > .gx-app,
 body.is-gated .gx-topnav,
 body.is-gated .workspace { display: none !important; }
+
+/* No-access panel: same .gx-login card as the sign-in gate, deliberately, so it reads as the same
+   surface rather than an error page. What changes is the CONTENT -- there is no form here, because
+   there is nothing the user can type that would help. */
+.noaccess-body { padding: 4px 2px 2px; text-align: left; }
+.noaccess-lead {
+  margin: 0 0 10px; font-size: 14px; line-height: 1.45; color: var(--gx-text);
+}
+.noaccess-note {
+  margin: 0 0 16px; font-size: 12px; line-height: 1.5; color: var(--gx-text-mute);
+}
+.noaccess-body .gx-btn { width: 100%; }
