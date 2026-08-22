@@ -59,6 +59,12 @@ the `programs` tab holds one row per program).
 | script id | `1RZw4VDq06d-gdZT1RYpIDOhS9TcrzZ6qJGlTR692O15FZaAg1mKlCor-` (in `.clasp.json`) |
 | datastore | sheet `1IXtgygVInEOak83RRC81bAUvr_zukdT0GJOLaqzuT44` — lives in **[GX2 Dashboard](https://drive.google.com/drive/folders/1BXH5SrK9dWupl-w1UW5Bjt5oSORednLD)** |
 | ship | `clasp push --force` then `clasp update-deployment <id>` — **update**, never create, so `/exec` holds |
+| run (frontend) | `python3 serve.py` → <http://localhost:8754> — no build step, the working tree IS the app |
+| tests | no automated suite — verify against the live engine |
+
+The dev server talks to the **live** engine; `gx-dev.js` blocks writes until you arm them, and
+`gx-preflight.sh` runs as a **pre-push hook** refusing dev leftovers (fixtures on, writes armed, localhost
+URLs, `@devonly` blocks).
 
 **Writes ride on GET.** The browser calls the engine cross-origin via JSONP and Apps Script serves no CORS
 headers for POST, so mutating actions (`importCalc`) are exposed on `doGet` too. Same pattern as GX Core.
