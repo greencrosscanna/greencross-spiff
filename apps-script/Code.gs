@@ -203,6 +203,9 @@ function doGet(e) {
       // Writes ride on GET because the browser calls this cross-origin via JSONP —
       // Apps Script serves no CORS headers for POST. Same pattern GX Core uses.
       case 'importCalc':  out = importCalculator_({ save: true });                  break;
+      /* Bug reports ride GET for the same reason. Signed in but NOT in GATED_WRITES —
+         a viewer must be able to report. Buckets to app=inventory / tab=spiff; see reportBug_. */
+      case 'bugreport':   out = reportBug_(p);                                      break;
       case 'editProgram': out = editProgram_(p);                                    break;
       case 'createProgram': out = createProgram_(p);                                break;
       case 'employees':   out = gxEmployees_();                                     break;
@@ -1291,6 +1294,69 @@ function diag_() {
   try { d.reportFolder = DriveApp.getFolderById(REPORT_FOLDER_ID).getName(); }
   catch (e) { d.reportFolder = 'ERR ' + (e && e.message || e); }
   return d;
+}
+
+/* ============================== BUG REPORT ==============================
+ * File a bug into GX Core's shared `bug_reports` log. The button, the modal and the context
+ * snapshot are gx-theme's `gx-bugreport.js` — this is only the transport and the auth. Nothing
+ * about the form lives in this repo, deliberately: six hand-rolled copies of one bug form is
+ * exactly what that shared file was written to end.
+ *
+ * BUCKETING — app 'inventory', tab 'spiff', and BOTH ARE HARDCODED HERE.
+ * SPIFF is an Inventory SUB-APP (same as Price Cards), so its bugs belong in Inventory's stream
+ * with `spiff` as the tab discriminator — NOT under an `app=spiff` bucket, which is the notes key,
+ * not the bug tab. Nothing is lost by that: GX Core's GX_TAB_OWNER maps 'inventory:spiff' → the
+ * spiff chat, so the 🐞 brain note still lands in THIS app's inbox while the bug itself files where
+ * Inventory triage looks. They are hardcoded rather than read off `p` because bucketing is a fact
+ * about what this app IS; a browser must not be able to file into another app's stream, and a
+ * caller that forgot the parameter would silently land in the wrong one.
+ *
+ * `p.tab` from the client is therefore IGNORED for routing. Which SPIFF panel the reporter was on
+ * rides in the context snapshot as `panel` — sending 'history' or 'calculator' up as `tab` would
+ * file the report against an Inventory tab that does not exist.
+ *
+ * SIGNED IN (guard_ already required it), BUT NOT EDIT-GATED. `bugreport` is deliberately absent
+ * from GATED_WRITES: a viewer who cannot edit a program is still the person most likely to notice
+ * something is wrong, and a reporter that refuses them produces silence — which reads as "no bugs"
+ * rather than "no reporter".
+ *
+ * DO NOT SWALLOW A FAILURE HERE. Inventory wraps its gxIngestBug call in a bare catch because it
+ * has an email fallback to fall back TO. SPIFF has none, so a swallowed throw would return ok:true
+ * and the user would read "✓ Reported — thank you!" over a report that does not exist. That silent
+ * success is precisely what gx-bugreport.js's `res.ok === false` check exists to prevent, so the
+ * error must travel back to it rather than being converted into a success here.
+ *
+ * NOTE THE PIN. `context` only reaches the sheet from GXCore v211, where gxIngestBug began
+ * self-installing the bug_reports.context header — gxWrite_ maps records onto the sheet's REAL
+ * header row, so on an older pin the snapshot is DROPPED SILENTLY and the report still returns ok.
+ * This engine pins 213 (appsscript.json); a pushed pin only takes effect on the next
+ * `clasp update-deployment`, so check ?action=libversion, never the manifest.
+ */
+function reportBug_(p) {
+  var auth = gxAuth_(p.token);   // memoised per execution — guard_ already paid for this call
+  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in',
+                         code: auth.code || 'auth_required', needsAuth: true };
+
+  var title = String(p.title || '').trim();
+  var desc  = String(p.desc  || '').trim();
+  if (!title && !desc) return { ok: false, error: 'Say what went wrong.' };
+
+  var res;
+  try {
+    res = GXCore.gxIngestBug('inventory', auth.user, {
+      title:    title,
+      desc:     desc,
+      priority: String(p.priority || 'normal'),
+      tab:      'spiff',
+      appVer:   String(p.appVer || ''),
+      context:  String(p.context || '')
+    });
+  } catch (e) {
+    return { ok: false, error: 'Could not reach the central bug log: ' +
+                              String((e && e.message) || e) };
+  }
+  if (!res || !res.ok) return { ok: false, error: (res && res.error) || 'GX Core refused the report' };
+  return { ok: true, id: res.id };
 }
 
 /* The roster. GX Core exposes NO public `employees` HTTP action — it lives behind the

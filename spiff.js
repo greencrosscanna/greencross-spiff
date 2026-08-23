@@ -1426,6 +1426,64 @@
     }).catch(function () { /* unreachable Core is not a no_access answer */ });
   }
 
+  /* ------------------------------------------------------------ bug report
+   * The button, the modal and the context snapshot are gx-theme's gx-bugreport.js. This is only
+   * the wiring: who is reporting, what they were looking at, and how this app talks to its own
+   * engine. No markup and no CSS here on purpose — .gx-bug-* is already in gx-theme.css, and a
+   * local rule that beat it would quietly become the sixth private copy of a shared component.
+   *
+   * BUCKETING. `app` is 'inventory', NOT 'spiff'. SPIFF is an Inventory sub-app, so its bugs file
+   * into Inventory's stream with 'spiff' as the tab discriminator — the notes key and the bug tab
+   * are not the same thing. The ENGINE hardcodes both (see reportBug_) and is the only thing that
+   * actually routes anything: gx-bugreport.js documents `app` but never puts it in the payload, so
+   * the value here is declaration, not transport. Keep it truthful anyway — the next person to read
+   * it will believe it, and Price Cards has the same key set to a different value.
+   *
+   * WHICH PANEL rides in the CONTEXT as `panel`, never as `tab`. `tab` is what GX Core buckets on,
+   * and sending 'history' up there would file the report against an Inventory tab that does not
+   * exist. The engine ignores any client-sent tab for exactly that reason.
+   *
+   * Guarded and idempotent, like the rest of the shared-script wiring: gx-bugreport.js loads by URL
+   * from Pages behind a ~10-minute cache, so there is always a window where this app has shipped
+   * and the layer it calls has not arrived. Called from start() AND from the end of the load chain,
+   * so a late arrival still gets wired instead of being missed forever by one early attempt.
+   */
+  var _bugWired = false;
+  function initBugReport() {
+    if (_bugWired || !window.GXBugReport || !GXBugReport.init) return;
+    GXBugReport.init({
+      app:      'inventory',       // sub-app bucketing — see above
+      action:   'bugreport',       // must match the engine's doGet case
+      /* Nested in Inventory, the host already paints a 🐞 in this exact corner, and its report
+         lands in the SAME bucket: Inventory's handler maps only 'pricetags' to another app, so a
+         bug filed from its SPIFF tab falls through to app=inventory / tab='spiff' too. Two
+         identical floating buttons stacked on each other is worse than one. Standalone — Tawny's
+         own Pages URL — ours is the only reporter on the page. */
+      fab:      !GXTopNavEmbedded(),
+      version:  function () { return APP_VERSION; },
+      reporter: function () { return (session() || {}).user || ''; },
+      context:  function () {
+        return {
+          subapp:   'spiff',
+          panel:    state.tab || '',
+          programs: state.programs.length,
+          canEdit:  canEdit() ? 'yes' : '',
+          embedded: GXTopNavEmbedded() ? 'yes' : ''
+        };
+      },
+      submit: function (payload) {
+        /* This app's own authenticated path, which is the point of `submit` being a function:
+           the shared script never handles a token, so there is no second auth path to keep
+           correct. Writes ride on GET here — JSONP is GET-only and Apps Script serves no CORS
+           headers for POST. */
+        var params = { token: (session() || {}).token };
+        Object.keys(payload).forEach(function (k) { if (k !== 'action') params[k] = payload[k]; });
+        return ENG.jsonp(payload.action, params, { timeoutMs: 20000, retries: 1 });
+      }
+    });
+    _bugWired = true;
+  }
+
   var _started = false;
   function start() {
     if (_started) return;   // never re-enter: a second pass would rewire every handler
@@ -1439,10 +1497,11 @@
     wireHistory();
     wireProgress();
     showTab('programs');
+    initBugReport();
     // Sequential, not parallel. Two GXClients firing in the same tick is what exposed the
     // shared callback-name collision; staggering them keeps SPIFF correct even on a client
     // that hasn't picked up the fix yet.
-    loadShared().then(calcInit).then(loadPrograms).then(function () { fillCalcLoad(); fillReportPicker(); fillHistoryFilters(); fillProgressPicker(); });
+    loadShared().then(calcInit).then(loadPrograms).then(function () { fillCalcLoad(); fillReportPicker(); fillHistoryFilters(); fillProgressPicker(); initBugReport(); });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
