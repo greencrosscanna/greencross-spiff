@@ -24,8 +24,12 @@
   var GX  = GXClient(GXCORE);
   // Single-sourced from the ?v=N cache-buster on this script tag, the same value deploy.sh records,
   // so the version shown to a user cannot drift from the version that shipped.
+  /* The suite version format is vMAJOR.BBB, so the fraction is NOT optional decoration — it is the
+     build counter. `(\d+)` stopped at the dot and reported plain "v1" for ?v=1.280, which is the
+     exact bug deploy.sh had against this same file (see gx-theme/tests/deploy_version_test.js).
+     Silent, too: "v1" is a plausible-looking version, so nothing about the header looked wrong. */
   var APP_VERSION = (function () {
-    var m = /[?&]v=(\d+)/.exec((document.currentScript && document.currentScript.src) || '');
+    var m = /[?&]v=(\d+(?:\.\d+)?)/.exec((document.currentScript && document.currentScript.src) || '');
     return m ? 'v' + m[1] : 'dev';
   })();
   var ENG = GXClient(ENGINE);
@@ -310,6 +314,9 @@
       // chip leaves the user with no account control at all -- a worse outcome than the old button.
       b.hidden = false; slot.innerHTML = ''; return;
     }
+    if (window.GXChangelog) {
+      GXChangelog.init({ app: 'spiff', title: 'GX SPIFF', version: APP_VERSION });
+    }
     GXTopNav.renderUser(slot, {
       name: name,
       role: s.role || '',
@@ -340,9 +347,10 @@
       // Back to the gate: with SPIFF gated, an unauthenticated app shell is not a state to leave a
       // user sitting in.
       location.reload();
-    } else if (a === 'version') {
-      alert('GX SPIFF ' + APP_VERSION);
     }
+    // No 'version' branch: GXTopNav opens the shared release-history popup by default
+    // (gx-changelog.js). It used to alert() the number back, which told you nothing you could not
+    // already read on the row you clicked — and blocked the page to do it.
   });
 
   // Delegated from document rather than bound to the button: sign-in is the entry point
