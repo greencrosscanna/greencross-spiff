@@ -120,9 +120,28 @@ notes addressed to **`to_app=spiff`**, resolve done ones (`resolve_note`), and w
 (`add_note`). As an Inventory sub-app, its **bug reports** bucket to **Inventory** (`app=inventory`,
 `tab=spiff`), not to a separate `spiff` bug stream — don't conflate the notes key with the bug tab.
 
-**Auto-record on deploy:** `deploy.sh` POSTs `deploy_version` (app=spiff) to GX Core; `APP_VERSION` (vNN)
-is single-sourced from the `?v=` cache-buster on the `spiff.js` tag in `index.html`. Bump that number and
+**Version format is `1.NN`** (2026-08-22) — `v1.28`, `v1.29`, … matching the rest of the suite
+(`inventory` v3.0, `sales` 2.3, `performance` v1.580). SPIFF ran on bare integers through v27; 1.28
+continues that count rather than restarting, so `version_history` stays in order. One number for the
+whole app: `index.html`, `flyer.html` and `client.html` all carry the same `?v=`.
+
+**Auto-record on deploy:** `deploy.sh` POSTs `deploy_version` (app=spiff) to GX Core; `APP_VERSION` is
+single-sourced from the `?v=` cache-buster on the `spiff.js` tag in `index.html`. Bump that number and
 run `./deploy.sh` after each ship, so releases show up in `version_history`.
+
+> ⚠️ **`deploy.sh` cannot read a dotted version yet.** Its extractor is
+> `grep -oE '[A-Za-z0-9_.-]+\.js\?v=[0-9]+' | grep -oE '[0-9]+' | head -1`, so `?v=1.28` yields `1` and it
+> would file the release as **`v1`** — silently, with a success message. Until gx-theme widens both
+> `[0-9]+` to `[0-9.]+` (requested via `add_note` to `core-admin`, 2026-08-22), **do not run `./deploy.sh`
+> here.** Record the release by hand with the correct string instead:
+> ```
+> curl -sL -G "$GXCORE" --data-urlencode action=deploy_version \
+>   --data-urlencode "secret=$(cat .gx_deploy_secret)" --data-urlencode app=spiff \
+>   --data-urlencode version=v1.NN --data-urlencode "sha=$(git rev-parse --short HEAD)"
+> ```
+> `gx-preflight.sh` shares the same regex but only takes the filename off it, so it is unaffected.
+> `crew` (v26) and `price-cards` (v40) are still on bare integers and keep working either way — the
+> widened regex is backward compatible, which is why it is safe to land in the shared file.
 
 **Shared files** (`deploy.sh`, `.claude/gx-brain-notes.sh`) come from **gx-theme** via `./gx-sync.sh`,
 filled from `.gx_app`. Edit them **there**, not here, then re-sync. `gx-theme.css` and `gx-client.js` load
