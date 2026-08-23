@@ -120,16 +120,22 @@ notes addressed to **`to_app=spiff`**, resolve done ones (`resolve_note`), and w
 (`add_note`). As an Inventory sub-app, its **bug reports** bucket to **Inventory** (`app=inventory`,
 `tab=spiff`), not to a separate `spiff` bug stream — don't conflate the notes key with the bug tab.
 
-**Version format is `1.NN`** (2026-08-22) — `v1.28`, `v1.29`, … matching the rest of the suite
-(`inventory` v3.0, `sales` 2.3, `performance` v1.580). SPIFF ran on bare integers through v27; 1.28
-continues that count rather than restarting, so `version_history` stays in order. One number for the
-whole app: `index.html`, `flyer.html` and `client.html` all carry the same `?v=`.
+**Version format is `vMAJOR.BBB`** — three-digit build, e.g. **`v1.280`**. SPIFF ran on bare integers
+through v27, went to `1.28` on 2026-08-22, and padded to `1.280` on 2026-08-23 when the suite fixed the
+width. One number for the whole app: `index.html`, `flyer.html` and `client.html` all carry the same `?v=`.
+
+**The pad is to the RIGHT.** The build is the fractional half of a decimal that has been counting up, so
+`1.28` is the 280s — left-padding to `1.028` would send the app *backwards* past everything it has already
+shipped. Widths that disagree don't sort: `v1.28` is above `v1.280` as a string and below it as a number,
+so What's New ordering and every "is this newer than what I've seen" check disagree the moment the counter
+crosses a digit boundary. `deploy.sh` refuses a non-conforming version, and GX Core's `gxRecordVersion`
+enforces the same rule server-side — that one is the real gate, since any curl can bypass the script.
 
 **Auto-record on deploy:** `deploy.sh` POSTs `deploy_version` (app=spiff) to GX Core; `APP_VERSION` is
 single-sourced from the `?v=` cache-buster on the `spiff.js` tag in `index.html`. Bump that number and
 run `./deploy.sh` after each ship, so releases show up in `version_history`.
 
-`deploy.sh` reads MAJOR.MINOR correctly as of gx-theme's 2026-08-23 fix — run it normally. It briefly
+`deploy.sh` reads MAJOR.BBB correctly as of gx-theme's 2026-08-23 fix — run it normally. It briefly
 could not: the old extractor stopped at the dot and filed `?v=1.28` as **`v1`**, silently, with a success
 line, so v1.28 was recorded by hand. That workaround is retired.
 
