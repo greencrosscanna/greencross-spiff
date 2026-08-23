@@ -129,19 +129,16 @@ whole app: `index.html`, `flyer.html` and `client.html` all carry the same `?v=`
 single-sourced from the `?v=` cache-buster on the `spiff.js` tag in `index.html`. Bump that number and
 run `./deploy.sh` after each ship, so releases show up in `version_history`.
 
-> ⚠️ **`deploy.sh` cannot read a dotted version yet.** Its extractor is
-> `grep -oE '[A-Za-z0-9_.-]+\.js\?v=[0-9]+' | grep -oE '[0-9]+' | head -1`, so `?v=1.28` yields `1` and it
-> would file the release as **`v1`** — silently, with a success message. Until gx-theme widens both
-> `[0-9]+` to `[0-9.]+` (requested via `add_note` to `core-admin`, 2026-08-22), **do not run `./deploy.sh`
-> here.** Record the release by hand with the correct string instead:
-> ```
-> curl -sL -G "$GXCORE" --data-urlencode action=deploy_version \
->   --data-urlencode "secret=$(cat .gx_deploy_secret)" --data-urlencode app=spiff \
->   --data-urlencode version=v1.NN --data-urlencode "sha=$(git rev-parse --short HEAD)"
-> ```
-> `gx-preflight.sh` shares the same regex but only takes the filename off it, so it is unaffected.
-> `crew` (v26) and `price-cards` (v40) are still on bare integers and keep working either way — the
-> widened regex is backward compatible, which is why it is safe to land in the shared file.
+`deploy.sh` reads MAJOR.MINOR correctly as of gx-theme's 2026-08-23 fix — run it normally. It briefly
+could not: the old extractor stopped at the dot and filed `?v=1.28` as **`v1`**, silently, with a success
+line, so v1.28 was recorded by hand. That workaround is retired.
+
+> Worth keeping, because this repo proposed the wrong fix. Widening the second stage to `[0-9.]+` looks
+> like the one-character answer and **is worse than the bug** — it matches the dot in `.js` before it
+> reaches the version and returns `.` for *every* app, including the integer ones that work today.
+> Verified here against our own `index.html`. What shipped (Crew's proposal) strips up to `?v=` with sed
+> instead of hunting for digits anywhere in the tag; `gx-theme/tests/deploy_version_test.js` now re-runs
+> both rejected patterns to prove they are worse. Don't re-propose either.
 
 **Shared files** (`deploy.sh`, `.claude/gx-brain-notes.sh`) come from **gx-theme** via `./gx-sync.sh`,
 filled from `.gx_app`. Edit them **there**, not here, then re-sync. `gx-theme.css` and `gx-client.js` load
