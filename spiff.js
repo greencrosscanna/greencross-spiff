@@ -62,7 +62,11 @@
     var bar = $('#tabs');
     if (bar) bar.addEventListener('click', function (e) {
       var b = e.target.closest('.gx-topnav-tab');
-      if (b) showTab(b.dataset.tab);
+      if (!b) return;
+      // A tab carrying data-href is a link-out (the budtender flyer), not a panel. Guard on
+      // dataset.tab too — a tab with neither would otherwise showTab(undefined) and blank the app.
+      if (b.dataset.href) { window.open(b.dataset.href, '_blank', 'noopener'); return; }
+      if (b.dataset.tab) showTab(b.dataset.tab);
     });
   }
 
