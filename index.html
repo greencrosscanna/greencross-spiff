@@ -220,11 +220,17 @@
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-stores.js"></script>
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-avatar.js"></script>
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-session.js"></script>
+<!-- The shared bug reporter: button, modal and context snapshot all live in gx-theme, and its
+     .gx-bug-* styles are already in gx-theme.css. Nothing to add here and nothing to style —
+     a local override would be the sixth private copy of a component that exists to be one.
+     spiff.js calls GXBugReport.init() (see initBugReport) so `submit` can use this app's own
+     authenticated engine client instead of a second auth path. -->
+<script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-bugreport.js"></script>
 <script>
   // Dev guard: non-mutating actions. Anything NOT listed is blocked when this page is served
   // from localhost, until writes are armed (banner button / ?arm=1 / GXDev.arm()). Inert in
   // production. Add new READS here; leave writes off the list.
-  // Guarded writes: buildReport, createProgram, editProgram, importCalc, shareLink
+  // Guarded writes: buildReport, bugreport, createProgram, editProgram, importCalc, shareLink
   window.GX_DEV_READS = [
     'clientView', 'emailDraft', 'login', 'programs', 'sellthrough', 'stores'
   ];
