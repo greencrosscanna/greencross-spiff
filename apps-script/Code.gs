@@ -17,9 +17,13 @@
  *   POST /exec  body: { action, … }
  *
  * SPIFF *reads* the employee roster from GX Core and never writes it.
- * It *writes* `spiff_payouts` — the column contract Leaderboard's
- * Incentive tab and Performance read (see gx-conventions.md). Don't
- * change those columns without updating both sides in one change.
+ * It keeps payout data in ITS OWN sheet. It does NOT write a
+ * `spiff_payouts` tab in GX Core — corrected 2026-08-22; no such tab
+ * exists, nothing writes one, and nothing reads one. This header
+ * previously claimed Leaderboard's Incentive tab consumed it; that
+ * tab is about DISCOUNT RATE and is unrelated. If a cross-app payout
+ * hand-off is ever built, add the tab to GX_TABS and a contract test
+ * before writing it down as fact.
  *
  * ------------------------- DEPLOY -----------------------------
  *   clasp push && clasp deploy        (rootDir: apps-script)
