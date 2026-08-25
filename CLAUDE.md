@@ -96,12 +96,16 @@ Google's consent HTML instead of JSON until the owner has authorized.
   `flat` and `blended`.
 - **SPIFF reads the roster, never writes it.** `employees` and `stores` come from GX Core; don't
   re-hardcode store names — Command Center edits must flow through on the next load.
-- **SPIFF writes `spiff_payouts`.** That is a written column contract, read through GX Core — never
-  app-to-app. Incentive is being pulled out of Leaderboard into **GX Crew** (decision 2026-08-16), and
-  GX Crew consumes these payouts for its bonus calc; the "connect to SPIFF" to-dos now target GX Crew,
-  not Leaderboard. Today Mike still hand-types a SPIFF dollar per employee per pay period
-  (`{nameKey: {att, spiff}}`), and replacing that hand-entry is the point. Don't change these columns
-  without updating both sides in one change.
+- **SPIFF has no cross-app write contract.** *Corrected 2026-08-25: this bullet used to say "SPIFF
+  writes `spiff_payouts`… GX Crew consumes these payouts for its bonus calc." **No such tab exists** —
+  it is not in `GX_TABS`, nothing writes it and nothing reads it. SPIFF's only GX Core calls are READS:
+  `getEmployees`, `getStores`, `getProducts`, `libVersion`. Payout data lives in SPIFF's own sheet.*
+  A documented contract that does not exist is worse than an undocumented one: it invites a future
+  session to "maintain" it, or to assume pay data already flows and build on top of it.
+- **The underlying goal is still real, and still unbuilt.** Incentive moved out of Leaderboard into
+  **GX Crew** (decision 2026-08-16), so "connect to SPIFF" work targets Crew. Today Mike hand-types a
+  SPIFF dollar per employee per pay period (`{nameKey: {att, spiff}}`), and replacing that hand-entry is
+  the point. When that gets built it will need a real contract — designed, not assumed.
 - **Nothing goes to a vendor without a human.** Reports are drafted and saved; sending is Tawny's or
   Sky's click, not the app's.
 - **Dates are TEXT** (`YYYY-MM-DD`), never Date objects — a sheet/script timezone mismatch silently shifts
