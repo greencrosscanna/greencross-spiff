@@ -162,6 +162,10 @@ body {
 /* ---------------------------------------------------------------- history */
 .hist-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
 .hist-bar #hSearch { min-width: 240px; flex: 1; max-width: 360px; }
+/* The selects inherit width:100% from gx-theme's .gx-input. As flex items that reads as
+   "give me the whole bar", so each one wrapped onto a row of its own. Size them to their
+   own content instead -- same local override #hSearch above already needs. */
+.hist-bar #hVendor, .hist-bar #hYear { width: auto; flex: 0 0 auto; min-width: 150px; }
 .hist-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--gx-text-dim); white-space: nowrap; }
 
 .hist-stats { display: flex; gap: 28px; flex-wrap: wrap; padding: 14px 0 20px; border-bottom: 1px solid var(--gx-border); margin-bottom: 20px; }
