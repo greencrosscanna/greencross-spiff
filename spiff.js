@@ -1471,6 +1471,12 @@
           embedded: GXTopNavEmbedded() ? 'yes' : ''
         };
       },
+      /* Screenshot upload. Note this app's own comment below about writes riding on GET: a ~273KB
+         base64 could never travel that way, which is why the image goes up on its own call. Still
+         no second auth path — the shared uploader is handed THIS app's token. */
+      uploadShot: GXBugReport.gxCoreUploader(GXCORE, function () {
+        try { return (session() || {}).token || ''; } catch (e) { return ''; }
+      }),
       submit: function (payload) {
         /* This app's own authenticated path, which is the point of `submit` being a function:
            the shared script never handles a token, so there is no second auth path to keep
