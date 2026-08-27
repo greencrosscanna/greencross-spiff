@@ -10,12 +10,25 @@
  * normal use, and neither can be checked by opening the app. So they get checked here.
  *
  * THE TWO THINGS THAT MUST NOT DRIFT
- *   1. app='inventory', tab='spiff'. SPIFF is an Inventory SUB-APP, so its bugs bucket to Inventory
- *      with 'spiff' as the discriminator — GX Core's GX_TAB_OWNER maps 'inventory:spiff' back to the
- *      spiff chat for the 🐞 brain note, so nothing is lost by filing under the parent. Price Cards
- *      hardcodes the identical pair. The notes key and the bug tab are NOT the same thing, and the
- *      easy mistake — passing SPIFF's own key, or letting the client's panel name through as `tab` —
- *      is exactly what test 1 and test 2 pin down.
+ *   1. app='spiff', tab='spiff'. CHANGED 2026-08-27, and this paragraph used to argue the opposite.
+ *
+ *      It said bugs bucket to Inventory with 'spiff' as the discriminator, that GX_TAB_OWNER maps
+ *      'inventory:spiff' back to the spiff chat for the 🐞 note, so "nothing is lost by filing under
+ *      the parent", and that Price Cards hardcodes the identical pair.
+ *
+ *      Two of those were false. GX Core's getBugs filters strictly on `b.app === a` with no tab
+ *      fallback, so ?action=bugs&app=spiff — what this app's own chat and /gxbrain inbox ask for —
+ *      returned zero every time. The NOTE arrived and the BUG did not: this app was told about
+ *      reports it could not then see in its own list. That is the thing that was lost. And Price
+ *      Cards never hardcoded that pair; it has always filed under app=pricecards, which is why
+ *      GX_TAB_OWNER's 'inventory:pricecards' entry never once fired.
+ *
+ *      So SPIFF now files under its own key, matching Price Cards, and GX_TAB_OWNER is empty. Done
+ *      while bug_reports held no rows, so nothing needed migrating.
+ *
+ *      What has NOT changed is what test 2 pins: the client's own `app` and `panel` must never reach
+ *      the ingest. The engine decides bucketing; a client that could set its own app key could file
+ *      into any board in the suite.
  *   2. A failed ingest must surface as ok:false. There is no email fallback in this app.
  *
  * HOW IT LOADS THE REAL CODE
@@ -68,12 +81,12 @@ const tok = () => 'tok' + (++n);
 const reset = () => { ingest = null; ingestBehaviour = () => ({ ok: true, id: 'bug_test1' }); };
 
 // ── 1. bucketing — the whole point ───────────────────────────────────────────
-console.log('\n1. sub-app bucketing: app=inventory, tab=spiff');
+console.log('\n1. bucketing: app=spiff, tab=spiff — its own board, like Price Cards');
 {
   reset();
   const r = S.reportBug_({ token: tok(), title: 'Progress shows zero units', desc: 'all stores', priority: 'high' });
   ok(r.ok === true, 'a valid report succeeds');
-  eq(ingest.app, 'inventory', 'files under the PARENT app, not "spiff"');
+  eq(ingest.app, 'spiff', 'files under its OWN key, so ?action=bugs&app=spiff can see it');
   eq(ingest.payload.tab, 'spiff', 'carries the sub-app discriminator in `tab`');
   eq(ingest.payload.priority, 'high', 'priority is passed through');
   eq(r.id, 'bug_test1', 'returns the id GX Core minted');
@@ -83,10 +96,15 @@ console.log('\n1. sub-app bucketing: app=inventory, tab=spiff');
 console.log('\n2. bucketing is hardcoded, never taken from the caller');
 {
   reset();
-  // A caller sending its own app/tab — which is what the panel name would look like if the frontend
-  // passed state.tab through as `tab`, and what an attacker would send to file into another board.
-  S.reportBug_({ token: tok(), title: 'x', app: 'spiff', tab: 'history' });
-  eq(ingest.app, 'inventory', 'a caller-supplied app is ignored');
+  /* A caller sending its own app/tab — what the panel name would look like if the frontend passed
+     state.tab through as `tab`, and what an attacker would send to file into another board.
+
+     The caller sends 'sales' deliberately. It used to send 'spiff', which was a valid probe while
+     the engine hardcoded 'inventory' — but once the engine's own value BECAME 'spiff' (2026-08-27)
+     that assertion could no longer tell "the client was ignored" from "the client was obeyed", and
+     would have passed either way. A probe has to differ from the expected answer to prove anything. */
+  S.reportBug_({ token: tok(), title: 'x', app: 'sales', tab: 'history' });
+  eq(ingest.app, 'spiff', 'a caller-supplied app is ignored — it cannot file into another board');
   eq(ingest.payload.tab, 'spiff', 'a caller-supplied tab is ignored — "history" must not become the bucket');
 }
 
@@ -154,7 +172,7 @@ console.log('\n7. wired into doGet — writes ride on GET (JSONP is GET-only)');
   const body = JSON.parse(res.getContent());
   ok(body.ok === true, 'doGet?action=bugreport reaches the handler');
   eq(ingest.payload.title, 'from the router', 'and passes the report through');
-  eq([ingest.app, ingest.payload.tab], ['inventory', 'spiff'], 'still buckets correctly through the router');
+  eq([ingest.app, ingest.payload.tab], ['spiff', 'spiff'], 'still buckets correctly through the router');
 
   const unknown = JSON.parse(S.doGet({ parameter: { action: 'bugReport', token: tok() } }).getContent());
   ok(unknown.ok === false && /Unknown action/.test(unknown.error),

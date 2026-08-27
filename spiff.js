@@ -1432,12 +1432,16 @@
    * engine. No markup and no CSS here on purpose — .gx-bug-* is already in gx-theme.css, and a
    * local rule that beat it would quietly become the sixth private copy of a shared component.
    *
-   * BUCKETING. `app` is 'inventory', NOT 'spiff'. SPIFF is an Inventory sub-app, so its bugs file
-   * into Inventory's stream with 'spiff' as the tab discriminator — the notes key and the bug tab
-   * are not the same thing. The ENGINE hardcodes both (see reportBug_) and is the only thing that
-   * actually routes anything: gx-bugreport.js documents `app` but never puts it in the payload, so
-   * the value here is declaration, not transport. Keep it truthful anyway — the next person to read
-   * it will believe it, and Price Cards has the same key set to a different value.
+   * BUCKETING. `app` is 'spiff'. It was 'inventory' until 2026-08-27, on the reasoning that SPIFF is
+   * an Inventory sub-app — true of the product, false of the bug board. GX Core's getBugs filters
+   * strictly on `b.app === a` with no tab fallback, so ?action=bugs&app=spiff returned zero every
+   * time while the linked note still arrived in the spiff chat: this app was told about bugs it
+   * could not see. Price Cards already filed under its own key; the two now match.
+   *
+   * The ENGINE hardcodes app and tab (see reportBug_) and is the only thing that actually routes
+   * anything: gx-bugreport.js documents `app` but never puts it in the payload, so the value here is
+   * declaration, not transport. Changing it alone would have done NOTHING — the engine is the fix.
+   * Keep it truthful anyway; the next person to read it will believe it.
    *
    * WHICH PANEL rides in the CONTEXT as `panel`, never as `tab`. `tab` is what GX Core buckets on,
    * and sending 'history' up there would file the report against an Inventory tab that does not
@@ -1452,7 +1456,7 @@
   function initBugReport() {
     if (_bugWired || !window.GXBugReport || !GXBugReport.init) return;
     GXBugReport.init({
-      app:      'inventory',       // sub-app bucketing — see above
+      app:      'spiff',          // its own board — see above
       action:   'bugreport',       // must match the engine's doGet case
       /* Nested in Inventory, the host already paints a 🐞 in this exact corner, and its report
          lands in the SAME bucket: Inventory's handler maps only 'pricetags' to another app, so a

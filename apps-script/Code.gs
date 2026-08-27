@@ -204,7 +204,7 @@ function doGet(e) {
       // Apps Script serves no CORS headers for POST. Same pattern GX Core uses.
       case 'importCalc':  out = importCalculator_({ save: true });                  break;
       /* Bug reports ride GET for the same reason. Signed in but NOT in GATED_WRITES —
-         a viewer must be able to report. Buckets to app=inventory / tab=spiff; see reportBug_. */
+         a viewer must be able to report. Files under app=spiff / tab=spiff; see reportBug_. */
       case 'bugreport':   out = reportBug_(p);                                      break;
       case 'editProgram': out = editProgram_(p);                                    break;
       case 'createProgram': out = createProgram_(p);                                break;
@@ -1343,7 +1343,17 @@ function reportBug_(p) {
 
   var res;
   try {
-    res = GXCore.gxIngestBug('inventory', auth.user, {
+    /* app='spiff', NOT 'inventory'. This filed into Inventory's stream until 2026-08-27, on the
+       reasoning that SPIFF is an Inventory sub-app. That is true of the PRODUCT and false of the
+       BUG BOARD: GX Core's getBugs filters strictly on `b.app === a` with no tab fallback, so
+       ?action=bugs&app=spiff — what this app's own chat and /gxbrain inbox ask for — returned zero
+       every time, forever. Meanwhile GX_TAB_OWNER routed the linked NOTE to the spiff chat, so this
+       app was told about bugs it could not then see in its own list.
+
+       Price Cards already files under its own key and is correct on both counts; this makes the two
+       sub-apps consistent. `tab` stays 'spiff' as the sub-app label on the row, exactly as Price
+       Cards keeps its own. Changed while bug_reports held no rows, so nothing needed migrating. */
+    res = GXCore.gxIngestBug('spiff', auth.user, {
       title:    title,
       desc:     desc,
       priority: String(p.priority || 'normal'),

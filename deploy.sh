@@ -152,8 +152,79 @@ esac
 SHA="$(git rev-parse --short HEAD)"
 GX_NOTES="${GX_NOTES:-}"
 
+# ── Recording the release: retry the two-hop miss, and NEVER exit 0 on a failure ──────────────
+# THE BUG THIS FIXES. GX Core's /exec URL is a TWO-HOP redirect and the second hop intermittently
+# serves Google's "Sorry, unable to open the file at this time" HTML page instead of our JSON —
+# Google's content-delivery layer failing, not our doGet. Every frontend in the suite survives this
+# by retrying (gx-client.js); this script did not. On 2026-08-26 it missed twice in a row while
+# recording price-cards v1.422 and dumped ~200 lines of Drive HTML into the terminal.
+#
+# The dump was the visible half. The DANGEROUS half was the exit code: a bare `curl -sL` succeeds at
+# fetching the HTML page, so the script exited 0 and printed nothing that read as an error. A shipper
+# who does not read the wall of markup believes the release was recorded when version_history never
+# got the row — and version_history is what every app reads for What's New. Silent, and in the same
+# place the version-extraction bug was silent.
+#
+# WHY A RETRY IS SAFE HERE, stated rather than assumed. The miss is on the SECOND hop, so the request
+# reached Apps Script and the write MAY ALREADY HAVE RUN: a retry re-runs it. That is only acceptable
+# where re-running is a no-op. It is: gxRecordVersion keys its gxWrite_ on ['app','version'], so a
+# replay UPSERTS the same row rather than appending a duplicate. The only thing that moves is
+# deployed_at, by the length of one backoff. Do not copy this retry onto a route without checking the
+# same thing — see the POST_RETRY rules in gx-client.js postJSON.
+#
+# The conditionals below are full if/fi rather than `[ x ] && echo …` purely for readability; both
+# forms are safe under this script's `set -euo pipefail`, since bash exempts a failed left-hand
+# operand of && from -e even as the last command of a loop body. Verified, because the opposite was
+# assumed here first and the assumption was wrong.
+_record_attempts=4
+_resp=""
 echo "Recording ${APP} ${APP_VERSION} (${SHA}) to GX Core…  [version from: ${VERSION_SOURCE}]"
-curl -sL -G "$GXCORE" --data-urlencode action=deploy_version --data-urlencode "secret=$SECRET" \
-  --data-urlencode "app=$APP" --data-urlencode "version=$APP_VERSION" \
-  --data-urlencode "sha=$SHA" --data-urlencode "notes=$GX_NOTES"
-echo
+for _n in $(seq 1 "$_record_attempts"); do
+  if [ "$_n" -gt 1 ]; then sleep "$((_n - 1))"; fi    # linear backoff: 1s, 2s, 3s
+  # --http1.1 for the same reason gxrepin.sh uses it; --max-time so a hung hop cannot park a ship.
+  # `|| true` because -f is deliberately NOT used: the HTML page arrives with a cheerful 200, so the
+  # status code is no help and the BODY SHAPE is the only tell there is.
+  _resp="$(curl -sL --http1.1 --max-time 45 -G "$GXCORE" \
+    --data-urlencode action=deploy_version --data-urlencode "secret=$SECRET" \
+    --data-urlencode "app=$APP" --data-urlencode "version=$APP_VERSION" \
+    --data-urlencode "sha=$SHA" --data-urlencode "notes=$GX_NOTES" 2>/dev/null || true)"
+  case "$_resp" in
+    '{'*|'['*) break ;;                      # JSON of any shape — GX Core answered, stop retrying
+    *)
+      if [ "$_n" -lt "$_record_attempts" ]; then
+        echo "deploy.sh: GX Core returned no JSON (two-hop miss), retrying — attempt $((_n + 1))/${_record_attempts}…" >&2
+      fi
+      ;;
+  esac
+done
+
+case "$_resp" in
+  '{'*|'['*) ;;
+  *)
+    # ONE line about what happened, not the page itself. The HTML is what buried the last failure.
+    echo "deploy.sh: FAILED to record ${APP} ${APP_VERSION} — GX Core never returned JSON in ${_record_attempts} tries." >&2
+    if [ -z "$_resp" ]; then
+      echo "  The response was empty (network, or --max-time hit)." >&2
+    else
+      echo "  Got $(printf '%s' "$_resp" | wc -c | tr -d ' ') bytes of non-JSON — almost certainly Google's Drive HTML page." >&2
+    fi
+    echo "  version_history has NO row for this release. The code shipped; only the record is missing." >&2
+    echo "  Re-run to record it (safe to repeat — the row is keyed on app+version):" >&2
+    echo "    GX_VERSION=${APP_VERSION} GX_NOTES='${GX_NOTES}' ./deploy.sh" >&2
+    exit 1
+    ;;
+esac
+
+# GX Core answered, but answering is not agreeing: a format refusal or a bad secret is well-formed
+# JSON with ok:false, and exiting 0 on that would recreate the very bug above one layer up.
+case "$_resp" in
+  *'"ok":true'*|*'"ok": true'*) ;;
+  *)
+    echo "deploy.sh: GX Core REFUSED the release record for ${APP} ${APP_VERSION}." >&2
+    echo "  $_resp" >&2
+    exit 1
+    ;;
+esac
+
+echo "Recorded ${APP} ${APP_VERSION} (${SHA}) to GX Core.  [version from: ${VERSION_SOURCE}]"
+echo "  $_resp"
