@@ -1434,6 +1434,29 @@
           + '<td class="num dim">' + money(goal * (Number(calc.cost) || 0)) + '</td>'
           + '</tr>';
       }).join('');
+      /* An empty store list is not "no stores" — it is GX Core's registry not having answered.
+         Rendering a bare table with a 0-store total looked like a configured-and-empty app, so
+         the reference pull silently could not run and nothing said so. This is the one place
+         that failure becomes visible. */
+      if (!m.on.length) {
+        tbl.innerHTML = '<table class="sp-tbl"><tbody><tr><td>'
+          + '<div class="sp-notice is-warn" style="border:0;padding:2px 0">'
+          + '<span class="sp-notice-l">Store list unavailable</span>'
+          + 'GX Core has not returned the store registry, so there is nothing to model against '
+          + 'and last-month figures cannot be pulled. '
+          + '<button type="button" class="gx-btn" id="calcRetryStores">Retry</button></div>'
+          + '</td></tr></tbody></table>';
+        var rs = $('#calcRetryStores');
+        if (rs) rs.addEventListener('click', async function () {
+          rs.disabled = true; rs.textContent = 'Retrying…';
+          await loadShared();
+          calc.stores = [];
+          calcInit();
+          recalc();
+        });
+        return;
+      }
+
       tbl.innerHTML =
         '<table class="sp-tbl"><thead><tr><th>Store</th><th class="num">Last month</th>'
         + '<th class="num">Goal</th><th class="num">BTs</th><th class="num">per BT now</th>'
@@ -1480,6 +1503,52 @@
      outcome -- a pull that fails or returns a figure Tawny knows is wrong must never leave
      her unable to type the number she came in with. The shimmer replaces the input only
      while that store is genuinely in flight. */
+  /* Fan out one request per store, exactly like Progress and for the same measured reason: the
+     sell-through pull is ~9s a store against a ~60s /exec ceiling. Each cell shimmers until its
+     own store answers, so five stores are not held up by the slowest. */
+  async function pullReference() {
+    if (!calc.product) return;
+    if (!calc.stores.length) return;
+    var run = (calc.refRun = {});
+    calc.stores.forEach(function (st) { st.refState = 'loading'; });
+    recalc();
+    await Promise.all(calc.stores.map(function (st, i) { return pullReferenceFor(i, run); }));
+  }
+
+  /* One store. Also the retry path, so a store that timed out is re-pulled on its own instead
+     of re-running all six — the same rule Progress follows, and here it matters more because
+     each call is ~9 seconds. */
+  async function pullReferenceFor(i, run) {
+    var st = calc.stores[i], p = calc.product;
+    if (!st || !p) return;
+    if (!run) run = calc.refRun || (calc.refRun = {});
+    st.refState = 'loading';
+    recalc();
+    try {
+      var r = await ENG.jsonp('refunits', {
+        token: (session() || {}).token, store: st.store_id,
+        brand: p.brand, filter_text: p.filter_text,
+        products: (p.products || []).join(',')
+      }, { timeoutMs: 65000, retries: 1 });
+      if (calc.refRun !== run) return;            // a newer product was picked mid-flight
+      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+      if (typeof r.reference !== 'number') throw new Error('engine returned no reference figure');
+      st.baseline = r.reference;
+      st.refUnits = typeof r.units === 'number' ? r.units : null;
+      st.refState = 'ok';
+    } catch (e) {
+      if (calc.refRun !== run) return;
+      st.refState = 'error';
+      st.refErr = e.message || String(e);
+    }
+    if (calc.refRun !== run) return;
+    /* The growth echo has to follow every arrival: it is a percentage OF the reference total,
+       which just changed underneath it. */
+    var base = calcModel().baseUnits;
+    $('#cGrowth').value = base ? Math.round(((calc.target - base) / base) * 100) : 0;
+    recalc();
+  }
+
   function refCell(st, i, base) {
     if (st.refState === 'loading') return '<span class="sp-shim" aria-label="loading"></span>';
     var input = '<input class="sp-in sp-num-in" type="number" min="0" data-i="' + i
@@ -1907,7 +1976,13 @@
     });
 
     if (hasProduct) {
-    pEl.addEventListener('focus', function () { if (pick.brand) renderProducts(pEl.value); });
+    /* Repaint whenever a catalog load starts or finishes, but only while this mount's menu is
+       actually open — a background load must not pop a dropdown open on a screen nobody is
+       looking at. */
+    pickMounts.push(function () { if (!pMenu.hidden) renderProducts(pEl.value); });
+    /* `|| pick.loading` matters: focusing mid-fetch used to render nothing at all, so the
+       field sat blank with no indication anything was happening. */
+    pEl.addEventListener('focus', function () { if (pick.brand || pick.loading) renderProducts(pEl.value); });
     pEl.addEventListener('input', function () { renderProducts(pEl.value); });
     pMenu.addEventListener('mousedown', function (e) {
       e.preventDefault();
@@ -1934,7 +2009,11 @@
       vEl.value = name || '';
       if (!hasProduct) return;
       pEl.disabled = !name;
-      if (name) { pEl.placeholder = 'Search ' + name + '’s products…'; loadBrandProducts(name); }
+      if (!name) return;
+      pEl.placeholder = 'Search ' + name + '’s products…';
+      /* Await, then paint if the menu is open by the time it lands. The mount callback above
+         covers the case where the user opened it while this was in flight. */
+      loadBrandProducts(name).then(function () { if (!pMenu.hidden) renderProducts(pEl.value); });
     };
     api.setChosen = function (c) { api.chosen = c; renderChosen(); };
     return api;
@@ -1943,17 +2022,29 @@
   async function loadBrands() {
     if (pick.brands.length) return pick.brands;
     try {
-      var r = await ENG.jsonp('catalog', { token: (session() || {}).token });
+      /* 40s, not GXClient's 8s default. A cold catalog build measured ~14 SECONDS across six
+         stores, so the default guaranteed a timeout on the first call after the six-hour cache
+         expired — and a timeout here reads to the user as "this vendor has no products". */
+      var r = await ENG.jsonp('catalog', { token: (session() || {}).token }, { timeoutMs: 40000, retries: 1 });
       if (r && r.ok) pick.brands = r.brands || [];
     } catch (e) { console.error('[spiff] catalog brands failed:', e); }
     return pick.brands;
   }
 
+  /* Mounts register here so a load that lands AFTER the menu was opened still paints. Without
+     it the product list stayed empty forever: the fetch takes seconds, the user focuses the
+     field before it resolves, `pick.brand` is still empty so nothing renders, and nothing ever
+     re-renders. The field looked alive and simply never filled — which is exactly what a
+     vendor with no products looks like. */
+  var pickMounts = [];
+
   async function loadBrandProducts(brand) {
     if (pick.brand === brand && pick.products.length) return pick.products;
     pick.loading = true;
+    pickMounts.forEach(function (f) { f(); });
     try {
-      var r = await ENG.jsonp('catalog', { token: (session() || {}).token, brand: brand });
+      var r = await ENG.jsonp('catalog', { token: (session() || {}).token, brand: brand },
+                              { timeoutMs: 40000, retries: 1 });
       pick.products = (r && r.ok) ? (r.products || []) : [];
       pick.brand = brand;
     } catch (e) {
@@ -1961,6 +2052,7 @@
       console.error('[spiff] catalog products failed:', e);
     }
     pick.loading = false;
+    pickMounts.forEach(function (f) { f(); });
     return pick.products;
   }
 
@@ -2046,7 +2138,13 @@
       : null;
 
     var base = merged.baseline_json || {};
-    calc.stores = state.stores.map(function (st) {
+    /* The registry is preferred, but the PROGRAM knows which stores it ran in. When GX Core's
+       store call has failed, falling back to that is the difference between editing the program
+       and staring at an empty table — and it is the same list the program was saved with. */
+    var reg = state.stores.length
+      ? state.stores
+      : (merged.stores_json || []).map(function (id) { return { store_id: id, display_name: storeName(id) }; });
+    calc.stores = reg.map(function (st) {
       var b = (base.by_store || {})[st.store_id];
       var perBt = (base.per_bt || {})[st.store_id];
       return {
