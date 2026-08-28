@@ -2223,7 +2223,7 @@ function buildCatalog_() {
       seen++;
       var k = (x.b + '|' + x.n + '|' + x.s).toLowerCase();
       var hit = by[k];
-      if (!hit) { by[k] = x; x.stores = 1; return; }
+      if (!hit) { by[k] = x; x.lots = 1; return; }
       /* Same product across stores and batches. Cost is averaged WEIGHTED BY QUANTITY --
          a straight mean would let a two-unit remainder at an old cost move the number the
          vendor gets quoted. costLo/costHi keep the spread visible rather than hiding it
@@ -2233,7 +2233,10 @@ function buildCatalog_() {
       hit.costLo = Math.min(hit.costLo == null ? hit.cost : hit.costLo, x.cost || hit.cost);
       hit.costHi = Math.max(hit.costHi == null ? hit.cost : hit.costHi, x.cost || hit.cost);
       hit.qty = tot;
-      hit.stores = (hit.stores || 1) + 1;
+      /* `lots`, not `stores`: /reporting/inventory is one row per BATCH, so a single store
+         contributes several. Calling this a store count would have read as "carried at 16
+         stores" for a chain with six. */
+      hit.lots = (hit.lots || 1) + 1;
       if (!hit.price && x.price) hit.price = x.price;
       if (!hit.t && x.t) hit.t = x.t;
     });
@@ -2245,6 +2248,10 @@ function buildCatalog_() {
     x.costLo = Math.round((x.costLo == null ? x.cost : x.costLo) * 100) / 100;
     x.costHi = Math.round((x.costHi == null ? x.cost : x.costHi) * 100) / 100;
     x.qty = Math.round(x.qty);
+    /* A sub-cent unit cost is a data-entry artefact, not a bargain (seen live: a blunt at
+       $0.01). Flagged rather than dropped — the product is real and sellable, but the
+       Calculator must not quote a vendor an ROI built on it without saying so. */
+    if (x.cost > 0 && x.cost < 0.05) x.costSuspect = true;
     return x;
   }).sort(function (a, b) { return (a.b + a.n).localeCompare(b.b + b.n); });
 
