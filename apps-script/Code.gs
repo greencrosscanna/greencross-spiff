@@ -220,6 +220,18 @@ function doGet(e) {
       // without a session. Reads no more than `programs` already exposes.
       case 'previewDocs': out = previewDocs_(p);                                    break;
       case 'sellthrough': out = sellthrough_(p);                                    break;
+      // The progress cache — the fast read GX Crew's incentive column and Leaderboard's kiosk
+      // ticks both use. Secret-gated: a kiosk holds no session and Crew's engine has no browser.
+      case 'progress':    out = spiffProgress_(p);                                   break;
+      case 'refreshProgress':
+        out = (String(p.secret || '') === PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP))
+              ? refreshSpiffProgress_(p.program || '') : { ok: false, error: 'Unauthorized' };
+        break;
+      case 'installProgressTrigger':
+        out = (String(p.secret || '') === PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP)
+               && String(p.confirm || '') === 'yes')
+              ? installSpiffProgressTrigger() : { ok: false, error: 'Unauthorized or missing confirm=yes' };
+        break;
       case 'payouts':     out = notImplemented_('payouts');                         break;
       case 'history':     out = { ok: true, programs: listPrograms_('closed') };    break;
       case 'flyer':       out = flyer_(p);                                          break;
@@ -737,6 +749,168 @@ function rowToProgram_(r) {
     edited_by: r[18] || '', edited_at: textDate_(r[19]), share_token: r[20] || '',
     contact_name: r[21] || '', contact_email: r[22] || '', doc_json: parseJson_(r[23], {})
   };
+}
+
+/* ============================ PROGRESS CACHE ============================
+ * Sky, 2026-08-27: SPIFF should track live data, and LB and Crew read it on request. On the kiosk
+ * a budtender sees a tick appear per unit sold; in Crew, Mike sees the reward value land in the
+ * SPIFF column the moment somebody crosses their threshold.
+ *
+ * NEITHER OF THOSE CAN CALL sellthrough_. It is one store per request at ~9 seconds — six stores is
+ * ~54s against Google's 60s ceiling, which is exactly why the Progress grid loops stores in the
+ * browser and fills in as it goes. A kiosk cannot do that, and a payroll screen cannot make Mike
+ * wait a minute for one column.
+ *
+ * So the live-ness lives HERE: a trigger refreshes this cache, and everyone else reads it in one
+ * fast call. That is the only arrangement where "live" and "readable by three apps" are both true.
+ * The read always carries `refreshed_at`, so a consumer shows how fresh it is rather than implying
+ * a number is to-the-second when it is not.
+ *
+ * A FAILED REFRESH LEAVES THE OLD ROWS ALONE. Writing zero units because GX Core was unreachable
+ * looks exactly like a budtender who sold nothing, and on the kiosk it would wipe ticks somebody
+ * earned. Same rule as GX Crew's nightly Dutchie scan.
+ */
+var PROGRESS_TAB = 'spiff_progress';
+var PROGRESS_HEADERS = ['program_id', 'pay_period', 'store_id', 'employee_id', 'name',
+                        'units', 'target', 'hit', 'earned', 'vendor', 'program_name',
+                        'start_date', 'end_date', 'refreshed_at'];
+
+function progressSheet_() {
+  var ss = dataSheet_().getParent();
+  var sh = ss.getSheetByName(PROGRESS_TAB);
+  if (!sh) {
+    sh = ss.insertSheet(PROGRESS_TAB);
+    sh.getRange(1, 1, 1, PROGRESS_HEADERS.length).setValues([PROGRESS_HEADERS]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+/** What a program pays one person, given their units. Mirrors computePayouts_ exactly. */
+function progEarned_(prog, units, hit) {
+  var pay = prog.payout_json || {};
+  var type = pay.type || 'flat';
+  if (type === 'per_unit') return (Number(units) || 0) * (Number(pay.per_unit) || 0);
+  return hit ? (Number(pay.amount) || 0) : 0;
+}
+
+/**
+ * Refresh the cache for every ACTIVE program. Run from a TIME TRIGGER, not the web app: a full
+ * sweep is ~9s per store per program and /exec dies at 60s, while a trigger gets six minutes.
+ * `only` limits it to one program_id, which is what the on-demand refresh uses.
+ */
+function refreshSpiffProgress_(only) {
+  var programs = listPrograms_('active').filter(function (p) {
+    return !only || String(p.program_id) === String(only);
+  });
+  var now = nowStamp_();
+  var written = [], failures = [];
+
+  programs.forEach(function (prog) {
+    var stores = prog.stores_json || [];
+    stores.forEach(function (store) {
+      var slug = slug_(store && store.store_id ? store.store_id : store);
+      if (!slug) return;
+      var r;
+      try { r = sellthrough_({ id: prog.program_id, store: slug }); }
+      catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+      if (!r || r.ok === false) {
+        /* Reported, not written. The previous rows for this program+store stay exactly as they
+           were — a store whose read failed keeps yesterday's ticks rather than losing them. */
+        failures.push({ program_id: prog.program_id, store: slug, error: (r && r.error) || 'failed' });
+        return;
+      }
+      (r.rows || []).forEach(function (row) {
+        written.push([prog.program_id, prog.pay_period || '', slug,
+                      row.employee_id || '', row.name || '',
+                      Number(row.units) || 0, Number(row.target) || 0,
+                      row.hit ? 'yes' : '', progEarned_(prog, row.units, row.hit),
+                      prog.vendor || '', prog.program_name || prog.title || '',
+                      prog.start_date || '', prog.end_date || '', now]);
+      });
+    });
+  });
+
+  if (written.length) {
+    /* Replace only the program+store pairs that actually came back. Anything not refreshed —
+       a failed store, a program not in this sweep — is left in place. */
+    var touched = Object.create(null);
+    written.forEach(function (w) { touched[w[0] + '|' + w[2]] = 1; });
+    var sh = progressSheet_();
+    var all = sh.getDataRange().getValues();
+    for (var i = all.length - 1; i >= 1; i--) {
+      if (touched[String(all[i][0]) + '|' + String(all[i][2])]) sh.deleteRow(i + 1);  // bottom-up
+    }
+    sh.getRange(sh.getLastRow() + 1, 1, written.length, PROGRESS_HEADERS.length).setValues(written);
+    sh.getRange(2, 2, Math.max(1, sh.getLastRow() - 1), 1).setNumberFormat('@');   // pay_period TEXT
+  }
+  return { ok: true, programs: programs.length, rows: written.length,
+           failures: failures, refreshed_at: now };
+}
+
+/** Installed once; hourly is well inside Dutchie's freshness and nowhere near the quota. */
+function installSpiffProgressTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'refreshSpiffProgressTrigger') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('refreshSpiffProgressTrigger').timeBased().everyHours(1).create();
+  return { ok: true, installed: 'refreshSpiffProgress hourly' };
+}
+function refreshSpiffProgressTrigger() { refreshSpiffProgress_(); }
+
+/**
+ * ?action=progress&secret=…[&pay_period=YYYY-MM-DD][&program=ID]
+ *
+ * The fast read, for GX Crew's incentive column and Leaderboard's kiosk ticks. Deploy-secret
+ * gated, like every other machine route in the suite — a kiosk holds no session and Crew's engine
+ * has no browser.
+ *
+ * Returns per-person rows AND a per-employee total, because the two consumers want different
+ * shapes: the kiosk wants "this person, this program, 3 of 5", and Crew wants "this person, this
+ * pay period, $25" across however many programs were running.
+ */
+function spiffProgress_(p) {
+  var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  if (!secret) return { ok: false, error: 'GX_DEPLOY_SECRET is not set on this script' };
+  if (String(p.secret || '') !== secret) return { ok: false, error: 'Unauthorized' };
+
+  var sh = progressSheet_();
+  if (sh.getLastRow() < 2) {
+    return { ok: true, rows: [], by_employee: [], refreshed_at: '',
+             note: 'the progress cache is empty — run refreshSpiffProgress_ or wait for the trigger' };
+  }
+  var vals = sh.getRange(2, 1, sh.getLastRow() - 1, PROGRESS_HEADERS.length).getValues();
+  var wantPP = String(p.pay_period || '').trim();
+  var wantId = String(p.program || '').trim();
+
+  var rows = [], newest = '';
+  vals.forEach(function (v) {
+    var o = {};
+    PROGRESS_HEADERS.forEach(function (h, i) { o[h] = v[i]; });
+    if (wantPP && String(o.pay_period) !== wantPP) return;
+    if (wantId && String(o.program_id) !== wantId) return;
+    o.units = Number(o.units) || 0; o.target = Number(o.target) || 0;
+    o.earned = Number(o.earned) || 0; o.hit = !!o.hit;
+    rows.push(o);
+    if (String(o.refreshed_at) > newest) newest = String(o.refreshed_at);
+  });
+
+  /* One line per person, summed across programs — what Crew puts in the SPIFF column. Keyed on
+     employee_id where the connector gave us one, and on name only as a fallback: two people can
+     share a first name but not an id, and Crew joins on id everywhere else. */
+  var by = Object.create(null);
+  rows.forEach(function (r) {
+    var key = String(r.employee_id || ('name:' + r.name));
+    var e = by[key] || (by[key] = { employee_id: r.employee_id || '', name: r.name,
+                                    earned: 0, programs: [] });
+    e.earned += r.earned;
+    e.programs.push({ program_id: r.program_id, vendor: r.vendor, name: r.program_name,
+                      units: r.units, target: r.target, hit: r.hit, earned: r.earned });
+  });
+
+  return { ok: true, pay_period: wantPP || null, rows: rows,
+           by_employee: Object.keys(by).map(function (k) { return by[k]; }),
+           refreshed_at: newest };
 }
 
 /* ---------------------------- PAYOUTS ---------------------------- *
