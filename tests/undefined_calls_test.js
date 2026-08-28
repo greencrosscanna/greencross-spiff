@@ -70,3 +70,20 @@ if (missing.length) {
   process.exit(1);
 }
 console.log(`undefined calls: ${called.size} call sites checked against ${declared.size} bindings — all resolve`);
+
+/* A continuation line starting with `+` inside an ARGUMENT list is unary plus, not concatenation:
+ *   fig('Sold', x,
+ *   +     'of ' + n)      →  +('of ' + n)  →  NaN
+ * It parses, it runs, and it renders "NaN" into the page. Cost two rounds here, both times while
+ * splitting a long fig()/pbig() call across lines.
+ */
+const doublePlus = [];
+src.split('\n').forEach((ln, i) => {
+  if (/^\s*\+\s+\+/.test(ln)) doublePlus.push(`line ${i + 1}: ${ln.trim().slice(0, 70)}`);
+});
+if (doublePlus.length) {
+  console.error('unary-plus concat: FAILED');
+  doublePlus.forEach(d => console.error('  ✗ ' + d));
+  process.exit(1);
+}
+console.log('unary-plus concat: no `+ +` continuations');

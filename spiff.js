@@ -63,6 +63,15 @@
     /* Each tab filters different things, so each owns its own sub-nav bar and only the
        active one is in the layout. Hidden with [hidden] so it takes no height. */
     $$('.sp-subnav').forEach(function (b) { b.hidden = b.id !== subnavIdFor(name); });
+
+    /* Progress pulls itself. Making someone press Refresh to see the thing the tab is named
+       after is a step that exists only because the fetch is slow — and the fetch being slow is
+       the reason to start it the moment the tab is opened, not a reason to wait for a click.
+       Only ONCE per program though: re-entering the tab must not restart six ~9s pulls. */
+    if (name === 'progress' && $('#pgProgram') && $('#pgProgram').value
+        && (!pgRun || pgRun.id !== $('#pgProgram').value)) {
+      loadProgress();
+    }
   }
   function subnavIdFor(tab) {
     return 'subnav' + tab.charAt(0).toUpperCase() + tab.slice(1);
@@ -244,14 +253,21 @@
 
   /* Pace: how far through the window we are, against how much has sold. The two together
      are the only honest read -- 70% sold is good on day 4 and bad on day 14. */
-  function paceOf(p) {
+  function paceOf(p, live) {
     var a = p.actual_json || {}, tgt = (p.target_json && p.target_json.units) || 0;
-    var sold = a.units_sold || 0;
+    var sold = live ? live.units : (a.units_sold || 0);
     var frac = tgt ? sold / tgt : 0;
+    /* TEXT-DATE ARITHMETIC, and the end date is INCLUSIVE. Date.parse('2026-08-30') is UTC
+       midnight while Date.now() is local, so subtracting them mixed two clocks — and treating
+       the end as an instant rather than a whole day lost the last day of every program. A
+       program running the 17th to the 30th is 14 selling days, not 13. */
     var elapsed = null;
     if (p.start_date && p.end_date) {
-      var d0 = Date.parse(p.start_date), d1 = Date.parse(p.end_date), now = Date.now();
-      if (d1 > d0) elapsed = Math.max(0, Math.min(1, (now - d0) / (d1 - d0)));
+      var total = daysBetween(p.start_date, p.end_date) + 1;
+      if (total > 0) {
+        var doneDays = daysBetween(p.start_date, today()) + 1;
+        elapsed = Math.max(0, Math.min(1, doneDays / total));
+      }
     }
     return { frac: frac, elapsed: elapsed, sold: sold, target: tgt,
              ahead: elapsed == null ? frac >= 1 : frac >= elapsed };
@@ -360,12 +376,40 @@
          + '<div class="sp-stat-l">' + esc(label) + '</div></div>';
   }
 
+  /* Live totals for a program, taken from the SAME pull the Progress tab uses. Sharing it is
+     the point: two independent fetches of the same sell-through would eventually disagree, and
+     the hero and Progress disagreeing about what a program has sold is the kind of thing that
+     ends up in a vendor report. Returns null when there is nothing live yet, so the caller can
+     fall back to the recorded actuals rather than showing zeros. */
+  function liveTotals(programId) {
+    if (!pgRun || pgRun.id !== programId) return null;
+    var units = 0, hit = 0, bts = 0, back = 0, pending = 0;
+    pgRun.stores.forEach(function (st) {
+      if (pgRun.pulling[st]) pending++;
+      var r = pgRun.results[st];
+      if (!r) return;
+      units += r.units; hit += r.hit; bts += r.budtenders;
+      if (!pgRun.pulling[st] && !pgRun.failed[st]) back++;
+    });
+    if (!back && !pending) return null;
+    return { units: units, hit: hit, bts: bts, back: back, pending: pending,
+             stores: pgRun.stores.length };
+  }
+
   function heroCard(p) {
     var a = p.actual_json || {}, t = p.target_json || {}, pay = (p.payout_json && p.payout_json.amount) || 0;
     var cost = p.cost_json || {};
-    var pace = paceOf(p);
+    var live = liveTotals(p.program_id);
+    /* A RUNNING program has no recorded actuals — those are written at close-out — so the hero
+       was rendering 0 sold, an empty bar and "N units to go" equal to the whole target. Live
+       Dutchie figures are what the screen is actually about. */
+    var pace = paceOf(p, live);
     var bts = t.budtenders || 0;
-    var hit = a.bts_hit || 0;
+    var hit = live ? live.hit : (a.bts_hit || 0);
+    /* Shimmer only while NOTHING has come back. Once even one store has answered the figures
+       are real, just partial — and the verdict line says how partial. Holding them back until
+       all six land would blank the hero for ten seconds on every load. */
+    var waiting = !!(live && live.pending && !live.back);
 
     var stores = (p.stores_json || []).map(function (sid) {
       return '<span class="sp-store-tag" style="--dot:' + esc(storeColor(sid)) + '">'
@@ -374,12 +418,11 @@
 
     /* Days left, said plainly. "day 12 of 16" beats a date range you have to subtract. */
     var dayNote = '';
-    if (pace.elapsed != null && p.end_date) {
-      var total = Math.round((Date.parse(p.end_date) - Date.parse(p.start_date)) / 864e5) + 1;
-      var day   = Math.max(1, Math.min(total, Math.round(pace.elapsed * total)));
-      var left  = Math.max(0, total - day);
+    if (p.start_date && p.end_date) {
+      var total = daysBetween(p.start_date, p.end_date) + 1;
+      var day   = Math.max(1, Math.min(total, daysBetween(p.start_date, today()) + 1));
       dayNote = '<span class="sp-head-note"><span class="sp-live-dot"></span>day ' + day + ' of ' + total
-              + ' &middot; ' + left + ' day' + (left === 1 ? '' : 's') + ' left</span>';
+              + ' &middot; ' + daysLeftLabel(p.end_date) + '</span>';
     }
 
     /* The verdict names the gap in UNITS and DAYS, because that is the only form of it
@@ -389,10 +432,13 @@
       var short = Math.max(0, pace.target - pace.sold);
       if (pace.ahead) { vtext = 'On pace'; vcls = 'is-ahead'; }
       else { vtext = 'Just behind pace'; vcls = 'is-behind'; }
+      var cover = live && live.back < live.stores
+        ? ' <span style="color:var(--gx-gold)">' + live.back + ' of ' + live.stores + ' stores in so far.</span>'
+        : '';
       verdict = '<span class="sp-verdict-pill ' + vcls + '">' + vtext + '</span>'
               + '<span class="sp-hero-verdict">' + (short
                   ? short.toLocaleString() + ' units still to go.'
-                  : 'Goal already met.') + '</span>';
+                  : 'Goal already met.') + cover + '</span>';
     }
 
     return '<div class="sp-head"><h2>Running now</h2>' + dayNote + '</div>'
@@ -409,9 +455,9 @@
       +       '<div class="sp-hero-stores">' + stores + '</div>'
       +     '</div>'
       +     '<div class="sp-hero-figs">'
-      +       fig('Sold', (a.units_sold || 0).toLocaleString(), 'of ' + (pace.target || 0).toLocaleString(), '')
-      +       fig('Budtenders', hit, 'of ' + bts + ' hit', '')
-      +       fig('Earned so far', money(pay * hit), money(pay * bts) + ' if all ' + bts + ' land it', 'is-pos')
+      +       fig('Sold', waiting ? null : (live ? live.units : (a.units_sold || 0)).toLocaleString(), 'of ' + (pace.target || 0).toLocaleString(), '')
+      +       fig('Budtenders', waiting ? null : hit, 'of ' + bts + ' hit', '')
+      +       fig('Earned so far', waiting ? null : money(pay * hit), money(pay * bts) + ' if all ' + bts + ' land it', 'is-pos')
       +     '</div>'
       +   '</div>'
       +   '<div class="sp-hero-bar">' + paceBar(pace) + '</div>'
@@ -424,9 +470,25 @@
       + '</div>';
   }
 
+  /* Days remaining, counted on WHOLE LOCAL DAYS and inclusive of the end date. The old form
+     subtracted a UTC-parsed end date from a local now and rounded, which reported "1 day left"
+     on the 28th for a program running through the 30th — it was measuring a 1.2-day instant
+     gap instead of counting the 29th and the 30th. */
+  function daysLeftLabel(end) {
+    var n = daysBetween(today(), end);
+    if (n < 0)  return 'ended';
+    if (n === 0) return 'last day';
+    return n + ' day' + (n === 1 ? '' : 's') + ' left';
+  }
+
   function fig(label, v, sub, cls) {
+    /* null means the pull has not answered yet. A zero would read as "nothing sold", which on
+       a running program is a different and much more alarming claim. */
+    var body = v == null
+      ? '<span class="sp-shim" style="width:64px;height:22px"></span>'
+      : esc(String(v));
     return '<div><div class="sp-fig-l">' + esc(label) + '</div>'
-         + '<div class="sp-fig-v ' + cls + '">' + esc(String(v)) + '</div>'
+         + '<div class="sp-fig-v ' + cls + '">' + body + '</div>'
          + '<div class="sp-fig-sub">' + esc(sub) + '</div></div>';
   }
 
@@ -2711,9 +2773,15 @@
   function fillProgressPicker() {
     var sel = $('#pgProgram');
     if (!sel) return;
-    sel.innerHTML = sortPrograms(state.programs).map(function (p) {
+    var list = sortPrograms(state.programs);
+    sel.innerHTML = list.map(function (p) {
       return '<option value="' + esc(p.program_id) + '">' + esc(p.program_name || p.title) + '</option>';
     }).join('');
+    /* Default to the RUNNING program, not whatever sorts first. sortPrograms already puts
+       active ahead of draft and closed, but being explicit keeps this true if that order ever
+       changes — Progress is a screen about the program happening now. */
+    var running = list.filter(function (p) { return p.status === 'active'; })[0];
+    if (running) sel.value = running.program_id;
   }
 
   // Cost is per store AND per volume: measured 9s for a quiet store across a whole
@@ -2835,11 +2903,7 @@
     var live = $('#pgLive');
     if (live) {
       var running = prog.status === 'active';
-      var left = '';
-      if (running && prog.end_date) {
-        var d = Math.max(0, Math.round((Date.parse(prog.end_date) - Date.now()) / 864e5));
-        left = ' · ' + d + ' day' + (d === 1 ? '' : 's') + ' left';
-      }
+      var left = running && prog.end_date ? ' · ' + daysLeftLabel(prog.end_date) : '';
       live.innerHTML = running
         ? '<span class="sp-pg-live"><span class="sp-live-dot"></span>running' + esc(left) + '</span>'
         : '<span class="sp-chip is-' + esc(prog.status) + '">' + esc(prog.status) + '</span>';
@@ -2884,6 +2948,12 @@
           : '');
 
     $('#pgBody').innerHTML = '<div class="sp-pg-grid">' + stores.map(pgCard).join('') + '</div>';
+
+    /* The Programs hero reads the same run, so it has to repaint as stores land — otherwise the
+       landing page keeps showing an empty bar while Progress fills in behind it. Guarded on the
+       panel existing rather than on which tab is showing: repainting a hidden panel is cheap and
+       means switching back to Programs never shows a stale hero. */
+    if ($('#progRunning') && state.programs.length) renderPrograms();
   }
 
   function pgStat(value, label, frac, cls) {
@@ -3220,7 +3290,17 @@
     // shared callback-name collision; staggering them keeps SPIFF correct even on a client
     // that hasn't picked up the fix yet.
     renderProgramsSkeleton();
-    loadShared().then(calcInit).then(loadPrograms).then(function () { fillCalcLoad(); fillReportPicker(); fillHistoryFilters(); fillProgressPicker(); initBugReport(); });
+    loadShared().then(calcInit).then(loadPrograms).then(function () {
+      fillCalcLoad(); fillReportPicker(); fillHistoryFilters(); fillProgressPicker(); initBugReport();
+      /* Start the running program's sell-through as soon as we know what it is. It feeds BOTH
+         the Programs hero and the Progress tab, so the landing page shows real numbers without
+         anyone asking, and opening Progress finds the work already done rather than starting
+         six ~9s pulls on arrival. */
+      var running = state.programs.filter(function (p) { return p.status === 'active'; })[0];
+      if (running && running.start_date && running.end_date && (running.stores_json || []).length) {
+        loadProgress();
+      }
+    });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
