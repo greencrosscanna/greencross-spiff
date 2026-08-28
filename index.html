@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.292"/>
-<link rel="stylesheet" href="spiff.css?v=1.292"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.293"/>
+<link rel="stylesheet" href="spiff.css?v=1.293"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -185,8 +185,14 @@
                 <label><span>Target units</span>
                   <input id="cTarget" type="number" value="0" class="sp-in sp-num-in"></label>
                 <span class="sp-goal-or">or</span>
-                <label><span>Growth</span>
-                  <input id="cGrowth" type="number" step="5" value="0" class="sp-in sp-num-in"></label>
+                <label><span>Growth %</span>
+                  <!-- The unit is INSIDE the field, not only in the label: this sits beside
+                       "Target units", and two bare numbers side by side is how someone types
+                       a unit count into the percentage box. -->
+                  <span class="sp-suffixed">
+                    <input id="cGrowth" type="number" step="5" value="0" class="sp-in sp-num-in">
+                    <i>%</i>
+                  </span></label>
               </div>
               <div class="sp-goal-bar" id="cGoalBar"></div>
               <div class="sp-goal-foot" id="cGoalFoot"></div>
@@ -207,13 +213,15 @@
 
       <div class="sp-h4-row">
         <h4 class="sp-h4">Per store</h4>
-        <span class="sp-h4-note">reference and budtender counts are editable — every store runs the program</span>
+        <span class="sp-h4-note">last-month and budtender counts are editable — every store runs the program</span>
       </div>
       <div class="sp-tbl-wrap" id="calcTable"></div>
-      <p class="sp-tbl-note">&ldquo;Reference&rdquo; is each store&rsquo;s sell-through in the comparable period
-        before the program &mdash; GX Core reserves the word &ldquo;baseline&rdquo; for the Hillsboro store.
-        Goals divide by that store&rsquo;s own budtender count, which is why the count is editable here rather
-        than assumed even. A new store joins by appearing in the GX Core registry &mdash; the table grows with it.</p>
+      <p class="sp-tbl-note">&ldquo;Last month&rdquo; is what this product actually sold at that store, pulled
+        from Dutchie &mdash; 28 days halved, so it compares like-for-like against a two-week SPIFF window.
+        The figure under each cell shows the full 28-day number it came from. Type over it and it becomes
+        your number instead. Goals divide by that store&rsquo;s own budtender count, which is why the count is
+        editable here rather than assumed even, and <b>BT unit increase</b> is the ask each budtender actually
+        hears. A new store joins by appearing in the GX Core registry &mdash; the table grows with it.</p>
     </section>
 
     <!-- ============ PROGRESS ============ -->
@@ -325,6 +333,6 @@
     'clientView', 'emailDraft', 'login', 'programs', 'sellthrough', 'stores'
   ];
 </script>
-<script src="spiff.js?v=1.292"></script>
+<script src="spiff.js?v=1.293"></script>
 </body>
 </html>

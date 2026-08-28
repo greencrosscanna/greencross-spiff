@@ -913,3 +913,12 @@ body.is-gated .workspace { display: none !important; }
 }
 .sp-ref-src { font-size: 10.5px; color: var(--gx-text-mute); }
 .sp-ref-src.is-err { color: var(--gx-red); cursor: pointer; text-decoration: underline; }
+
+/* A unit that lives inside the field. "Growth" and "Target units" sit side by side and both
+   take bare numbers, which is how 1330 ends up typed into the percentage box. */
+.sp-suffixed { position: relative; display: block; }
+.sp-suffixed input { padding-right: 24px; }
+.sp-suffixed i {
+  position: absolute; right: 9px; top: 50%; transform: translateY(-50%);
+  font-style: normal; font-size: 12px; color: var(--gx-text-mute); pointer-events: none;
+}

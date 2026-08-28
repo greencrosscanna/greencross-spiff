@@ -102,7 +102,19 @@
 
   /* -------------------------------------------------------------- programs */
 
-  function money(n) { return '$' + (Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 }); }
+  /* Cents are all-or-nothing. maximumFractionDigits alone renders 479.5 as "$479.5", which
+     reads as a truncated number rather than a price — money shows either no decimals or two,
+     never one. Whole amounts stay clean ($475, not $475.00). */
+  function money(n) {
+    var v = Number(n) || 0;
+    var cents = Math.abs(v * 100 - Math.round(v * 100)) < 1e-6 && Math.round(v * 100) % 100 !== 0;
+    /* Sign OUTSIDE the symbol: "$-412" is not how a negative amount is written, and a negative
+       ROI is exactly where it shows up. */
+    var opts = (cents || v % 1 !== 0)
+      ? { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+      : { maximumFractionDigits: 0 };
+    return (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString('en-US', opts);
+  }
   // The sheet stores ROI % as a fraction (0.3588 = 35.88%).
   function pct(n) { return ((Number(n) || 0) * 100).toFixed(1) + '%'; }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -1047,7 +1059,7 @@
       + cstat('Return on the SPIFF', m.invest ? pctWhole(m.roiPct) : '—',
               money(m.roi) + ' net of the bounty', m.roi < 0 ? 'is-neg' : 'is-hero')
       + cstat('Unit lift', (m.unitInc > 0 ? '+' : '') + m.unitInc.toLocaleString(),
-              pct(m.growth) + ' over the reference period', '');
+              pct(m.growth) + ' over last month', '');
 
     /* ---- the goal bar: the ask drawn as an EXTENSION past the reference, not a fraction
        of it. A fill that only ever approaches 100% cannot show growth at all. */
@@ -1057,7 +1069,7 @@
       var basePct = Math.min(100, (m.baseUnits / tot) * 100);
       bar.innerHTML = '<div class="sp-goal-base" style="width:' + basePct.toFixed(1) + '%"></div>'
         + (m.unitInc > 0 ? '<div class="sp-goal-add" style="left:' + basePct.toFixed(1) + '%"></div>' : '');
-      foot.innerHTML = '<span>' + m.baseUnits.toLocaleString() + ' in the reference period</span>'
+      foot.innerHTML = '<span>' + m.baseUnits.toLocaleString() + ' sold last month</span>'
         + (m.unitInc > 0 ? '<span class="is-add">+' + m.unitInc.toLocaleString() + ' asked for</span>'
                          : '<span></span>');
     }
@@ -1105,10 +1117,10 @@
       var breakEven = (Number(calc.cost) || 0) ? Math.ceil(m.invest / (Number(calc.cost) || 0)) : null;
       minis.innerHTML =
           mini('Cost per extra unit', perExtra == null ? '—' : money(perExtra),
-               perExtra == null ? 'set a target above the reference'
+               perExtra == null ? 'set a target above last month'
                                 : money(m.invest) + ' across ' + m.unitInc.toLocaleString() + ' extra units')
         + mini('Break-even', breakEven == null ? '—' : breakEven.toLocaleString() + ' units',
-               'over the reference period, chain-wide');
+               'against last month, chain-wide');
     }
 
     /* ---- the merged per-store table */
@@ -1118,28 +1130,37 @@
         var base = Number(st.baseline) || 0;
         var n    = Number(st.bts) || 0;
         var goal = Math.round(base * m.ratio);
-        var perNow = n ? Math.round(base / n) : null;
+        var perNow  = n ? Math.round(base / n) : null;
+        var perGoal = n ? Math.round(goal / n) : null;
+        /* The number a budtender is actually told: how many MORE than usual, each. "Sell 74"
+           means nothing without knowing they already sell 53; "sell 21 more" is the ask. */
+        var perLift = (perNow == null || perGoal == null) ? null : perGoal - perNow;
         return '<tr>'
           + '<td><span class="sp-store-cell" style="--dot:' + esc(storeColor(st.store_id)) + '">'
           +   '<span class="sp-dot"></span>' + esc(st.name) + '</span></td>'
           + '<td class="num">' + refCell(st, i, base) + '</td>'
+          + '<td class="num strong">' + goal.toLocaleString() + '</td>'
           + '<td class="num"><input class="sp-in sp-num-in narrow" type="number" min="0" data-i="' + i + '" data-f="bts" value="' + n + '" aria-label="Budtenders, ' + esc(st.name) + '"></td>'
           + '<td class="num dim">' + (perNow == null ? '—' : perNow.toLocaleString()) + '</td>'
-          + '<td class="num strong">' + goal.toLocaleString() + '</td>'
-          + '<td class="num strong">' + (n ? Math.round(goal / n).toLocaleString() : '—') + '</td>'
+          + '<td class="num strong">' + (perGoal == null ? '—' : perGoal.toLocaleString()) + '</td>'
+          + '<td class="num' + (perLift > 0 ? ' pos' : ' dim') + '">'
+          +   (perLift == null ? '—' : (perLift > 0 ? '+' : '') + perLift.toLocaleString()) + '</td>'
           + '<td class="num dim">' + money(goal * (Number(calc.cost) || 0)) + '</td>'
           + '</tr>';
       }).join('');
       tbl.innerHTML =
-        '<table class="sp-tbl"><thead><tr><th>Store</th><th class="num">Reference units</th>'
-        + '<th class="num">BTs</th><th class="num">per BT now</th><th class="num">Goal</th>'
-        + '<th class="num">per BT goal</th><th class="num">Goal value</th></tr></thead><tbody>'
+        '<table class="sp-tbl"><thead><tr><th>Store</th><th class="num">Last month</th>'
+        + '<th class="num">Goal</th><th class="num">BTs</th><th class="num">per BT now</th>'
+        + '<th class="num">per BT goal</th><th class="num">BT unit increase</th>'
+        + '<th class="num">Goal value</th></tr></thead><tbody>'
         + body
         + '<tr class="sp-total"><td>Total · ' + m.on.length + ' store' + (m.on.length === 1 ? '' : 's')
         +   ', ' + m.bts + ' budtender' + (m.bts === 1 ? '' : 's') + '</td>'
         +   '<td class="num">' + m.baseUnits.toLocaleString() + '</td>'
-        +   '<td class="num">' + m.bts + '</td><td></td>'
-        +   '<td class="num goal">' + (Number(calc.target) || 0).toLocaleString() + '</td><td></td>'
+        +   '<td class="num goal">' + (Number(calc.target) || 0).toLocaleString() + '</td>'
+        +   '<td class="num">' + m.bts + '</td><td></td><td></td>'
+        +   '<td class="num' + (m.unitInc > 0 ? ' goal' : '') + '">'
+        +     (m.bts ? (m.unitInc > 0 ? '+' : '') + Math.round(m.unitInc / m.bts).toLocaleString() : '—') + '</td>'
         +   '<td class="num">' + money(m.targetRev) + '</td></tr>'
         + '</tbody></table>';
     }
