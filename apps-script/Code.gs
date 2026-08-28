@@ -870,8 +870,24 @@ function refreshSpiffProgress_(only) {
     sh.getRange(sh.getLastRow() + 1, 1, written.length, PROGRESS_HEADERS.length).setValues(written);
     sh.getRange(2, 2, Math.max(1, sh.getLastRow() - 1), 1).setNumberFormat('@');   // pay_period TEXT
   }
+  /* WHY a sweep found nothing, not just that it did. `programs: 0` on its own cannot tell a
+     genuinely quiet week from a program sitting in `draft`, or from one whose stores_json is empty
+     — and those need completely different fixes. The counts make the answer one call instead of a
+     session and a hunt through the sheet. */
+  var byStatus = Object.create(null);
+  listPrograms_().forEach(function (x) {
+    var k = String(x.status || '(blank)');
+    byStatus[k] = (byStatus[k] || 0) + 1;
+  });
+  var seen = programs.map(function (x) {
+    return { program_id: x.program_id, vendor: x.vendor,
+             name: x.program_name || x.title, pay_period: x.pay_period || '(none)',
+             stores: (x.stores_json || []).length,
+             window: (x.start_date || '?') + ' → ' + (x.end_date || '?') };
+  });
   return { ok: true, programs: programs.length, rows: written.length,
-           failures: failures, refreshed_at: now };
+           failures: failures, refreshed_at: now,
+           swept: seen, all_programs_by_status: byStatus };
 }
 
 /** Installed once; hourly is well inside Dutchie's freshness and nowhere near the quota. */
