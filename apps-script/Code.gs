@@ -181,7 +181,12 @@ var GATED_WRITES = ['importCalc'];
    Deliberately NOT added to PUBLIC_ACTIONS: these handlers check the secret themselves, so listing
    them as public would work today and be one careless edit away from an open payroll read. This
    says what they actually are. */
-var SECRET_ACTIONS = ['progress', 'refreshProgress', 'installProgressTrigger'];
+/* `progress` READS the cache and is token-gated like every other read, so a signed-in browser
+   can show it — it is the same sell-through the Progress tab renders live, just cheaper. The two
+   that stay secret-only both COST something: refreshProgress walks every store's date windows
+   (~57s measured) and installProgressTrigger changes the schedule. A deploy secret still opens
+   all three; see guard_. */
+var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -912,10 +917,9 @@ function refreshSpiffProgressTrigger() { refreshSpiffProgress_(); }
  * pay period, $25" across however many programs were running.
  */
 function spiffProgress_(p) {
-  var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
-  if (!secret) return { ok: false, error: 'GX_DEPLOY_SECRET is not set on this script' };
-  if (String(p.secret || '') !== secret) return { ok: false, error: 'Unauthorized' };
-
+  /* guard_ has already authorised this call — either a valid session token or the deploy
+     secret. Re-demanding the secret here would have made the route unreachable from a browser
+     no matter what the router allowed. */
   var sh = progressSheet_();
   if (sh.getLastRow() < 2) {
     return { ok: true, rows: [], by_employee: [], refreshed_at: '',

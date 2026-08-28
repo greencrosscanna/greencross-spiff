@@ -270,6 +270,10 @@
       }
     }
     return { frac: frac, elapsed: elapsed, sold: sold, target: tgt,
+             /* MET is not the same as AHEAD. Ahead of pace on day 3 is encouraging; past the
+                goal is the thing worth interrupting for, and it gets the brighter treatment
+                Sales and Leaderboard use for a cleared target. */
+             met: tgt > 0 && frac >= 1,
              ahead: elapsed == null ? frac >= 1 : frac >= elapsed };
   }
 
@@ -381,6 +385,47 @@
      the hero and Progress disagreeing about what a program has sold is the kind of thing that
      ends up in a vendor report. Returns null when there is nothing live yet, so the caller can
      fall back to the recorded actuals rather than showing zeros. */
+  /* The CACHED progress table, refreshed hourly by an engine trigger. The landing page reads
+     this instead of fanning out six live sell-through calls, which is what made it take a
+     minute: each store walks its date windows sequentially at ~9s a call, so a fortnight-long
+     program is two windows per store and the page sat there for the slowest chain.
+     The cache answers in ~4s with every store already in it. Live figures still win when the
+     Progress tab has pulled them — see liveTotals — so the landing page is never STALER than
+     what the user has already looked at, just cheaper when they have not. */
+  var progCache = null;
+
+  async function loadProgressCache() {
+    try {
+      var r = await ENG.jsonp('progress', { token: (session() || {}).token }, { timeoutMs: 30000, retries: 1 });
+      if (!r || !r.ok || !(r.rows || []).length) return null;
+      var by = Object.create(null);
+      r.rows.forEach(function (row) {
+        var g = by[row.program_id] || (by[row.program_id] = {
+          units: 0, hit: 0, bts: 0, stores: Object.create(null), refreshed_at: row.refreshed_at
+        });
+        g.units += Number(row.units) || 0;
+        if (row.hit) g.hit++;
+        g.bts++;
+        g.stores[row.store_id] = 1;
+      });
+      progCache = by;
+      renderPrograms();
+      return by;
+    } catch (e) {
+      console.warn('[spiff] progress cache unavailable:', e);
+      return null;
+    }
+  }
+
+  /* Cached totals for a program, shaped like liveTotals so the hero does not care which it got. */
+  function cachedTotals(programId, storeCount) {
+    var g = progCache && progCache[programId];
+    if (!g) return null;
+    var n = Object.keys(g.stores).length;
+    return { units: g.units, hit: g.hit, bts: g.bts, back: n, pending: 0,
+             stores: storeCount || n, cached: true, at: g.refreshed_at };
+  }
+
   function liveTotals(programId) {
     if (!pgRun || pgRun.id !== programId) return null;
     var units = 0, hit = 0, bts = 0, back = 0, pending = 0;
@@ -399,7 +444,7 @@
   function heroCard(p) {
     var a = p.actual_json || {}, t = p.target_json || {}, pay = (p.payout_json && p.payout_json.amount) || 0;
     var cost = p.cost_json || {};
-    var live = liveTotals(p.program_id);
+    var live = liveTotals(p.program_id) || cachedTotals(p.program_id, (p.stores_json || []).length);
     /* A RUNNING program has no recorded actuals — those are written at close-out — so the hero
        was rendering 0 sold, an empty bar and "N units to go" equal to the whole target. Live
        Dutchie figures are what the screen is actually about. */
@@ -422,7 +467,7 @@
       var total = daysBetween(p.start_date, p.end_date) + 1;
       var day   = Math.max(1, Math.min(total, daysBetween(p.start_date, today()) + 1));
       dayNote = '<span class="sp-head-note"><span class="sp-live-dot"></span>day ' + day + ' of ' + total
-              + ' &middot; ' + daysLeftLabel(p.end_date) + '</span>';
+              + ' &middot; ' + daysLeftLabel(p.end_date) + '</span>' + coverageNote(live, p);
     }
 
     /* The verdict names the gap in UNITS and DAYS, because that is the only form of it
@@ -430,11 +475,10 @@
     var verdict = '', vcls = 'is-ahead', vtext = '';
     if (pace.target) {
       var short = Math.max(0, pace.target - pace.sold);
-      if (pace.ahead) { vtext = 'On pace'; vcls = 'is-ahead'; }
+      if (pace.met) { vtext = 'Goal met'; vcls = 'is-met'; }
+      else if (pace.ahead) { vtext = 'On pace'; vcls = 'is-ahead'; }
       else { vtext = 'Just behind pace'; vcls = 'is-behind'; }
-      var cover = live && live.back < live.stores
-        ? ' <span style="color:var(--gx-gold)">' + live.back + ' of ' + live.stores + ' stores in so far.</span>'
-        : '';
+      var cover = '';   // coverage now lives in the head, where it is visible before the numbers
       verdict = '<span class="sp-verdict-pill ' + vcls + '">' + vtext + '</span>'
               + '<span class="sp-hero-verdict">' + (short
                   ? short.toLocaleString() + ' units still to go.'
@@ -481,6 +525,32 @@
     return n + ' day' + (n === 1 ? '' : 's') + ' left';
   }
 
+  /* HOW MUCH OF THE CHAIN THESE FIGURES COVER, stated on the landing page and counting up as
+     stores land. Sky opened Progress and only then discovered two stores had not reported —
+     the hero had been quietly showing four stores' sales as if they were the whole chain, and
+     a short bar is indistinguishable from a slow one. Partial coverage is now impossible to
+     miss without leaving the page. */
+  function coverageNote(live, p) {
+    if (!live) return '<span class="sp-head-note">waiting on Dutchie&hellip;</span>';
+    var total = live.stores || (p.stores_json || []).length || 0;
+    if (!total) return '';
+    if (live.back >= total && !live.pending) {
+      return '<span class="sp-head-note">' + (live.cached
+        ? 'all ' + total + ' stores &middot; as of ' + esc(shortTime(live.at))
+        : 'all ' + total + ' stores &middot; live') + '</span>';
+    }
+    return '<span class="sp-head-note is-partial"><span class="sp-live-dot"></span>'
+      + live.back + ' of ' + total + ' stores in &mdash; totals below are incomplete</span>';
+  }
+
+  /* The cache stamps a full JS date string; the hero only needs the clock. */
+  function shortTime(v) {
+    var m = /(\d{1,2}):(\d{2})/.exec(String(v || ''));
+    if (!m) return String(v || '').slice(0, 16);
+    var h = Number(m[1]), ap = h >= 12 ? 'PM' : 'AM';
+    return ((h % 12) || 12) + ':' + m[2] + ' ' + ap;
+  }
+
   function fig(label, v, sub, cls) {
     /* null means the pull has not answered yet. A zero would read as "nothing sold", which on
        a running program is a different and much more alarming claim. */
@@ -496,7 +566,7 @@
     var pctFill = Math.max(0, Math.min(100, pace.frac * 100));
     var line = pace.elapsed == null ? '' :
       '<div class="sp-bar-pace" style="left:' + (pace.elapsed * 100).toFixed(1) + '%"></div>';
-    return '<div class="sp-bar' + (pace.ahead ? ' is-ahead' : '') + '">'
+    return '<div class="sp-bar' + (pace.met ? ' is-met' : pace.ahead ? ' is-ahead' : '') + '">'
       +   '<div class="sp-bar-fill" style="width:' + pctFill.toFixed(1) + '%"></div>' + line
       + '</div>'
       + '<div class="sp-bar-foot"><span>' + pace.sold.toLocaleString() + ' sold &middot; '
@@ -3292,14 +3362,11 @@
     renderProgramsSkeleton();
     loadShared().then(calcInit).then(loadPrograms).then(function () {
       fillCalcLoad(); fillReportPicker(); fillHistoryFilters(); fillProgressPicker(); initBugReport();
-      /* Start the running program's sell-through as soon as we know what it is. It feeds BOTH
-         the Programs hero and the Progress tab, so the landing page shows real numbers without
-         anyone asking, and opening Progress finds the work already done rather than starting
-         six ~9s pulls on arrival. */
-      var running = state.programs.filter(function (p) { return p.status === 'active'; })[0];
-      if (running && running.start_date && running.end_date && (running.stores_json || []).length) {
-        loadProgress();
-      }
+      /* The landing page reads the CACHE, not six live pulls. Firing the live fan-out here is
+         what made this screen take a minute to settle, and the hero does not need to-the-second
+         figures — it needs figures. The Progress tab still pulls live on arrival, and when it
+         does, the hero upgrades to those. */
+      loadProgressCache();
     });
   }
 

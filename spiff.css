@@ -1033,3 +1033,20 @@ body.is-gated .workspace { display: none !important; }
 @media (prefers-reduced-motion: reduce) {
   .is-awaiting::after { animation: none; }
 }
+
+/* Past the goal. Brighter and steadier than "ahead of pace" — the same treatment Sales and
+   Leaderboard give a cleared target, so the meaning carries across apps without relearning. */
+.sp-bar.is-met > .sp-bar-fill {
+  background: linear-gradient(90deg, var(--gx-green-dim), var(--gx-green-bright));
+  animation: gxaheadglow 2.2s ease-in-out infinite;
+  box-shadow: 0 0 14px rgba(74,222,128,.55);
+}
+.sp-verdict-pill.is-met {
+  color: var(--gx-green-ink); background: var(--gx-green); border: 1px solid var(--gx-green);
+  font-weight: 700;
+}
+/* Partial coverage reads gold, not red: nothing has failed, the chain simply has not all
+   reported yet — and the figures beside it are real, just incomplete. */
+.sp-head-note.is-partial { color: var(--gx-gold); }
+.sp-head-note.is-partial .sp-live-dot { background: var(--gx-gold); }
+@media (prefers-reduced-motion: reduce) { .sp-bar.is-met > .sp-bar-fill { animation: none; } }
