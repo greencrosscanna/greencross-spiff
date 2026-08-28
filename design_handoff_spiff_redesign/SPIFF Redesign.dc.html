@@ -1,0 +1,1524 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #050706; color: #e6ece9;
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased; }
+  a { color: #4ade80; text-decoration: none; }
+  a:hover { color: #5ee68f; text-decoration: underline; }
+  @keyframes gxskel { 0%, 100% { opacity: .25 } 50% { opacity: .6 } }
+  /* Leaderboard's ahead-of-pace treatment (docs-mocks/standings_mock.html) */
+  @keyframes gxpulse { 0% { box-shadow: 0 0 0 0 rgba(74,222,128,.5) } 70% { box-shadow: 0 0 0 7px rgba(74,222,128,0) } 100% { box-shadow: 0 0 0 0 rgba(74,222,128,0) } }
+  @keyframes gxaheadglow { 0%, 100% { box-shadow: 0 0 10px rgba(74,222,128,.45) } 50% { box-shadow: 0 0 18px rgba(74,222,128,.8) } }
+</style>
+</helmet>
+
+<section style="display:flex; flex-direction:column; gap:56px; padding:48px 48px 120px">
+
+  <div style="max-width:900px; display:flex; flex-direction:column; gap:14px">
+    <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:10px; font-weight:700; line-height:1; letter-spacing:1.4px; text-transform:uppercase; color:#5e6864">Turn 1 · for approval</div>
+    <h1 style="margin:0; font-family:'Montserrat',sans-serif; font-size:34px; font-weight:800; letter-spacing:-.5px">SPIFF — visual once-over</h1>
+    <p style="margin:0; font-size:15px; line-height:1.6; color:#8a958f; text-wrap:pretty">Nine screens, one direction. Everything here is built out of gx-theme tokens and the patterns Crew and Leaderboard already use — the shell, the sub-nav, the stat strip, skeletons instead of "Loading…", store colour from the GX Core registry, and figures that carry their own meaning. No new palette, no new type, nothing SPIFF has to own alone.</p>
+    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:6px">
+      <a href="#1a" style="padding:5px 12px; border:1px solid #2e3733; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:1px; text-transform:uppercase">1a Programs</a>
+      <a href="#1b" style="padding:5px 12px; border:1px solid #2e3733; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:1px; text-transform:uppercase">1b Calculator</a>
+      <a href="#1c" style="padding:5px 12px; border:1px solid #2e3733; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:1px; text-transform:uppercase">1c Pitch mode</a>
+      <a href="#1d" style="padding:5px 12px; border:1px solid #2e3733; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:1px; text-transform:uppercase">1d Progress</a>
+      <a href="#1e" style="padding:5px 12px; border:1px solid #2e3733; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:1px; text-transform:uppercase">1e Reports</a>
+      <a href="#1f" style="padding:5px 12px; border:1px solid #2e3733; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:1px; text-transform:uppercase">1f History</a>
+      <a href="#1g" style="padding:5px 12px; border:1px solid #2e3733; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:1px; text-transform:uppercase">1g Record</a>
+      <a href="#1h" style="padding:5px 12px; border:1px solid #2e3733; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:1px; text-transform:uppercase">1h My SPIFF</a>
+      <a href="#1i" style="padding:5px 12px; border:1px solid #2e3733; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:1px; text-transform:uppercase">1i Vendor view</a>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ 1a PROGRAMS -->
+  <div id="1a" style="display:flex; gap:28px; align-items:flex-start">
+    <div style="width:1440px; flex:none">
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px">
+        <span style="padding:3px 9px; border-radius:5px; background:#4ade80; color:#06210f; font:800 11px/1.4 sans-serif; letter-spacing:.5px">1a</span>
+        <span style="font-size:13px; font-weight:600">Programs</span>
+        <span style="font-size:12px; color:#5e6864">the landing surface</span>
+      </div>
+      <div data-screen-label="Programs" style="border:1px solid #232a27; border-radius:14px; overflow:hidden; background:#0a0e0d; box-shadow:0 28px 70px rgba(0,0,0,.5)">
+
+        <header style="display:flex; align-items:center; gap:14px; padding:0 20px; background:#121715; border-bottom:1px solid #232a27; min-height:52px">
+          <div style="display:flex; align-items:center; gap:10px; flex-shrink:0">
+            <img src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross" style="height:22px; width:auto; display:block">
+            <span style="color:#5e6864; font-size:11px; text-transform:uppercase; letter-spacing:1.1px; font-weight:700">SPIFF</span>
+          </div>
+          <nav style="display:flex; gap:2px">
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#e6ece9; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer; box-shadow:inset 0 -2px 0 #4ade80">Programs</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">Calculator</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">Progress</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">Reports</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">History</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">My SPIFF ↗</button>
+          </nav>
+          <div style="margin-left:auto; display:flex; align-items:center; gap:12px">
+            <div style="text-align:right; line-height:1.2">
+              <div style="font-weight:700; font-size:14px; color:#e6ece9">2:14 PM</div>
+              <div style="color:#5e6864; font-size:10px; letter-spacing:.8px; text-transform:uppercase">Thu Aug 27</div>
+            </div>
+            <div style="display:inline-flex; align-items:center; gap:8px; padding:4px 12px 4px 4px; border-radius:999px; border:1px solid #232a27; background:#121715; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:500; line-height:1">
+              <span style="width:24px; height:24px; border-radius:50%; background:linear-gradient(135deg,#4ade80,#2f8a52); color:#06210f; font-weight:800; font-size:10px; display:flex; align-items:center; justify-content:center">TW</span>
+              <span>Tawny Wan</span>
+            </div>
+          </div>
+        </header>
+
+        <!-- sub-nav: Crew's pattern — search, segmented scope, store pills -->
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:9px; padding:10px 20px; background:#121715; border-bottom:1px solid #232a27">
+          <div style="position:relative; flex:1 1 300px; max-width:400px">
+            <span style="position:absolute; left:11px; top:7px; color:#5e6864; font-size:13px; pointer-events:none">⌕</span>
+            <input placeholder="Search vendor or program…" style="width:100%; box-sizing:border-box; background:#1a221f; border:1px solid #232a27; border-radius:8px; color:#e6ece9; padding:7px 12px 7px 32px; font:inherit; font-size:13px; outline:none">
+          </div>
+          <div style="display:flex; background:#161c1a; border:1px solid #232a27; border-radius:8px; padding:2px">
+            <button style="border:0; border-radius:6px; padding:6px 12px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:600; line-height:1; cursor:pointer; background:#232a27; color:#e6ece9">Active</button>
+            <button style="border:0; border-radius:6px; padding:6px 12px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:600; line-height:1; cursor:pointer; background:transparent; color:#8a958f">Draft</button>
+            <button style="border:0; border-radius:6px; padding:6px 12px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:600; line-height:1; cursor:pointer; background:transparent; color:#8a958f">Closed</button>
+            <button style="border:0; border-radius:6px; padding:6px 12px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:600; line-height:1; cursor:pointer; background:transparent; color:#8a958f">All</button>
+          </div>
+          <div style="width:1px; height:22px; background:#232a27; flex:none"></div>
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:6px">
+            <button style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border:1px solid #22D3EE; border-radius:999px; background:#161c1a; color:#e6ece9; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:11.5px; font-weight:600; line-height:1.4; cursor:pointer"><span style="width:6px; height:6px; border-radius:50%; background:#22D3EE"></span>Century<span style="color:#5e6864; font-variant-numeric:tabular-nums">14</span></button>
+            <button style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border:1px solid #232a27; border-radius:999px; background:#161c1a; color:#8a958f; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:11.5px; font-weight:600; line-height:1.4; cursor:pointer"><span style="width:6px; height:6px; border-radius:50%; background:#3B82F6"></span>Center<span style="color:#5e6864; font-variant-numeric:tabular-nums">14</span></button>
+            <button style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border:1px solid #232a27; border-radius:999px; background:#161c1a; color:#8a958f; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:11.5px; font-weight:600; line-height:1.4; cursor:pointer"><span style="width:6px; height:6px; border-radius:50%; background:#A855F7"></span>Commercial<span style="color:#5e6864; font-variant-numeric:tabular-nums">13</span></button>
+            <button style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border:1px solid #232a27; border-radius:999px; background:#161c1a; color:#8a958f; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:11.5px; font-weight:600; line-height:1.4; cursor:pointer"><span style="width:6px; height:6px; border-radius:50%; background:#6366F1"></span>Baseline<span style="color:#5e6864; font-variant-numeric:tabular-nums">11</span></button>
+            <button style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border:1px solid #232a27; border-radius:999px; background:#161c1a; color:#8a958f; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:11.5px; font-weight:600; line-height:1.4; cursor:pointer"><span style="width:6px; height:6px; border-radius:50%; background:#D946EF"></span>Portland<span style="color:#5e6864; font-variant-numeric:tabular-nums">9</span></button>
+            <button style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border:1px solid #232a27; border-radius:999px; background:#161c1a; color:#8a958f; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:11.5px; font-weight:600; line-height:1.4; cursor:pointer"><span style="width:6px; height:6px; border-radius:50%; background:#EC4899"></span>River<span style="color:#5e6864; font-variant-numeric:tabular-nums">8</span></button>
+          </div>
+          <div style="margin-left:auto; display:flex; gap:8px">
+            <button style="display:inline-flex; align-items:center; gap:7px; background:#4ade80; border:1px solid #4ade80; border-radius:6px; color:#06210f; font-weight:700; padding:6px 12px; font-size:12px; cursor:pointer">+ New program</button>
+          </div>
+        </div>
+
+        <div style="padding:22px 20px 30px">
+          <!-- stat strip -->
+          <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; margin-bottom:24px">
+            <div style="background:#121715; border:1px solid #232a27; border-radius:10px; padding:14px 16px">
+              <div style="font-size:23px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.4px; color:#e6ece9">1</div>
+              <div style="font-size:11px; color:#5e6864; margin-top:2px; letter-spacing:.3px">running now</div>
+            </div>
+            <div style="background:#121715; border:1px solid #232a27; border-radius:10px; padding:14px 16px">
+              <div style="font-size:23px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.4px; color:#e6ece9">$475</div>
+              <div style="font-size:11px; color:#5e6864; margin-top:2px; letter-spacing:.3px">at stake for budtenders</div>
+            </div>
+            <div style="background:#121715; border:1px solid #232a27; border-radius:10px; padding:14px 16px">
+              <div style="font-size:23px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.4px; color:#4ade80">+$41,208</div>
+              <div style="font-size:11px; color:#5e6864; margin-top:2px; letter-spacing:.3px">net return, 22 programs</div>
+            </div>
+            <div style="background:#121715; border:1px solid #d4a84799; border-radius:10px; padding:14px 16px">
+              <div style="font-size:23px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.4px; color:#d4a847">2</div>
+              <div style="font-size:11px; color:#5e6864; margin-top:2px; letter-spacing:.3px">records need checking</div>
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:10px; margin:0 0 10px">
+            <h2 style="margin:0; font-size:11px; letter-spacing:1.4px; text-transform:uppercase; color:#8a958f; font-weight:700">Running now</h2>
+            <span style="display:inline-flex; align-items:center; gap:7px; font-size:11px; color:#5e6864"><span style="width:7px; height:7px; border-radius:50%; background:#4ade80; animation:gxpulse 2s infinite"></span>day 12 of 16 · 4 days left</span>
+          </div>
+
+          <div style="border:1px solid #232a27; border-radius:12px; background:#121715; padding:20px 22px; margin-bottom:26px">
+            <div style="display:flex; align-items:flex-start; gap:24px">
+              <div style="flex:1; min-width:0">
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+                  <h3 style="margin:0; font-family:'Montserrat',sans-serif; font-size:22px; font-weight:800">Wyld 10pc</h3>
+                  <span style="font-size:10px; text-transform:uppercase; letter-spacing:.9px; font-weight:700; padding:3px 9px; border-radius:999px; border:1px solid #2f8a52; color:#4ade80; background:rgba(74,222,128,.10)">active</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:9px; margin-top:7px; font-size:12.5px; color:#8a958f; flex-wrap:wrap">
+                  <span>Wyld</span><span style="color:#2e3733">·</span>
+                  <span style="font-variant-numeric:tabular-nums">Aug 16 → Aug 31</span><span style="color:#2e3733">·</span>
+                  <span style="font-variant-numeric:tabular-nums">$25 flat per budtender</span><span style="color:#2e3733">·</span>
+                  <span style="font-variant-numeric:tabular-nums">$10.00/unit</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:14px; margin-top:14px; flex-wrap:wrap">
+                  <span style="display:inline-flex; align-items:center; gap:7px; font-size:12px; color:#8a958f"><span style="width:7px; height:7px; border-radius:50%; background:#22D3EE"></span>Century</span>
+                  <span style="display:inline-flex; align-items:center; gap:7px; font-size:12px; color:#8a958f"><span style="width:7px; height:7px; border-radius:50%; background:#3B82F6"></span>Center</span>
+                  <span style="display:inline-flex; align-items:center; gap:7px; font-size:12px; color:#8a958f"><span style="width:7px; height:7px; border-radius:50%; background:#A855F7"></span>Commercial</span>
+                  <span style="display:inline-flex; align-items:center; gap:7px; font-size:12px; color:#8a958f"><span style="width:7px; height:7px; border-radius:50%; background:#6366F1"></span>Baseline</span>
+                  <span style="display:inline-flex; align-items:center; gap:7px; font-size:12px; color:#8a958f"><span style="width:7px; height:7px; border-radius:50%; background:#D946EF"></span>Portland</span>
+                  <span style="display:inline-flex; align-items:center; gap:7px; font-size:12px; color:#8a958f"><span style="width:7px; height:7px; border-radius:50%; background:#EC4899"></span>River</span>
+                </div>
+              </div>
+              <div style="display:flex; gap:26px; text-align:right">
+                <div>
+                  <div style="font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Sold</div>
+                  <div style="font-family:'Montserrat',sans-serif; font-size:26px; font-weight:800; line-height:1.1; font-variant-numeric:tabular-nums; margin-top:5px">925</div>
+                  <div style="font-size:11.5px; color:#5e6864; font-variant-numeric:tabular-nums">of 1,330</div>
+                </div>
+                <div>
+                  <div style="font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Budtenders</div>
+                  <div style="font-family:'Montserrat',sans-serif; font-size:26px; font-weight:800; line-height:1.1; font-variant-numeric:tabular-nums; margin-top:5px">12</div>
+                  <div style="font-size:11.5px; color:#5e6864; font-variant-numeric:tabular-nums">of 19 hit</div>
+                </div>
+                <div>
+                  <div style="font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Earned so far</div>
+                  <div style="font-family:'Montserrat',sans-serif; font-size:26px; font-weight:800; line-height:1.1; font-variant-numeric:tabular-nums; margin-top:5px; color:#4ade80">$300</div>
+                  <div style="font-size:11.5px; color:#5e6864; font-variant-numeric:tabular-nums">$475 if all 19 land it</div>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top:20px; position:relative; height:9px; border-radius:6px; background:#1a221f">
+              <div style="position:absolute; left:0; top:0; bottom:0; width:69.5%; border-radius:6px; background:linear-gradient(90deg,#7a5a12,#d4a847)"></div>
+              <div style="position:absolute; top:-4px; bottom:-4px; left:75%; width:2px; background:#8a958f"></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-top:8px; font-size:11px; color:#5e6864; font-variant-numeric:tabular-nums">
+              <span>925 sold · 70% of goal</span>
+              <span>pace line · 75% of the window elapsed</span>
+              <span>1,330 goal</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px; margin-top:16px; padding-top:16px; border-top:1px solid #1c2320">
+              <span style="font-size:11px; font-weight:700; padding:5px 11px; border-radius:999px; background:rgba(212,168,71,.14); color:#d4a847">Just behind pace</span>
+              <span style="font-size:12px; color:#8a958f">405 units in 4 days closes it. Commercial is already over.</span>
+              <span style="margin-left:auto; display:flex; gap:8px">
+                <button style="background:transparent; color:#8a958f; border:1px solid #2e3733; border-radius:6px; padding:6px 12px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; cursor:pointer">Open progress</button>
+                <button style="background:transparent; color:#8a958f; border:1px solid #2e3733; border-radius:6px; padding:6px 12px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; cursor:pointer">Edit record</button>
+              </span>
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:baseline; gap:10px; margin:26px 0 10px">
+            <h2 style="margin:0; font-size:11px; letter-spacing:1.4px; text-transform:uppercase; color:#8a958f; font-weight:700">Closed</h2>
+            <span style="font-size:11px; color:#5e6864">21 programs · <a href="#1f">see all in History</a></span>
+          </div>
+          <div style="border:1px solid #232a27; border-radius:10px; overflow:hidden; background:#121715">
+            <table style="width:100%; border-collapse:collapse; font-size:13px">
+              <tbody>
+                <tr>
+                  <td style="padding:12px 14px; border-bottom:1px solid #1c2320">
+                    <div style="font-weight:600">Mule 2pc</div>
+                    <div style="font-size:11px; color:#5e6864; margin-top:2px">Mule · Aug 1 → Aug 15</div>
+                  </td>
+                  <td style="padding:12px 14px; border-bottom:1px solid #1c2320; width:130px">
+                    <div style="display:flex; gap:4px"><span style="width:8px; height:8px; border-radius:50%; background:#22D3EE"></span><span style="width:8px; height:8px; border-radius:50%; background:#3B82F6"></span><span style="width:8px; height:8px; border-radius:50%; background:#A855F7"></span></div>
+                  </td>
+                  <td style="padding:12px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; width:110px">$25</td>
+                  <td style="padding:12px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; width:150px"><span style="font-weight:600">1,047</span> <span style="color:#4ade80">+147</span></td>
+                  <td style="padding:12px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; width:110px">11 / 14</td>
+                  <td style="padding:12px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; width:140px; color:#4ade80; font-weight:600">+$6,934</td>
+                  <td style="padding:12px 14px; border-bottom:1px solid #1c2320; width:120px"><span style="font-size:10px; text-transform:uppercase; letter-spacing:.9px; font-weight:700; padding:3px 9px; border-radius:999px; border:1px solid #2e3733; color:#5e6864">closed</span></td>
+                </tr>
+                <tr style="background:rgba(239,68,68,.06)">
+                  <td style="padding:12px 14px; border-bottom:1px solid #1c2320">
+                    <div style="font-weight:600">Kaprikorn cartridge</div>
+                    <div style="font-size:11px; color:#5e6864; margin-top:2px">Kaprikorn · Jul 16 → Jul 31</div>
+                    <div style="margin-top:6px"><span style="font-size:10.5px; color:#ef4444; border:1px solid #ef4444; border-radius:4px; padding:2px 7px">actuals match Freshy 20pc — verify</span></div>
+                  </td>
+                  <td style="padding:12px 14px; border-bottom:1px solid #1c2320">
+                    <div style="display:flex; gap:4px"><span style="width:8px; height:8px; border-radius:50%; background:#3B82F6"></span><span style="width:8px; height:8px; border-radius:50%; background:#D946EF"></span></div>
+                  </td>
+                  <td style="padding:12px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums">$25</td>
+                  <td style="padding:12px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums"><span style="font-weight:600">267</span> <span style="color:#ef4444">−33</span></td>
+                  <td style="padding:12px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums">4 / 9</td>
+                  <td style="padding:12px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#ef4444; font-weight:600">−$412</td>
+                  <td style="padding:12px 14px; border-bottom:1px solid #1c2320"><span style="font-size:10px; text-transform:uppercase; letter-spacing:.9px; font-weight:700; padding:3px 9px; border-radius:999px; border:1px solid #2e3733; color:#5e6864">closed</span></td>
+                </tr>
+                <tr>
+                  <td style="padding:12px 14px">
+                    <div style="font-weight:600">National Cannabis flower</div>
+                    <div style="font-size:11px; color:#5e6864; margin-top:2px">National Cannabis · Jul 1 → Jul 15</div>
+                  </td>
+                  <td style="padding:12px 14px">
+                    <div style="display:flex; gap:4px"><span style="width:8px; height:8px; border-radius:50%; background:#22D3EE"></span><span style="width:8px; height:8px; border-radius:50%; background:#6366F1"></span><span style="width:8px; height:8px; border-radius:50%; background:#EC4899"></span></div>
+                  </td>
+                  <td style="padding:12px 14px; text-align:right; font-variant-numeric:tabular-nums">$25</td>
+                  <td style="padding:12px 14px; text-align:right; font-variant-numeric:tabular-nums"><span style="font-weight:600">688</span> <span style="color:#4ade80">+88</span></td>
+                  <td style="padding:12px 14px; text-align:right; font-variant-numeric:tabular-nums">8 / 12</td>
+                  <td style="padding:12px 14px; text-align:right; font-variant-numeric:tabular-nums; color:#4ade80; font-weight:600">+$3,912</td>
+                  <td style="padding:12px 14px"><span style="font-size:10px; text-transform:uppercase; letter-spacing:.9px; font-weight:700; padding:3px 9px; border-radius:999px; border:1px solid #2e3733; color:#5e6864">closed</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:300px; flex:none; padding-top:44px; display:flex; flex-direction:column; gap:14px">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:10px; font-weight:700; line-height:1; letter-spacing:1.4px; text-transform:uppercase; color:#5e6864">What changed</div>
+      <ul style="margin:0; padding-left:18px; display:flex; flex-direction:column; gap:9px; font-size:12.5px; line-height:1.5; color:#8a958f">
+        <li>One program at a time is the standard, so the running program gets a card rather than a row in a table of one — with the Leaderboard's pace line under it, so "are we going to make it" is answered on sight.</li>
+        <li>A sub-nav like Crew's: search, scope segmented control, and store pills coloured from the GX Core registry. SPIFF already loads <code style="color:#4ade80">GXStores</code> at boot and uses none of it.</li>
+        <li>Import-from-Calculator is gone. It seeds history once; after that it is a button that can only do harm.</li>
+        <li>Closed programs keep a table, trimmed from twelve columns to eight — cost per unit and the payout model ride under the program name.</li>
+        <li>Flagged records tint the row and say what to do, rather than hiding the reason in a title attribute.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ 1b CALCULATOR -->
+  <div id="1b" style="display:flex; gap:28px; align-items:flex-start">
+    <div style="width:1440px; flex:none">
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px">
+        <span style="padding:3px 9px; border-radius:5px; background:#4ade80; color:#06210f; font:800 11px/1.4 sans-serif; letter-spacing:.5px">1b</span>
+        <span style="font-size:13px; font-weight:600">Calculator</span>
+        <span style="font-size:12px; color:#5e6864">working view</span>
+      </div>
+      <div data-screen-label="Calculator" style="border:1px solid #232a27; border-radius:14px; overflow:hidden; background:#0a0e0d; box-shadow:0 28px 70px rgba(0,0,0,.5)">
+        <header style="display:flex; align-items:center; gap:14px; padding:0 20px; background:#121715; border-bottom:1px solid #232a27; min-height:52px">
+          <div style="display:flex; align-items:center; gap:10px; flex-shrink:0"><img src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross" style="height:22px; display:block"><span style="color:#5e6864; font-size:11px; text-transform:uppercase; letter-spacing:1.1px; font-weight:700">SPIFF</span></div>
+          <nav style="display:flex; gap:2px">
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">Programs</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#e6ece9; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer; box-shadow:inset 0 -2px 0 #4ade80">Calculator</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">Progress</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">Reports</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">History</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">My SPIFF ↗</button>
+          </nav>
+          <div style="margin-left:auto; display:flex; align-items:center; gap:12px">
+            <div style="text-align:right; line-height:1.2"><div style="font-weight:700; font-size:14px">2:14 PM</div><div style="color:#5e6864; font-size:10px; letter-spacing:.8px; text-transform:uppercase">Thu Aug 27</div></div>
+            <div style="display:inline-flex; align-items:center; gap:8px; padding:4px 12px 4px 4px; border-radius:999px; border:1px solid #232a27; background:#121715; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:500; line-height:1"><span style="width:24px; height:24px; border-radius:50%; background:linear-gradient(135deg,#4ade80,#2f8a52); color:#06210f; font-weight:800; font-size:10px; display:flex; align-items:center; justify-content:center">TW</span><span>Tawny Wan</span></div>
+          </div>
+        </header>
+
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:9px; padding:10px 20px; background:#121715; border-bottom:1px solid #232a27">
+          <span style="font-size:11px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; color:#5e6864">Modelling</span>
+          <select style="background:#1a221f; border:1px solid #232a27; border-radius:8px; color:#e6ece9; padding:6px 10px; font:inherit; font-size:12.5px; max-width:240px; color-scheme:dark">
+            <option>Wyld 10pc — Aug 2026</option>
+            <option>Start from scratch…</option>
+          </select>
+          <div style="margin-left:auto; display:flex; gap:8px">
+            <button style="background:transparent; color:#8a958f; border:1px solid #2e3733; border-radius:6px; padding:6px 12px; font:inherit; font-size:12px; cursor:pointer">Save as program</button>
+            <button style="display:inline-flex; align-items:center; gap:7px; background:transparent; color:#d4a847; border:1px solid rgba(212,168,71,.6); border-radius:6px; padding:6px 12px; font:inherit; font-size:12px; font-weight:600; cursor:pointer">▸ Present to vendor</button>
+          </div>
+        </div>
+
+        <div style="padding:22px 20px 30px">
+          <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:26px">
+            <div style="padding:16px 18px; border:1px solid #232a27; border-radius:12px; background:#121715; display:flex; flex-direction:column; gap:5px">
+              <span style="font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Vendor funds, at most</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:30px; font-weight:800; line-height:1.05; font-variant-numeric:tabular-nums">$475</span>
+              <span style="font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">only if all 19 reach their target</span>
+            </div>
+            <div style="padding:16px 18px; border:1px solid #232a27; border-radius:12px; background:#121715; display:flex; flex-direction:column; gap:5px">
+              <span style="font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Revenue increase</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:30px; font-weight:800; line-height:1.05; font-variant-numeric:tabular-nums">$3,780</span>
+              <span style="font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">$9,520 → $13,300</span>
+            </div>
+            <div style="padding:16px 18px; border:1px solid rgba(74,222,128,.35); border-radius:12px; background:rgba(74,222,128,.10); display:flex; flex-direction:column; gap:5px">
+              <span style="font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Return on the SPIFF</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:30px; font-weight:800; line-height:1.05; font-variant-numeric:tabular-nums; color:#5ee68f">696%</span>
+              <span style="font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">$3,305 net of the bounty</span>
+            </div>
+            <div style="padding:16px 18px; border:1px solid #232a27; border-radius:12px; background:#121715; display:flex; flex-direction:column; gap:5px">
+              <span style="font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Unit lift</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:30px; font-weight:800; line-height:1.05; font-variant-numeric:tabular-nums">+378</span>
+              <span style="font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">39.7% over the reference period</span>
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns:minmax(340px, 400px) 1fr; gap:28px; align-items:start; margin-bottom:26px">
+            <div style="display:flex; flex-direction:column; gap:20px">
+              <div>
+                <h4 style="margin:0 0 10px; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">The deal</h4>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
+                  <label style="display:flex; flex-direction:column; gap:5px; background:#121715; border:1px solid #232a27; border-radius:9px; padding:11px 13px; grid-column:span 2">
+                    <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Program name</span>
+                    <input value="Wyld 10pc" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:13.5px; outline:none; width:100%; box-sizing:border-box; color-scheme:dark">
+                  </label>
+                  <label style="display:flex; flex-direction:column; gap:5px; background:#121715; border:1px solid #232a27; border-radius:9px; padding:11px 13px">
+                    <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Vendor</span>
+                    <input value="Wyld" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:13.5px; outline:none; width:100%; box-sizing:border-box; color-scheme:dark">
+                  </label>
+                  <label style="display:flex; flex-direction:column; gap:5px; background:#121715; border:1px solid #232a27; border-radius:9px; padding:11px 13px">
+                    <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Cost per unit</span>
+                    <input value="10.00" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:13.5px; outline:none; width:100%; box-sizing:border-box; color-scheme:dark">
+                  </label>
+                  <label style="display:flex; flex-direction:column; gap:5px; background:#121715; border:1px solid #232a27; border-radius:9px; padding:11px 13px; grid-column:span 2">
+                    <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Payout</span>
+                    <div style="display:flex; gap:8px; align-items:center">
+                      <div style="display:flex; background:#161c1a; border:1px solid #232a27; border-radius:7px; padding:2px; flex:none">
+                        <button style="border:0; border-radius:5px; padding:6px 11px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:11.5px; font-weight:600; line-height:1; cursor:pointer; background:#232a27; color:#e6ece9">Flat</button>
+                        <button style="border:0; border-radius:5px; padding:6px 11px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:11.5px; font-weight:600; line-height:1; cursor:pointer; background:transparent; color:#8a958f">Per unit</button>
+                      </div>
+                      <input value="25" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:13.5px; outline:none; width:100%; box-sizing:border-box; font-variant-numeric:tabular-nums; color-scheme:dark">
+                    </div>
+                    <span style="font-size:10.5px; color:#5e6864">$25 to each budtender who reaches their own target — and nothing for one who doesn't.</span>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <h4 style="margin:0 0 10px; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">The goal</h4>
+                <div style="background:#121715; border:1px solid #232a27; border-radius:9px; padding:14px">
+                  <div style="display:flex; gap:10px; align-items:flex-end">
+                    <label style="display:flex; flex-direction:column; gap:5px; flex:1">
+                      <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Target units</span>
+                      <input value="1,330" style="background:#1a221f; border:1px solid #2f8a52; box-shadow:0 0 0 3px rgba(74,222,128,.10); border-radius:6px; color:#e6ece9; padding:7px 9px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:13.5px; outline:none; width:100%; box-sizing:border-box; font-variant-numeric:tabular-nums">
+                    </label>
+                    <span style="padding-bottom:9px; color:#5e6864; font-size:11px; letter-spacing:.6px; text-transform:uppercase">or</span>
+                    <label style="display:flex; flex-direction:column; gap:5px; flex:1">
+                      <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Growth</span>
+                      <input value="+40%" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:13.5px; outline:none; width:100%; box-sizing:border-box; font-variant-numeric:tabular-nums; color-scheme:dark">
+                    </label>
+                  </div>
+                  <div style="margin-top:12px; position:relative; height:8px; border-radius:5px; background:#1a221f">
+                    <div style="position:absolute; left:0; top:0; bottom:0; width:71.6%; border-radius:5px 0 0 5px; background:#265939"></div>
+                    <div style="position:absolute; left:71.6%; right:0; top:0; bottom:0; border-radius:0 5px 5px 0; background:linear-gradient(90deg,#4ade80,#5ee68f); animation:gxaheadglow 2.6s ease-in-out infinite"></div>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; margin-top:7px; font-size:10.5px; color:#5e6864; font-variant-numeric:tabular-nums">
+                    <span>952 in the reference period</span>
+                    <span style="color:#4ade80">+378 asked for</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div style="display:flex; align-items:baseline; gap:10px; margin:0 0 10px">
+                <h4 style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">It scales with success</h4>
+                <span style="font-size:11px; color:#5e6864">the vendor funds results, not attempts</span>
+              </div>
+              <div style="border:1px solid #232a27; border-radius:10px; overflow:hidden; background:#121715">
+                <table style="width:100%; border-collapse:collapse; font-size:13px">
+                  <thead><tr><th style="text-align:left; padding:9px 14px; font-size:10px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27">Budtenders who hit</th><th style="text-align:right; padding:9px 14px; font-size:10px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27">Vendor funds</th><th style="text-align:right; padding:9px 14px; font-size:10px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27">Units that implies</th><th style="text-align:right; padding:9px 14px; font-size:10px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27">Their return</th></tr></thead>
+                  <tbody>
+                    <tr>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; font-variant-numeric:tabular-nums; font-weight:700">All 19</td>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; font-weight:700">$475</td>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">1,330</td>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#4ade80; font-weight:700">696%</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; font-variant-numeric:tabular-nums; color:#8a958f">14 of 19</td>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">$350</td>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">1,170</td>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#4ade80; font-weight:600">523%</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; font-variant-numeric:tabular-nums; color:#8a958f">10 of 19</td>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">$250</td>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">1,060</td>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#4ade80; font-weight:600">332%</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; font-variant-numeric:tabular-nums; color:#8a958f">4 of 19</td>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">$100</td>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">985</td>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#4ade80; font-weight:600">230%</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; font-variant-numeric:tabular-nums; color:#8a958f">Nobody</td>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">$0</td>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">952</td>
+                      <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#5e6864; font-weight:600">costs them nothing</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p style="margin:12px 0 0; font-size:12px; color:#8a958f; line-height:1.6; max-width:600px; text-wrap:pretty">This is the argument, and the Calculator has never shown it: the bounty is only paid on a budtender who actually reaches their number, so the downside is bounded and the cost rises only alongside the sell-through that pays for it.</p>
+              <div style="margin-top:16px; display:flex; gap:12px">
+                <div style="flex:1; padding:14px 16px; border:1px solid #232a27; border-radius:10px; background:#121715">
+                  <div style="font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Cost per extra unit</div>
+                  <div style="font-size:21px; font-weight:700; font-variant-numeric:tabular-nums; margin-top:5px">$1.26</div>
+                  <div style="font-size:11.5px; color:#5e6864; margin-top:2px">$475 across 378 extra units</div>
+                </div>
+                <div style="flex:1; padding:14px 16px; border:1px solid #232a27; border-radius:10px; background:#121715">
+                  <div style="font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Break-even</div>
+                  <div style="font-size:21px; font-weight:700; font-variant-numeric:tabular-nums; margin-top:5px">48 units</div>
+                  <div style="font-size:11.5px; color:#5e6864; margin-top:2px">over the reference period, chain-wide</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:baseline; gap:10px; margin:0 0 10px">
+            <h4 style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Per store</h4>
+            <span style="font-size:11px; color:#5e6864">reference and budtender counts are editable — every store runs the program</span>
+          </div>
+          <div style="border:1px solid #232a27; border-radius:10px; overflow:hidden; background:#121715">
+            <table style="width:100%; border-collapse:collapse; font-size:13px">
+              <thead><tr><th style="text-align:left; padding:9px 14px; font-size:10px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27">Store</th><th style="text-align:right; padding:9px 14px; font-size:10px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27">Reference units</th><th style="text-align:right; padding:9px 14px; font-size:10px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27">BTs</th><th style="text-align:right; padding:9px 14px; font-size:10px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27">per BT now</th><th style="text-align:right; padding:9px 14px; font-size:10px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27">Goal</th><th style="text-align:right; padding:9px 14px; font-size:10px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27">per BT goal</th><th style="text-align:right; padding:9px 14px; font-size:10px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27">Goal value</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320">
+                    <span style="display:inline-flex; align-items:center; gap:9px; font-size:13px"><span style="width:7px; height:7px; border-radius:50%; background:#22D3EE"></span>Century</span>
+                  </td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="212" style="width:74px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="4" style="width:52px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">53</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; font-weight:700">296</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; font-weight:700">74</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">$2,960</td>
+                </tr>
+                <tr>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320">
+                    <span style="display:inline-flex; align-items:center; gap:9px; font-size:13px"><span style="width:7px; height:7px; border-radius:50%; background:#3B82F6"></span>Center</span>
+                  </td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="196" style="width:74px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="4" style="width:52px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">49</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; font-weight:700">274</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; font-weight:700">68</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">$2,740</td>
+                </tr>
+                <tr>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320">
+                    <span style="display:inline-flex; align-items:center; gap:9px; font-size:13px"><span style="width:7px; height:7px; border-radius:50%; background:#A855F7"></span>Commercial</span>
+                  </td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="181" style="width:74px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="3" style="width:52px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">60</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; font-weight:700">253</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; font-weight:700">84</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">$2,530</td>
+                </tr>
+                <tr>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320">
+                    <span style="display:inline-flex; align-items:center; gap:9px; font-size:13px"><span style="width:7px; height:7px; border-radius:50%; background:#6366F1"></span>Baseline</span>
+                  </td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="151" style="width:74px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="3" style="width:52px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">50</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; font-weight:700">211</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; font-weight:700">70</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">$2,110</td>
+                </tr>
+                <tr>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320">
+                    <span style="display:inline-flex; align-items:center; gap:9px; font-size:13px"><span style="width:7px; height:7px; border-radius:50%; background:#D946EF"></span>Portland</span>
+                  </td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="118" style="width:74px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="3" style="width:52px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">39</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; font-weight:700">165</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; font-weight:700">55</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">$1,650</td>
+                </tr>
+                <tr>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320">
+                    <span style="display:inline-flex; align-items:center; gap:9px; font-size:13px"><span style="width:7px; height:7px; border-radius:50%; background:#EC4899"></span>River <span style="font-size:9.5px; letter-spacing:.8px; text-transform:uppercase; color:#5e6864; border:1px solid #2e3733; border-radius:4px; padding:1px 5px">DC</span></span>
+                  </td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="94" style="width:74px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="2" style="width:52px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">47</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; font-weight:700">131</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; font-weight:700">66</td>
+                  <td style="padding:9px 14px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">$1,310</td>
+                </tr>
+                <tr style="background:#0d1211">
+                  <td style="padding:12px 14px; font-weight:700; border-top:1px solid #2e3733">Total · 6 stores, 19 budtenders</td>
+                  <td style="padding:12px 14px; text-align:right; font-variant-numeric:tabular-nums; font-weight:700; border-top:1px solid #2e3733">952</td>
+                  <td style="padding:12px 14px; text-align:right; font-variant-numeric:tabular-nums; font-weight:700; border-top:1px solid #2e3733">19</td>
+                  <td style="padding:12px 14px; border-top:1px solid #2e3733"></td>
+                  <td style="padding:12px 14px; text-align:right; font-variant-numeric:tabular-nums; font-weight:700; border-top:1px solid #2e3733; color:#4ade80">1,330</td>
+                  <td style="padding:12px 14px; border-top:1px solid #2e3733"></td>
+                  <td style="padding:12px 14px; text-align:right; font-variant-numeric:tabular-nums; font-weight:700; border-top:1px solid #2e3733">$13,300</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p style="margin:10px 0 0; font-size:11px; color:#5e6864; line-height:1.55; max-width:760px">"Reference" is each store's sell-through in the comparable period before the program — GX Core reserves the word "baseline" for the Hillsboro store. Goals divide by that store's own budtender count, which is why the count is editable here rather than assumed even. A new store joins by appearing in the GX Core registry — the table grows with it.</p>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:300px; flex:none; padding-top:44px; display:flex; flex-direction:column; gap:14px">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:10px; font-weight:700; line-height:1; letter-spacing:1.4px; text-transform:uppercase; color:#5e6864">What changed</div>
+      <ul style="margin:0; padding-left:18px; display:flex; flex-direction:column; gap:9px; font-size:12.5px; line-height:1.5; color:#8a958f">
+        <li>The two store lists are now one table. The old "Stores &amp; baseline" cards duplicated the Per Store table's first two columns with no headers on them, which is why the columns read as unlabelled.</li>
+        <li>No participation checkboxes: every store runs every program, so the column was a control nobody would use. New stores appear from the GX Core registry.</li>
+        <li>"It scales with success" is the pitch the Calculator never made: the bounty is paid per budtender who actually hits, so cost tracks results.</li>
+        <li>The goal bar shows the ask as an extension past the reference period, with the Leaderboard's glow on the increase.</li>
+        <li>The payout model is a visible control. <code style="color:#4ade80">per_unit</code> is real and implemented in the engine but the Calculator has no way to express it.</li>
+        <li>Cost-per-extra-unit and break-even fill the space the old layout left empty, and they are the two questions a vendor asks next.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ 1c PITCH MODE -->
+  <div id="1c" style="display:flex; gap:28px; align-items:flex-start">
+    <div style="width:1440px; flex:none">
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px">
+        <span style="padding:3px 9px; border-radius:5px; background:#d4a847; color:#1a1204; font:800 11px/1.4 sans-serif; letter-spacing:.5px">1c</span>
+        <span style="font-size:13px; font-weight:600">Calculator — present mode</span>
+        <span style="font-size:12px; color:#5e6864">what the vendor sees across the desk</span>
+      </div>
+      <div data-screen-label="Pitch mode" style="border:1px solid #232a27; border-radius:14px; overflow:hidden; background:#0a0e0d; box-shadow:0 28px 70px rgba(0,0,0,.5); height:960px; position:relative; background-image:radial-gradient(1100px 560px at 50% -12%, rgba(74,222,128,.07), transparent 62%)">
+        <div style="position:absolute; top:0; left:0; right:0; display:flex; align-items:center; gap:14px; padding:18px 28px">
+          <img src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross" style="height:24px; display:block">
+          <span style="color:#5e6864; font-size:11px; text-transform:uppercase; letter-spacing:1.4px; font-weight:700">SPIFF proposal</span>
+          <div style="margin-left:auto; display:flex; align-items:center; gap:10px">
+            <span style="font-size:11px; color:#5e6864; letter-spacing:.6px; text-transform:uppercase">Aug 16 – Aug 31</span>
+            <button style="background:transparent; color:#8a958f; border:1px solid #2e3733; border-radius:6px; padding:6px 12px; font:inherit; font-size:12px; cursor:pointer">Exit ✕</button>
+          </div>
+        </div>
+
+        <div style="padding:96px 72px 0; display:flex; flex-direction:column; gap:44px">
+          <div>
+            <div style="font-size:12px; font-weight:700; letter-spacing:1.6px; text-transform:uppercase; color:#4ade80; margin-bottom:10px">Wyld</div>
+            <h1 style="margin:0; font-family:'Montserrat',sans-serif; font-size:52px; font-weight:800; letter-spacing:-1px; line-height:1.05">Wyld 10pc — 19 budtenders, 1,330 units</h1>
+            <p style="margin:14px 0 0; font-size:19px; line-height:1.5; color:#8a958f; max-width:900px; text-wrap:pretty">Green Cross is asking for a <b style="color:#e6ece9">$25</b> bounty per budtender who reaches their own target across all six stores, funded as a credit against the next order.</p>
+          </div>
+
+          <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:20px">
+            <div style="padding:28px 30px; border:1px solid #232a27; border-radius:16px; background:#121715">
+              <div style="font-size:11px; font-weight:700; letter-spacing:1.6px; text-transform:uppercase; color:#5e6864">You fund</div>
+              <div style="font-family:'Montserrat',sans-serif; font-size:64px; font-weight:900; line-height:1; letter-spacing:-1.5px; margin-top:12px; font-variant-numeric:tabular-nums">$475</div>
+              <div style="font-size:14px; color:#8a958f; margin-top:10px; font-variant-numeric:tabular-nums">19 budtenders × $25</div>
+            </div>
+            <div style="padding:28px 30px; border:1px solid #232a27; border-radius:16px; background:#121715">
+              <div style="font-size:11px; font-weight:700; letter-spacing:1.6px; text-transform:uppercase; color:#5e6864">Your revenue moves</div>
+              <div style="font-family:'Montserrat',sans-serif; font-size:64px; font-weight:900; line-height:1; letter-spacing:-1.5px; margin-top:12px; font-variant-numeric:tabular-nums">+$3,780</div>
+              <div style="font-size:14px; color:#8a958f; margin-top:10px; font-variant-numeric:tabular-nums">$9,520 → $13,300</div>
+            </div>
+            <div style="padding:28px 30px; border:1px solid rgba(74,222,128,.35); border-radius:16px; background:rgba(74,222,128,.10)">
+              <div style="font-size:11px; font-weight:700; letter-spacing:1.6px; text-transform:uppercase; color:#5e6864">Return on the SPIFF</div>
+              <div style="font-family:'Montserrat',sans-serif; font-size:64px; font-weight:900; line-height:1; letter-spacing:-1.5px; margin-top:12px; font-variant-numeric:tabular-nums; color:#5ee68f">696%</div>
+              <div style="font-size:14px; color:#8a958f; margin-top:10px; font-variant-numeric:tabular-nums">$3,305 net of the bounty</div>
+            </div>
+          </div>
+
+          <div>
+            <div style="font-size:11px; font-weight:700; letter-spacing:1.6px; text-transform:uppercase; color:#5e6864; margin-bottom:14px">What each store is being asked for</div>
+            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px">
+              <div style="padding:20px 22px; border:1px solid #232a27; border-radius:14px; background:#121715">
+                <div style="display:flex; align-items:center; gap:9px; font-size:15px; font-weight:600"><span style="width:9px; height:9px; border-radius:50%; background:#22D3EE"></span>Century</div>
+                <div style="display:flex; align-items:baseline; gap:12px; margin-top:12px">
+                  <span style="font-family:'Montserrat',sans-serif; font-size:40px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">296</span>
+                  <span style="font-size:14px; color:#5e6864; font-variant-numeric:tabular-nums">units · 74 each</span>
+                </div>
+                <div style="position:relative; height:10px; border-radius:6px; background:#1a221f; margin-top:18px">
+                  <div style="position:absolute; left:0; top:0; bottom:0; width:71.6%; border-radius:6px 0 0 6px; background:#22D3EE; opacity:.55"></div>
+                  <div style="position:absolute; left:71.6%; right:0; top:0; bottom:0; border-radius:0 6px 6px 0; background:linear-gradient(90deg,#4ade80,#5ee68f); animation:gxaheadglow 2.6s ease-in-out infinite"></div>
+                  <div style="position:absolute; top:-4px; bottom:-4px; left:71.6%; width:2px; background:#e6ece9; opacity:.55"></div>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-top:9px; font-size:13px; font-variant-numeric:tabular-nums"><span style="color:#8a958f">212 today</span><span style="color:#5ee68f; font-weight:600">+84</span></div>
+              </div>
+              <div style="padding:20px 22px; border:1px solid #232a27; border-radius:14px; background:#121715">
+                <div style="display:flex; align-items:center; gap:9px; font-size:15px; font-weight:600"><span style="width:9px; height:9px; border-radius:50%; background:#3B82F6"></span>Center</div>
+                <div style="display:flex; align-items:baseline; gap:12px; margin-top:12px">
+                  <span style="font-family:'Montserrat',sans-serif; font-size:40px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">274</span>
+                  <span style="font-size:14px; color:#5e6864; font-variant-numeric:tabular-nums">units · 68 each</span>
+                </div>
+                <div style="position:relative; height:10px; border-radius:6px; background:#1a221f; margin-top:18px">
+                  <div style="position:absolute; left:0; top:0; bottom:0; width:71.5%; border-radius:6px 0 0 6px; background:#3B82F6; opacity:.55"></div>
+                  <div style="position:absolute; left:71.5%; right:0; top:0; bottom:0; border-radius:0 6px 6px 0; background:linear-gradient(90deg,#4ade80,#5ee68f); animation:gxaheadglow 2.6s ease-in-out infinite"></div>
+                  <div style="position:absolute; top:-4px; bottom:-4px; left:71.5%; width:2px; background:#e6ece9; opacity:.55"></div>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-top:9px; font-size:13px; font-variant-numeric:tabular-nums"><span style="color:#8a958f">196 today</span><span style="color:#5ee68f; font-weight:600">+78</span></div>
+              </div>
+              <div style="padding:20px 22px; border:1px solid #232a27; border-radius:14px; background:#121715">
+                <div style="display:flex; align-items:center; gap:9px; font-size:15px; font-weight:600"><span style="width:9px; height:9px; border-radius:50%; background:#A855F7"></span>Commercial</div>
+                <div style="display:flex; align-items:baseline; gap:12px; margin-top:12px">
+                  <span style="font-family:'Montserrat',sans-serif; font-size:40px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">253</span>
+                  <span style="font-size:14px; color:#5e6864; font-variant-numeric:tabular-nums">units · 84 each</span>
+                </div>
+                <div style="position:relative; height:10px; border-radius:6px; background:#1a221f; margin-top:18px">
+                  <div style="position:absolute; left:0; top:0; bottom:0; width:71.5%; border-radius:6px 0 0 6px; background:#A855F7; opacity:.55"></div>
+                  <div style="position:absolute; left:71.5%; right:0; top:0; bottom:0; border-radius:0 6px 6px 0; background:linear-gradient(90deg,#4ade80,#5ee68f); animation:gxaheadglow 2.6s ease-in-out infinite"></div>
+                  <div style="position:absolute; top:-4px; bottom:-4px; left:71.5%; width:2px; background:#e6ece9; opacity:.55"></div>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-top:9px; font-size:13px; font-variant-numeric:tabular-nums"><span style="color:#8a958f">181 today</span><span style="color:#5ee68f; font-weight:600">+72</span></div>
+              </div>
+              <div style="padding:20px 22px; border:1px solid #232a27; border-radius:14px; background:#121715">
+                <div style="display:flex; align-items:center; gap:9px; font-size:15px; font-weight:600"><span style="width:9px; height:9px; border-radius:50%; background:#6366F1"></span>Baseline</div>
+                <div style="display:flex; align-items:baseline; gap:12px; margin-top:12px">
+                  <span style="font-family:'Montserrat',sans-serif; font-size:40px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">211</span>
+                  <span style="font-size:14px; color:#5e6864; font-variant-numeric:tabular-nums">units · 70 each</span>
+                </div>
+                <div style="position:relative; height:10px; border-radius:6px; background:#1a221f; margin-top:18px">
+                  <div style="position:absolute; left:0; top:0; bottom:0; width:71.6%; border-radius:6px 0 0 6px; background:#6366F1; opacity:.55"></div>
+                  <div style="position:absolute; left:71.6%; right:0; top:0; bottom:0; border-radius:0 6px 6px 0; background:linear-gradient(90deg,#4ade80,#5ee68f); animation:gxaheadglow 2.6s ease-in-out infinite"></div>
+                  <div style="position:absolute; top:-4px; bottom:-4px; left:71.6%; width:2px; background:#e6ece9; opacity:.55"></div>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-top:9px; font-size:13px; font-variant-numeric:tabular-nums"><span style="color:#8a958f">151 today</span><span style="color:#5ee68f; font-weight:600">+60</span></div>
+              </div>
+              <div style="padding:20px 22px; border:1px solid #232a27; border-radius:14px; background:#121715">
+                <div style="display:flex; align-items:center; gap:9px; font-size:15px; font-weight:600"><span style="width:9px; height:9px; border-radius:50%; background:#D946EF"></span>Portland</div>
+                <div style="display:flex; align-items:baseline; gap:12px; margin-top:12px">
+                  <span style="font-family:'Montserrat',sans-serif; font-size:40px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">165</span>
+                  <span style="font-size:14px; color:#5e6864; font-variant-numeric:tabular-nums">units · 55 each</span>
+                </div>
+                <div style="position:relative; height:10px; border-radius:6px; background:#1a221f; margin-top:18px">
+                  <div style="position:absolute; left:0; top:0; bottom:0; width:71.5%; border-radius:6px 0 0 6px; background:#D946EF; opacity:.55"></div>
+                  <div style="position:absolute; left:71.5%; right:0; top:0; bottom:0; border-radius:0 6px 6px 0; background:linear-gradient(90deg,#4ade80,#5ee68f); animation:gxaheadglow 2.6s ease-in-out infinite"></div>
+                  <div style="position:absolute; top:-4px; bottom:-4px; left:71.5%; width:2px; background:#e6ece9; opacity:.55"></div>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-top:9px; font-size:13px; font-variant-numeric:tabular-nums"><span style="color:#8a958f">118 today</span><span style="color:#5ee68f; font-weight:600">+47</span></div>
+              </div>
+              <div style="padding:20px 22px; border:1px solid #232a27; border-radius:14px; background:#121715">
+                <div style="display:flex; align-items:center; gap:9px; font-size:15px; font-weight:600"><span style="width:9px; height:9px; border-radius:50%; background:#EC4899"></span>River <span style="font-size:10px; letter-spacing:.8px; text-transform:uppercase; color:#5e6864; border:1px solid #2e3733; border-radius:4px; padding:1px 6px">DC</span></div>
+                <div style="display:flex; align-items:baseline; gap:12px; margin-top:12px">
+                  <span style="font-family:'Montserrat',sans-serif; font-size:40px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">131</span>
+                  <span style="font-size:14px; color:#5e6864; font-variant-numeric:tabular-nums">units · 66 each</span>
+                </div>
+                <div style="position:relative; height:10px; border-radius:6px; background:#1a221f; margin-top:18px">
+                  <div style="position:absolute; left:0; top:0; bottom:0; width:71.8%; border-radius:6px 0 0 6px; background:#EC4899; opacity:.55"></div>
+                  <div style="position:absolute; left:71.8%; right:0; top:0; bottom:0; border-radius:0 6px 6px 0; background:linear-gradient(90deg,#4ade80,#5ee68f); animation:gxaheadglow 2.6s ease-in-out infinite"></div>
+                  <div style="position:absolute; top:-4px; bottom:-4px; left:71.8%; width:2px; background:#e6ece9; opacity:.55"></div>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-top:9px; font-size:13px; font-variant-numeric:tabular-nums"><span style="color:#8a958f">94 today</span><span style="color:#5ee68f; font-weight:600">+37</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="position:absolute; bottom:0; left:0; right:0; display:flex; align-items:center; gap:14px; padding:18px 28px; border-top:1px solid #1c2320; font-size:12px; color:#5e6864">
+          <span>Green Cross Cannabis Emporium</span>
+          <span style="margin-left:auto; display:flex; align-items:center; gap:8px"><span style="width:6px; height:6px; border-radius:50%; background:#4ade80; box-shadow:0 0 6px #4ade80"></span>live model — every figure recomputes as we talk</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:300px; flex:none; padding-top:44px; display:flex; flex-direction:column; gap:14px">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:10px; font-weight:700; line-height:1; letter-spacing:1.4px; text-transform:uppercase; color:#5e6864">Why a separate mode
+</div>
+      <ul style="margin:0; padding-left:18px; display:flex; flex-direction:column; gap:9px; font-size:12.5px; line-height:1.5; color:#8a958f">
+        <li>The Calculator is a sales tool, but the working view is sized for a keyboard. This is the same model at reading distance across a desk.</li>
+        <li>Each store bar is split at today's number: the store's own colour is where it is now, and the green extension — carrying Leaderboard's ahead-of-pace glow — is the increase being asked for.</li>
+        <li>Nothing internal is on screen: no per-store budtender counts to argue about, no save controls, no navigation.</li>
+        <li>Same numbers, same instant recompute — it is a stylesheet state, not a second calculator.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ 1d PROGRESS -->
+  <div id="1d" style="display:flex; gap:28px; align-items:flex-start">
+    <div style="width:1440px; flex:none">
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px">
+        <span style="padding:3px 9px; border-radius:5px; background:#4ade80; color:#06210f; font:800 11px/1.4 sans-serif; letter-spacing:.5px">1d</span>
+        <span style="font-size:13px; font-weight:600">Progress</span>
+        <span style="font-size:12px; color:#5e6864">mid-pull — two stores still loading</span>
+      </div>
+      <div data-screen-label="Progress" style="border:1px solid #232a27; border-radius:14px; overflow:hidden; background:#0a0e0d; box-shadow:0 28px 70px rgba(0,0,0,.5)">
+        <header style="display:flex; align-items:center; gap:14px; padding:0 20px; background:#121715; border-bottom:1px solid #232a27; min-height:52px">
+          <div style="display:flex; align-items:center; gap:10px; flex-shrink:0"><img src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross" style="height:22px; display:block"><span style="color:#5e6864; font-size:11px; text-transform:uppercase; letter-spacing:1.1px; font-weight:700">SPIFF</span></div>
+          <nav style="display:flex; gap:2px">
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">Programs</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">Calculator</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#e6ece9; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer; box-shadow:inset 0 -2px 0 #4ade80">Progress</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">Reports</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">History</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">My SPIFF ↗</button>
+          </nav>
+          <div style="margin-left:auto; display:flex; align-items:center; gap:12px">
+            <div style="text-align:right; line-height:1.2"><div style="font-weight:700; font-size:14px">2:14 PM</div><div style="color:#5e6864; font-size:10px; letter-spacing:.8px; text-transform:uppercase">Thu Aug 27</div></div>
+            <div style="display:inline-flex; align-items:center; gap:8px; padding:4px 12px 4px 4px; border-radius:999px; border:1px solid #232a27; background:#121715; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:500; line-height:1"><span style="width:24px; height:24px; border-radius:50%; background:linear-gradient(135deg,#4ade80,#2f8a52); color:#06210f; font-weight:800; font-size:10px; display:flex; align-items:center; justify-content:center">TW</span><span>Tawny Wan</span></div>
+          </div>
+        </header>
+
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:9px; padding:10px 20px; background:#121715; border-bottom:1px solid #232a27">
+          <select style="background:#1a221f; border:1px solid #232a27; border-radius:8px; color:#e6ece9; padding:6px 10px; font:inherit; font-size:12.5px; max-width:260px; color-scheme:dark"><option>Wyld 10pc — Aug 16 → Aug 31</option></select>
+          <span style="display:inline-flex; align-items:center; gap:7px; font-size:11px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; color:#4ade80; border:1px solid #2f8a52; background:rgba(74,222,128,.10); border-radius:999px; padding:4px 11px"><span style="width:6px; height:6px; border-radius:50%; background:#4ade80; box-shadow:0 0 6px #4ade80"></span>running · 4 days left</span>
+          <div style="margin-left:auto; display:flex; align-items:center; gap:10px">
+            <span style="font-size:11px; color:#5e6864">pulled 2:11 PM · Dutchie, 6 stores × 2 windows</span>
+            <button style="background:transparent; color:#8a958f; border:1px solid #2e3733; border-radius:6px; padding:6px 12px; font:inherit; font-size:12px; cursor:pointer">↻ Refresh</button>
+          </div>
+        </div>
+
+        <div style="padding:22px 20px 30px">
+          <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; margin-bottom:12px">
+            <div style="background:#121715; border:1px solid #232a27; border-radius:10px; padding:14px 16px">
+              <div style="font-size:23px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.4px">797 <span style="font-size:14px; color:#5e6864; font-weight:600">/ 1,330</span></div>
+              <div style="font-size:11px; color:#5e6864; margin-top:2px">units sold</div>
+              <div style="height:4px; border-radius:999px; background:#1a221f; margin-top:9px; overflow:hidden"><div style="width:60%; height:100%; background:#4ade80; border-radius:999px"></div></div>
+            </div>
+            <div style="background:#121715; border:1px solid #232a27; border-radius:10px; padding:14px 16px">
+              <div style="font-size:23px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.4px">10 <span style="font-size:14px; color:#5e6864; font-weight:600">/ 19</span></div>
+              <div style="font-size:11px; color:#5e6864; margin-top:2px">budtenders at their target</div>
+              <div style="height:4px; border-radius:999px; background:#1a221f; margin-top:9px; overflow:hidden"><div style="width:53%; height:100%; background:#4ade80; border-radius:999px"></div></div>
+            </div>
+            <div style="background:#121715; border:1px solid rgba(74,222,128,.35); border-radius:10px; padding:14px 16px">
+              <div style="font-size:23px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.4px; color:#4ade80">$250</div>
+              <div style="font-size:11px; color:#5e6864; margin-top:2px">earned so far, 10 × $25</div>
+            </div>
+            <div style="background:#121715; border:1px solid #232a27; border-radius:10px; padding:14px 16px">
+              <div style="font-size:23px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.4px">$475</div>
+              <div style="font-size:11px; color:#5e6864; margin-top:2px">if everyone lands it</div>
+            </div>
+          </div>
+          <p style="margin:0 0 22px; font-size:11.5px; color:#5e6864">Aug 16 → Aug 31 · green means that person has already earned the bounty. Totals cover the four stores that have come back.</p>
+
+          <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; align-items:start">
+
+            <div style="border:1px solid #232a27; border-radius:12px; background:#121715; overflow:hidden">
+              <div style="padding:14px 15px 12px; border-bottom:1px solid #1c2320">
+                <div style="display:flex; align-items:center; gap:8px"><span style="width:8px; height:8px; border-radius:50%; background:#22D3EE"></span><b style="font-size:13.5px">Century</b><span style="margin-left:auto; font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">214 units</span></div>
+                <div style="height:5px; border-radius:999px; background:#1a221f; margin-top:11px; overflow:hidden"><div style="width:72%; height:100%; background:#22D3EE; border-radius:999px"></div></div>
+                <div style="display:flex; justify-content:space-between; margin-top:7px; font-size:10.5px; color:#5e6864; letter-spacing:.5px; text-transform:uppercase"><span>3 of 4 hit</span><span style="font-variant-numeric:tabular-nums">74 each</span></div>
+              </div>
+              <div style="padding:8px">
+                <div style="display:flex; align-items:center; gap:9px; padding:6px 8px; border-radius:7px; background:rgba(74,222,128,.10)">
+                  <span style="width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center; flex:none">ZB</span>
+                  <span style="flex:1; min-width:0; font-size:12.5px; font-weight:600; color:#5ee68f; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Zach B</span>
+                  <span style="font-size:12.5px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">81</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:9px; padding:6px 8px; border-radius:7px; background:rgba(74,222,128,.10)">
+                  <span style="width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center; flex:none">MR</span>
+                  <span style="flex:1; min-width:0; font-size:12.5px; font-weight:600; color:#5ee68f; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Maya R</span>
+                  <span style="font-size:12.5px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">76</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:9px; padding:6px 8px; border-radius:7px; background:rgba(74,222,128,.10)">
+                  <span style="width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center; flex:none">TP</span>
+                  <span style="flex:1; min-width:0; font-size:12.5px; font-weight:600; color:#5ee68f; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">TJ P</span>
+                  <span style="font-size:12.5px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">74</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:9px; padding:6px 8px; border-radius:7px">
+                  <span style="width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#8a958f; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center; flex:none">DC</span>
+                  <span style="flex:1; min-width:0; font-size:12.5px; color:#8a958f; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Devon C</span>
+                  <span style="font-size:11px; color:#5e6864; font-variant-numeric:tabular-nums">−11</span>
+                  <span style="font-size:12.5px; color:#8a958f; font-variant-numeric:tabular-nums">63</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="border:1px solid #232a27; border-radius:12px; background:#121715; overflow:hidden">
+              <div style="padding:14px 15px 12px; border-bottom:1px solid #1c2320">
+                <div style="display:flex; align-items:center; gap:8px"><span style="width:8px; height:8px; border-radius:50%; background:#3B82F6"></span><b style="font-size:13.5px">Center</b><span style="margin-left:auto; font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">198 units</span></div>
+                <div style="height:5px; border-radius:999px; background:#1a221f; margin-top:11px; overflow:hidden"><div style="width:72%; height:100%; background:#3B82F6; border-radius:999px"></div></div>
+                <div style="display:flex; justify-content:space-between; margin-top:7px; font-size:10.5px; color:#5e6864; letter-spacing:.5px; text-transform:uppercase"><span>2 of 4 hit</span><span style="font-variant-numeric:tabular-nums">68 each</span></div>
+              </div>
+              <div style="padding:8px">
+                <div style="display:flex; align-items:center; gap:9px; padding:6px 8px; border-radius:7px; background:rgba(74,222,128,.10)">
+                  <span style="width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center; flex:none">SK</span>
+                  <span style="flex:1; min-width:0; font-size:12.5px; font-weight:600; color:#5ee68f; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Sam K</span>
+                  <span style="font-size:12.5px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">88</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:9px; padding:6px 8px; border-radius:7px; background:rgba(74,222,128,.10)">
+                  <span style="width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center; flex:none">PN</span>
+                  <span style="flex:1; min-width:0; font-size:12.5px; font-weight:600; color:#5ee68f; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Priya N</span>
+                  <span style="font-size:12.5px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">71</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:9px; padding:6px 8px; border-radius:7px">
+                  <span style="width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#8a958f; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center; flex:none">JL</span>
+                  <span style="flex:1; min-width:0; font-size:12.5px; color:#8a958f; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Jordan L</span>
+                  <span style="font-size:11px; color:#5e6864; font-variant-numeric:tabular-nums">−4</span>
+                  <span style="font-size:12.5px; color:#8a958f; font-variant-numeric:tabular-nums">65</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:9px; padding:6px 8px; border-radius:7px">
+                  <span style="width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#8a958f; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center; flex:none">CW</span>
+                  <span style="flex:1; min-width:0; font-size:12.5px; color:#8a958f; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Casey W</span>
+                  <span style="font-size:11px; color:#5e6864; font-variant-numeric:tabular-nums">−17</span>
+                  <span style="font-size:12.5px; color:#8a958f; font-variant-numeric:tabular-nums">52</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="border:1px solid #232a27; border-radius:12px; background:#121715; overflow:hidden">
+              <div style="padding:14px 15px 12px; border-bottom:1px solid #1c2320">
+                <div style="display:flex; align-items:center; gap:8px"><span style="width:8px; height:8px; border-radius:50%; background:#A855F7"></span><b style="font-size:13.5px">Commercial</b><span style="margin-left:auto; font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">247 units</span></div>
+                <div style="height:5px; border-radius:999px; background:#1a221f; margin-top:11px; overflow:hidden"><div style="width:98%; height:100%; background:#A855F7; border-radius:999px"></div></div>
+                <div style="display:flex; justify-content:space-between; margin-top:7px; font-size:10.5px; color:#5e6864; letter-spacing:.5px; text-transform:uppercase"><span style="color:#4ade80">3 of 3 hit</span><span style="font-variant-numeric:tabular-nums">84 each</span></div>
+              </div>
+              <div style="padding:8px">
+                <div style="display:flex; align-items:center; gap:9px; padding:6px 8px; border-radius:7px; background:rgba(74,222,128,.10)">
+                  <span style="width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center; flex:none">RM</span>
+                  <span style="flex:1; min-width:0; font-size:12.5px; font-weight:600; color:#5ee68f; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Rosa M</span>
+                  <span style="font-size:12.5px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">94</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:9px; padding:6px 8px; border-radius:7px; background:rgba(74,222,128,.10)">
+                  <span style="width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center; flex:none">AH</span>
+                  <span style="flex:1; min-width:0; font-size:12.5px; font-weight:600; color:#5ee68f; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Andre H</span>
+                  <span style="font-size:12.5px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">89</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:9px; padding:6px 8px; border-radius:7px; background:rgba(74,222,128,.10)">
+                  <span style="width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center; flex:none">KD</span>
+                  <span style="flex:1; min-width:0; font-size:12.5px; font-weight:600; color:#5ee68f; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Kim D</span>
+                  <span style="font-size:12.5px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">64</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="border:1px solid #232a27; border-radius:12px; background:#121715; overflow:hidden">
+              <div style="padding:14px 15px 12px; border-bottom:1px solid #1c2320">
+                <div style="display:flex; align-items:center; gap:8px"><span style="width:8px; height:8px; border-radius:50%; background:#6366F1"></span><b style="font-size:13.5px">Baseline</b><span style="margin-left:auto; font-size:11px; color:#5e6864; letter-spacing:.5px; text-transform:uppercase">window 2 of 2</span></div>
+                <div style="height:5px; border-radius:999px; background:#1a221f; margin-top:11px; overflow:hidden"><div style="width:50%; height:100%; background:#6366F1; border-radius:999px; animation:gxskel 1.4s ease-in-out infinite"></div></div>
+                <div style="margin-top:7px; font-size:10.5px; color:#5e6864; letter-spacing:.5px; text-transform:uppercase">pulling from Dutchie…</div>
+              </div>
+              <div style="padding:8px">
+                <div style="height:34px; margin:2px; border-radius:7px; background:#161c1a; animation:gxskel 1.4s ease-in-out infinite"></div>
+                <div style="height:34px; margin:2px; border-radius:7px; background:#161c1a; animation:gxskel 1.4s ease-in-out infinite"></div>
+                <div style="height:34px; margin:2px; border-radius:7px; background:#161c1a; animation:gxskel 1.4s ease-in-out infinite"></div>
+              </div>
+            </div>
+
+            <div style="border:1px solid #ef4444; border-radius:12px; background:#121715; overflow:hidden">
+              <div style="padding:14px 15px 12px; border-bottom:1px solid #1c2320">
+                <div style="display:flex; align-items:center; gap:8px"><span style="width:8px; height:8px; border-radius:50%; background:#D946EF"></span><b style="font-size:13.5px">Portland</b><span style="margin-left:auto; font-size:11px; color:#ef4444; letter-spacing:.5px; text-transform:uppercase">failed</span></div>
+              </div>
+              <div style="padding:14px 15px">
+                <p style="margin:0 0 12px; font-size:12px; line-height:1.5; color:#8a958f">The request timed out. Totals above exclude Portland, so they undercount.</p>
+                <button style="background:transparent; color:#8a958f; border:1px solid #2e3733; border-radius:6px; padding:6px 12px; font:inherit; font-size:12px; cursor:pointer; width:100%">Retry this store</button>
+              </div>
+            </div>
+
+            <div style="border:1px solid #232a27; border-radius:12px; background:#121715; overflow:hidden">
+              <div style="padding:14px 15px 12px; border-bottom:1px solid #1c2320">
+                <div style="display:flex; align-items:center; gap:8px"><span style="width:8px; height:8px; border-radius:50%; background:#EC4899"></span><b style="font-size:13.5px">River</b><span style="font-size:9.5px; letter-spacing:.8px; text-transform:uppercase; color:#5e6864; border:1px solid #2e3733; border-radius:4px; padding:1px 5px">DC</span><span style="margin-left:auto; font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">138 units</span></div>
+                <div style="position:relative; height:5px; border-radius:999px; background:#1a221f; margin-top:11px">
+                  <div style="position:absolute; left:0; top:0; bottom:0; width:100%; border-radius:999px; background:linear-gradient(90deg,#265939,#4ade80); animation:gxaheadglow 2.6s ease-in-out infinite"></div>
+                  <div style="position:absolute; top:-4px; bottom:-4px; left:75%; width:2px; background:#8a958f"></div>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-top:7px; font-size:10.5px; color:#5e6864; letter-spacing:.5px; text-transform:uppercase"><span style="color:#4ade80">2 of 2 hit · over goal</span><span style="font-variant-numeric:tabular-nums">66 each</span></div>
+              </div>
+              <div style="padding:8px">
+                <div style="display:flex; align-items:center; gap:9px; padding:6px 8px; border-radius:7px; background:rgba(74,222,128,.10)">
+                  <span style="width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center; flex:none">EO</span>
+                  <span style="flex:1; min-width:0; font-size:12.5px; font-weight:600; color:#5ee68f; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Elena O</span>
+                  <span style="font-size:12.5px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">74</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:9px; padding:6px 8px; border-radius:7px; background:rgba(74,222,128,.10)">
+                  <span style="width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center; flex:none">BN</span>
+                  <span style="flex:1; min-width:0; font-size:12.5px; font-weight:600; color:#5ee68f; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">Ben N</span>
+                  <span style="font-size:12.5px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">64</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:300px; flex:none; padding-top:44px; display:flex; flex-direction:column; gap:14px">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:10px; font-weight:700; line-height:1; letter-spacing:1.4px; text-transform:uppercase; color:#5e6864">What changed</div>
+      <ul style="margin:0; padding-left:18px; display:flex; flex-direction:column; gap:9px; font-size:12.5px; line-height:1.5; color:#8a958f">
+        <li>Every store card carries its own fill bar, pace line and hit count, so the matrix answers "which store is behind" without arithmetic — and a store over goal carries the Leaderboard glow.</li>
+        <li>Six cards, three across, so the grid stays readable as stores are added rather than squeezing a seventh column.</li>
+        <li>Skeleton rows while a store is still pulling, per Crew's rail. Today it is a dimmed card and the sentence "Pulling 6 stores × 2 windows…".</li>
+        <li>A failed store keeps its own card and its own retry, and the header says plainly that the totals cover only the stores that came back.</li>
+        <li>People get the initials puck the rest of the suite uses, and a short delta when they are behind.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ 1e REPORTS -->
+  <div id="1e" style="display:flex; gap:28px; align-items:flex-start">
+    <div style="width:1440px; flex:none">
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px">
+        <span style="padding:3px 9px; border-radius:5px; background:#4ade80; color:#06210f; font:800 11px/1.4 sans-serif; letter-spacing:.5px">1e</span>
+        <span style="font-size:13px; font-weight:600">Close-out</span>
+        <span style="font-size:12px; color:#5e6864">three steps, in order</span>
+      </div>
+      <div data-screen-label="Reports" style="border:1px solid #232a27; border-radius:14px; overflow:hidden; background:#0a0e0d; box-shadow:0 28px 70px rgba(0,0,0,.5)">
+        <header style="display:flex; align-items:center; gap:14px; padding:0 20px; background:#121715; border-bottom:1px solid #232a27; min-height:52px">
+          <div style="display:flex; align-items:center; gap:10px; flex-shrink:0"><img src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross" style="height:22px; display:block"><span style="color:#5e6864; font-size:11px; text-transform:uppercase; letter-spacing:1.1px; font-weight:700">SPIFF</span></div>
+          <nav style="display:flex; gap:2px">
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">Programs</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">Calculator</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">Progress</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#e6ece9; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer; box-shadow:inset 0 -2px 0 #4ade80">Reports</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">History</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">My SPIFF ↗</button>
+          </nav>
+          <div style="margin-left:auto; display:flex; align-items:center; gap:12px">
+            <div style="text-align:right; line-height:1.2"><div style="font-weight:700; font-size:14px">2:14 PM</div><div style="color:#5e6864; font-size:10px; letter-spacing:.8px; text-transform:uppercase">Thu Aug 27</div></div>
+            <div style="display:inline-flex; align-items:center; gap:8px; padding:4px 12px 4px 4px; border-radius:999px; border:1px solid #232a27; background:#121715; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:500; line-height:1"><span style="width:24px; height:24px; border-radius:50%; background:linear-gradient(135deg,#4ade80,#2f8a52); color:#06210f; font-weight:800; font-size:10px; display:flex; align-items:center; justify-content:center">TW</span><span>Tawny Wan</span></div>
+          </div>
+        </header>
+
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:9px; padding:10px 20px; background:#121715; border-bottom:1px solid #232a27">
+          <select style="background:#1a221f; border:1px solid #232a27; border-radius:8px; color:#e6ece9; padding:6px 10px; font:inherit; font-size:12.5px; max-width:280px; color-scheme:dark"><option>Mule 2pc — Aug 1 → Aug 15</option></select>
+          <span style="font-size:10px; text-transform:uppercase; letter-spacing:.9px; font-weight:700; padding:3px 9px; border-radius:999px; border:1px solid #2e3733; color:#5e6864">closed</span>
+          <span style="margin-left:auto; font-size:11.5px; color:#5e6864">Nothing is sent from here — the vendor hears from Tawny.</span>
+        </div>
+
+        <div style="padding:24px 20px 34px">
+          <div style="display:flex; gap:22px; align-items:flex-start; margin-bottom:26px; padding-bottom:22px; border-bottom:1px solid #1c2320">
+            <div>
+              <div style="font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">The vendor owes</div>
+              <div style="font-family:'Montserrat',sans-serif; font-size:46px; font-weight:800; line-height:1.05; color:#5ee68f; font-variant-numeric:tabular-nums; margin-top:6px">$275</div>
+              <div style="font-size:13px; color:#8a958f; margin-top:4px; font-variant-numeric:tabular-nums">11 budtenders × $25</div>
+            </div>
+            <div style="display:grid; grid-template-columns:auto 1fr; gap:6px 18px; font-size:13px; margin-left:24px; padding-left:26px; border-left:1px solid #1c2320">
+              <span style="color:#5e6864">Units sold</span><span style="font-variant-numeric:tabular-nums">1,047</span>
+              <span style="color:#5e6864">Goal</span><span style="font-variant-numeric:tabular-nums">900 <span style="color:#4ade80">+147</span></span>
+              <span style="color:#5e6864">Period</span><span style="font-variant-numeric:tabular-nums">Aug 1 → Aug 15</span>
+              <span style="color:#5e6864">Stores</span><span style="display:inline-flex; gap:5px; align-items:center"><span style="width:7px; height:7px; border-radius:50%; background:#22D3EE"></span><span style="width:7px; height:7px; border-radius:50%; background:#3B82F6"></span><span style="width:7px; height:7px; border-radius:50%; background:#A855F7"></span></span>
+            </div>
+            <div style="margin-left:auto; text-align:right">
+              <div style="font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Vendor's return</div>
+              <div style="font-family:'Montserrat',sans-serif; font-size:30px; font-weight:800; line-height:1.05; font-variant-numeric:tabular-nums; margin-top:6px; color:#5ee68f">2,521%</div>
+              <div style="font-size:12px; color:#8a958f; margin-top:3px; font-variant-numeric:tabular-nums">+$7,209 sell-through, net +$6,934</div>
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; align-items:start">
+
+            <div style="border:1px solid #232a27; border-radius:12px; background:#121715; padding:18px 20px">
+              <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px">
+                <span style="width:22px; height:22px; border-radius:50%; background:rgba(74,222,128,.10); border:1px solid #2f8a52; color:#4ade80; font-weight:800; font-size:11px; display:flex; align-items:center; justify-content:center; flex:none">1</span>
+                <h4 style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#8a958f; font-weight:700">File the vendor report</h4>
+              </div>
+              <div style="border-radius:8px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,.5)">
+                <div style="background:#ffffff; color:#12201a; padding:18px 18px 16px; font-size:9px; line-height:1.5">
+                  <div style="display:flex; align-items:flex-start; gap:10px; padding-bottom:11px; border-bottom:2px solid #0f7a3d">
+                    <div style="width:22px; height:22px; border-radius:5px; background:#0f7a3d; color:#fff; font-weight:800; font-size:10px; display:flex; align-items:center; justify-content:center; flex:none">GC</div>
+                    <div style="flex:1; min-width:0">
+                      <div style="font-family:'Montserrat',sans-serif; font-size:12px; font-weight:800; color:#0d1a14">Mule 2pc — SPIFF results</div>
+                      <div style="font-size:8.5px; color:#5d6b63; margin-top:1px">Green Cross Cannabis Emporium · Aug 1 – Aug 15, 2026</div>
+                    </div>
+                    <div style="text-align:right; flex:none">
+                      <div style="font-size:7.5px; letter-spacing:.7px; text-transform:uppercase; color:#5d6b63; font-weight:700">Credit requested</div>
+                      <div style="font-family:'Montserrat',sans-serif; font-size:15px; font-weight:800; color:#0f7a3d; margin-top:1px">$275</div>
+                    </div>
+                  </div>
+                  <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:7px; margin-top:11px">
+                    <div style="border:1px solid #dfe6e1; border-radius:4px; padding:7px 8px">
+                      <div style="font-size:7px; letter-spacing:.6px; text-transform:uppercase; color:#7a8880; font-weight:700">Units sold</div>
+                      <div style="font-family:'Montserrat',sans-serif; font-size:13px; font-weight:800; margin-top:2px">1,047</div>
+                      <div style="font-size:7.5px; color:#0f7a3d">+147 over goal</div>
+                    </div>
+                    <div style="border:1px solid #dfe6e1; border-radius:4px; padding:7px 8px">
+                      <div style="font-size:7px; letter-spacing:.6px; text-transform:uppercase; color:#7a8880; font-weight:700">Growth</div>
+                      <div style="font-family:'Montserrat',sans-serif; font-size:13px; font-weight:800; margin-top:2px">+34%</div>
+                      <div style="font-size:7.5px; color:#7a8880">vs. 780 before</div>
+                    </div>
+                    <div style="border:1px solid #dfe6e1; border-radius:4px; padding:7px 8px">
+                      <div style="font-size:7px; letter-spacing:.6px; text-transform:uppercase; color:#7a8880; font-weight:700">Added sell-through</div>
+                      <div style="font-family:'Montserrat',sans-serif; font-size:13px; font-weight:800; margin-top:2px">$7,209</div>
+                      <div style="font-size:7.5px; color:#7a8880">267 extra units</div>
+                    </div>
+                    <div style="border:1px solid #b6dcc4; background:#f1faf4; border-radius:4px; padding:7px 8px">
+                      <div style="font-size:7px; letter-spacing:.6px; text-transform:uppercase; color:#7a8880; font-weight:700">Return on SPIFF</div>
+                      <div style="font-family:'Montserrat',sans-serif; font-size:13px; font-weight:800; margin-top:2px; color:#0f7a3d">2,521%</div>
+                      <div style="font-size:7.5px; color:#0f7a3d">net +$6,934</div>
+                    </div>
+                  </div>
+                  <div style="font-size:7.5px; letter-spacing:.7px; text-transform:uppercase; color:#7a8880; font-weight:700; margin:13px 0 5px">By store</div>
+                  <table style="width:100%; border-collapse:collapse; font-size:8.5px">
+                    <thead><tr>
+                      <th style="text-align:left; padding:4px 6px; border-bottom:1px solid #c9d4cd; color:#5d6b63; font-size:7.5px; letter-spacing:.5px; text-transform:uppercase">Store</th>
+                      <th style="text-align:right; padding:4px 6px; border-bottom:1px solid #c9d4cd; color:#5d6b63; font-size:7.5px; letter-spacing:.5px; text-transform:uppercase">Before</th>
+                      <th style="text-align:right; padding:4px 6px; border-bottom:1px solid #c9d4cd; color:#5d6b63; font-size:7.5px; letter-spacing:.5px; text-transform:uppercase">Goal</th>
+                      <th style="text-align:right; padding:4px 6px; border-bottom:1px solid #c9d4cd; color:#5d6b63; font-size:7.5px; letter-spacing:.5px; text-transform:uppercase">Sold</th>
+                      <th style="text-align:right; padding:4px 6px; border-bottom:1px solid #c9d4cd; color:#5d6b63; font-size:7.5px; letter-spacing:.5px; text-transform:uppercase">Hit</th>
+                    </tr></thead>
+                    <tbody>
+                      <tr><td style="padding:4px 6px; border-bottom:1px solid #edf1ee">Century</td><td style="padding:4px 6px; text-align:right; border-bottom:1px solid #edf1ee; color:#5d6b63">300</td><td style="padding:4px 6px; text-align:right; border-bottom:1px solid #edf1ee">346</td><td style="padding:4px 6px; text-align:right; border-bottom:1px solid #edf1ee; font-weight:700">402</td><td style="padding:4px 6px; text-align:right; border-bottom:1px solid #edf1ee; color:#0f7a3d; font-weight:700">4 / 5</td></tr>
+                      <tr><td style="padding:4px 6px; border-bottom:1px solid #edf1ee">Center</td><td style="padding:4px 6px; text-align:right; border-bottom:1px solid #edf1ee; color:#5d6b63">260</td><td style="padding:4px 6px; text-align:right; border-bottom:1px solid #edf1ee">300</td><td style="padding:4px 6px; text-align:right; border-bottom:1px solid #edf1ee; font-weight:700">341</td><td style="padding:4px 6px; text-align:right; border-bottom:1px solid #edf1ee; color:#0f7a3d; font-weight:700">4 / 5</td></tr>
+                      <tr><td style="padding:4px 6px; border-bottom:1px solid #edf1ee">Commercial</td><td style="padding:4px 6px; text-align:right; border-bottom:1px solid #edf1ee; color:#5d6b63">220</td><td style="padding:4px 6px; text-align:right; border-bottom:1px solid #edf1ee">254</td><td style="padding:4px 6px; text-align:right; border-bottom:1px solid #edf1ee; font-weight:700">304</td><td style="padding:4px 6px; text-align:right; border-bottom:1px solid #edf1ee; color:#0f7a3d; font-weight:700">3 / 4</td></tr>
+                      <tr><td style="padding:5px 6px; font-weight:800; border-top:1px solid #c9d4cd">Total</td><td style="padding:5px 6px; text-align:right; font-weight:800; border-top:1px solid #c9d4cd">780</td><td style="padding:5px 6px; text-align:right; font-weight:800; border-top:1px solid #c9d4cd">900</td><td style="padding:5px 6px; text-align:right; font-weight:800; border-top:1px solid #c9d4cd">1,047</td><td style="padding:5px 6px; text-align:right; font-weight:800; border-top:1px solid #c9d4cd; color:#0f7a3d">11 / 14</td></tr>
+                    </tbody>
+                  </table>
+                  <div style="margin-top:11px; padding-top:8px; border-top:1px solid #edf1ee; font-size:7.5px; color:#7a8880">SPIFF_Sales Report - Mule - 081526.pdf · prepared for Casey Alder, Mule Extracts</div>
+                </div>
+              </div>
+              <button style="margin-top:14px; width:100%; background:#4ade80; border:1px solid #4ade80; border-radius:6px; color:#06210f; font-weight:700; padding:9px 12px; font-size:12.5px; cursor:pointer">Save PDF to Drive</button>
+              <p style="margin:10px 0 0; font-size:11px; color:#5e6864; line-height:1.5">Black on white and letter-sized, so it prints and forwards. Same folder and the same filename shape Tawny already files by hand.</p>
+            </div>
+
+            <div style="border:1px solid #232a27; border-radius:12px; background:#121715; padding:18px 20px">
+              <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px">
+                <span style="width:22px; height:22px; border-radius:50%; background:#1a221f; border:1px solid #2e3733; color:#8a958f; font-weight:800; font-size:11px; display:flex; align-items:center; justify-content:center; flex:none">2</span>
+                <h4 style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#8a958f; font-weight:700">Send the vendor email</h4>
+                <span style="margin-left:auto; font-size:10px; letter-spacing:.9px; text-transform:uppercase; color:#d4a847; border:1px solid rgba(212,168,71,.6); border-radius:4px; padding:2px 7px">draft</span>
+              </div>
+              <div style="border:1px solid #1c2320; border-radius:8px; background:#0d1211; overflow:hidden">
+                <div style="padding:10px 12px; border-bottom:1px solid #1c2320; font-size:12px">
+                  <span style="color:#5e6864">To </span>casey@muleextracts.com
+                </div>
+                <div style="padding:10px 12px; border-bottom:1px solid #1c2320; font-size:12.5px; font-weight:600">Mule 2pc SPIFF — Aug 1–15 results</div>
+                <div style="padding:12px; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11.5px; line-height:1.65; color:#8a958f; max-height:150px; overflow:hidden">Hi Casey,<br><br>Wrapping up the Mule 2pc SPIFF for Aug 1–15. Our budtenders moved 1,047 units against a goal of 900, and 11 of 14 hit their individual targets.<br><br>That is 34% above the prior period — an extra 267 units, about $7,209 of additional sell-through against a $275 bounty.<br><br>That puts the SPIFF credit at $275 (11 × $25). Report attached…</div>
+              </div>
+              <div style="display:flex; gap:8px; margin-top:12px">
+                <button style="flex:1; background:transparent; color:#8a958f; border:1px solid #2e3733; border-radius:6px; padding:9px 12px; font:inherit; font-size:12.5px; cursor:pointer">Copy email</button>
+                <button style="flex:1; background:transparent; color:#8a958f; border:1px solid #2e3733; border-radius:6px; padding:9px 12px; font:inherit; font-size:12.5px; cursor:pointer">Open in mail ↗</button>
+              </div>
+              <p style="margin:10px 0 0; font-size:11px; color:#5e6864; line-height:1.5">The app cannot email a vendor. Attach the PDF and send it yourself.</p>
+            </div>
+
+            <div style="border:1px solid #232a27; border-radius:12px; background:#121715; padding:18px 20px">
+              <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px">
+                <span style="width:22px; height:22px; border-radius:50%; background:#1a221f; border:1px solid #2e3733; color:#8a958f; font-weight:800; font-size:11px; display:flex; align-items:center; justify-content:center; flex:none">3</span>
+                <h4 style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#8a958f; font-weight:700">Buy the gift cards</h4>
+              </div>
+              <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:12px">
+                <div style="font-family:'Montserrat',sans-serif; font-size:30px; font-weight:800; line-height:1; color:#5ee68f; font-variant-numeric:tabular-nums">$275</div>
+                <div style="font-size:12px; color:#8a958f">11 cards at $25</div>
+              </div>
+              <div style="border:1px solid #1c2320; border-radius:8px; background:#0d1211; overflow:hidden">
+                <div style="display:flex; align-items:center; gap:9px; padding:7px 11px; border-bottom:1px solid #1c2320; font-size:12.5px"><span style="width:7px; height:7px; border-radius:50%; background:#22D3EE"></span><span style="flex:1">Zach B <span style="color:#5e6864">· Century</span></span><span style="font-variant-numeric:tabular-nums; color:#8a958f">$25</span></div>
+                <div style="display:flex; align-items:center; gap:9px; padding:7px 11px; border-bottom:1px solid #1c2320; font-size:12.5px"><span style="width:7px; height:7px; border-radius:50%; background:#22D3EE"></span><span style="flex:1">Maya R <span style="color:#5e6864">· Century</span></span><span style="font-variant-numeric:tabular-nums; color:#8a958f">$25</span></div>
+                <div style="display:flex; align-items:center; gap:9px; padding:7px 11px; border-bottom:1px solid #1c2320; font-size:12.5px"><span style="width:7px; height:7px; border-radius:50%; background:#3B82F6"></span><span style="flex:1">Sam K <span style="color:#5e6864">· Center</span></span><span style="font-variant-numeric:tabular-nums; color:#8a958f">$25</span></div>
+                <div style="display:flex; align-items:center; gap:9px; padding:7px 11px; border-bottom:1px solid #1c2320; font-size:12.5px"><span style="width:7px; height:7px; border-radius:50%; background:#A855F7"></span><span style="flex:1">Rosa M <span style="color:#5e6864">· Commercial</span></span><span style="font-variant-numeric:tabular-nums; color:#8a958f">$25</span></div>
+                <div style="padding:7px 11px; font-size:11.5px; color:#5e6864">+ 7 more</div>
+              </div>
+              <div style="display:flex; gap:8px; margin-top:12px">
+                <button style="flex:1; background:transparent; color:#8a958f; border:1px solid #2e3733; border-radius:6px; padding:9px 12px; font:inherit; font-size:12.5px; cursor:pointer">Copy buy list</button>
+                <button style="flex:1; background:transparent; color:#8a958f; border:1px solid #2e3733; border-radius:6px; padding:9px 12px; font:inherit; font-size:12.5px; cursor:pointer">Print</button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:300px; flex:none; padding-top:44px; display:flex; flex-direction:column; gap:14px">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:10px; font-weight:700; line-height:1; letter-spacing:1.4px; text-transform:uppercase; color:#5e6864">What changed</div>
+      <ul style="margin:0; padding-left:18px; display:flex; flex-direction:column; gap:9px; font-size:12.5px; line-height:1.5; color:#8a958f">
+        <li>The three cards get numbered and ordered, because close-out is a sequence: file it, send it, buy the cards.</li>
+        <li>The PDF is a real document — black on white, letter-sized, and built to brag: growth over the prior period, added sell-through, and the vendor's return on the bounty, not just the credit we are owed.</li>
+        <li>The email leads with the same three figures, so the recap reads as a result rather than an invoice.</li>
+        <li>The buy list names the person and their store, which is how the cards actually get handed out.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ 1f HISTORY -->
+  <div id="1f" style="display:flex; gap:28px; align-items:flex-start">
+    <div style="width:1440px; flex:none">
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px">
+        <span style="padding:3px 9px; border-radius:5px; background:#4ade80; color:#06210f; font:800 11px/1.4 sans-serif; letter-spacing:.5px">1f</span>
+        <span style="font-size:13px; font-weight:600">History</span>
+        <span style="font-size:12px; color:#5e6864">the lookup surface</span>
+      </div>
+      <div data-screen-label="History" style="border:1px solid #232a27; border-radius:14px; overflow:hidden; background:#0a0e0d; box-shadow:0 28px 70px rgba(0,0,0,.5)">
+        <header style="display:flex; align-items:center; gap:14px; padding:0 20px; background:#121715; border-bottom:1px solid #232a27; min-height:52px">
+          <div style="display:flex; align-items:center; gap:10px; flex-shrink:0"><img src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross" style="height:22px; display:block"><span style="color:#5e6864; font-size:11px; text-transform:uppercase; letter-spacing:1.1px; font-weight:700">SPIFF</span></div>
+          <nav style="display:flex; gap:2px">
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">Programs</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">Calculator</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">Progress</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">Reports</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#e6ece9; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer; box-shadow:inset 0 -2px 0 #4ade80">History</button>
+            <button style="height:40px; padding:6px 12px; border:none; background:none; color:#5e6864; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:900; line-height:1; cursor:pointer">My SPIFF ↗</button>
+          </nav>
+          <div style="margin-left:auto; display:flex; align-items:center; gap:12px">
+            <div style="text-align:right; line-height:1.2"><div style="font-weight:700; font-size:14px">2:14 PM</div><div style="color:#5e6864; font-size:10px; letter-spacing:.8px; text-transform:uppercase">Thu Aug 27</div></div>
+            <div style="display:inline-flex; align-items:center; gap:8px; padding:4px 12px 4px 4px; border-radius:999px; border:1px solid #232a27; background:#121715; font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:12px; font-weight:500; line-height:1"><span style="width:24px; height:24px; border-radius:50%; background:linear-gradient(135deg,#4ade80,#2f8a52); color:#06210f; font-weight:800; font-size:10px; display:flex; align-items:center; justify-content:center">TW</span><span>Tawny Wan</span></div>
+          </div>
+        </header>
+
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:9px; padding:10px 20px; background:#121715; border-bottom:1px solid #232a27">
+          <div style="position:relative; flex:1 1 280px; max-width:360px">
+            <span style="position:absolute; left:11px; top:7px; color:#5e6864; font-size:13px; pointer-events:none">⌕</span>
+            <input placeholder="Search vendor or program…" style="width:100%; box-sizing:border-box; background:#1a221f; border:1px solid #232a27; border-radius:8px; color:#e6ece9; padding:7px 12px 7px 32px; font:inherit; font-size:13px; outline:none">
+          </div>
+          <select style="background:#1a221f; border:1px solid #232a27; border-radius:8px; color:#e6ece9; padding:7px 10px; font:inherit; font-size:12.5px; min-width:150px; color-scheme:dark"><option>All vendors</option></select>
+          <select style="background:#1a221f; border:1px solid #232a27; border-radius:8px; color:#e6ece9; padding:7px 10px; font:inherit; font-size:12.5px; min-width:130px; color-scheme:dark"><option>All time</option></select>
+          <label style="display:flex; align-items:center; gap:7px; font-size:12.5px; color:#8a958f; padding:0 4px"><input type="checkbox" style="accent-color:#d4a847">Only flagged records</label>
+        </div>
+
+        <div style="padding:22px 20px 34px">
+          <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; margin-bottom:26px">
+            <div style="background:#121715; border:1px solid #232a27; border-radius:10px; padding:14px 16px">
+              <div style="font-size:23px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.4px">22</div>
+              <div style="font-size:11px; color:#5e6864; margin-top:2px">programs on record</div>
+            </div>
+            <div style="background:#121715; border:1px solid #232a27; border-radius:10px; padding:14px 16px">
+              <div style="font-size:23px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.4px">14,806</div>
+              <div style="font-size:11px; color:#5e6864; margin-top:2px">units sold</div>
+            </div>
+            <div style="background:#121715; border:1px solid #232a27; border-radius:10px; padding:14px 16px">
+              <div style="font-size:23px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.4px">$8,175</div>
+              <div style="font-size:11px; color:#5e6864; margin-top:2px">paid in SPIFF</div>
+            </div>
+            <div style="background:#121715; border:1px solid #232a27; border-radius:10px; padding:14px 16px">
+              <div style="font-size:23px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.4px; color:#4ade80">+$41,208</div>
+              <div style="font-size:11px; color:#5e6864; margin-top:2px">net return</div>
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:10px; margin:0 0 10px">
+            <h3 style="margin:0; font-size:11px; text-transform:uppercase; letter-spacing:1.4px; color:#8a958f; font-weight:700">August 2026</h3>
+            <span style="height:1px; flex:1; background:#1c2320"></span>
+            <span style="font-size:11px; color:#5e6864; font-variant-numeric:tabular-nums">2 programs · $675 paid · +$6,531</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:26px">
+            <div style="display:flex; align-items:center; gap:20px; padding:13px 15px; cursor:pointer; border:1px solid #232a27; border-radius:9px; background:#121715">
+              <div style="flex:1; min-width:0">
+                <div style="display:flex; align-items:center; gap:9px"><b style="font-size:14px">Mule 2pc</b><span style="display:inline-flex; gap:4px"><span style="width:7px; height:7px; border-radius:50%; background:#22D3EE"></span><span style="width:7px; height:7px; border-radius:50%; background:#3B82F6"></span><span style="width:7px; height:7px; border-radius:50%; background:#A855F7"></span></span></div>
+                <div style="font-size:12px; color:#5e6864; margin-top:3px; font-variant-numeric:tabular-nums">Mule · Aug 1 → Aug 15</div>
+              </div>
+              <div style="text-align:right; width:130px"><b style="display:block; font-size:15px; font-variant-numeric:tabular-nums">1,047</b><span style="font-size:11.5px; color:#5e6864">sold · <span style="color:#4ade80">+147</span></span></div>
+              <div style="text-align:right; width:130px"><b style="display:block; font-size:15px; font-variant-numeric:tabular-nums">11 / 14</b><span style="font-size:11.5px; color:#5e6864">hit × $25</span></div>
+              <div style="text-align:right; width:130px"><b style="display:block; font-size:15px; font-variant-numeric:tabular-nums; color:#4ade80">+$6,934</b><span style="font-size:11.5px; color:#5e6864">ROI</span></div>
+              <span style="color:#2e3733; font-size:14px">›</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:20px; padding:13px 15px; cursor:pointer; border:1px solid #232a27; border-left:3px solid #4ade80; border-radius:9px; background:#121715">
+              <div style="flex:1; min-width:0">
+                <div style="display:flex; align-items:center; gap:9px"><b style="font-size:14px">Hellavated 20pc</b><span style="display:inline-flex; gap:4px"><span style="width:7px; height:7px; border-radius:50%; background:#6366F1"></span><span style="width:7px; height:7px; border-radius:50%; background:#D946EF"></span></span></div>
+                <div style="font-size:12px; color:#5e6864; margin-top:3px; font-variant-numeric:tabular-nums">Hellavated · Aug 1 → Aug 15</div>
+                <div style="margin-top:6px"><span style="font-size:10.5px; color:#4ade80; border:1px solid rgba(74,222,128,.4); border-radius:4px; padding:2px 7px">corrected by tawny</span></div>
+              </div>
+              <div style="text-align:right; width:130px"><b style="display:block; font-size:15px; font-variant-numeric:tabular-nums">512</b><span style="font-size:11.5px; color:#5e6864">sold · <span style="color:#ef4444">−88</span></span></div>
+              <div style="text-align:right; width:130px"><b style="display:block; font-size:15px; font-variant-numeric:tabular-nums">6 / 11</b><span style="font-size:11.5px; color:#5e6864">hit × $25</span></div>
+              <div style="text-align:right; width:130px"><b style="display:block; font-size:15px; font-variant-numeric:tabular-nums; color:#4ade80">+$412</b><span style="font-size:11.5px; color:#5e6864">ROI</span></div>
+              <span style="color:#2e3733; font-size:14px">›</span>
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:10px; margin:0 0 10px">
+            <h3 style="margin:0; font-size:11px; text-transform:uppercase; letter-spacing:1.4px; color:#8a958f; font-weight:700">July 2026</h3>
+            <span style="height:1px; flex:1; background:#1c2320"></span>
+            <span style="font-size:11px; color:#5e6864; font-variant-numeric:tabular-nums">3 programs · $1,050 paid · +$3,500</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:6px">
+            <div style="display:flex; align-items:center; gap:20px; padding:13px 15px; cursor:pointer; border:1px solid rgba(239,68,68,.35); border-left:3px solid #ef4444; border-radius:9px; background:#121715">
+              <div style="flex:1; min-width:0">
+                <div style="display:flex; align-items:center; gap:9px"><b style="font-size:14px">Kaprikorn cartridge</b><span style="display:inline-flex; gap:4px"><span style="width:7px; height:7px; border-radius:50%; background:#3B82F6"></span><span style="width:7px; height:7px; border-radius:50%; background:#D946EF"></span></span></div>
+                <div style="font-size:12px; color:#5e6864; margin-top:3px; font-variant-numeric:tabular-nums">Kaprikorn · Jul 16 → Jul 31</div>
+                <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap"><span style="font-size:10.5px; color:#ef4444; border:1px solid #ef4444; border-radius:4px; padding:2px 7px">actuals match Freshy 20pc</span><span style="font-size:10.5px; color:#d4a847; border:1px solid rgba(212,168,71,.6); border-radius:4px; padding:2px 7px">rate $25 → $20</span></div>
+              </div>
+              <div style="text-align:right; width:130px"><b style="display:block; font-size:15px; font-variant-numeric:tabular-nums">267</b><span style="font-size:11.5px; color:#5e6864">sold · <span style="color:#ef4444">−33</span></span></div>
+              <div style="text-align:right; width:130px"><b style="display:block; font-size:15px; font-variant-numeric:tabular-nums">4 / 9</b><span style="font-size:11.5px; color:#5e6864">hit × $20</span></div>
+              <div style="text-align:right; width:130px"><b style="display:block; font-size:15px; font-variant-numeric:tabular-nums; color:#ef4444">−$412</b><span style="font-size:11.5px; color:#5e6864">ROI</span></div>
+              <span style="color:#2e3733; font-size:14px">›</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:20px; padding:13px 15px; cursor:pointer; border:1px solid #232a27; border-radius:9px; background:#121715">
+              <div style="flex:1; min-width:0">
+                <div style="display:flex; align-items:center; gap:9px"><b style="font-size:14px">National Cannabis flower</b><span style="display:inline-flex; gap:4px"><span style="width:7px; height:7px; border-radius:50%; background:#22D3EE"></span><span style="width:7px; height:7px; border-radius:50%; background:#6366F1"></span><span style="width:7px; height:7px; border-radius:50%; background:#EC4899"></span></span></div>
+                <div style="font-size:12px; color:#5e6864; margin-top:3px; font-variant-numeric:tabular-nums">National Cannabis · Jul 1 → Jul 15</div>
+              </div>
+              <div style="text-align:right; width:130px"><b style="display:block; font-size:15px; font-variant-numeric:tabular-nums">688</b><span style="font-size:11.5px; color:#5e6864">sold · <span style="color:#4ade80">+88</span></span></div>
+              <div style="text-align:right; width:130px"><b style="display:block; font-size:15px; font-variant-numeric:tabular-nums">8 / 12</b><span style="font-size:11.5px; color:#5e6864">hit × $25</span></div>
+              <div style="text-align:right; width:130px"><b style="display:block; font-size:15px; font-variant-numeric:tabular-nums; color:#4ade80">+$3,912</b><span style="font-size:11.5px; color:#5e6864">ROI</span></div>
+              <span style="color:#2e3733; font-size:14px">›</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:20px; padding:13px 15px; cursor:pointer; border:1px solid #232a27; border-radius:9px; background:#121715">
+              <div style="flex:1; min-width:0">
+                <div style="display:flex; align-items:center; gap:9px"><b style="font-size:14px">Freshy 20pc</b><span style="display:inline-flex; gap:4px"><span style="width:7px; height:7px; border-radius:50%; background:#A855F7"></span></span></div>
+                <div style="font-size:12px; color:#5e6864; margin-top:3px; font-variant-numeric:tabular-nums">Freshy · Jul 1 → Jul 15</div>
+              </div>
+              <div style="text-align:right; width:130px"><b style="display:block; font-size:15px; font-variant-numeric:tabular-nums">267</b><span style="font-size:11.5px; color:#5e6864">sold · <span style="color:#ef4444">−33</span></span></div>
+              <div style="text-align:right; width:130px"><b style="display:block; font-size:15px; font-variant-numeric:tabular-nums">4 / 9</b><span style="font-size:11.5px; color:#5e6864">hit × $25</span></div>
+              <div style="text-align:right; width:130px"><b style="display:block; font-size:15px; font-variant-numeric:tabular-nums; color:#ef4444">−$412</b><span style="font-size:11.5px; color:#5e6864">ROI</span></div>
+              <span style="color:#2e3733; font-size:14px">›</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:300px; flex:none; padding-top:44px; display:flex; flex-direction:column; gap:14px">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:10px; font-weight:700; line-height:1; letter-spacing:1.4px; text-transform:uppercase; color:#5e6864">What changed</div>
+      <ul style="margin:0; padding-left:18px; display:flex; flex-direction:column; gap:9px; font-size:12.5px; line-height:1.5; color:#8a958f">
+        <li>Each month keeps its own totals on the divider, so "what did we run 9 periods ago" answers itself before you open anything.</li>
+        <li>Severity rides the left edge, Crew's rule — a queue of flagged records doesn't read as a wall of alarms.</li>
+        <li>Store dots replace the store count. Same width, more meaning.</li>
+        <li>A chevron makes the row look like the door it is; today nothing says a row opens.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ 1g RECORD MODAL -->
+  <div id="1g" style="display:flex; gap:28px; align-items:flex-start">
+    <div style="width:1440px; flex:none">
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px">
+        <span style="padding:3px 9px; border-radius:5px; background:#4ade80; color:#06210f; font:800 11px/1.4 sans-serif; letter-spacing:.5px">1g</span>
+        <span style="font-size:13px; font-weight:600">The record</span>
+        <span style="font-size:12px; color:#5e6864">signed in, editable, one flagged record</span>
+      </div>
+      <div data-screen-label="Record" style="border:1px solid #232a27; border-radius:14px; overflow:hidden; background:#0a0e0d; box-shadow:0 28px 70px rgba(0,0,0,.5); position:relative; height:840px">
+        <div style="position:absolute; inset:0; background:rgba(0,0,0,.62); display:grid; place-items:center; padding:32px">
+          <div style="width:820px; max-height:100%; display:flex; flex-direction:column; background:#121715; border:1px solid #2e3733; border-radius:14px; box-shadow:0 28px 70px rgba(0,0,0,.5); overflow:hidden">
+            <header style="display:flex; align-items:flex-start; gap:16px; padding:20px 24px; border-bottom:1px solid #232a27; background:#0d1211">
+              <div style="flex:1; min-width:0">
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+                  <h3 style="margin:0; font-family:'Montserrat',sans-serif; font-size:20px; font-weight:800">Kaprikorn cartridge</h3>
+                  <span style="font-size:10px; text-transform:uppercase; letter-spacing:.9px; font-weight:700; padding:3px 9px; border-radius:999px; border:1px solid #2e3733; color:#5e6864">closed</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:9px; margin-top:7px; font-size:12.5px; color:#8a958f; flex-wrap:wrap">
+                  <span>Kaprikorn</span><span style="color:#2e3733">·</span>
+                  <span style="font-variant-numeric:tabular-nums">Jul 16 → Jul 31</span><span style="color:#2e3733">·</span>
+                  <span style="display:inline-flex; align-items:center; gap:6px"><span style="width:7px; height:7px; border-radius:50%; background:#3B82F6"></span>Center</span>
+                  <span style="display:inline-flex; align-items:center; gap:6px"><span style="width:7px; height:7px; border-radius:50%; background:#D946EF"></span>Portland</span>
+                  <span style="color:#2e3733">·</span>
+                  <span style="font-size:10px; letter-spacing:.8px; text-transform:uppercase; color:#5e6864; border:1px solid #2e3733; border-radius:4px; padding:2px 6px">tab "Kaprikorn"</span>
+                </div>
+              </div>
+              <button style="background:none; border:0; color:#5e6864; font-size:16px; cursor:pointer; padding:4px 8px; line-height:1">✕</button>
+            </header>
+
+            <div style="padding:18px 24px 24px; overflow-y:auto">
+              <div style="border:1px solid rgba(239,68,68,.35); border-left:3px solid #ef4444; border-radius:9px; background:rgba(239,68,68,.06); padding:13px 15px; margin-bottom:12px">
+                <div style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#ef4444">actuals look copied</div>
+                <p style="margin:6px 0 0; font-size:12.5px; line-height:1.5; color:#8a958f">Identical units sold, budtenders hit and investment as <b style="color:#e6ece9">Freshy 20pc</b>. Duplicating a sheet tab copies its typed cells while formulas recalculate, so these numbers may belong to another program. The close-out PDF in Drive is the reliable source.</p>
+              </div>
+              <div style="border:1px solid #232a27; border-left:3px solid #d4a847; border-radius:9px; background:#0d1211; padding:13px 15px; margin-bottom:20px">
+                <div style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#d4a847">rate differs</div>
+                <p style="margin:6px 0 0; font-size:12.5px; line-height:1.5; color:#8a958f">Modelled at $25 per budtender, settled at $20.</p>
+              </div>
+
+              <div style="display:flex; align-items:baseline; gap:10px; margin:0 0 10px"><h4 style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#8a958f; font-weight:700">Program</h4></div>
+              <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-bottom:22px">
+                <label style="display:flex; flex-direction:column; gap:5px; background:#0d1211; border:1px solid #232a27; border-radius:9px; padding:11px 13px"><span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Vendor</span><input value="Kaprikorn" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px; font:inherit; font-size:13.5px; outline:none; width:100%; box-sizing:border-box; color-scheme:dark"></label>
+                <label style="display:flex; flex-direction:column; gap:5px; background:#0d1211; border:1px solid #232a27; border-radius:9px; padding:11px 13px"><span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Start date</span><input value="2026-07-16" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px; font:inherit; font-size:13.5px; outline:none; width:100%; box-sizing:border-box; font-variant-numeric:tabular-nums; color-scheme:dark"></label>
+                <label style="display:flex; flex-direction:column; gap:5px; background:#0d1211; border:1px solid #232a27; border-radius:9px; padding:11px 13px"><span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">End date</span><input value="2026-07-31" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px; font:inherit; font-size:13.5px; outline:none; width:100%; box-sizing:border-box; font-variant-numeric:tabular-nums; color-scheme:dark"></label>
+                <label style="display:flex; flex-direction:column; gap:5px; background:#0d1211; border:1px solid rgba(212,168,71,.6); border-radius:9px; padding:11px 13px"><span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Vendor contact</span><input placeholder="nobody on file" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px; font:inherit; font-size:13.5px; outline:none; width:100%; box-sizing:border-box; color-scheme:dark"><span style="font-size:10.5px; color:#d4a847">needed before a vendor link will open</span></label>
+                <label style="display:flex; flex-direction:column; gap:5px; background:#0d1211; border:1px solid #232a27; border-radius:9px; padding:11px 13px"><span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Contact email</span><input placeholder="their login" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px; font:inherit; font-size:13.5px; outline:none; width:100%; box-sizing:border-box; color-scheme:dark"></label>
+                <label style="display:flex; flex-direction:column; gap:5px; background:#0d1211; border:1px solid #232a27; border-radius:9px; padding:11px 13px"><span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Pay period</span><input value="2026-15" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px; font:inherit; font-size:13.5px; outline:none; width:100%; box-sizing:border-box; font-variant-numeric:tabular-nums; color-scheme:dark"></label>
+              </div>
+
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px">
+                <div>
+                  <div style="display:flex; align-items:baseline; gap:10px; margin:0 0 10px"><h4 style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#8a958f; font-weight:700">What was modelled</h4></div>
+                  <div style="border:1px solid #232a27; border-radius:9px; background:#0d1211; overflow:hidden">
+                    <div style="display:flex; align-items:center; gap:12px; padding:10px 14px; border-bottom:1px solid #1c2320"><span style="flex:1; font-size:12.5px; color:#8a958f">SPIFF per budtender</span><input value="25" style="width:90px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font:inherit; font-size:13px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></div>
+                    <div style="display:flex; align-items:center; gap:12px; padding:10px 14px; border-bottom:1px solid #1c2320"><span style="flex:1; font-size:12.5px; color:#8a958f">Cost per unit</span><input value="18.50" style="width:90px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font:inherit; font-size:13px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></div>
+                    <div style="display:flex; align-items:center; gap:12px; padding:10px 14px; border-bottom:1px solid #1c2320"><span style="flex:1; font-size:12.5px; color:#8a958f">Target units</span><input value="300" style="width:90px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font:inherit; font-size:13px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></div>
+                    <div style="display:flex; align-items:center; gap:12px; padding:10px 14px"><span style="flex:1; font-size:12.5px; color:#8a958f">Reference units</span><input value="240" style="width:90px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font:inherit; font-size:13px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></div>
+                  </div>
+                </div>
+                <div>
+                  <div style="display:flex; align-items:baseline; gap:10px; margin:0 0 10px"><h4 style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#8a958f; font-weight:700">What actually happened</h4><span style="font-size:10.5px; color:#ef4444">under suspicion</span></div>
+                  <div style="border:1px solid rgba(239,68,68,.35); border-radius:9px; background:#0d1211; overflow:hidden">
+                    <div style="display:flex; align-items:center; gap:12px; padding:10px 14px; border-bottom:1px solid #1c2320"><span style="flex:1; font-size:12.5px; color:#8a958f">Units sold</span><input value="267" style="width:90px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font:inherit; font-size:13px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></div>
+                    <div style="display:flex; align-items:center; gap:12px; padding:10px 14px; border-bottom:1px solid #1c2320"><span style="flex:1; font-size:12.5px; color:#8a958f">Budtenders hit</span><input value="4" style="width:90px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:5px 8px; font:inherit; font-size:13px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></div>
+                    <div style="display:flex; align-items:center; gap:12px; padding:10px 14px; border-bottom:1px solid #1c2320"><span style="flex:1; font-size:12.5px; color:#8a958f">Rate paid</span><input value="20" style="width:90px; background:#1a221f; border:1px solid rgba(212,168,71,.6); border-radius:6px; color:#e6ece9; padding:5px 8px; font:inherit; font-size:13px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></div>
+                    <div style="display:flex; align-items:center; gap:12px; padding:10px 14px"><span style="flex:1; font-size:12.5px; color:#8a958f">ROI</span><input value="-412" style="width:90px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#ef4444; padding:5px 8px; font:inherit; font-size:13px; text-align:right; outline:none; font-variant-numeric:tabular-nums; color-scheme:dark"></div>
+                  </div>
+                  <p style="margin:8px 0 0; font-size:10.5px; color:#5e6864; line-height:1.5">Investment and ROI % recompute from the four figures above rather than being typed twice.</p>
+                </div>
+              </div>
+
+              <div style="display:flex; align-items:baseline; gap:10px; margin:24px 0 10px"><h4 style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#8a958f; font-weight:700">Vendor link</h4></div>
+              <div style="border:1px solid #232a27; border-radius:9px; background:#0d1211; padding:14px 16px">
+                <p style="margin:0 0 12px; font-size:12px; color:#8a958f; line-height:1.55">A read-only page showing only this program. To open it the rep enters <b style="color:#e6ece9">their own email</b> plus the shared password, so a forwarded link alone opens nothing.</p>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+                  <button style="background:transparent; color:#8a958f; border:1px solid #2e3733; border-radius:6px; padding:7px 12px; font:inherit; font-size:12px; cursor:pointer">Create vendor link</button>
+                  <span style="font-size:11px; color:#d4a847">set a contact email above first</span>
+                </div>
+              </div>
+            </div>
+
+            <footer style="display:flex; align-items:center; gap:16px; padding:14px 24px; border-top:1px solid #232a27; background:#0d1211">
+              <span style="font-size:12px; color:#8a958f">Signed in as <b style="color:#e6ece9">tawny</b> (admin)</span>
+              <span style="margin-left:auto; display:flex; gap:8px">
+                <button style="background:transparent; color:#8a958f; border:1px solid #2e3733; border-radius:6px; padding:7px 13px; font:inherit; font-size:12px; cursor:pointer">Close</button>
+                <button style="background:#4ade80; border:1px solid #4ade80; border-radius:6px; color:#06210f; font-weight:700; padding:7px 15px; font-size:12.5px; cursor:pointer">Save changes</button>
+              </span>
+            </footer>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:300px; flex:none; padding-top:44px; display:flex; flex-direction:column; gap:14px">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:10px; font-weight:700; line-height:1; letter-spacing:1.4px; text-transform:uppercase; color:#5e6864">What changed</div>
+      <ul style="margin:0; padding-left:18px; display:flex; flex-direction:column; gap:9px; font-size:12.5px; line-height:1.5; color:#8a958f">
+        <li>Modelled and actual sit side by side, which is the comparison this record exists to support.</li>
+        <li>Eighteen identical inputs become labelled rows in two bordered groups. Program identity keeps the field-card treatment, because that is where the gaps are.</li>
+        <li>A missing contact email borders gold and says what it blocks — the vendor link is otherwise a button that quietly opens nothing.</li>
+        <li>The header carries status, period and the stores, so the modal identifies its record without reading the fields.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ 1h + 1i -->
+  <div style="display:flex; gap:44px; align-items:flex-start; flex-wrap:wrap">
+
+    <div id="1h" style="display:flex; gap:24px; align-items:flex-start">
+      <div style="width:390px; flex:none">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px">
+          <span style="padding:3px 9px; border-radius:5px; background:#4ade80; color:#06210f; font:800 11px/1.4 sans-serif; letter-spacing:.5px">1h</span>
+          <span style="font-size:13px; font-weight:600">My SPIFF</span>
+          <span style="font-size:12px; color:#5e6864">budtender, on the floor</span>
+        </div>
+        <div data-screen-label="My SPIFF" style="border:1px solid #232a27; border-radius:26px; overflow:hidden; background:#0a0e0d; box-shadow:0 28px 70px rgba(0,0,0,.5); padding:20px 16px 16px; min-height:740px; display:flex; flex-direction:column">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:18px">
+            <img src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross" style="height:18px; display:block">
+            <span style="color:#5e6864; font-size:10px; text-transform:uppercase; letter-spacing:1.2px; font-weight:700">My SPIFF</span>
+            <button style="margin-left:auto; background:transparent; color:#8a958f; border:1px solid #2e3733; border-radius:6px; padding:5px 10px; font:inherit; font-size:11px; cursor:pointer">Sign out</button>
+          </div>
+
+          <div style="border:1px solid #232a27; border-radius:16px; background:#121715; padding:18px; display:flex; flex-direction:column; gap:16px">
+            <div style="display:flex; align-items:center; gap:10px">
+              <span style="width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:11px; display:flex; align-items:center; justify-content:center; flex:none">ZB</span>
+              <div style="min-width:0">
+                <div style="font-size:14px; font-weight:700">Zach B</div>
+                <div style="display:inline-flex; align-items:center; gap:6px; font-size:11px; color:#5e6864"><span style="width:6px; height:6px; border-radius:50%; background:#22D3EE"></span>Century</div>
+              </div>
+            </div>
+
+            <div>
+              <div style="font-size:10px; letter-spacing:1.2px; text-transform:uppercase; color:#5e6864; margin-bottom:4px">Wyld</div>
+              <h1 style="margin:0 0 9px; font-family:'Montserrat',sans-serif; font-size:23px; font-weight:800; line-height:1.2">Wyld 10pc</h1>
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+                <span style="font-size:10px; font-weight:700; letter-spacing:.9px; text-transform:uppercase; padding:3px 9px; border-radius:999px; border:1px solid #5ee68f; color:#5ee68f">Running now</span>
+                <span style="font-size:12px; color:#5e6864">Aug 16 – Aug 31 · 4 days left</span>
+              </div>
+            </div>
+
+            <div style="text-align:center; padding:24px 12px; border-radius:14px; background:rgba(74,222,128,.10); border:1px solid rgba(74,222,128,.35)">
+              <div style="font-size:10px; letter-spacing:1.2px; text-transform:uppercase; color:#5e6864; margin-bottom:8px">Earned so far</div>
+              <div style="font-family:'Montserrat',sans-serif; font-size:52px; font-weight:900; line-height:1; color:#5ee68f; font-variant-numeric:tabular-nums">$25</div>
+              <div style="margin-top:10px; font-size:13.5px; color:#8a958f">You hit your target of 74.</div>
+            </div>
+
+            <div>
+              <div style="position:relative; height:10px; border-radius:999px; background:#1a221f; overflow:hidden">
+                <div style="width:100%; height:100%; border-radius:999px; background:linear-gradient(90deg,#2f8a52,#4ade80)"></div>
+              </div>
+              <div style="display:flex; justify-content:space-between; margin-top:7px; font-size:11px; color:#5e6864; font-variant-numeric:tabular-nums"><span>81 sold</span><span>target 74 · cleared</span></div>
+            </div>
+
+            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px">
+              <div style="text-align:center; padding:13px 6px; border-radius:11px; background:#161c1a">
+                <span style="display:block; font-weight:800; font-size:19px; font-variant-numeric:tabular-nums">81</span>
+                <span style="display:block; margin-top:3px; font-size:9.5px; letter-spacing:.8px; text-transform:uppercase; color:#5e6864">you sold</span>
+              </div>
+              <div style="text-align:center; padding:13px 6px; border-radius:11px; background:#161c1a">
+                <span style="display:block; font-weight:800; font-size:19px; font-variant-numeric:tabular-nums">74</span>
+                <span style="display:block; margin-top:3px; font-size:9.5px; letter-spacing:.8px; text-transform:uppercase; color:#5e6864">your target</span>
+              </div>
+              <div style="text-align:center; padding:13px 6px; border-radius:11px; background:#161c1a">
+                <span style="display:block; font-weight:800; font-size:19px; font-variant-numeric:tabular-nums; color:#5ee68f">$25</span>
+                <span style="display:block; margin-top:3px; font-size:9.5px; letter-spacing:.8px; text-transform:uppercase; color:#5e6864">so far</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="border:1px solid #232a27; border-radius:16px; background:#121715; padding:16px 18px; margin-top:12px">
+            <div style="font-size:10px; letter-spacing:1.2px; text-transform:uppercase; color:#5e6864; margin-bottom:10px">Also running</div>
+            <div style="display:flex; align-items:center; gap:10px">
+              <div style="flex:1; min-width:0">
+                <div style="font-size:13px; font-weight:600">Hapy Kitchen — $1 a unit</div>
+                <div style="font-size:11px; color:#5e6864; margin-top:2px">no target · every unit pays</div>
+              </div>
+              <div style="font-family:'Montserrat',sans-serif; font-size:20px; font-weight:800; color:#5ee68f; font-variant-numeric:tabular-nums">$31</div>
+            </div>
+          </div>
+
+          <p style="margin:auto 0 0; padding-top:18px; text-align:center; font-size:10.5px; color:#5e6864; line-height:1.6">Figures come from Dutchie sell-through and settle when the program closes.</p>
+        </div>
+      </div>
+      <div style="width:270px; flex:none; padding-top:44px; display:flex; flex-direction:column; gap:14px">
+        <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:10px; font-weight:700; line-height:1; letter-spacing:1.4px; text-transform:uppercase; color:#5e6864">What changed</div>
+        <ul style="margin:0; padding-left:18px; display:flex; flex-direction:column; gap:9px; font-size:12.5px; line-height:1.5; color:#8a958f">
+          <li><b style="color:#e6ece9">Bug worth fixing regardless:</b> flyer.css is written against <code style="color:#4ade80">--gx-panel</code>, <code style="color:#4ade80">--gx-line</code> and <code style="color:#4ade80">--gx-bg-soft</code>, which gx-theme does not define. The whole page is running on its hardcoded fallbacks, so it is a different green from every other app.</li>
+          <li>The person, their store colour and their avatar puck at the top — it reads as theirs, not as a report about them.</li>
+          <li>Days remaining stated, because on a running program that is what changes the behaviour.</li>
+          <li>A second running program gets a row instead of being invisible; the engine returns one program today.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div id="1i" style="display:flex; gap:24px; align-items:flex-start">
+      <div style="width:820px; flex:none">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px">
+          <span style="padding:3px 9px; border-radius:5px; background:#d4a847; color:#1a1204; font:800 11px/1.4 sans-serif; letter-spacing:.5px">1i</span>
+          <span style="font-size:13px; font-weight:600">Vendor view</span>
+          <span style="font-size:12px; color:#5e6864">the page the rep opens</span>
+        </div>
+        <div data-screen-label="Vendor view" style="border:1px solid #232a27; border-radius:14px; overflow:hidden; background:#0a0e0d; box-shadow:0 28px 70px rgba(0,0,0,.5)">
+          <div style="display:flex; align-items:center; gap:10px; padding:16px 28px; border-bottom:1px solid #232a27; background:#121715">
+            <img src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross" style="height:20px; display:block">
+            <span style="margin-left:auto; font-size:10px; letter-spacing:1.2px; text-transform:uppercase; color:#5e6864; font-weight:700">Prepared for Mule Extracts</span>
+          </div>
+          <div style="padding:40px 44px 48px">
+            <div style="font-size:11px; font-weight:700; letter-spacing:1.6px; text-transform:uppercase; color:#4ade80; margin-bottom:10px">SPIFF results</div>
+            <h1 style="margin:0; font-family:'Montserrat',sans-serif; font-size:30px; font-weight:800; letter-spacing:-.4px">Mule 2pc</h1>
+            <p style="margin:8px 0 26px; font-size:14px; color:#8a958f">Aug 1 – Aug 15 · prepared for Casey Alder by Green Cross Cannabis Emporium</p>
+
+            <div style="border:1px solid rgba(74,222,128,.35); border-radius:14px; background:rgba(74,222,128,.10); padding:22px 24px; margin-bottom:22px">
+              <div style="display:flex; align-items:center; gap:28px; flex-wrap:wrap">
+                <div>
+                  <div style="font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Return on the SPIFF</div>
+                  <div style="font-family:'Montserrat',sans-serif; font-size:46px; font-weight:900; line-height:1; color:#5ee68f; font-variant-numeric:tabular-nums; margin-top:8px">2,521%</div>
+                </div>
+                <div style="height:52px; width:1px; background:rgba(74,222,128,.25)"></div>
+                <div style="flex:1; min-width:280px">
+                  <p style="margin:0; font-size:15px; line-height:1.6; color:#e6ece9; text-wrap:pretty">A <b>$275</b> bounty moved <b>267 extra units</b> — about <b>$7,209</b> of additional sell-through, a net <b>$6,934</b> to Mule. Sales ran <b>34% above</b> the two weeks before the program and cleared the goal by 147 units.</p>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:26px">
+              <div style="padding:18px; border:1px solid #232a27; border-radius:12px; background:#121715; display:flex; flex-direction:column; gap:7px">
+                <span style="font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Units sold</span>
+                <b style="font-family:'Montserrat',sans-serif; font-size:27px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">1,047</b>
+                <span style="font-size:11.5px; color:#8a958f; font-variant-numeric:tabular-nums">goal 900 · +147</span>
+              </div>
+              <div style="padding:18px; border:1px solid #232a27; border-radius:12px; background:#121715; display:flex; flex-direction:column; gap:7px">
+                <span style="font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Growth over prior</span>
+                <b style="font-family:'Montserrat',sans-serif; font-size:27px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">+34%</b>
+                <span style="font-size:11.5px; color:#8a958f; font-variant-numeric:tabular-nums">780 → 1,047 units</span>
+              </div>
+              <div style="padding:18px; border:1px solid #232a27; border-radius:12px; background:#121715; display:flex; flex-direction:column; gap:7px">
+                <span style="font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Budtenders who hit</span>
+                <b style="font-family:'Montserrat',sans-serif; font-size:27px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">11</b>
+                <span style="font-size:11.5px; color:#8a958f; font-variant-numeric:tabular-nums">of 14 · $25 each</span>
+              </div>
+              <div style="padding:18px; border:1px solid rgba(74,222,128,.35); border-radius:12px; background:rgba(74,222,128,.10); display:flex; flex-direction:column; gap:7px">
+                <span style="font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Total credit</span>
+                <b style="font-family:'Montserrat',sans-serif; font-size:27px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums; color:#5ee68f">$275</b>
+                <span style="font-size:11.5px; color:#8a958f; font-variant-numeric:tabular-nums">requested against the next order</span>
+              </div>
+            </div>
+
+            <p style="margin:0 0 32px; font-size:14px; line-height:1.65; color:#8a958f; border-left:3px solid rgba(74,222,128,.35); padding-left:16px; max-width:660px; text-wrap:pretty">These are final results. The credit above is what Green Cross is requesting against the next order — paid only on the eleven budtenders who reached their individual targets.</p>
+
+            <h2 style="margin:0 0 12px; font-size:10px; text-transform:uppercase; letter-spacing:1.4px; color:#8a958f; font-weight:700">By store</h2>
+            <div style="border:1px solid #232a27; border-radius:10px; overflow:hidden; background:#121715">
+              <table style="width:100%; border-collapse:collapse; font-size:13.5px">
+                <thead>
+                  <tr>
+                    <th style="text-align:left; padding:11px 16px; font-size:10px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27">Store</th>
+                    <th style="text-align:right; padding:11px 16px; font-size:10px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27">Before SPIFF</th>
+                    <th style="text-align:right; padding:11px 16px; font-size:10px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27">Goal</th>
+                    <th style="text-align:right; padding:11px 16px; font-size:10px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27">Sold</th>
+                    <th style="text-align:right; padding:11px 16px; font-size:10px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27">Budtenders hit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="padding:12px 16px; border-bottom:1px solid #1c2320"><span style="display:inline-flex; align-items:center; gap:9px"><span style="width:7px; height:7px; border-radius:50%; background:#22D3EE"></span>Century</span></td>
+                    <td style="padding:12px 16px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">300</td>
+                    <td style="padding:12px 16px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">346</td>
+                    <td style="padding:12px 16px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; font-weight:700">402</td>
+                    <td style="padding:12px 16px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#4ade80; font-weight:600">4 / 5</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:12px 16px; border-bottom:1px solid #1c2320"><span style="display:inline-flex; align-items:center; gap:9px"><span style="width:7px; height:7px; border-radius:50%; background:#3B82F6"></span>Center</span></td>
+                    <td style="padding:12px 16px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">260</td>
+                    <td style="padding:12px 16px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">300</td>
+                    <td style="padding:12px 16px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; font-weight:700">341</td>
+                    <td style="padding:12px 16px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#4ade80; font-weight:600">4 / 5</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:12px 16px; border-bottom:1px solid #1c2320"><span style="display:inline-flex; align-items:center; gap:9px"><span style="width:7px; height:7px; border-radius:50%; background:#A855F7"></span>Commercial</span></td>
+                    <td style="padding:12px 16px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">220</td>
+                    <td style="padding:12px 16px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#8a958f">254</td>
+                    <td style="padding:12px 16px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; font-weight:700">304</td>
+                    <td style="padding:12px 16px; border-bottom:1px solid #1c2320; text-align:right; font-variant-numeric:tabular-nums; color:#4ade80; font-weight:600">3 / 4</td>
+                  </tr>
+                  <tr style="background:#0d1211">
+                    <td style="padding:12px 16px; font-weight:700; border-top:1px solid #2e3733">Total</td>
+                    <td style="padding:12px 16px; text-align:right; font-variant-numeric:tabular-nums; font-weight:700; border-top:1px solid #2e3733">780</td>
+                    <td style="padding:12px 16px; text-align:right; font-variant-numeric:tabular-nums; font-weight:700; border-top:1px solid #2e3733">900</td>
+                    <td style="padding:12px 16px; text-align:right; font-variant-numeric:tabular-nums; font-weight:700; border-top:1px solid #2e3733; color:#4ade80">1,047</td>
+                    <td style="padding:12px 16px; text-align:right; font-variant-numeric:tabular-nums; font-weight:700; border-top:1px solid #2e3733">11 / 14</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p style="margin:12px 0 0; font-size:11.5px; color:#5e6864; line-height:1.6; max-width:660px">"Before SPIFF" is each store's sell-through in the comparable period before the program; "Goal" is the target it was set. Added sell-through is the 267 units above that prior period, valued at wholesale cost.</p>
+          </div>
+          <div style="border-top:1px solid #232a27; padding:18px 28px; text-align:center; font-size:11.5px; color:#5e6864">Questions go to Tawny Wan · tawny@greencrosscanna.com · Green Cross Cannabis Emporium</div>
+        </div>
+      </div>
+      <div style="width:270px; flex:none; padding-top:44px; display:flex; flex-direction:column; gap:14px">
+        <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; font-size:10px; font-weight:700; line-height:1; letter-spacing:1.4px; text-transform:uppercase; color:#5e6864">What changed</div>
+        <ul style="margin:0; padding-left:18px; display:flex; flex-direction:column; gap:9px; font-size:12.5px; line-height:1.5; color:#8a958f">
+          <li>It now brags, gently: growth over the prior period, added sell-through, and the vendor's return on the bounty above the credit we are owed.</li>
+        <li>Same three figures drive the PDF and the email recap in <a href="#1e">1e</a>, so a vendor hears one story in three places.</li>
+        <li>The by-store table gains Sold and Budtenders hit — the proof behind the headline — plus store colours and a bordered frame.</li>
+        <li>"SPIFF results" or "SPIFF proposal" above the title, so the rep knows which of the two they were sent.</li>
+      </ul>
+      </div>
+    </div>
+
+  </div>
+
+</section>
+</x-dc>
+</body>
+</html>

@@ -31,7 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff.css?v=1.288"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.289"/>
+<link rel="stylesheet" href="spiff.css?v=1.289"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -68,15 +69,38 @@
     </div>
   </header>
 
+  <!-- ============ SUB-NAV ============ -->
+  <!-- One bar per tab, only the active tab's shown. It sits OUTSIDE .workspace on purpose:
+       .workspace is padded and max-width-capped, and this bar is full-bleed under the header. -->
+  <div class="sp-subnav" id="subnavPrograms">
+    <div class="sp-search">
+      <span class="sp-search-icon" aria-hidden="true">&#8981;</span>
+      <input id="progSearch" type="search" placeholder="Search vendor or program&hellip;" aria-label="Search vendor or program">
+    </div>
+    <div class="sp-seg" id="progScope" role="group" aria-label="Filter by status">
+      <button type="button" class="is-on" data-scope="active">Active</button>
+      <button type="button" data-scope="draft">Draft</button>
+      <button type="button" data-scope="closed">Closed</button>
+      <button type="button" data-scope="all">All</button>
+    </div>
+    <div class="sp-rule"></div>
+    <!-- Store pills are painted from the GX Core registry at load — never hardcoded, so a
+         seventh store appears here on its own. -->
+    <div class="sp-pills" id="progStores"></div>
+    <div class="sp-subnav-right">
+      <button class="gx-btn gx-btn-green" id="btnNewProgram">+ New program</button>
+    </div>
+  </div>
+
   <main class="workspace">
 
     <!-- ============ PROGRAMS ============ -->
     <section class="panel is-active" id="panel-programs">
-      <div class="gx-section-head">
-        <h2>SPIFF programs</h2>
-        <button class="gx-btn gx-btn-green head-actions" id="btnNewProgram">+ New program</button>
-      </div>
-      <div class="empty" id="programsEmpty">
+      <!-- Filled by renderPrograms: stat strip, the one running program, then everything closed. -->
+      <div class="sp-stats" id="progStats"></div>
+      <div id="progRunning"></div>
+      <div id="progClosed"></div>
+      <div class="empty" id="programsEmpty" hidden>
         <p>No programs yet.</p>
         <p class="dim">Seed from the <b>Green Cross SPIFF Calculator</b> sheet (19 vendor tabs) or start one from scratch.</p>
         <button class="gx-btn" id="btnImportCalc">Import from Calculator sheet</button>
@@ -248,6 +272,6 @@
     'clientView', 'emailDraft', 'login', 'programs', 'sellthrough', 'stores'
   ];
 </script>
-<script src="spiff.js?v=1.288"></script>
+<script src="spiff.js?v=1.289"></script>
 </body>
 </html>

@@ -1,3 +1,9 @@
+/* NOTE: this file used --gx-panel / --gx-line / --gx-bg-soft, none of which exist in
+   gx-theme.css. Every one silently fell through to its literal fallback, so the budtender
+   page rendered on off-palette colours (#121815 against the real #121715, #223029 against
+   #232a27) -- close enough that nobody spotted it, wrong enough that this page never matched
+   the other five apps. Fixed 2026-08-28 to the real tokens. If you add a colour here, check
+   the token EXISTS: an undefined var() fails to its fallback without warning. */
 /* GX SPIFF — employee flyer.
    Phone-first on purpose: a budtender checks this on the floor between customers, not at a desk.
    One card, big numbers, no tabs and no navigation — there is exactly one thing to look at. */
@@ -25,8 +31,8 @@ body.flyer {
 .fl-card {
   width: 100%;
   max-width: 460px;
-  background: var(--gx-panel, #121815);
-  border: 1px solid var(--gx-line, #223029);
+  background: var(--gx-surface);
+  border: 1px solid var(--gx-border);
   border-radius: 16px;
   padding: 20px;
 }
@@ -63,8 +69,8 @@ body.flyer {
   text-align: center;
   padding: 22px 12px;
   border-radius: 12px;
-  background: var(--gx-bg-soft, rgba(255,255,255,.03));
-  border: 1px solid var(--gx-line, #223029);
+  background: var(--sp-inset);
+  border: 1px solid var(--gx-border);
   margin-bottom: 16px;
 }
 .fl-hero.is-paid { border-color: var(--gx-green, #3fb950); }
@@ -82,7 +88,7 @@ body.flyer {
 
 .fl-bar {
   height: 8px; border-radius: 999px; overflow: hidden;
-  background: var(--gx-line, #223029); margin-bottom: 16px;
+  background: var(--gx-border); margin-bottom: 16px;
 }
 .fl-bar-fill {
   height: 100%; border-radius: 999px;
@@ -94,7 +100,7 @@ body.flyer {
 .fl-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .fl-num {
   text-align: center; padding: 12px 6px; border-radius: 10px;
-  background: var(--gx-bg-soft, rgba(255,255,255,.03));
+  background: var(--sp-inset);
 }
 .fl-num-v {
   display: block; font-weight: 800; font-size: 18px;

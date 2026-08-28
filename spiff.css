@@ -357,3 +357,221 @@ body.is-gated .workspace { display: none !important; }
   margin: 0 0 16px; font-size: 12px; line-height: 1.5; color: var(--gx-text-mute);
 }
 .noaccess-body .gx-btn { width: 100%; }
+
+/* Redesign foundation: tokens + motion live in spiff-tokens.css (shared with flyer/client).
+   What follows is the operator app's own furniture. */
+
+/* ------------------------------------------------------------- sub-nav bar */
+/* A second bar under the shared topnav. It is SPIFF-local on purpose: the six apps
+   filter different things, and pushing this into gx-theme would mean six apps sharing
+   a bar that only fits one of them. */
+.sp-subnav {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 9px;
+  padding: 10px 20px;
+  background: var(--gx-surface); border-bottom: 1px solid var(--gx-border);
+}
+.sp-subnav-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 1.1px;
+  text-transform: uppercase; color: var(--gx-text-mute); flex: none;
+}
+.sp-search { position: relative; flex: 1 1 300px; max-width: 400px; }
+.sp-search-icon {
+  position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+  color: var(--gx-text-mute); font-size: 13px; pointer-events: none;
+}
+.sp-search input {
+  width: 100%; box-sizing: border-box;
+  background: var(--gx-surface-3); border: 1px solid var(--gx-border);
+  border-radius: var(--gx-radius-md); color: var(--gx-text);
+  padding: 7px 12px 7px 32px; font: inherit; font-size: 13px;
+  color-scheme: dark;
+}
+.sp-search input:focus { outline: none; border-color: var(--gx-green); }
+
+.sp-seg {
+  display: flex; background: var(--gx-surface-2);
+  border: 1px solid var(--gx-border); border-radius: var(--gx-radius-md); padding: 2px;
+}
+.sp-seg button {
+  border: 0; border-radius: var(--gx-radius); padding: 6px 12px;
+  font: inherit; font-size: 12px; font-weight: 600; line-height: 1; cursor: pointer;
+  background: transparent; color: var(--gx-text-dim);
+}
+.sp-seg button:hover { color: var(--gx-text); }
+.sp-seg button.is-on { background: var(--gx-border); color: var(--gx-text); }
+.sp-seg button:focus-visible { outline: 2px solid var(--gx-green); outline-offset: 1px; }
+
+.sp-rule { width: 1px; height: 22px; background: var(--gx-border); flex: none; }
+
+.sp-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* The dot colour is the store's, from the GX Core registry — never hardcoded here.
+   `--dot` is set per-pill from GXStores.color() so a new store inherits automatically. */
+.sp-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: var(--gx-radius-pill);
+  border: 1px solid var(--gx-border); background: var(--gx-surface-2);
+  color: var(--gx-text-dim); font: inherit; font-size: 11.5px; font-weight: 600;
+  line-height: 1.4; cursor: pointer;
+}
+.sp-pill:hover { color: var(--gx-text); border-color: var(--gx-border-strong); }
+.sp-pill.is-on { color: var(--gx-text); border-color: var(--dot, var(--gx-green)); }
+.sp-pill:focus-visible { outline: 2px solid var(--gx-green); outline-offset: 1px; }
+.sp-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dot, var(--gx-text-mute)); flex: none; }
+.sp-pill-n { color: var(--gx-text-mute); font-variant-numeric: tabular-nums; }
+.sp-subnav-right { margin-left: auto; display: flex; gap: 8px; }
+
+/* ----------------------------------------------------------- the stat strip */
+.sp-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 24px; }
+.sp-stat {
+  background: var(--gx-surface); border: 1px solid var(--gx-border);
+  border-radius: var(--gx-radius-lg); padding: 14px 16px;
+}
+.sp-stat-v { font-size: 23px; font-weight: 700; letter-spacing: -.4px; color: var(--gx-text); }
+.sp-stat-l { font-size: 11px; color: var(--gx-text-mute); margin-top: 2px; letter-spacing: .3px; }
+/* A figure only takes a colour when it carries a JUDGEMENT. Neutral counts stay plain —
+   colouring everything is how a dashboard stops meaning anything. */
+.sp-stat.is-pos  .sp-stat-v { color: var(--gx-green); }
+.sp-stat.is-neg  .sp-stat-v { color: var(--gx-red); }
+.sp-stat.is-warn .sp-stat-v { color: var(--gx-gold); }
+.sp-stat.is-warn { border-color: var(--gx-gold-line); }
+.sp-stat.is-neg  { border-color: var(--gx-red); }
+
+/* --------------------------------------------------------------- pace bars */
+.sp-bar { position: relative; height: 9px; border-radius: 6px; background: var(--gx-surface-3); }
+.sp-bar-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  border-radius: 6px; background: var(--sp-behind);
+}
+.is-ahead > .sp-bar-fill { background: var(--sp-pace); animation: gxaheadglow 2.6s ease-in-out infinite; }
+/* The pace line is the whole point of the bar: fill alone says "70% sold", which reads
+   as bad. Against 75% of the window elapsed it says "slightly behind", which is the truth. */
+.sp-bar-pace { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--gx-text-dim); }
+.sp-bar-foot {
+  display: flex; justify-content: space-between; margin-top: 8px;
+  font-size: 11px; color: var(--gx-text-mute); font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------- severity block */
+/* Severity is a 3px LEFT BORDER on an otherwise normal card, plus a micro-label in the
+   same colour. Never a filled background — a filled red card reads as "broken app". */
+.sp-notice {
+  border: 1px solid var(--gx-border); border-left: 3px solid var(--gx-border-strong);
+  border-radius: var(--gx-radius-lg); background: var(--gx-surface);
+  padding: 12px 14px; font-size: 12.5px; color: var(--gx-text-dim);
+}
+.sp-notice.is-warn { border-left-color: var(--gx-gold); }
+.sp-notice.is-bad  { border-left-color: var(--gx-red); }
+.sp-notice-l {
+  display: block; font-size: 10px; font-weight: 700; letter-spacing: 1.1px;
+  text-transform: uppercase; margin-bottom: 4px;
+}
+.sp-notice.is-warn .sp-notice-l { color: var(--gx-gold); }
+.sp-notice.is-bad  .sp-notice-l { color: var(--gx-red); }
+
+/* ══════════════════════════════════════════════════════════ 1a  PROGRAMS ══ */
+/* One program runs at a time, so this screen is NOT a uniform grid of cards: the
+   running one gets a full-width hero and everything closed collapses to a dense list.
+   That asymmetry is the design — it answers "how is the current one doing" first. */
+
+.sp-head { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
+.sp-head h2 {
+  margin: 0; font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase;
+  color: var(--gx-text-dim); font-weight: 700;
+}
+.sp-head-note { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; color: var(--gx-text-mute); }
+.sp-head-link { margin-left: 2px; font-size: 11px; color: var(--gx-text-dim); }
+
+/* --- the running-now hero ------------------------------------------------- */
+.sp-hero {
+  border: 1px solid var(--gx-border); border-radius: var(--gx-radius-xl);
+  background: var(--gx-surface); padding: 20px 22px; margin-bottom: 26px;
+}
+.sp-hero-top { display: flex; align-items: flex-start; gap: 24px; }
+.sp-hero-id { flex: 1; min-width: 0; }
+.sp-hero-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sp-hero-title h3 { margin: 0; font-family: var(--sp-display); font-size: 22px; font-weight: 800; }
+.sp-hero-meta {
+  display: flex; align-items: center; gap: 9px; margin-top: 7px;
+  font-size: 12.5px; color: var(--gx-text-dim); flex-wrap: wrap;
+}
+.sp-hero-meta .sp-sep { color: var(--gx-border-strong); }
+.sp-hero-stores { display: flex; align-items: center; gap: 14px; margin-top: 14px; flex-wrap: wrap; }
+.sp-store-tag { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--gx-text-dim); }
+.sp-store-tag .sp-dot { width: 7px; height: 7px; }
+
+.sp-hero-figs { display: flex; gap: 26px; text-align: right; }
+.sp-fig-l { font-size: 10px; text-transform: uppercase; letter-spacing: 1.1px; color: var(--gx-text-mute); font-weight: 700; }
+.sp-fig-v { font-family: var(--sp-display); font-size: 26px; font-weight: 800; line-height: 1.1; margin-top: 5px; }
+.sp-fig-v.is-pos { color: var(--gx-green); }
+.sp-fig-sub { font-size: 11.5px; color: var(--gx-text-mute); font-variant-numeric: tabular-nums; }
+
+.sp-hero-bar { margin-top: 20px; }
+.sp-hero-foot {
+  display: flex; align-items: center; gap: 14px; margin-top: 16px;
+  padding-top: 16px; border-top: 1px solid var(--sp-divider);
+}
+.sp-hero-verdict { font-size: 12.5px; color: var(--gx-text-dim); }
+.sp-hero-actions { margin-left: auto; display: flex; gap: 8px; }
+
+/* The verdict pill states the CALL, not the number — the number is already three
+   places above it. Gold when behind, green when ahead; never red, because a program
+   mid-window is not a failure yet. */
+.sp-verdict-pill {
+  font-size: 11px; font-weight: 700; padding: 4px 11px;
+  border-radius: var(--gx-radius-pill); white-space: nowrap;
+}
+.sp-verdict-pill.is-behind { color: var(--gx-gold); background: var(--gx-gold-soft); border: 1px solid var(--gx-gold-line); }
+.sp-verdict-pill.is-ahead  { color: var(--gx-green); background: var(--gx-green-soft); border: 1px solid var(--gx-green-dim); }
+
+/* --- the closed list ------------------------------------------------------ */
+.sp-list { border: 1px solid var(--gx-border); border-radius: var(--gx-radius-xl); overflow: hidden; }
+.sp-row {
+  display: grid; align-items: center; gap: 14px;
+  grid-template-columns: minmax(200px, 1.6fr) 90px 80px 110px 90px 110px 90px;
+  padding: 13px 18px; background: var(--gx-surface);
+  border-bottom: 1px solid var(--sp-divider); cursor: pointer;
+}
+.sp-row:last-child { border-bottom: 0; }
+.sp-row:hover { background: var(--gx-surface-2); }
+.sp-row:focus-visible { outline: 2px solid var(--gx-green); outline-offset: -2px; }
+.sp-row-name { font-size: 13px; font-weight: 600; }
+.sp-row-sub { font-size: 11.5px; color: var(--gx-text-mute); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.sp-row .sp-num { text-align: right; font-size: 12.5px; }
+.sp-row-dots { display: flex; gap: 3px; }
+.sp-row-dots .sp-dot { width: 7px; height: 7px; }
+.sp-delta { font-size: 11.5px; margin-left: 5px; }
+.sp-delta.up { color: var(--gx-green); }
+.sp-delta.down { color: var(--gx-red); }
+.sp-money.is-pos { color: var(--gx-green); }
+.sp-money.is-neg { color: var(--gx-red); }
+/* A suspect row keeps its place in the list and takes the severity border — hiding it
+   would be worse, since these are the rows most likely to reach a vendor report wrong. */
+.sp-row.is-suspect { border-left: 3px solid var(--gx-red); }
+.sp-row.is-flagged { border-left: 3px solid var(--gx-gold); }
+
+.sp-chip {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .9px; font-weight: 700;
+  padding: 3px 9px; border-radius: var(--gx-radius-pill);
+  border: 1px solid var(--gx-border-strong); color: var(--gx-text-mute); white-space: nowrap;
+}
+.sp-chip.is-active { border-color: var(--gx-green-dim); color: var(--gx-green); background: var(--gx-green-soft); }
+.sp-chip.is-draft  { border-color: var(--gx-gold-line); color: var(--gx-gold); }
+
+@media (max-width: 1100px) {
+  .sp-hero-top { flex-direction: column; gap: 16px; }
+  .sp-hero-figs { text-align: left; }
+  .sp-stats { grid-template-columns: repeat(2, 1fr); }
+  .sp-row { grid-template-columns: 1fr auto; row-gap: 6px; }
+  .sp-row .sp-num, .sp-row-dots { text-align: left; }
+}
+
+/* The suspect/rate flag is a bordered chip, not bare text: it has to survive sitting directly
+   under the program name without reading as part of it. Colour matches the row's left border. */
+.sp-flag {
+  display: inline-block; margin-top: 6px;
+  font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
+  padding: 3px 8px; border-radius: var(--gx-radius-sm);
+  border: 1px solid currentColor; line-height: 1.3;
+}
+.sp-flag.is-bad  { color: var(--gx-red); }
+.sp-flag.is-warn { color: var(--gx-gold); }

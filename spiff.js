@@ -60,6 +60,12 @@
     state.tab = name;
     $$('#tabs .gx-topnav-tab').forEach(function (b) { b.classList.toggle('is-active', b.dataset.tab === name); });
     $$('.panel').forEach(function (p) { p.classList.toggle('is-active', p.id === 'panel-' + name); });
+    /* Each tab filters different things, so each owns its own sub-nav bar and only the
+       active one is in the layout. Hidden with [hidden] so it takes no height. */
+    $$('.sp-subnav').forEach(function (b) { b.hidden = b.id !== subnavIdFor(name); });
+  }
+  function subnavIdFor(tab) {
+    return 'subnav' + tab.charAt(0).toUpperCase() + tab.slice(1);
   }
 
   function wireTabs() {
@@ -140,74 +146,322 @@
     renderPrograms();
   }
 
+  /* ---------------------------------------------------------- programs (1a) */
+  /* Filter state for the sub-nav. Kept OUT of state.programs so filtering never mutates
+     the loaded set -- "Active" showing nothing must still leave History able to see 21. */
+  var progFilter = { q: '', scope: 'active', store: '' };
+
+  /* state.stores is the registry GX Core just handed us, so it is preferred over GXStores --
+     GXStores.load() is fired off at boot and may not have answered yet, and a store rendering
+     grey for the first second reads as a broken colour rather than a slow one. GXStores stays
+     as the fallback so a store missing from this app's payload still gets its suite colour. */
+  function storeRow(id) {
+    var k = String(id || '').toLowerCase();
+    for (var i = 0; i < state.stores.length; i++) {
+      if (String(state.stores[i].store_id || '').toLowerCase() === k) return state.stores[i];
+    }
+    return null;
+  }
+  function storeColor(id) {
+    var r = storeRow(id);
+    if (r && r.color) return r.color;
+    try { return (window.GXStores && GXStores.color(id)) || 'var(--gx-text-mute)'; }
+    catch (e) { return 'var(--gx-text-mute)'; }
+  }
+  function storeName(id) {
+    var r = storeRow(id);
+    if (r && r.display_name) return r.display_name;
+    try { return (window.GXStores && GXStores.name(id)) || id; }
+    catch (e) { return id; }
+  }
+
+  /* Store pills come from the GX Core registry, so a store added in Command Center shows up
+     here on the next load with its own colour. The count is programs touching that store. */
+  function renderStorePills() {
+    var host = $('#progStores');
+    if (!host) return;
+    var tally = {};
+    state.programs.forEach(function (p) {
+      (p.stores_json || []).forEach(function (sid) { tally[sid] = (tally[sid] || 0) + 1; });
+    });
+    host.innerHTML = state.stores.map(function (st) {
+      var id = st.store_id, n = tally[id] || 0;
+      return '<button type="button" class="sp-pill' + (progFilter.store === id ? ' is-on' : '')
+        + '" data-store="' + esc(id) + '" style="--dot:' + esc(st.color || '#5e6864') + '">'
+        + '<span class="sp-dot"></span>' + esc(st.display_name || id)
+        + '<span class="sp-pill-n">' + n + '</span></button>';
+    }).join('');
+  }
+
+  function cap(x) { return x.charAt(0).toUpperCase() + x.slice(1); }
+
+  /* Search and store still narrow the closed tail — only the STATUS scope is ignored for it.
+     Typing a vendor and still seeing unrelated closed programs would read as a broken search. */
+  function progMatchesExceptScope(p) {
+    if (progFilter.store && (p.stores_json || []).indexOf(progFilter.store) < 0) return false;
+    if (progFilter.q) {
+      var hay = ((p.program_name || '') + ' ' + (p.vendor || '') + ' ' + (p.title || '')).toLowerCase();
+      if (hay.indexOf(progFilter.q) < 0) return false;
+    }
+    return true;
+  }
+
+  function progMatches(p) {
+    if (progFilter.scope !== 'all' && p.status !== progFilter.scope) return false;
+    if (progFilter.store && (p.stores_json || []).indexOf(progFilter.store) < 0) return false;
+    if (progFilter.q) {
+      var hay = ((p.program_name || '') + ' ' + (p.vendor || '') + ' ' + (p.title || '')).toLowerCase();
+      if (hay.indexOf(progFilter.q) < 0) return false;
+    }
+    return true;
+  }
+
+  /* Skeletons replace every "Loading…" string. The geometry MATCHES the real thing --
+     four stat tiles, a hero, three rows -- so nothing shifts when the data lands. */
+  function renderProgramsSkeleton() {
+    var stats = $('#progStats'), run = $('#progRunning'), closed = $('#progClosed');
+    if (stats) stats.innerHTML = Array(4).join(',').split(',').map(function () {
+      return '<div class="sp-stat"><div class="sp-skel" style="height:23px;width:60%"></div>'
+           + '<div class="sp-skel sp-skel-line" style="width:80%;margin-top:8px"></div></div>';
+    }).join('');
+    if (run) run.innerHTML = '<div class="sp-hero"><div class="sp-skel" style="height:22px;width:220px"></div>'
+      + '<div class="sp-skel sp-skel-line" style="width:340px;margin-top:12px"></div>'
+      + '<div class="sp-skel" style="height:9px;margin-top:24px"></div></div>';
+    if (closed) closed.innerHTML = '';
+  }
+
+  /* Pace: how far through the window we are, against how much has sold. The two together
+     are the only honest read -- 70% sold is good on day 4 and bad on day 14. */
+  function paceOf(p) {
+    var a = p.actual_json || {}, tgt = (p.target_json && p.target_json.units) || 0;
+    var sold = a.units_sold || 0;
+    var frac = tgt ? sold / tgt : 0;
+    var elapsed = null;
+    if (p.start_date && p.end_date) {
+      var d0 = Date.parse(p.start_date), d1 = Date.parse(p.end_date), now = Date.now();
+      if (d1 > d0) elapsed = Math.max(0, Math.min(1, (now - d0) / (d1 - d0)));
+    }
+    return { frac: frac, elapsed: elapsed, sold: sold, target: tgt,
+             ahead: elapsed == null ? frac >= 1 : frac >= elapsed };
+  }
+
   function renderPrograms() {
-    var list  = $('#programsList');
     var empty = $('#programsEmpty');
-    if (!state.programs.length) { empty.hidden = false; list.hidden = true; return; }
+    var stats = $('#progStats'), run = $('#progRunning'), closed = $('#progClosed');
+    if (!stats) return;
 
+    if (!state.programs.length) {
+      empty.hidden = false;
+      stats.innerHTML = ''; run.innerHTML = ''; closed.innerHTML = '';
+      return;
+    }
     empty.hidden = true;
-    list.hidden = false;
+    renderStorePills();
 
-    var rows = sortPrograms(state.programs).map(function (p) {
-      var a   = p.actual_json;
+    var all      = state.programs;
+    var visible  = sortPrograms(all.filter(progMatches));
+    var running  = all.filter(function (p) { return p.status === 'active'; });
+    var needCheck = all.filter(function (p) {
+      var a = p.actual_json;
+      return a && ((a.duplicate_of && a.duplicate_of.length) || a.rate_changed);
+    }).length;
+
+    /* ---- stat strip. Only figures carrying a judgement take a colour. */
+    var atStake = running.reduce(function (n, p) {
       var pay = (p.payout_json && p.payout_json.amount) || 0;
-      var tgt = (p.target_json && p.target_json.units) || 0;
-      var cost = p.cost_json || {};
+      return n + pay * ((p.target_json && p.target_json.budtenders) || 0);
+    }, 0);
+    var netReturn = all.reduce(function (n, p) { return n + ((p.actual_json && p.actual_json.roi) || 0); }, 0);
+    var closedN = all.filter(function (p) { return p.status === 'closed'; }).length;
 
-      // A program whose paid rate diverged from the modelled rate is worth seeing at a
-      // glance — it changes what the vendor was actually billed.
-      var rateFlag = a && a.rate_changed
-        ? ' <span class="flag" title="Modelled at ' + money(pay) + ', settled at ' + money(a.spiff_amount) + '">rate ' + money(pay) + '&rarr;' + money(a.spiff_amount) + '</span>'
-        : '';
+    stats.innerHTML =
+        statTile(running.length, 'running now', '')
+      + statTile(money(atStake), 'at stake for budtenders', '')
+      + statTile((netReturn >= 0 ? '+' : '') + money(netReturn), 'net return, ' + all.length + ' programs',
+                 netReturn >= 0 ? 'is-pos' : 'is-neg')
+      + statTile(needCheck, 'records need checking', needCheck ? 'is-warn' : '');
 
-      // Duplicated ROI panels in the source sheet. Shown, not hidden — these numbers
-      // look plausible on their own, and quietly trusting them would put someone else's
-      // result in a vendor report.
-      var dupFlag = a && a.duplicate_of && a.duplicate_of.length
-        ? ' <span class="flag is-warn" title="Identical units sold, budtenders hit and investment as: ' + esc(a.duplicate_of.join(', ')) + ' — likely a copied tab, verify before using">actuals match ' + esc(a.duplicate_of.join(', ')) + '</span>'
-        : '';
+    /* ---- the one running program, as a hero.
+       The hero obeys the filter like everything else. It used to render unconditionally, which
+       meant searching "kaprikorn" left the Wyld hero sitting on top of the one matching row,
+       and picking scope=Closed showed an ACTIVE program under a Closed filter -- the screen
+       contradicting the control the user had just set. */
+    var heroes = running.filter(progMatches);
+    run.innerHTML = heroes.map(heroCard).join('');
 
-      // Both ends, always — a lone start date reads like a one-day program.
-      var period = p.start_date
-        ? esc(p.start_date) + ' &rarr; ' + esc(p.end_date || '?')
-        : '<span class="hint">no period</span>';
+    /* ---- everything else, dense.
+       Under the default "Active" scope this is a TAIL, not the filtered list: the running
+       program is the answer to "how are we doing", and the last few closed ones are the
+       context for it. Filtering them out entirely (which "Active" literally means) would
+       leave the screen looking like the app has one program in it. Pick any other scope and
+       this becomes the real filtered list. */
+    var TAIL = 3;
+    var tail = progFilter.scope === 'active';
+    var rest = tail
+      ? sortPrograms(all.filter(function (p) {
+          return p.status !== 'active' && progMatchesExceptScope(p);
+        })).slice(0, TAIL)
+      : visible.filter(function (p) { return p.status !== 'active'; });
 
-      // Sold against target, Inventory-velocity style: the number, and under it how far
-      // over or short it landed. The delta is the point — "267" alone doesn't say
-      // whether the program hit.
-      var sold = '&mdash;';
-      if (a) {
-        var delta = a.units_sold - tgt;
-        var dir   = delta > 0 ? 'up' : (delta < 0 ? 'down' : '');
-        sold = '<span class="vel-primary">' + a.units_sold.toLocaleString() + '</span>'
-             + (tgt ? '<span class="vel-trend ' + dir + '">' + (delta > 0 ? '+' : '') + delta.toLocaleString() + '</span>' : '');
-      }
+    var heading = tail ? 'Closed' : (progFilter.scope === 'all' ? 'All programs' : cap(progFilter.scope));
+    var note = tail
+      ? closedN + ' program' + (closedN === 1 ? '' : 's')
+      : rest.length + ' program' + (rest.length === 1 ? '' : 's');
 
-      return '<tr' + (dupFlag ? ' class="is-suspect"' : '') + ' data-id="' + esc(p.program_id) + '" tabindex="0">'
-        + '<td>' + esc(p.vendor) + '</td>'
-        + '<td class="period">' + period + '</td>'
-        + '<td><b>' + esc(p.program_name || p.title) + '</b>'
-        +   '<span class="tabname">' + esc(p.title) + '</span>' + rateFlag + dupFlag + '</td>'
-        + '<td><span class="status is-' + esc(p.status) + '">' + esc(p.status) + '</span></td>'
-        + '<td class="num">' + money(pay) + '</td>'
-        + '<td class="num">' + money(cost.per_unit) + (cost.mode === 'blended' ? ' <span class="hint" title="' + esc(cost.source_label) + '">blended</span>' : '') + '</td>'
-        + '<td class="num">' + tgt.toLocaleString() + '</td>'
-        + '<td class="num vel-cell">' + sold + '</td>'
-        + '<td class="num">' + (a ? a.bts_hit : '&mdash;') + '</td>'
-        + '<td class="num ' + (a && a.roi < 0 ? 'neg' : '') + '">' + (a ? money(a.roi) : '&mdash;') + '</td>'
-        + '<td class="num ' + (a && a.roi_pct < 0 ? 'neg' : '') + '">' + (a ? pct(a.roi_pct) : '&mdash;') + '</td>'
-        + '<td class="num">' + (p.stores_json || []).length + '</td>'
-        + '</tr>';
+    closed.innerHTML = rest.length
+      ? '<div class="sp-head"><h2>' + heading + '</h2>'
+        + '<span class="sp-head-note">' + note + '</span>'
+        + '<a class="sp-head-link" href="#" data-goto="history">see all in History</a></div>'
+        + '<div class="sp-list">' + rest.map(listRow).join('') + '</div>'
+      : (heroes.length ? '' : '<div class="sp-notice">Nothing matches that filter. '
+          + closedN + ' closed program' + (closedN === 1 ? '' : 's') + ' in History.</div>');
+  }
+
+  function statTile(v, label, cls) {
+    return '<div class="sp-stat ' + cls + '"><div class="sp-stat-v">' + esc(String(v)) + '</div>'
+         + '<div class="sp-stat-l">' + esc(label) + '</div></div>';
+  }
+
+  function heroCard(p) {
+    var a = p.actual_json || {}, t = p.target_json || {}, pay = (p.payout_json && p.payout_json.amount) || 0;
+    var cost = p.cost_json || {};
+    var pace = paceOf(p);
+    var bts = t.budtenders || 0;
+    var hit = a.bts_hit || 0;
+
+    var stores = (p.stores_json || []).map(function (sid) {
+      return '<span class="sp-store-tag" style="--dot:' + esc(storeColor(sid)) + '">'
+           + '<span class="sp-dot"></span>' + esc(storeName(sid)) + '</span>';
     }).join('');
 
-    // The table scrolls inside its own container, never the page — this app also runs as
-    // an iframe tab inside Inventory, where the viewport is narrower still.
-    list.innerHTML =
-      '<div class="grid-wrap"><table class="grid"><thead><tr>'
-      + '<th>Vendor</th><th>Period</th><th>Program</th><th>Status</th><th class="num">SPIFF</th><th class="num">Cost/unit</th>'
-      + '<th class="num">Target</th><th class="num">Sold</th><th class="num">BTs hit</th><th class="num">ROI</th>'
-      + '<th class="num">ROI %</th><th class="num">Stores</th>'
-      + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+    /* Days left, said plainly. "day 12 of 16" beats a date range you have to subtract. */
+    var dayNote = '';
+    if (pace.elapsed != null && p.end_date) {
+      var total = Math.round((Date.parse(p.end_date) - Date.parse(p.start_date)) / 864e5) + 1;
+      var day   = Math.max(1, Math.min(total, Math.round(pace.elapsed * total)));
+      var left  = Math.max(0, total - day);
+      dayNote = '<span class="sp-head-note"><span class="sp-live-dot"></span>day ' + day + ' of ' + total
+              + ' &middot; ' + left + ' day' + (left === 1 ? '' : 's') + ' left</span>';
+    }
+
+    /* The verdict names the gap in UNITS and DAYS, because that is the only form of it
+       anyone can act on -- "70% of goal" tells Tawny nothing she can call a vendor about. */
+    var verdict = '', vcls = 'is-ahead', vtext = '';
+    if (pace.target) {
+      var short = Math.max(0, pace.target - pace.sold);
+      if (pace.ahead) { vtext = 'On pace'; vcls = 'is-ahead'; }
+      else { vtext = 'Just behind pace'; vcls = 'is-behind'; }
+      verdict = '<span class="sp-verdict-pill ' + vcls + '">' + vtext + '</span>'
+              + '<span class="sp-hero-verdict">' + (short
+                  ? short.toLocaleString() + ' units still to go.'
+                  : 'Goal already met.') + '</span>';
+    }
+
+    return '<div class="sp-head"><h2>Running now</h2>' + dayNote + '</div>'
+      + '<div class="sp-hero" data-id="' + esc(p.program_id) + '">'
+      +   '<div class="sp-hero-top">'
+      +     '<div class="sp-hero-id">'
+      +       '<div class="sp-hero-title"><h3>' + esc(p.program_name || p.title) + '</h3>'
+      +         '<span class="sp-chip is-active">active</span></div>'
+      +       '<div class="sp-hero-meta"><span>' + esc(p.vendor) + '</span><span class="sp-sep">&middot;</span>'
+      +         '<span class="sp-num">' + esc(prettyRange(p)) + '</span><span class="sp-sep">&middot;</span>'
+      +         '<span class="sp-num">' + money(pay) + ' ' + esc(payoutLabel(p)) + '</span>'
+      +         (cost.per_unit ? '<span class="sp-sep">&middot;</span><span class="sp-num">' + money(cost.per_unit) + '/unit</span>' : '')
+      +       '</div>'
+      +       '<div class="sp-hero-stores">' + stores + '</div>'
+      +     '</div>'
+      +     '<div class="sp-hero-figs">'
+      +       fig('Sold', (a.units_sold || 0).toLocaleString(), 'of ' + (pace.target || 0).toLocaleString(), '')
+      +       fig('Budtenders', hit, 'of ' + bts + ' hit', '')
+      +       fig('Earned so far', money(pay * hit), money(pay * bts) + ' if all ' + bts + ' land it', 'is-pos')
+      +     '</div>'
+      +   '</div>'
+      +   '<div class="sp-hero-bar">' + paceBar(pace) + '</div>'
+      +   '<div class="sp-hero-foot">' + verdict
+      +     '<span class="sp-hero-actions">'
+      +       '<button class="gx-btn" data-goto="progress">Open progress</button>'
+      +       '<button class="gx-btn" data-edit="' + esc(p.program_id) + '">Edit record</button>'
+      +     '</span>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  function fig(label, v, sub, cls) {
+    return '<div><div class="sp-fig-l">' + esc(label) + '</div>'
+         + '<div class="sp-fig-v ' + cls + '">' + esc(String(v)) + '</div>'
+         + '<div class="sp-fig-sub">' + esc(sub) + '</div></div>';
+  }
+
+  function paceBar(pace) {
+    var pctFill = Math.max(0, Math.min(100, pace.frac * 100));
+    var line = pace.elapsed == null ? '' :
+      '<div class="sp-bar-pace" style="left:' + (pace.elapsed * 100).toFixed(1) + '%"></div>';
+    return '<div class="sp-bar' + (pace.ahead ? ' is-ahead' : '') + '">'
+      +   '<div class="sp-bar-fill" style="width:' + pctFill.toFixed(1) + '%"></div>' + line
+      + '</div>'
+      + '<div class="sp-bar-foot"><span>' + pace.sold.toLocaleString() + ' sold &middot; '
+      +   Math.round(pace.frac * 100) + '% of goal</span>'
+      + (pace.elapsed == null ? '<span></span>'
+          : '<span>pace line &middot; ' + Math.round(pace.elapsed * 100) + '% of the window elapsed</span>')
+      + '<span>' + pace.target.toLocaleString() + ' goal</span></div>';
+  }
+
+  /* Dates are TEXT (YYYY-MM-DD). Split, never new Date(str) — that parses as UTC and
+     renders the day before in our timezone. Same rule as flyer.js. */
+  function prettyDay(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ''));
+    if (!m) return String(s || '');
+    var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return MON[Number(m[2]) - 1] + ' ' + Number(m[3]);
+  }
+  function prettyRange(p) {
+    if (!p.start_date) return 'no period';
+    return prettyDay(p.start_date) + ' → ' + (p.end_date ? prettyDay(p.end_date) : '?');
+  }
+  /* per_unit is REAL and shipped (Hapy Kitchen paid $1/unit) — do not assume flat. */
+  function payoutLabel(p) {
+    var m = (p.payout_json && p.payout_json.model) || 'flat';
+    return m === 'per_unit' ? 'per unit' : (m === 'tiered' ? 'tiered' : 'flat per budtender');
+  }
+
+  function listRow(p) {
+    var a = p.actual_json, t = p.target_json || {};
+    var pay = (p.payout_json && p.payout_json.amount) || 0;
+    var tgt = t.units || 0;
+    var dupe = a && a.duplicate_of && a.duplicate_of.length;
+    var rate = a && a.rate_changed;
+
+    var dots = (p.stores_json || []).map(function (sid) {
+      return '<span class="sp-dot" style="--dot:' + esc(storeColor(sid)) + '" title="' + esc(storeName(sid)) + '"></span>';
+    }).join('');
+
+    var sold = '&mdash;';
+    if (a) {
+      var d = (a.units_sold || 0) - tgt;
+      sold = (a.units_sold || 0).toLocaleString()
+           + (tgt ? '<span class="sp-delta ' + (d > 0 ? 'up' : d < 0 ? 'down' : '') + '">'
+                    + (d > 0 ? '+' : '') + d.toLocaleString() + '</span>' : '');
+    }
+    var roi = a ? (a.roi >= 0 ? '+' : '') + money(a.roi) : '&mdash;';
+
+    return '<div class="sp-row' + (dupe ? ' is-suspect' : rate ? ' is-flagged' : '')
+      + '" data-id="' + esc(p.program_id) + '" tabindex="0" role="button">'
+      + '<div><div class="sp-row-name">' + esc(p.program_name || p.title) + '</div>'
+      +   '<div class="sp-row-sub">' + esc(p.vendor) + ' &middot; ' + esc(prettyRange(p)) + '</div>'
+      +   (dupe ? '<span class="sp-flag is-bad" title="Identical units sold, budtenders hit and investment as '
+                  + esc(a.duplicate_of.join(', ')) + ' — likely a copied tab, verify before it reaches a vendor">'
+                  + 'actuals match ' + esc(a.duplicate_of.join(', ')) + ' &mdash; verify</span>' : '')
+      +   (rate && !dupe ? '<span class="sp-flag is-warn" title="Modelled at ' + money(pay)
+                  + ', settled at ' + money(a.spiff_amount) + '">rate ' + money(pay)
+                  + ' &rarr; ' + money(a.spiff_amount) + '</span>' : '')
+      + '</div>'
+      + '<div class="sp-row-dots">' + dots + '</div>'
+      + '<div class="sp-num">' + money(pay) + '</div>'
+      + '<div class="sp-num">' + sold + '</div>'
+      + '<div class="sp-num">' + (a ? (a.bts_hit || 0) + ' / ' + (t.budtenders || 0) : '&mdash;') + '</div>'
+      + '<div class="sp-num sp-money ' + (a ? (a.roi >= 0 ? 'is-pos' : 'is-neg') : '') + '">' + roi + '</div>'
+      + '<div><span class="sp-chip is-' + esc(p.status) + '">' + esc(p.status) + '</span></div>'
+      + '</div>';
   }
 
   /* Active programs first — they're the ones you can still act on — then newest to
@@ -249,6 +503,51 @@
   function wirePrograms() {
     var b = $('#btnImportCalc');
     if (b) b.addEventListener('click', function () { importCalculator(b); });
+
+    /* ---- sub-nav. Every control re-renders from the SAME loaded set; nothing refetches,
+       so filtering is instant and a filter can never lose data. */
+    var q = $('#progSearch');
+    if (q) q.addEventListener('input', function () {
+      progFilter.q = q.value.trim().toLowerCase();
+      renderPrograms();
+    });
+
+    var scope = $('#progScope');
+    if (scope) scope.addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-scope]');
+      if (!btn) return;
+      progFilter.scope = btn.dataset.scope;
+      $$('#progScope button').forEach(function (x) { x.classList.toggle('is-on', x === btn); });
+      renderPrograms();
+    });
+
+    /* Store pills toggle: clicking the active one clears the filter rather than leaving
+       you stuck on one store with no visible way back. */
+    var pills = $('#progStores');
+    if (pills) pills.addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-store]');
+      if (!btn) return;
+      progFilter.store = (progFilter.store === btn.dataset.store) ? '' : btn.dataset.store;
+      renderPrograms();
+    });
+
+    /* Hero + list are re-rendered wholesale, so delegate from the panel, not the nodes. */
+    var panel = $('#panel-programs');
+    if (panel) {
+      panel.addEventListener('click', function (e) {
+        var go = e.target.closest('[data-goto]');
+        if (go) { e.preventDefault(); showTab(go.dataset.goto); return; }
+        var ed = e.target.closest('[data-edit]');
+        if (ed) { openRecord(ed.dataset.edit); return; }
+        var row = e.target.closest('.sp-row[data-id]');
+        if (row) openRecord(row.dataset.id);
+      });
+      panel.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        var row = e.target.closest('.sp-row[data-id]');
+        if (row) { e.preventDefault(); openRecord(row.dataset.id); }
+      });
+    }
 
     var list = $('#programsList');
     if (list) {
@@ -1519,6 +1818,7 @@
     // Sequential, not parallel. Two GXClients firing in the same tick is what exposed the
     // shared callback-name collision; staggering them keeps SPIFF correct even on a client
     // that hasn't picked up the fix yet.
+    renderProgramsSkeleton();
     loadShared().then(calcInit).then(loadPrograms).then(function () { fillCalcLoad(); fillReportPicker(); fillHistoryFilters(); fillProgressPicker(); initBugReport(); });
   }
 

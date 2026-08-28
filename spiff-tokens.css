@@ -1,0 +1,54 @@
+/* GX SPIFF — design tokens + motion primitives shared by ALL THREE pages
+   (index.html, flyer.html, client.html).
+
+   WHY ITS OWN FILE: flyer.html deliberately does not load spiff.css -- the operator app's
+   stylesheet has no business on a budtender's phone -- but it needs the same palette and the
+   same skeletons. Defining them twice is how flyer.css drifted off-palette in the first place
+   (see the note at the top of that file). One definition, three <link>s.
+*/
+/* ══════════════════════════════════════════════════════════════════════════
+   REDESIGN FOUNDATION  (design_handoff_spiff_redesign)
+   The shared vocabulary the nine surfaces are built from. Everything here is
+   gx-theme's palette; the handoff invented no new colour. Where a value below
+   is a raw hex it is because gx-theme has no token for it yet — those are the
+   FOUR below and nothing else. If gx-theme ever gains them, delete these and
+   point at the real tokens; do not let the list grow.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root {
+  --sp-inset:   #0d1211;   /* rows, wells, sub-cards — sits UNDER --gx-surface */
+  --sp-divider: #1c2320;   /* hairline inside a card; lighter than --gx-border */
+  --sp-pace:    linear-gradient(90deg, #265939, #4ade80);
+  --sp-behind:  linear-gradient(90deg, #7a5a12, #d4a847);
+  --sp-display: 'Montserrat', var(--gx-font);
+}
+
+/* Every figure in this app is compared against another figure, so they all line up. */
+.sp-num, .sp-stat-v, .sp-fig-v, .sp-hero-v { font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------- motion */
+/* Reduced-motion takes all three away: each is an idle loop that never stops,
+   which is exactly what vestibular-triggered users ask not to have on screen. */
+@keyframes gxskel      { 0%,100% { opacity:.25 } 50% { opacity:.6 } }
+@keyframes gxpulse     { 0%   { box-shadow:0 0 0 0 rgba(74,222,128,.5) }
+                         70%  { box-shadow:0 0 0 7px rgba(74,222,128,0) }
+                         100% { box-shadow:0 0 0 0 rgba(74,222,128,0) } }
+@keyframes gxaheadglow { 0%,100% { box-shadow:0 0 10px rgba(74,222,128,.45) }
+                         50%     { box-shadow:0 0 18px rgba(74,222,128,.8) } }
+@media (prefers-reduced-motion: reduce) {
+  .sp-skel, .is-ahead > .sp-bar-fill, .sp-live-dot { animation: none !important; }
+  .sp-skel { opacity: .4; }
+}
+
+/* Skeletons REPLACE every "Loading…" string. A skeleton has to match the geometry of
+   what replaces it or the page jumps on arrival — so these are sized by the caller. */
+.sp-skel {
+  background: var(--gx-surface-3);
+  border-radius: var(--gx-radius);
+  animation: gxskel 2.4s ease-in-out infinite;
+}
+.sp-skel-line { height: 11px; }
+.sp-live-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--gx-green); animation: gxpulse 2s infinite; flex: none;
+}
+
