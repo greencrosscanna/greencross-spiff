@@ -1051,12 +1051,12 @@
     /* ---- stat strip. Only the ROI card is tinted; it is the figure being argued for. */
     var stats = $('#calcStats');
     if (stats) stats.innerHTML =
-        cstat('Vendor funds, at most', money(m.invest),
+        cstat('You fund, at most', money(m.invest),
               calc.model === 'per_unit'
                 ? money(calc.spiff) + ' on each of ' + (Number(calc.target) || 0).toLocaleString() + ' units'
                 : 'only if all ' + m.bts + ' reach their target', '')
-      + cstat('Revenue increase', money(m.revInc), money(m.baseRev) + ' → ' + money(m.targetRev), '')
-      + cstat('Return on the SPIFF', m.invest ? pctWhole(m.roiPct) : '—',
+      + cstat('Your revenue increase', money(m.revInc), money(m.baseRev) + ' → ' + money(m.targetRev), '')
+      + cstat('Your return', m.invest ? pctWhole(m.roiPct) : '—',
               money(m.roi) + ' net of the bounty', m.roi < 0 ? 'is-neg' : 'is-hero')
       + cstat('Unit lift', (m.unitInc > 0 ? '+' : '') + m.unitInc.toLocaleString(),
               pct(m.growth) + ' over last month', '');
@@ -1075,6 +1075,14 @@
       base.style.width = basePct.toFixed(2) + '%';
       add.style.left   = basePct.toFixed(2) + '%';
       add.style.width  = Math.max(0, tgtPct - basePct).toFixed(2) + '%';
+      /* THE SLIDER SPANS ONLY THE GROWTH REGION — it starts at the right edge of existing
+         sales and runs to the end of the track. A native range thumb travels its element's
+         full width, so sizing the element to the growth region is what puts 0% exactly on
+         the boundary and makes negative growth unreachable: min=0 IS the base edge. Laying
+         it across the whole bar instead would park "no growth" at the far left, implying
+         the stores sell nothing, and let a drag left ask a vendor to fund a decline. */
+      range.style.left = basePct.toFixed(2) + '%';
+      range.style.width = Math.max(0, 100 - basePct).toFixed(2) + '%';
       /* No reference yet means nothing to grow FROM: a slider off a base of zero produces a
          goal of zero however far it is dragged, which reads as a broken control. */
       var live = m.baseUnits > 0;
@@ -1099,15 +1107,19 @@
     if (scale) {
       var rows = scaleRows(m);
       scale.innerHTML = rows.length
-        ? '<table class="sp-tbl"><thead><tr><th>Budtenders who hit</th><th class="num">Vendor funds</th>'
-          + '<th class="num">Units that implies</th><th class="num">Their net gain</th></tr></thead><tbody>'
+        ? '<table class="sp-tbl"><thead><tr><th>Budtenders who hit</th><th class="num">You fund</th>'
+          + '<th class="num">Units that implies</th><th class="num">Your net gain</th></tr></thead><tbody>'
           + rows.map(function (r, i) {
               var lead = i === 0;
               return '<tr><td class="' + (lead ? 'strong' : 'dim') + '">' + esc(r.label) + '</td>'
                 + '<td class="num ' + (lead ? 'strong' : 'dim') + '">' + money(r.funds) + '</td>'
                 + '<td class="num dim">' + r.units.toLocaleString() + '</td>'
-                + '<td class="num ' + (r.net > 0 ? 'pos' : 'dim') + '">'
-                + (r.net > 0 ? money(r.net) : 'costs them nothing') + '</td></tr>';
+                /* "costs you nothing" is true ONLY when nothing is funded. Printing it wherever
+                   net <= 0 put it on a row funding $475 for zero extra units — the exact
+                   opposite of what happened, on a screen a vendor is reading. A negative net
+                   is shown as the negative it is. */
+                + '<td class="num ' + (r.funds <= 0 ? 'dim' : r.net > 0 ? 'pos' : 'neg') + '">'
+                + (r.funds <= 0 ? 'costs you nothing' : money(r.net)) + '</td></tr>';
             }).join('')
           + '</tbody></table>'
         : '<table class="sp-tbl"><tbody><tr><td class="dim">Set a reference and a target to see how the cost scales.</td></tr></tbody></table>';
@@ -1120,13 +1132,15 @@
     var argue = $('#calcArgue');
     if (argue) {
       var inv = m.invest && m.unitInc > 0 ? pctWhole(m.roiPct) : null;
-      argue.innerHTML = 'This is the argument, and the Calculator has never shown it: the bounty is only '
-        + 'paid on a budtender who actually reaches their number, so the downside is bounded and the cost '
-        + 'rises only alongside the sell-through that pays for it.'
+      /* Second person: this screen is turned around and shown to the vendor, so it addresses
+         them directly. "their number" stays third person on purpose — that one is the
+         BUDTENDER, and switching it would read as the vendor having a sales target. */
+      argue.innerHTML = 'You only pay a bounty on a budtender who actually reaches their number, so your '
+        + 'downside is capped and your cost rises only alongside the sell-through that pays for it.'
         + (inv && calc.model === 'flat'
-            ? ' The percentage return does not move with the hit rate &mdash; it stays at <b>' + inv
+            ? ' Your percentage return does not move with the hit rate &mdash; it stays at <b>' + inv
               + '</b> whether ' + Math.round(m.bts * .2) + ' budtenders hit or all ' + m.bts
-              + ' do, because the vendor funds exactly the results they get.'
+              + ' do, because you fund exactly the results you get.'
             : '');
     }
 
@@ -1136,7 +1150,7 @@
       var perExtra = m.unitInc > 0 ? m.invest / m.unitInc : null;
       var breakEven = (Number(calc.cost) || 0) ? Math.ceil(m.invest / (Number(calc.cost) || 0)) : null;
       minis.innerHTML =
-          mini('Cost per extra unit', perExtra == null ? '—' : money(perExtra),
+          mini('Your cost per extra unit', perExtra == null ? '—' : money(perExtra),
                perExtra == null ? 'set a target above last month'
                                 : money(m.invest) + ' across ' + m.unitInc.toLocaleString() + ' extra units')
         + mini('Break-even', breakEven == null ? '—' : breakEven.toLocaleString() + ' units',
@@ -1187,8 +1201,8 @@
 
     var hint = $('#cPayoutHint');
     if (hint) hint.textContent = calc.model === 'per_unit'
-      ? money(calc.spiff) + ' on every unit that budtender sells, from the first one.'
-      : money(calc.spiff) + ' to each budtender who reaches their own target — and nothing for one who doesn’t.';
+      ? 'You pay ' + money(calc.spiff) + ' on every unit that budtender sells, from the first one.'
+      : 'You pay ' + money(calc.spiff) + ' to each budtender who reaches their own target — and nothing for one who doesn’t.';
 
     pulse(changedIds);
   }
@@ -1222,9 +1236,14 @@
       return input + '<div class="sp-ref-src is-err" data-refretry="' + i + '" title="'
         + esc(st.refErr || '') + '">couldn\u2019t pull \u2014 retry</div>';
     }
+    /* Guarded, because this caption is the ONLY thing standing between a malformed engine
+       reply and a blank Calculator: refState is set to 'ok' from a response whose `units` is
+       merely expected to be a number, and reading .toLocaleString() off undefined throws
+       inside a .map() that builds every row — one absent field took the whole table down. */
     if (st.refState === 'ok') {
-      return input + '<div class="sp-ref-src">' + st.refUnits.toLocaleString()
-        + ' in 28d \u00f7 2</div>';
+      return input + (typeof st.refUnits === 'number'
+        ? '<div class="sp-ref-src">' + st.refUnits.toLocaleString() + ' in 28d \u00f7 2</div>'
+        : '<div class="sp-ref-src">pulled from Dutchie</div>');
     }
     return input;
   }
@@ -1606,8 +1625,9 @@
       }, { timeoutMs: 65000, retries: 1 });
       if (calc.refRun !== run) return;            // a newer product was picked mid-flight
       if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+      if (typeof r.reference !== 'number') throw new Error('engine returned no reference figure');
       st.baseline = r.reference;
-      st.refUnits = r.units;
+      st.refUnits = typeof r.units === 'number' ? r.units : null;
       st.refState = 'ok';
     } catch (e) {
       if (calc.refRun !== run) return;
@@ -1749,7 +1769,7 @@
         : m.bts + ' budtenders × ' + money(calc.spiff), '');
     var revSub = pbig('Your revenue moves', '+' + money(m.revInc),
       money(m.baseRev) + ' → ' + money(m.targetRev), '');
-    var roiSub = pbig('Return on the SPIFF', m.invest ? pctWhole(m.roiPct) : '—',
+    var roiSub = pbig('Your return', m.invest ? pctWhole(m.roiPct) : '—',
       money(m.roi) + ' net of the bounty', m.roi < 0 ? '' : 'is-hero');
 
     wrap.innerHTML =
