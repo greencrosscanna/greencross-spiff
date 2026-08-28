@@ -922,3 +922,46 @@ body.is-gated .workspace { display: none !important; }
   position: absolute; right: 9px; top: 50%; transform: translateY(-50%);
   font-style: normal; font-size: 12px; color: var(--gx-text-mute); pointer-events: none;
 }
+
+/* A currency symbol that lives inside the field, same reasoning as the % on Growth. */
+.sp-prefixed { position: relative; display: block; flex: 1; }
+.sp-prefixed input { padding-left: 20px; }
+.sp-prefixed i {
+  position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+  font-style: normal; font-size: 12px; color: var(--gx-text-mute); pointer-events: none;
+}
+
+/* ---- the goal bar as a control -------------------------------------------
+   The track is the units axis: 0 .. last-month × (1 + max growth). The dark green
+   segment is what the stores already sell, the bright segment is the ask, and the
+   thumb sits at the target. One picture where dragging right is literally "ask for
+   more", instead of a number box you have to translate into a picture yourself. */
+.sp-goal-bar { overflow: visible; }
+.sp-goal-range {
+  position: absolute; inset: -7px 0; width: 100%; height: 22px;
+  margin: 0; padding: 0; background: none; -webkit-appearance: none; appearance: none;
+  cursor: grab;
+}
+.sp-goal-range:active { cursor: grabbing; }
+.sp-goal-range:disabled { cursor: not-allowed; }
+.sp-goal-range::-webkit-slider-runnable-track { background: transparent; height: 22px; }
+.sp-goal-range::-moz-range-track { background: transparent; height: 22px; }
+.sp-goal-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--gx-text); border: 2px solid var(--gx-bg);
+  box-shadow: 0 1px 4px rgba(0,0,0,.6); margin-top: 4px;
+}
+.sp-goal-range::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--gx-text); border: 2px solid var(--gx-bg);
+  box-shadow: 0 1px 4px rgba(0,0,0,.6);
+}
+.sp-goal-range:focus-visible { outline: none; }
+.sp-goal-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--gx-green-soft), 0 1px 4px rgba(0,0,0,.6); }
+.sp-goal-range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--gx-green-soft), 0 1px 4px rgba(0,0,0,.6); }
+/* Nothing to grow FROM until a reference exists — a slider that moves the target off a
+   base of zero produces a goal of zero and looks broken. */
+.sp-goal-range:disabled::-webkit-slider-thumb { background: var(--gx-text-mute); }
+.sp-goal-range:disabled::-moz-range-thumb { background: var(--gx-text-mute); }
+.sp-goal-bar.is-off .sp-goal-add { display: none; }

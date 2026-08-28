@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.293"/>
-<link rel="stylesheet" href="spiff.css?v=1.293"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.294"/>
+<link rel="stylesheet" href="spiff.css?v=1.294"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -171,7 +171,10 @@
                     <button type="button" class="is-on" data-model="flat">Flat</button>
                     <button type="button" data-model="per_unit">Per unit</button>
                   </div>
-                  <input id="cSpiff" type="number" step="1" value="25" class="sp-num-in" aria-label="Payout amount">
+                  <span class="sp-prefixed">
+                    <i>$</i>
+                    <input id="cSpiff" type="number" step="1" value="25" class="sp-num-in" aria-label="Payout amount">
+                  </span>
                 </div>
                 <span class="sp-hint" id="cPayoutHint"></span>
               </div>
@@ -194,7 +197,18 @@
                     <i>%</i>
                   </span></label>
               </div>
-              <div class="sp-goal-bar" id="cGoalBar"></div>
+              <!-- The bar IS the control, not a readout of one. Tawny pitches by moving the ask
+                   around in front of the vendor — "what if we only asked for 20%?" — so the whole
+                   model has to move with a drag. A real <input type=range> rather than a mousedown
+                   handler on a div: keyboard, touch and screen readers come free, and arrow keys
+                   give the fine adjustment a drag cannot. -->
+              <div class="sp-goal-bar" id="cGoalBar">
+                <div class="sp-goal-base" id="cGoalBase"></div>
+                <div class="sp-goal-add" id="cGoalAdd"></div>
+                <input type="range" class="sp-goal-range" id="cGoalRange"
+                       min="0" max="150" step="1" value="0"
+                       aria-label="Growth over last month, percent">
+              </div>
               <div class="sp-goal-foot" id="cGoalFoot"></div>
             </div>
           </div>
@@ -333,6 +347,6 @@
     'clientView', 'emailDraft', 'login', 'programs', 'sellthrough', 'stores'
   ];
 </script>
-<script src="spiff.js?v=1.293"></script>
+<script src="spiff.js?v=1.294"></script>
 </body>
 </html>

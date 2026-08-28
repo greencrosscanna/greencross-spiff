@@ -1061,17 +1061,37 @@
       + cstat('Unit lift', (m.unitInc > 0 ? '+' : '') + m.unitInc.toLocaleString(),
               pct(m.growth) + ' over last month', '');
 
-    /* ---- the goal bar: the ask drawn as an EXTENSION past the reference, not a fraction
-       of it. A fill that only ever approaches 100% cannot show growth at all. */
-    var bar = $('#cGoalBar'), foot = $('#cGoalFoot');
-    if (bar) {
-      var tot = Math.max(m.baseUnits, Number(calc.target) || 0) || 1;
-      var basePct = Math.min(100, (m.baseUnits / tot) * 100);
-      bar.innerHTML = '<div class="sp-goal-base" style="width:' + basePct.toFixed(1) + '%"></div>'
-        + (m.unitInc > 0 ? '<div class="sp-goal-add" style="left:' + basePct.toFixed(1) + '%"></div>' : '');
+    /* ---- the goal bar, which is also the goal CONTROL.
+       The track is a units axis: 0 .. lastMonth × (1 + GOAL_MAX). That makes the dark segment
+       (what the stores already sell) a fixed share of the track and the bright segment the ask,
+       so dragging right is literally "ask for more".
+       Updated by SETTING STYLES, never innerHTML — rebuilding this node would destroy the range
+       input inside it, and with it the drag in progress. */
+    var base = $('#cGoalBase'), add = $('#cGoalAdd'), range = $('#cGoalRange'), foot = $('#cGoalFoot');
+    if (base && add && range) {
+      var span = m.baseUnits * (1 + GOAL_MAX / 100);
+      var basePct = span ? (m.baseUnits / span) * 100 : 0;
+      var tgtPct  = span ? Math.max(0, Math.min(100, ((Number(calc.target) || 0) / span) * 100)) : 0;
+      base.style.width = basePct.toFixed(2) + '%';
+      add.style.left   = basePct.toFixed(2) + '%';
+      add.style.width  = Math.max(0, tgtPct - basePct).toFixed(2) + '%';
+      /* No reference yet means nothing to grow FROM: a slider off a base of zero produces a
+         goal of zero however far it is dragged, which reads as a broken control. */
+      var live = m.baseUnits > 0;
+      range.disabled = !live;
+      $('#cGoalBar').classList.toggle('is-off', !live);
+      /* Target units, Growth % and the slider are three views of ONE number, so recalc is where
+         they are reconciled — otherwise each stays right only on the path that happens to write
+         it, and the screen shows a 1,330 target next to 0% growth. Neither the field being typed
+         in nor a thumb mid-drag is overwritten: correcting a control while someone is using it
+         is worse than letting it lag by a keystroke. */
+      var gEl = $('#cGrowth');
+      if (gEl && document.activeElement !== gEl) gEl.value = live ? Math.round(m.growth * 100) : 0;
+      if (!draggingGoal) range.value = Math.max(0, Math.min(GOAL_MAX, Math.round(m.growth * 100)));
       foot.innerHTML = '<span>' + m.baseUnits.toLocaleString() + ' sold last month</span>'
-        + (m.unitInc > 0 ? '<span class="is-add">+' + m.unitInc.toLocaleString() + ' asked for</span>'
-                         : '<span></span>');
+        + (live
+            ? '<span class="is-add">' + (m.unitInc > 0 ? '+' + m.unitInc.toLocaleString() + ' asked for' : 'no increase asked') + '</span>'
+            : '<span>pick a product to pull it</span>');
     }
 
     /* ---- scales-with-success */
@@ -1224,6 +1244,13 @@
      on the whole strip. A pulse on everything says nothing about what changed. */
   var PULSE_ALL = ['#calcStats'];
 
+  /* The slider's ceiling, in percent growth. 150% covers every program in the imported
+     history with headroom; the typed Growth field is NOT capped by it, and a value past the
+     ceiling simply pins the thumb rather than being clamped back down — the number Tawny
+     typed must never be quietly rewritten by a control she did not touch. */
+  var GOAL_MAX = 150;
+  var draggingGoal = false;
+
   function wireCalculator() {
     ['cName', 'cVendor', 'cCost', 'cSpiff'].forEach(function (id) {
       $('#' + id).addEventListener('input', function () {
@@ -1260,6 +1287,31 @@
       driving('#cGrowth');
       recalc(PULSE_ALL);
     });
+
+    /* The slider is the third view of the same number. `input` fires on every pixel of a drag,
+       so the whole model repaints live — which is the point: the vendor watches ROI move while
+       the ask is being found. draggingGoal stops recalc writing the thumb back mid-drag, which
+       would fight the pointer. */
+    var range = $('#cGoalRange');
+    if (range) {
+      var startDrag = function () { draggingGoal = true; };
+      var endDrag   = function () { draggingGoal = false; };
+      range.addEventListener('pointerdown', startDrag);
+      range.addEventListener('pointerup', endDrag);
+      range.addEventListener('pointercancel', endDrag);
+      range.addEventListener('blur', endDrag);
+      range.addEventListener('input', function () {
+        var basePct = Number(range.value) || 0;
+        var base = calcModel().baseUnits;
+        if (!base) return;
+        calc.target = Math.round(base * (1 + basePct / 100));
+        $('#cTarget').value = calc.target;
+        $('#cGrowth').value = basePct;
+        driving('#cGrowth');
+        recalc(PULSE_ALL);
+      });
+      range.addEventListener('change', endDrag);
+    }
 
     /* Per-store inputs live inside the table recalc() rebuilds, so listen on the wrapper.
        Rebuilding on every keystroke would blow away focus mid-type, so the edited field is
