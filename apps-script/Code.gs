@@ -245,6 +245,7 @@ function doGet(e) {
       case 'previewDocs': out = previewDocs_(p);                                    break;
       case 'sellthrough': out = sellthrough_(p);                                    break;
       case 'catalog':     out = catalog_(p);                                        break;
+      case 'refunits':    out = refUnits_(p);                                       break;
       // The progress cache — the fast read GX Crew's incentive column and Leaderboard's kiosk
       // ticks both use. Secret-gated: a kiosk holds no session and Crew's engine has no browser.
       case 'progress':    out = spiffProgress_(p);                                   break;
@@ -2292,3 +2293,80 @@ function catalog_(p) {
   return out;
 }
 
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * REFERENCE UNITS — what this product actually sold, before we pay anyone.
+ *
+ * The Calculator's whole model hangs off the reference figure, and until now it
+ * was typed in from memory. A target set against a half-remembered reference is
+ * a target nobody can defend to a vendor.
+ *
+ * ONE STORE PER REQUEST, like Progress and for the same measured reason: the
+ * sell-through pull runs ~9s per store and Google terminates /exec near 60s, so
+ * six stores in one call does not return. The browser fans out and fills the
+ * table in as answers land.
+ *
+ * GOES THROUGH sales_by_employee RATHER THAN A FRESH TRANSACTION PULL. That route
+ * already does the productId→brand/category join, the Take-cap logging, and — the
+ * part worth not reimplementing — the UTC-window padding and local-date trim that
+ * stops a Pacific day range counting four days of UTC. Its helpers are private to
+ * the library (trailing underscore), so a local reimplementation could not share
+ * them and would drift the first time DST moved.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Sky's rule: 28 days, halved. A SPIFF window is a pay period (~2 weeks), so half of
+   four weeks is the like-for-like figure to set a target against — and 28 days spans
+   exactly four of each weekday, so it cannot be skewed by which days it happens to cover. */
+var REF_DAYS    = 28;
+var REF_DIVISOR = 2;
+
+function refUnits_(p) {
+  var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  if (!secret) return { ok: false, error: 'GX_DEPLOY_SECRET is not set on this script — reference units cannot be read.' };
+
+  var store = slug_(p.store || '');
+  if (!store) return { ok: false, error: 'store required' };
+
+  var match = {
+    brand:       String(p.brand || '').trim(),
+    category:    String(p.category || '').trim(),
+    filter_text: String(p.filter_text || '').trim(),
+    products:    String(p.products || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean)
+  };
+  if (!match.brand && !match.filter_text && !match.products.length && !match.category) {
+    return { ok: false, error: 'pick a product first — an unfiltered reference is the whole store' };
+  }
+
+  var days = Math.max(1, Math.min(90, Number(p.days) || REF_DAYS));
+  /* Ends YESTERDAY. Today is a partial day, and including it drags the average down by
+     however early in the afternoon someone happens to open the Calculator. */
+  var to   = addDaysLocal_(today_(), -1);
+  var from = addDaysLocal_(to, -(days - 1));
+
+  var r = gxSalesByEmployee_(secret, from, to, store, match);
+  if (!r || !r.ok) return { ok: false, error: (r && r.error) || 'sell-through fetch failed', store: store };
+
+  var units = Number((r.totals || {}).units) || 0;
+  var revenue = Number((r.totals || {}).revenue) || 0;
+  return {
+    ok: true, store: store, from: from, to: to, days: days,
+    units: Math.round(units * 1000) / 1000,
+    revenue: Math.round(revenue * 100) / 100,
+    /* The figure the Calculator seeds a store's reference with. Returned ALONGSIDE the raw
+       28-day number, never instead of it — a halved figure with no visible provenance is
+       exactly the kind of number that gets questioned in a vendor meeting and cannot be
+       explained on the spot. */
+    reference: Math.round(units / REF_DIVISOR),
+    divisor: REF_DIVISOR,
+    sellers: (r.rows || []).length,
+    errors: r.errors || []
+  };
+}
+
+/* Dates are TEXT (YYYY-MM-DD). Built in UTC and formatted back, never via a local Date
+   constructor — the sheet/script timezone mismatch is what silently shifts a day. */
+function addDaysLocal_(ymd, n) {
+  var p = String(ymd).split('-');
+  var d = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]) + n));
+  return Utilities.formatDate(d, 'UTC', 'yyyy-MM-dd');
+}
