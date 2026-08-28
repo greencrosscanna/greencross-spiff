@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.291"/>
-<link rel="stylesheet" href="spiff.css?v=1.291"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.292"/>
+<link rel="stylesheet" href="spiff.css?v=1.292"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -142,10 +142,26 @@
             <div class="sp-flds">
               <label class="sp-fld is-wide"><span>Program name</span>
                 <input id="cName" placeholder="Wyld 10pc"></label>
-              <label class="sp-fld"><span>Vendor</span>
-                <input id="cVendor" placeholder="Wyld"></label>
+              <div class="sp-fld sp-pick"><span>Vendor</span>
+                <!-- Brands come from live Dutchie stock, so this can only ever offer a vendor
+                     we actually carry — and the product picker below is scoped by it. -->
+                <div class="sp-pick-input">
+                  <input id="cVendor" placeholder="Start typing a brand&hellip;" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="cVendorMenu">
+                </div>
+                <div class="sp-pick-menu" id="cVendorMenu" role="listbox" hidden></div>
+              </div>
               <label class="sp-fld"><span>Cost per unit</span>
                 <input id="cCost" type="number" step="0.01" value="10" class="sp-num-in"></label>
+
+              <div class="sp-fld is-wide sp-pick"><span>Featured product</span>
+                <div class="sp-pick-input">
+                  <input id="cProduct" placeholder="Search this vendor&rsquo;s products&hellip;" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="cProductMenu" disabled>
+                  <button type="button" class="sp-pick-clear" id="cProductClear" title="Clear" hidden>&#10005;</button>
+                </div>
+                <div class="sp-pick-menu" id="cProductMenu" role="listbox" hidden></div>
+                <div id="cChosen"></div>
+                <span class="sp-hint" id="cProductHint">Pick a vendor first.</span>
+              </div>
               <div class="sp-fld is-wide"><span>Payout</span>
                 <div class="sp-payout">
                   <!-- per_unit is REAL and implemented in the engine (Hapy Kitchen paid $1/unit).
@@ -309,6 +325,6 @@
     'clientView', 'emailDraft', 'login', 'programs', 'sellthrough', 'stores'
   ];
 </script>
-<script src="spiff.js?v=1.291"></script>
+<script src="spiff.js?v=1.292"></script>
 </body>
 </html>

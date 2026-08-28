@@ -841,3 +841,75 @@ body.is-gated .workspace { display: none !important; }
   .sp-pg-stats { grid-template-columns: repeat(2, 1fr); }
   .sp-pg-grid { grid-template-columns: 1fr; }
 }
+
+/* ═══════════════════════════════════════════ FEATURED PRODUCT PICKER ══ */
+/* The thing the SPIFF is actually ON. Until this existed, vendor, cost per unit and
+   reference units were all typed from memory. Same shape as the Price Cards builder,
+   because it is the same job and Tawny already knows that interaction. */
+
+.sp-pick { position: relative; }
+.sp-pick-input { position: relative; }
+.sp-pick-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  background: none; border: 0; color: var(--gx-text-mute); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 4px 6px;
+}
+.sp-pick-clear:hover { color: var(--gx-text); }
+
+.sp-pick-menu {
+  position: absolute; z-index: 40; left: 0; right: 0; top: calc(100% + 4px);
+  max-height: 320px; overflow-y: auto;
+  background: var(--gx-surface); border: 1px solid var(--gx-border-strong);
+  border-radius: var(--gx-radius-lg); box-shadow: var(--gx-shadow);
+}
+.sp-pick-menu[hidden] { display: none; }
+
+.sp-pick-row {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 11px; cursor: pointer; border-bottom: 1px solid var(--sp-divider);
+}
+.sp-pick-row:last-child { border-bottom: 0; }
+.sp-pick-row:hover, .sp-pick-row.is-cur { background: var(--gx-surface-2); }
+.sp-pick-row.is-child { padding-left: 30px; background: var(--sp-inset); }
+.sp-pick-row.is-child:hover, .sp-pick-row.is-child.is-cur { background: var(--gx-surface-2); }
+.sp-pick-body { flex: 1; min-width: 0; }
+.sp-pick-1 { display: flex; align-items: baseline; gap: 8px; }
+.sp-pick-name { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-pick-2 { font-size: 11px; color: var(--gx-text-mute); margin-top: 2px; }
+.sp-pick-cost { margin-left: auto; font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The count pill doubles as the expander, exactly as in Price Cards — the number IS the
+   affordance ("8 flavors"), so making it the button avoids a second control saying the same. */
+.sp-pick-n {
+  font-size: 10.5px; font-weight: 700; color: var(--gx-green-ink);
+  background: var(--gx-green); border: 0; border-radius: var(--gx-radius-pill);
+  padding: 1px 7px; cursor: pointer; font-variant-numeric: tabular-nums;
+}
+.sp-pick-chev {
+  background: none; border: 0; color: var(--gx-text-mute); cursor: pointer;
+  font-size: 11px; padding: 2px 4px; flex: none; transition: transform .12s ease;
+}
+.sp-pick-row.is-open .sp-pick-chev { transform: rotate(90deg); }
+.sp-pick-spacer { width: 19px; flex: none; }
+.sp-pick-empty { padding: 12px; font-size: 12px; color: var(--gx-text-mute); }
+
+/* The chosen product, shown as a chip so the Calculator always says what it is modelling. */
+.sp-chosen {
+  display: flex; align-items: center; gap: 10px; margin-top: 8px;
+  background: var(--sp-inset); border: 1px solid var(--gx-border);
+  border-radius: var(--gx-radius-md); padding: 9px 11px;
+}
+.sp-chosen-b { flex: 1; min-width: 0; }
+.sp-chosen-n { font-size: 12.5px; font-weight: 600; }
+.sp-chosen-m { font-size: 11px; color: var(--gx-text-mute); margin-top: 2px; }
+.sp-chosen .gx-btn { padding: 4px 9px; font-size: 11px; }
+.sp-cost-warn { color: var(--gx-gold); font-size: 11px; margin-top: 4px; display: block; }
+
+/* Shimmer for a figure being fetched, matching Sales. Inline so it can sit in a table cell
+   where the real number will go, at the width the number will occupy. */
+.sp-shim {
+  display: inline-block; min-width: 46px; height: 13px; vertical-align: middle;
+  border-radius: var(--gx-radius-sm); background: var(--gx-surface-3);
+  animation: gxskel 1.4s ease-in-out infinite;
+}
+.sp-ref-src { font-size: 10.5px; color: var(--gx-text-mute); }
+.sp-ref-src.is-err { color: var(--gx-red); cursor: pointer; text-decoration: underline; }

@@ -958,7 +958,9 @@
   var calc = {
     name: '', vendor: '', cost: 10, spiff: 25, target: 0,
     model: 'flat',   // 'flat' | 'per_unit' — per_unit is real; see payoutLabel/CLAUDE.md
-    stores: []       // [{ store_id, name, baseline, bts }]
+    product: null,   // {label, brand, filter_text, products[], skus, qty} — the SPIFF's subject
+    refRun: null,    // identity of the in-flight reference pull, so a stale one can be dropped
+    stores: []       // [{ store_id, name, baseline, bts, refState, refUnits }]
   };
 
   /* No participation flag any more. Every store runs every program, so the old tick-box was a
@@ -1120,7 +1122,7 @@
         return '<tr>'
           + '<td><span class="sp-store-cell" style="--dot:' + esc(storeColor(st.store_id)) + '">'
           +   '<span class="sp-dot"></span>' + esc(st.name) + '</span></td>'
-          + '<td class="num"><input class="sp-in sp-num-in" type="number" min="0" data-i="' + i + '" data-f="baseline" value="' + base + '" aria-label="Reference units, ' + esc(st.name) + '"></td>'
+          + '<td class="num">' + refCell(st, i, base) + '</td>'
           + '<td class="num"><input class="sp-in sp-num-in narrow" type="number" min="0" data-i="' + i + '" data-f="bts" value="' + n + '" aria-label="Budtenders, ' + esc(st.name) + '"></td>'
           + '<td class="num dim">' + (perNow == null ? '—' : perNow.toLocaleString()) + '</td>'
           + '<td class="num strong">' + goal.toLocaleString() + '</td>'
@@ -1166,6 +1168,25 @@
   /* A return in the hundreds of percent does not need a tenth of a point, and "695.8%" next to
      a 64px headline reads as false precision. pct() keeps the decimal for the record tables. */
   function pctWhole(n) { return Math.round((Number(n) || 0) * 100) + '%'; }
+
+  /* Each store's reference cell owns its own state. It stays an EDITABLE input in every
+     outcome -- a pull that fails or returns a figure Tawny knows is wrong must never leave
+     her unable to type the number she came in with. The shimmer replaces the input only
+     while that store is genuinely in flight. */
+  function refCell(st, i, base) {
+    if (st.refState === 'loading') return '<span class="sp-shim" aria-label="loading"></span>';
+    var input = '<input class="sp-in sp-num-in" type="number" min="0" data-i="' + i
+      + '" data-f="baseline" value="' + base + '" aria-label="Reference units, ' + esc(st.name) + '">';
+    if (st.refState === 'error') {
+      return input + '<div class="sp-ref-src is-err" data-refretry="' + i + '" title="'
+        + esc(st.refErr || '') + '">couldn\u2019t pull \u2014 retry</div>';
+    }
+    if (st.refState === 'ok') {
+      return input + '<div class="sp-ref-src">' + st.refUnits.toLocaleString()
+        + ' in 28d \u00f7 2</div>';
+    }
+    return input;
+  }
 
   function cstat(label, value, sub, cls) {
     return '<div class="sp-cstat ' + cls + '"><span class="sp-cstat-l">' + esc(label) + '</span>'
@@ -1236,9 +1257,19 @@
         $('#cGrowth').value = base ? Math.round(((calc.target - base) / base) * 100) : 0;
       }
       var key = el.dataset.i + '/' + el.dataset.f, pos = el.selectionStart;
+      /* Typing over a pulled reference makes it Tawny's number, not Dutchie's — drop the
+         provenance line rather than leave it captioning a figure it no longer describes. */
+      st.refState = null;
       recalc(PULSE_ALL);
       restoreFocus(key, pos);
     });
+
+    if (tbl) tbl.addEventListener('click', function (e) {
+      var r = e.target.closest('[data-refretry]');
+      if (r) pullReferenceFor(Number(r.dataset.refretry));
+    });
+
+    wirePicker();
 
     $('#calcLoad').addEventListener('change', loadIntoCalc);
     $('#calcSave').addEventListener('click', saveCalcProgram);
@@ -1261,6 +1292,340 @@
     if (!el) return;
     el.focus();
     try { el.setSelectionRange(pos, pos); } catch (e) { /* number inputs refuse this in some browsers */ }
+  }
+
+  /* ═══════════════════════════════════ FEATURED PRODUCT PICKER ══════════ */
+  /* What the SPIFF is actually ON. Before this, vendor / cost per unit / reference units
+     were all typed from memory, so a program could be modelled against sell-through that
+     had nothing to do with the product being pitched.
+
+     THE SELECTION IS A FILTER, NOT A LIST OF SKUs. Sky's normal case is "the SPIFF is on
+     that price-tiered gummy, whatever the flavor", so a GROUP resolves to
+     {brand, filter_text} — which matches every flavor, now and any added mid-program.
+     GX Core's sell-through caps an explicit product list at FOUR, so a group of eight
+     flavors is not expressible that way; picking one specific SKU uses `products` and
+     stays inside the cap. Getting this backwards would silently under-count a program. */
+
+  var pick = {
+    brands: [],        // [{name, count}] from live in-stock Dutchie
+    products: [],      // this vendor's in-stock products
+    brand: '',         // the loaded brand, so we don't refetch per keystroke
+    loading: false
+  };
+
+  function pickMenu(id) { return $('#' + id); }
+  function closeMenus() {
+    ['cVendorMenu', 'cProductMenu'].forEach(function (m) { var el = $('#' + m); if (el) el.hidden = true; });
+    ['cVendor', 'cProduct'].forEach(function (i) { var el = $('#' + i); if (el) el.setAttribute('aria-expanded', 'false'); });
+  }
+
+  async function loadBrands() {
+    if (pick.brands.length) return pick.brands;
+    try {
+      var r = await ENG.jsonp('catalog', { token: (session() || {}).token });
+      if (r && r.ok) pick.brands = r.brands || [];
+    } catch (e) { console.error('[spiff] catalog brands failed:', e); }
+    return pick.brands;
+  }
+
+  async function loadBrandProducts(brand) {
+    if (pick.brand === brand && pick.products.length) return pick.products;
+    pick.loading = true;
+    renderProductMenu('');
+    try {
+      var r = await ENG.jsonp('catalog', { token: (session() || {}).token, brand: brand });
+      pick.products = (r && r.ok) ? (r.products || []) : [];
+      pick.brand = brand;
+    } catch (e) {
+      pick.products = []; pick.brand = '';
+      console.error('[spiff] catalog products failed:', e);
+    }
+    pick.loading = false;
+    return pick.products;
+  }
+
+  /* The product noun, with leading flavor/strain words dropped — "Sour Apple Sativa Gummy"
+     and "Watermelon Hybrid Gummy" both reduce to "Gummy" and collapse into one row.
+     Lifted from the Price Cards builder so the two pickers group identically. */
+  function baseNoun(name) {
+    var w = String(name || '').split('|')[0].trim().split(/\s+/).filter(Boolean);
+    if (!w.length) return String(name || '');
+    /* Walk in from the RIGHT past potency and ratio tokens. Taking the last word outright
+       turned "Pineapple Gummy 1:1 THC/CBD" into the group "THC/CBD" — a heading no one would
+       recognise, sitting where "Gummy" belongs. Anything carrying a digit, colon, slash,
+       percent or a bare mg is a spec, not the product noun. */
+    var i = w.length - 1;
+    while (i > 0 && /[\d:%\/]|^mg$/i.test(w[i])) i--;
+    if (i >= 1 && /^(pack|roll|aio|bar|joints?|blunts?)$/i.test(w[i])) return w.slice(i - 1, i + 1).join(' ');
+    return w[i];
+  }
+
+  /* Group by brand + noun + PRICE. Price is in the key on purpose: a $5 gummy and a $27
+     gummy are different offers, and a SPIFF on "the $5 tier" must not sweep in the other. */
+  function groupProducts(list) {
+    var groups = [], by = Object.create(null);
+    list.forEach(function (p) {
+      var noun = baseNoun(p.n);
+      var key = (p.b + '|' + noun + '|' + p.price).toLowerCase();
+      if (!by[key]) {
+        by[key] = { key: key, noun: noun.charAt(0).toUpperCase() + noun.slice(1), items: [] };
+        groups.push(by[key]);
+      }
+      by[key].items.push(p);
+    });
+    return groups;
+  }
+
+  function matchProducts(q) {
+    var s = q.trim().toLowerCase();
+    if (!s) return pick.products.slice(0, 400);
+    return pick.products.filter(function (p) {
+      return (p.n + ' ' + p.c).toLowerCase().indexOf(s) >= 0;
+    }).slice(0, 400);
+  }
+
+  var PICK_OPEN = Object.create(null);
+
+  function renderProductMenu(q) {
+    var menu = $('#cProductMenu');
+    if (!menu) return;
+    menu.hidden = false;
+    $('#cProduct').setAttribute('aria-expanded', 'true');
+
+    if (pick.loading) {
+      menu.innerHTML = Array(5).join(',').split(',').map(function () {
+        return '<div class="sp-pick-row"><span class="sp-pick-spacer"></span><div class="sp-pick-body">'
+          + '<div class="sp-skel sp-skel-line" style="width:60%"></div></div></div>';
+      }).join('');
+      return;
+    }
+
+    var groups = groupProducts(matchProducts(q));
+    if (!groups.length) {
+      menu.innerHTML = '<div class="sp-pick-empty">Nothing in stock matches that for '
+        + esc(pick.brand || 'this vendor') + '.</div>';
+      return;
+    }
+
+    menu.innerHTML = groups.slice(0, 60).map(function (g, gi) {
+      var one = g.items.length === 1;
+      var p0  = g.items[0];
+      var cost = groupCost(g);
+      if (one) {
+        return '<div class="sp-pick-row" data-g="' + gi + '" data-c="0" role="option">'
+          + '<span class="sp-pick-spacer"></span>'
+          + '<div class="sp-pick-body"><div class="sp-pick-1"><span class="sp-pick-name">'
+          +   esc(p0.n) + '</span></div>'
+            + '<div class="sp-pick-2">' + money(p0.price) + ' &middot; '
+          +   esc([p0.c, p0.s].filter(Boolean).join(' · '))
+          +   ' &middot; ' + p0.qty.toLocaleString() + ' in stock</div></div>'
+          + '<span class="sp-pick-cost">' + money(p0.cost) + '</span></div>';
+      }
+      var open = !!PICK_OPEN[g.key];
+      var out = '<div class="sp-pick-row' + (open ? ' is-open' : '') + '" data-g="' + gi + '" data-c="-1" role="option">'
+        + '<button type="button" class="sp-pick-chev" data-x="' + gi + '" title="Show flavors">&#9656;</button>'
+        + '<div class="sp-pick-body"><div class="sp-pick-1">'
+        +   '<span class="sp-pick-name">' + esc(p0.b) + ' &middot; ' + esc(g.noun) + '</span>'
+        +   '<button type="button" class="sp-pick-n" data-x="' + gi + '" title="'
+        +     g.items.length + ' flavors — the SPIFF covers all of them">' + g.items.length + '</button>'
+        + '</div>'
+        /* The SHELF PRICE is what separates two groups with the same noun — Green Cross sells
+           a $4.25 gummy and a $5 gummy, and both rows otherwise read "Green Cross · Gummy".
+           Since price is in the grouping key, it has to be on the row or the two are
+           indistinguishable at the moment of choosing. */
+        + '<div class="sp-pick-2">' + money(p0.price) + ' &middot; '
+        +   esc([p0.c, p0.s].filter(Boolean).join(' · '))
+        +   ' &middot; ' + groupQty(g).toLocaleString() + ' in stock</div></div>'
+        + '<span class="sp-pick-cost">' + money(cost) + '</span></div>';
+      if (open) out += g.items.map(function (p, ci) {
+        return '<div class="sp-pick-row is-child" data-g="' + gi + '" data-c="' + ci + '" role="option">'
+          + '<div class="sp-pick-body"><div class="sp-pick-1"><span class="sp-pick-name">'
+          +   esc(p.n) + '</span></div>'
+          + '<div class="sp-pick-2">' + p.qty + ' in stock</div></div>'
+          + '<span class="sp-pick-cost">' + money(p.cost) + '</span></div>';
+      }).join('');
+      return out;
+    }).join('');
+    menu._groups = groups;
+  }
+
+  /* A group's cost weighted by what is on the shelf — the same rule the engine uses when it
+     merges batches, for the same reason: a stray unit at an odd cost must not move the quote. */
+  function groupCost(g) {
+    var q = 0, c = 0;
+    g.items.forEach(function (p) { q += p.qty || 0; c += (p.cost || 0) * (p.qty || 0); });
+    return q ? c / q : (g.items[0].cost || 0);
+  }
+  function groupQty(g) { return g.items.reduce(function (n, p) { return n + (p.qty || 0); }, 0); }
+
+  function chooseProduct(g, ci) {
+    var whole = ci < 0;
+    var p0 = g.items[0];
+    var cost = whole ? groupCost(g) : g.items[ci].cost;
+
+    calc.product = whole
+      ? { label: p0.b + ' · ' + g.noun, brand: p0.b, filter_text: g.noun, products: [],
+          skus: g.items.length, qty: groupQty(g), category: p0.c, price: p0.price }
+      : { label: g.items[ci].n, brand: p0.b, filter_text: '', products: [g.items[ci].n],
+          skus: 1, qty: g.items[ci].qty, category: g.items[ci].c, price: g.items[ci].price };
+    calc.product.costSuspect = whole
+      ? g.items.some(function (p) { return p.costSuspect; })
+      : !!g.items[ci].costSuspect;
+
+    calc.cost = Math.round(cost * 100) / 100;
+    $('#cCost').value = calc.cost;
+    $('#cProduct').value = '';
+    closeMenus();
+    renderChosen();
+    recalc(PULSE_ALL);
+    pullReference();
+  }
+
+  function renderChosen() {
+    var host = $('#cChosen'), hint = $('#cProductHint');
+    if (!host) return;
+    if (!calc.product) { host.innerHTML = ''; if (hint) hint.hidden = false; return; }
+    if (hint) hint.hidden = true;
+    var p = calc.product;
+    host.innerHTML = '<div class="sp-chosen"><div class="sp-chosen-b">'
+      + '<div class="sp-chosen-n">' + esc(p.label) + '</div>'
+      + '<div class="sp-chosen-m">'
+      +   (p.skus > 1 ? p.skus + ' flavors &mdash; the SPIFF covers all of them' : 'this SKU only')
+      +   ' &middot; ' + p.qty.toLocaleString() + ' in stock'
+      +   (p.price ? ' &middot; ' + money(p.price) + ' on the shelf' : '')
+      +   (p.category ? ' &middot; ' + esc(p.category) : '') + '</div>'
+      + (p.costSuspect
+          ? '<span class="sp-cost-warn">Dutchie lists a unit cost under a cent for this &mdash; check it before quoting a vendor.</span>'
+          : '')
+      + '</div><button type="button" class="gx-btn" id="cUnpick">Change</button></div>';
+    $('#cUnpick').addEventListener('click', function () {
+      calc.product = null;
+      renderChosen();
+      $('#cProduct').focus();
+    });
+  }
+
+  /* Fan out one request per store, exactly like Progress and for the same measured reason:
+     the sell-through pull is ~9s a store against a ~60s /exec ceiling. Each cell shimmers
+     until its own store answers, so five stores are not held up by the slowest. */
+  async function pullReference() {
+    if (!calc.product) return;
+    var run = (calc.refRun = {});
+    calc.stores.forEach(function (st) { st.refState = 'loading'; });
+    recalc();
+    await Promise.all(calc.stores.map(function (st, i) { return pullReferenceFor(i, run); }));
+  }
+
+  /* One store. Also the retry path, so a store that timed out is re-pulled on its own
+     instead of re-running all six — the same rule Progress follows, and here it matters
+     more because each call is ~9 seconds. */
+  async function pullReferenceFor(i, run) {
+    var st = calc.stores[i], p = calc.product;
+    if (!st || !p) return;
+    if (!run) run = calc.refRun || (calc.refRun = {});
+    st.refState = 'loading';
+    recalc();
+    try {
+      var r = await ENG.jsonp('refunits', {
+        token: (session() || {}).token, store: st.store_id,
+        brand: p.brand, filter_text: p.filter_text,
+        products: (p.products || []).join(',')
+      }, { timeoutMs: 65000, retries: 1 });
+      if (calc.refRun !== run) return;            // a newer product was picked mid-flight
+      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+      st.baseline = r.reference;
+      st.refUnits = r.units;
+      st.refState = 'ok';
+    } catch (e) {
+      if (calc.refRun !== run) return;
+      st.refState = 'error';
+      st.refErr = e.message || String(e);
+    }
+    if (calc.refRun !== run) return;
+    /* The growth echo has to follow every arrival: it is a percentage OF the reference
+       total, which just changed underneath it. */
+    var base = calcModel().baseUnits;
+    $('#cGrowth').value = base ? Math.round(((calc.target - base) / base) * 100) : 0;
+    recalc();
+  }
+
+  function wirePicker() {
+    var v = $('#cVendor'), vm = $('#cVendorMenu');
+    if (!v) return;
+
+    v.addEventListener('focus', async function () {
+      await loadBrands();
+      renderVendorMenu(v.value);
+    });
+    v.addEventListener('input', function () {
+      calc.vendor = v.value;
+      renderVendorMenu(v.value);
+    });
+    vm.addEventListener('mousedown', function (e) {
+      var row = e.target.closest('[data-b]');
+      if (!row) return;
+      e.preventDefault();
+      setVendor(row.dataset.b);
+    });
+
+    var pr = $('#cProduct'), pm = $('#cProductMenu');
+    pr.addEventListener('focus', function () { if (pick.brand) renderProductMenu(pr.value); });
+    pr.addEventListener('input', function () { renderProductMenu(pr.value); });
+    pm.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      var x = e.target.closest('[data-x]');
+      if (x) {                                   // the chevron / count pill expands, never selects
+        var gs = pm._groups || [];
+        var g = gs[Number(x.dataset.x)];
+        if (g) { PICK_OPEN[g.key] = !PICK_OPEN[g.key]; renderProductMenu(pr.value); }
+        return;
+      }
+      var row = e.target.closest('[data-g]');
+      if (!row) return;
+      var groups = pm._groups || [];
+      var grp = groups[Number(row.dataset.g)];
+      if (grp) chooseProduct(grp, Number(row.dataset.c));
+    });
+    var clr = $('#cProductClear');
+    if (clr) clr.addEventListener('click', function () { pr.value = ''; renderProductMenu(''); pr.focus(); });
+
+    document.addEventListener('mousedown', function (e) {
+      if (!e.target.closest('.sp-pick')) closeMenus();
+    });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeMenus(); });
+  }
+
+  function renderVendorMenu(q) {
+    var vm = $('#cVendorMenu'), v = $('#cVendor');
+    if (!vm) return;
+    var s = String(q || '').trim().toLowerCase();
+    var list = pick.brands.filter(function (b) { return !s || b.name.toLowerCase().indexOf(s) >= 0; }).slice(0, 40);
+    vm.hidden = false;
+    v.setAttribute('aria-expanded', 'true');
+    vm.innerHTML = list.length
+      ? list.map(function (b) {
+          return '<div class="sp-pick-row" data-b="' + esc(b.name) + '" role="option">'
+            + '<span class="sp-pick-spacer"></span><div class="sp-pick-body">'
+            + '<div class="sp-pick-1"><span class="sp-pick-name">' + esc(b.name) + '</span></div></div>'
+            + '<span class="sp-pick-cost">' + b.count + '</span></div>';
+        }).join('')
+      : '<div class="sp-pick-empty">No vendor in stock matches that.</div>';
+  }
+
+  async function setVendor(name) {
+    calc.vendor = name;
+    $('#cVendor').value = name;
+    closeMenus();
+    /* Changing vendor invalidates the product AND everything derived from it. Leaving a
+       Wyld product selected under vendor "Mule" is the kind of state that gets pitched. */
+    calc.product = null;
+    renderChosen();
+    var pr = $('#cProduct');
+    pr.disabled = false;
+    pr.placeholder = 'Search ' + name + '’s products…';
+    await loadBrandProducts(name);
+    pr.focus();
+    renderProductMenu('');
   }
 
   /* ------------------------------------------------------- pitch mode (1c) */
