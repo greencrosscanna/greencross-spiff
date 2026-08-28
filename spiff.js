@@ -92,9 +92,9 @@
   /* ------------------------------------------------------- GX Core loaders */
   // Stores and employees are shared truth. Pull them; don't re-hardcode store names — Command
   // Center edits must flow through on the next load.
-  async function loadShared() {
+  async function loadShared(opts) {
     try {
-      var s = await GX.jsonp('stores', {});
+      var s = await GX.jsonp('stores', {}, opts || {});
       if (!s || !Array.isArray(s.stores)) throw new Error('stores: unexpected response');
       state.stores = s.stores;
 
@@ -564,10 +564,15 @@
 
   function paceBar(pace) {
     var pctFill = Math.max(0, Math.min(100, pace.frac * 100));
-    var line = pace.elapsed == null ? '' :
-      '<div class="sp-bar-pace" style="left:' + (pace.elapsed * 100).toFixed(1) + '%"></div>';
-    return '<div class="sp-bar' + (pace.met ? ' is-met' : pace.ahead ? ' is-ahead' : '') + '">'
-      +   '<div class="sp-bar-fill" style="width:' + pctFill.toFixed(1) + '%"></div>' + line
+    var markPct = pace.elapsed == null ? null : Math.max(0, Math.min(100, pace.elapsed * 100));
+    var line = markPct == null ? '' :
+      '<div class="sp-bar-pace" style="left:' + markPct.toFixed(1) + '%"></div>';
+    /* --seg is the hash expressed as a share of the FILL, because the glowing ::after lives
+       inside the fill. Only meaningful when the fill has actually passed the hash. */
+    var over = markPct != null && pctFill > markPct;
+    var seg = over ? Math.max(0, Math.min(100, (markPct / pctFill) * 100)) : 100;
+    return '<div class="sp-bar' + (pace.met ? ' is-met' : '') + (over ? ' is-over' : '') + '">'
+      +   '<div class="sp-bar-fill" style="width:' + pctFill.toFixed(1) + '%;--seg:' + seg.toFixed(1) + '%"></div>' + line
       + '</div>'
       + '<div class="sp-bar-foot"><span>' + pace.sold.toLocaleString() + ' sold &middot; '
       +   Math.round(pace.frac * 100) + '% of goal</span>'
@@ -3356,17 +3361,33 @@
     wireProgress();
     showTab('programs');
     initBugReport();
-    // Sequential, not parallel. Two GXClients firing in the same tick is what exposed the
-    // shared callback-name collision; staggering them keeps SPIFF correct even on a client
-    // that hasn't picked up the fix yet.
+    /* PARALLEL, and the chain it replaces is why this screen took thirty seconds.
+       Each of these answers in 2-3s on its own, but they ran nose-to-tail — and worse, they ran
+       BEHIND loadShared, which hits GX Core. When Core's stores call goes quiet, GXClient makes
+       five attempts at an 8s timeout: forty seconds of nothing, with programs and the progress
+       cache queued up behind a call whose only job is store names and colours.
+
+       The old note here said sequential was deliberate, because two GXClients in one tick had
+       once collided on a shared callback name. That was fixed: gx-client mints
+       `__gx_<per-instance nonce>_<timestamp>_<counter>`, so two instances cannot collide. The
+       caution outlived the bug.
+
+       Each load renders as it lands, so the page fills in progressively instead of waiting for
+       the slowest. Stores get a tighter budget than the default: they only decorate the screen,
+       and they must never be the reason nothing appears on it. */
     renderProgramsSkeleton();
-    loadShared().then(calcInit).then(loadPrograms).then(function () {
-      fillCalcLoad(); fillReportPicker(); fillHistoryFilters(); fillProgressPicker(); initBugReport();
-      /* The landing page reads the CACHE, not six live pulls. Firing the live fan-out here is
-         what made this screen take a minute to settle, and the hero does not need to-the-second
-         figures — it needs figures. The Progress tab still pulls live on arrival, and when it
-         does, the hero upgrades to those. */
-      loadProgressCache();
+
+    var sharedP   = loadShared({ timeoutMs: 6000, retries: 1 }).then(calcInit);
+    var programsP = loadPrograms().then(function () {
+      fillCalcLoad(); fillReportPicker(); fillHistoryFilters(); fillProgressPicker();
+    });
+    var cacheP    = loadProgressCache();
+
+    Promise.all([sharedP, programsP, cacheP]).then(function () {
+      /* Re-render once everything is in: programs may have painted before store colours
+         arrived, and the hero needs both to be complete. */
+      renderPrograms();
+      initBugReport();
     });
   }
 

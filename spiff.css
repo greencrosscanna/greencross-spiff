@@ -442,7 +442,26 @@ body.is-gated .workspace { display: none !important; }
   position: absolute; left: 0; top: 0; bottom: 0;
   border-radius: 6px; background: var(--sp-behind);
 }
-.is-ahead > .sp-bar-fill { background: var(--sp-pace); animation: gxaheadglow 2.6s ease-in-out infinite; }
+/* OVER PACE: glow ONLY the segment beyond the hash mark, never the whole fill. Ported from
+   Leaderboard's .sky-bar.over (index.html) rather than reinvented, so the two apps mean the
+   same thing by the same picture. --seg is the hash position expressed as a percentage of the
+   FILL, not of the track — the ::after is positioned inside the fill.
+   overflow stays visible on the bar, or the box-shadow gets clipped at the track edge; that is
+   the same note LB carries on .emp-bar. */
+.sp-bar.is-over { overflow: visible; }
+.sp-bar.is-over > .sp-bar-fill { position: absolute; }
+.sp-bar.is-over > .sp-bar-fill::after {
+  content: ''; position: absolute; top: 0; bottom: 0;
+  left: var(--seg, 100%); right: 0;
+  border-radius: 0 6px 6px 0;
+  background: var(--gx-green);
+  animation: gxseg 2s ease-in-out infinite;
+}
+@keyframes gxseg {
+  0%, 100% { box-shadow: 0 0 4px var(--gx-green), 0 0 8px #86efac; }
+  50%      { box-shadow: 0 0 7px var(--gx-green), 0 0 14px #86efac; }
+}
+.sp-bar.is-over .sp-bar-pace { background: var(--gx-green); opacity: .85; box-shadow: 0 0 3px #86efac; }
 /* The pace line is the whole point of the bar: fill alone says "70% sold", which reads
    as bad. Against 75% of the window elapsed it says "slightly behind", which is the truth. */
 .sp-bar-pace { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--gx-text-dim); }
@@ -1036,10 +1055,11 @@ body.is-gated .workspace { display: none !important; }
 
 /* Past the goal. Brighter and steadier than "ahead of pace" — the same treatment Sales and
    Leaderboard give a cleared target, so the meaning carries across apps without relearning. */
+/* Goal met colours the FILL green; the glow is still only the over-pace segment, handled by
+   .is-over above. Glowing the whole bar was the bug — it lit the part of the run that was
+   merely on plan as though all of it were overachievement. */
 .sp-bar.is-met > .sp-bar-fill {
-  background: linear-gradient(90deg, var(--gx-green-dim), var(--gx-green-bright));
-  animation: gxaheadglow 2.2s ease-in-out infinite;
-  box-shadow: 0 0 14px rgba(74,222,128,.55);
+  background: linear-gradient(90deg, var(--gx-green-dim), var(--gx-green));
 }
 .sp-verdict-pill.is-met {
   color: var(--gx-green-ink); background: var(--gx-green); border: 1px solid var(--gx-green);
@@ -1049,4 +1069,4 @@ body.is-gated .workspace { display: none !important; }
    reported yet — and the figures beside it are real, just incomplete. */
 .sp-head-note.is-partial { color: var(--gx-gold); }
 .sp-head-note.is-partial .sp-live-dot { background: var(--gx-gold); }
-@media (prefers-reduced-motion: reduce) { .sp-bar.is-met > .sp-bar-fill { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .sp-bar.is-over > .sp-bar-fill::after { animation: none; } }
