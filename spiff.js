@@ -317,6 +317,27 @@
           + closedN + ' closed program' + (closedN === 1 ? '' : 's') + ' in History.</div>');
   }
 
+  function newProgram() {
+    calc.name = ''; calc.vendor = ''; calc.cost = 10; calc.spiff = 25;
+    calc.target = 0; calc.model = 'flat';
+    /* Reference units reset to 0, budtender counts do NOT: headcount is a property of the
+       store, not of the program being modelled, so re-typing it every time would be busywork. */
+    calc.stores = state.stores.map(function (st) {
+      var prev = calc.stores.filter(function (x) { return x.store_id === st.store_id; })[0];
+      return { store_id: st.store_id, name: st.display_name || st.store_id,
+               baseline: 0, bts: (prev && prev.bts) || 6 };
+    });
+    $('#cName').value = ''; $('#cVendor').value = '';
+    $('#cCost').value = calc.cost; $('#cSpiff').value = calc.spiff;
+    $('#cTarget').value = 0; $('#cGrowth').value = 0;
+    var load = $('#calcLoad'); if (load) load.value = '';
+    $$('#cModel button').forEach(function (x) { x.classList.toggle('is-on', x.dataset.model === 'flat'); });
+    $$('#cTarget, #cGrowth').forEach(function (x) { x.classList.remove('sp-driving'); });
+    showTab('calculator');
+    recalc();
+    $('#cName').focus();
+  }
+
   function statTile(v, label, cls) {
     return '<div class="sp-stat ' + cls + '"><div class="sp-stat-v">' + esc(String(v)) + '</div>'
          + '<div class="sp-stat-l">' + esc(label) + '</div></div>';
@@ -503,6 +524,14 @@
   function wirePrograms() {
     var b = $('#btnImportCalc');
     if (b) b.addEventListener('click', function () { importCalculator(b); });
+
+    /* "+ New program" was inert: the button has been in the markup since Programs was built
+       and NO handler was ever attached to it (`git log -S btnNewProgram -- spiff.js` finds
+       nothing). Creating a program only ever happened through the Calculator's "Save as
+       program", so that is where this goes — with the model cleared, which is the difference
+       between "new" and just switching tabs onto whatever was last modelled. */
+    var nb = $('#btnNewProgram');
+    if (nb) nb.addEventListener('click', newProgram);
 
     /* ---- sub-nav. Every control re-renders from the SAME loaded set; nothing refetches,
        so filtering is instant and a filter can never lose data. */
@@ -1646,6 +1675,13 @@
   function wireProgress() {
     $('#pgProgram').addEventListener('change', loadProgress);
     $('#pgRefresh').addEventListener('click', loadProgress);
+    /* Retry is delegated: the card it lives on is replaced on every repaint. Retrying ONE
+       store re-pulls only that store — re-running the whole grid to fix one card would
+       throw away five good results and cost another full round of Dutchie calls. */
+    $('#pgBody').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-retry]');
+      if (b) pullOneStore(b.dataset.retry);
+    });
   }
 
   function fillProgressPicker() {
@@ -1717,137 +1753,194 @@
              rows: rows, units: units, hit: hit, budtenders: rows.length };
   }
 
+  /* Kept so Refresh and a per-store Retry can re-enter without re-picking the program. */
+  var pgRun = null;
+
   async function loadProgress() {
     var id = $('#pgProgram').value;
     if (!id) return;
     var prog = state.programs.filter(function (x) { return x.program_id === id; })[0];
     if (!prog) return;
     if (!prog.start_date || !prog.end_date) {
-      $('#pgBody').innerHTML = '<div class="notice is-warn">This program has no date range. Set start and end dates on its record first.</div>';
+      $('#pgBody').innerHTML = '<div class="sp-notice is-warn"><span class="sp-notice-l">No dates</span>'
+        + 'This program has no date range. Set start and end dates on its record first.</div>';
+      $('#pgStats').innerHTML = ''; $('#pgNote').textContent = '';
       return;
     }
 
     var stores  = prog.stores_json || [];
     var windows = dateWindows(prog.start_date, prog.end_date, PROGRESS_WINDOW_DAYS);
-    var results = Object.create(null), failed = Object.create(null);
+    pgRun = { prog: prog, id: id, windows: windows, stores: stores,
+              results: Object.create(null), failed: Object.create(null), pulling: Object.create(null) };
+    stores.forEach(function (st) { pgRun.pulling[st] = 1; });
 
-    $('#pgStats').innerHTML = '';
-    $('#pgBody').innerHTML = '<p class="hint">Pulling ' + stores.length + ' stores × '
-      + windows.length + ' window' + (windows.length > 1 ? 's' : '') + ' from Dutchie…</p><div class="pg-grid" id="pgGrid"></div>';
+    renderPgLive(prog, windows, stores);
+    paintProgress();
 
-    await Promise.all(stores.map(function (st) {
-      return pullStore(id, st, windows, function (partial) {
-        results[st] = partial;
-        paintProgress(prog, results, failed, stores);
-      }).catch(function (err) {
-        failed[st] = err.message || String(err);
-        paintProgress(prog, results, failed, stores);
-      });
-    }));
-
-    paintProgress(prog, results, failed, stores, true);
+    await Promise.all(stores.map(function (st) { return pullOneStore(st); }));
+    pgRun.done = true;
+    paintProgress();
   }
 
-  function paintProgress(prog, results, failed, stores, done) {
-    var storeName = Object.create(null);
-    state.stores.forEach(function (s) { storeName[s.store_id] = s.display_name || s.store_id; });
+  /* One store's pull, isolated. Its own catch means a store that fails takes its own card
+     down and nothing else -- the whole point of per-store failure. */
+  async function pullOneStore(st) {
+    if (!pgRun) return;
+    var run = pgRun;
+    delete run.failed[st];
+    run.pulling[st] = 1;
+    paintProgress();
+    try {
+      var r = await pullStore(run.id, st, run.windows, function (partial) {
+        if (pgRun !== run) return;         // a newer pull started; drop this one's paint
+        run.results[st] = partial;
+        run.pulling[st] = run.windows.length > 1 ? 1 : 0;
+        paintProgress();
+      });
+      if (pgRun !== run) return;
+      run.results[st] = r;
+    } catch (err) {
+      if (pgRun !== run) return;
+      run.failed[st] = err.message || String(err);
+    }
+    delete run.pulling[st];
+    paintProgress();
+  }
 
-    var units = 0, hit = 0, bts = 0;
+  function renderPgLive(prog, windows, stores) {
+    var live = $('#pgLive');
+    if (live) {
+      var running = prog.status === 'active';
+      var left = '';
+      if (running && prog.end_date) {
+        var d = Math.max(0, Math.round((Date.parse(prog.end_date) - Date.now()) / 864e5));
+        left = ' · ' + d + ' day' + (d === 1 ? '' : 's') + ' left';
+      }
+      live.innerHTML = running
+        ? '<span class="sp-pg-live"><span class="sp-live-dot"></span>running' + esc(left) + '</span>'
+        : '<span class="sp-chip is-' + esc(prog.status) + '">' + esc(prog.status) + '</span>';
+    }
+    var pulled = $('#pgPulled');
+    if (pulled) pulled.textContent = 'Dutchie, ' + stores.length + ' store'
+      + (stores.length === 1 ? '' : 's') + ' × ' + windows.length + ' window'
+      + (windows.length === 1 ? '' : 's');
+  }
+
+  function paintProgress() {
+    if (!pgRun) return;
+    var run = pgRun, prog = run.prog, stores = run.stores;
+    var rate = (prog.payout_json || {}).amount || 0;
+    var target = (prog.target_json || {}).units || 0;
+    var plannedBts = (prog.target_json || {}).budtenders || 0;
+
+    var units = 0, hit = 0, bts = 0, back = 0;
     stores.forEach(function (st) {
-      var r = results[st];
+      var r = run.results[st];
       if (!r) return;
       units += r.units; hit += r.hit; bts += r.budtenders;
+      if (!run.pulling[st] && !run.failed[st]) back++;
     });
-    var rate = (prog.payout_json || {}).amount || 0;
+    var btsAll = plannedBts || bts;
 
+    /* Totals cover only the stores that came back. Saying so is not a nicety -- an
+       undercount that looks authoritative is how a vendor gets billed the wrong number. */
     $('#pgStats').innerHTML =
-        histStat(units.toLocaleString(), 'units sold')
-      + histStat(((prog.target_json || {}).units || 0).toLocaleString(), 'target')
-      + histStat(hit + ' / ' + bts, 'budtenders hit')
-      + histStat(money(hit * rate), 'owed so far', 'pos');
+        pgStat(units.toLocaleString() + ' <small>/ ' + target.toLocaleString() + '</small>',
+               'units sold', target ? units / target : 0, '')
+      + pgStat(hit + ' <small>/ ' + btsAll + '</small>', 'budtenders at their target',
+               btsAll ? hit / btsAll : 0, '')
+      + pgStat(money(hit * rate), 'earned so far, ' + hit + ' × ' + money(rate), null, 'is-pos')
+      + pgStat(money(btsAll * rate), 'if everyone lands it', null, '');
 
-    var grid = $('#pgGrid');
-    if (!grid) return;
-    grid.innerHTML = stores.map(function (st) {
-      var name = esc(storeName[st] || st);
-      if (failed[st]) {
-        return '<div class="pg-store is-failed"><h3>' + name + '</h3>'
-          + '<p class="pg-target">Could not load — ' + esc(failed[st]) + '</p></div>';
-      }
-      var r = results[st];
-      if (!r) return '<div class="pg-store is-loading"><h3>' + name + '</h3><p class="pg-target">Loading…</p></div>';
-      return '<div class="pg-store"><h3>' + name + '<span>' + r.units.toLocaleString() + ' units</span></h3>'
-        + '<p class="pg-target">Target ' + r.target + ' each</p>'
-        + (r.rows.length ? r.rows.map(function (e) {
-            return '<div class="pg-bt' + (e.hit ? ' is-hit' : '') + '">'
-              + '<span class="pg-name">' + esc(e.name) + '</span>'
-              + '<span class="pg-units">' + e.units + '</span></div>';
-          }).join('') : '<p class="pg-target">No matching sales</p>')
-        + '</div>';
-    }).join('');
+    var missing = stores.length - back;
+    $('#pgNote').innerHTML = esc(prettyDay(prog.start_date)) + ' → ' + esc(prettyDay(prog.end_date))
+      + ' · green means that person has already earned the bounty.'
+      + (missing > 0
+          ? ' Totals cover the ' + back + ' store' + (back === 1 ? '' : 's') + ' that ' + (back === 1 ? 'has' : 'have') + ' come back.'
+          : '');
 
-    if (done) {
-      var miss = Object.keys(failed);
-      $('#pgBody').querySelector('.hint, .notice') &&
-        ($('#pgBody').querySelector('.hint, .notice').outerHTML = '');
-      var head = '<p class="hint">' + esc(prog.start_date) + ' → ' + esc(prog.end_date)
-        + ' · green = hit their target</p>';
-      if (miss.length) {
-        head = '<div class="notice is-warn"><b>' + miss.length + ' store'
-          + (miss.length > 1 ? 's' : '') + ' failed to load.</b> The totals above exclude '
-          + esc(miss.map(function (m) { return storeName[m] || m; }).join(', '))
-          + ', so they undercount. Try again — a busy store can exceed the request limit.</div>' + head;
-      }
-      $('#pgBody').insertAdjacentHTML('afterbegin', head);
-    }
+    $('#pgBody').innerHTML = '<div class="sp-pg-grid">' + stores.map(pgCard).join('') + '</div>';
   }
 
-  function renderProgress(r) {
-    $('#pgStats').innerHTML =
-        histStat(r.total_units.toLocaleString(), 'units sold')
-      + histStat(r.target_units ? r.target_units.toLocaleString() : '—', 'target')
-      + histStat(r.hit + ' / ' + r.budtenders, 'budtenders hit')
-      + histStat(money(r.owed), 'owed so far', 'pos');
+  function pgStat(value, label, frac, cls) {
+    return '<div class="sp-pgstat ' + cls + '"><div class="sp-pgstat-v">' + value + '</div>'
+      + '<div class="sp-pgstat-l">' + esc(label) + '</div>'
+      + (frac == null ? ''
+         : '<div class="sp-pgstat-bar"><i style="width:' + Math.max(0, Math.min(100, frac * 100)).toFixed(1) + '%"></i></div>')
+      + '</div>';
+  }
 
-    var warn = r.truncated
-      ? '<div class="notice is-warn"><b>This pull may be incomplete.</b> The connector caps each '
-        + 'store at 5,000 line items per window and one window hit that cap, so these counts '
-        + 'undercount. Narrow the date range.</div>'
-      : '';
+  function pgCard(st) {
+    var run = pgRun;
+    var col = storeColor(st), name = storeName(st);
+    var head = '<span class="sp-dot"></span><b>' + esc(name) + '</b>';
 
-    if (!r.rows.length) {
-      $('#pgBody').innerHTML = warn + '<p class="hint">No matching sales in ' + esc(r.from) + ' → ' + esc(r.to)
-        + '. Check the program\'s brand, category and product filters on its record.</p>';
-      return;
+    /* FAILED -- keeps its own card and its own retry. The other five stay live. */
+    if (run.failed[st]) {
+      return '<div class="sp-pgcard is-failed" style="--dot:' + esc(col) + '">'
+        + '<div class="sp-pgcard-h"><div class="sp-pgcard-t">' + head
+        +   '<span class="sp-pgcard-state is-bad">failed</span></div></div>'
+        + '<div class="sp-pg-fail"><p>' + esc(run.failed[st])
+        +   ' Totals above exclude ' + esc(name) + ', so they undercount.</p>'
+        +   '<button class="gx-btn" data-retry="' + esc(st) + '">Retry this store</button></div>'
+        + '</div>';
     }
 
-    // Grouped by store, mirroring the report Tawny already sends.
-    var byStore = Object.create(null);
-    r.rows.forEach(function (e) { (byStore[e.store_id] = byStore[e.store_id] || []).push(e); });
+    var r = run.results[st];
 
-    var storeName = Object.create(null);
-    state.stores.forEach(function (s) { storeName[s.store_id] = s.display_name || s.store_id; });
+    /* PULLING with nothing yet -- skeleton geometry matching a real card, so the layout
+       does not jump when the data lands. No spinner, no "Loading…" string. */
+    if (!r) {
+      return '<div class="sp-pgcard" style="--dot:' + esc(col) + '">'
+        + '<div class="sp-pgcard-h"><div class="sp-pgcard-t">' + head
+        +   '<span class="sp-pgcard-state">pulling…</span></div>'
+        +   '<div class="sp-pgbar is-pulling"><i style="width:50%"></i></div>'
+        +   '<div class="sp-pgcard-f"><span>pulling from Dutchie…</span><span></span></div></div>'
+        + '<div class="sp-pgcard-b">'
+        +   '<div class="sp-skel" style="height:34px;margin:2px"></div>'
+        +   '<div class="sp-skel" style="height:34px;margin:2px"></div>'
+        +   '<div class="sp-skel" style="height:34px;margin:2px"></div>'
+        + '</div></div>';
+    }
 
-    var cols = Object.keys(byStore).sort().map(function (sid) {
-      var people = byStore[sid];
-      var target = people.length ? people[0].target : 0;
-      var units  = people.reduce(function (n, e) { return n + e.units; }, 0);
-      return '<div class="pg-store">'
-        + '<h3>' + esc(storeName[sid] || sid) + '<span>' + units.toLocaleString() + ' units</span></h3>'
-        + '<p class="pg-target">Target ' + target + ' each</p>'
-        + people.map(function (e) {
-            return '<div class="pg-bt' + (e.hit ? ' is-hit' : '') + '">'
-              + '<span class="pg-name">' + esc(e.name) + '</span>'
-              + '<span class="pg-units">' + e.units + '</span></div>';
-          }).join('')
-        + '</div>';
-    }).join('');
+    var partial = !!run.pulling[st];
+    var per = r.target || 0;
+    var goal = per * (r.budtenders || 0);
+    var frac = goal ? r.units / goal : 0;
+    var ahead = goal ? r.units >= goal : false;
 
-    $('#pgBody').innerHTML = warn
-      + '<p class="hint">' + esc(r.from) + ' → ' + esc(r.to)
-      + (r.chunks > 1 ? ' · pulled in ' + r.chunks + ' windows' : '')
-      + ' · green = hit their target</p>'
-      + '<div class="pg-grid">' + cols + '</div>';
+    var rows = r.rows.length
+      ? r.rows.map(function (e) {
+          var short = (e.target || 0) - e.units;
+          return '<div class="sp-bt' + (e.hit ? ' is-hit' : '') + '">'
+            + '<span class="sp-bt-av">' + esc(initials(e.name)) + '</span>'
+            + '<span class="sp-bt-n" title="' + esc(e.name) + '">' + esc(e.name) + '</span>'
+            + (!e.hit && short > 0 ? '<span class="sp-bt-d">&minus;' + short + '</span>' : '')
+            + '<span class="sp-bt-u">' + e.units.toLocaleString() + '</span>'
+            + '</div>';
+        }).join('')
+      : '<div class="sp-bt"><span class="sp-bt-n">No matching sales yet</span></div>';
+
+    return '<div class="sp-pgcard' + (ahead ? ' is-ahead' : '') + '" style="--dot:' + esc(col) + '">'
+      + '<div class="sp-pgcard-h"><div class="sp-pgcard-t">' + head
+      +   '<span class="sp-pgcard-u">' + r.units.toLocaleString() + ' units</span></div>'
+      +   '<div class="sp-pgbar' + (partial ? ' is-pulling' : '') + '"><i style="width:'
+      +     Math.max(0, Math.min(100, frac * 100)).toFixed(1) + '%"></i></div>'
+      +   '<div class="sp-pgcard-f">'
+      +     '<span class="' + (r.hit === r.budtenders && r.budtenders ? 'done' : '') + '">'
+      +       r.hit + ' of ' + r.budtenders + ' hit</span>'
+      +     '<span>' + (per ? per + ' each' : '') + '</span></div></div>'
+      + '<div class="sp-pgcard-b">' + rows + '</div>'
+      + '</div>';
+  }
+
+  /* Two initials from a Dutchie name. Names arrive as "Zach B" or "Zach Bradley" and
+     occasionally as one word, which must not produce an empty circle. */
+  function initials(name) {
+    var parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   }
 
   /* ------------------------------------------------------------------ boot */

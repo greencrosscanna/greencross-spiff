@@ -766,3 +766,78 @@ body.is-gated .workspace { display: none !important; }
   .sp-pbig-v { font-size: 44px; }
   .sp-pitch-3, .sp-pstores { grid-template-columns: 1fr; }
 }
+
+/* ══════════════════════════════════════════════════════════ 1d  PROGRESS ══ */
+/* The reference screen for LOADING BEHAVIOUR. Stores pull in parallel and each card owns
+   its own state, so one slow or broken store never blanks the other five. */
+
+.sp-pg-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
+.sp-pgstat { background: var(--gx-surface); border: 1px solid var(--gx-border); border-radius: var(--gx-radius-lg); padding: 14px 16px; }
+.sp-pgstat-v { font-size: 23px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.4px; }
+.sp-pgstat-v small { font-size: 14px; color: var(--gx-text-mute); font-weight: 600; }
+.sp-pgstat-l { font-size: 11px; color: var(--gx-text-mute); margin-top: 2px; }
+.sp-pgstat-bar { height: 4px; border-radius: var(--gx-radius-pill); background: var(--gx-surface-3); margin-top: 9px; overflow: hidden; }
+.sp-pgstat-bar > i { display: block; height: 100%; background: var(--gx-green); border-radius: var(--gx-radius-pill); }
+.sp-pgstat.is-pos { border-color: rgba(74,222,128,.35); }
+.sp-pgstat.is-pos .sp-pgstat-v { color: var(--gx-green); }
+.sp-pg-note { margin: 0 0 22px; font-size: 11.5px; color: var(--gx-text-mute); }
+
+.sp-pg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: start; }
+.sp-pgcard { border: 1px solid var(--gx-border); border-radius: var(--gx-radius-xl); background: var(--gx-surface); overflow: hidden; }
+.sp-pgcard.is-failed { border-color: var(--gx-red); }
+.sp-pgcard-h { padding: 14px 15px 12px; border-bottom: 1px solid var(--sp-divider); }
+.sp-pgcard-t { display: flex; align-items: center; gap: 8px; }
+.sp-pgcard-t .sp-dot { width: 8px; height: 8px; }
+.sp-pgcard-t b { font-size: 13.5px; }
+.sp-pgcard-u { margin-left: auto; font-size: 12px; color: var(--gx-text-dim); font-variant-numeric: tabular-nums; }
+.sp-pgcard-state { margin-left: auto; font-size: 11px; color: var(--gx-text-mute); letter-spacing: .5px; text-transform: uppercase; }
+.sp-pgcard-state.is-bad { color: var(--gx-red); }
+
+/* The fill carries the STORE's colour, not a generic green — six cards side by side are
+   only tellable apart at a glance by colour. A store at or past its goal switches to the
+   pace gradient plus the glow, which is the one state worth interrupting for. */
+.sp-pgbar { height: 5px; border-radius: var(--gx-radius-pill); background: var(--gx-surface-3); margin-top: 11px; overflow: hidden; position: relative; }
+.sp-pgbar > i { display: block; height: 100%; border-radius: var(--gx-radius-pill); background: var(--dot, var(--gx-green)); }
+.sp-pgcard.is-ahead .sp-pgbar > i { background: var(--sp-pace); animation: gxaheadglow 2.6s ease-in-out infinite; }
+.sp-pgbar.is-pulling > i { animation: gxskel 1.4s ease-in-out infinite; }
+.sp-pgcard-f {
+  display: flex; justify-content: space-between; margin-top: 7px;
+  font-size: 10.5px; color: var(--gx-text-mute); letter-spacing: .5px; text-transform: uppercase;
+}
+.sp-pgcard-f .done { color: var(--gx-green); }
+.sp-pgcard-f span:last-child { font-variant-numeric: tabular-nums; }
+.sp-pgcard-b { padding: 8px; }
+
+/* Budtender rows. At or above target the row is tinted and the figures go green — that IS
+   the answer to "what have I got coming", so it must read without counting. */
+.sp-bt { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 7px; }
+.sp-bt.is-hit { background: var(--gx-green-soft); }
+.sp-bt-av {
+  width: 22px; height: 22px; border-radius: 50%; flex: none;
+  background: linear-gradient(135deg, #3a5a4a, #1e2a26); border: 1px solid var(--gx-border-strong);
+  color: var(--gx-text-dim); font-weight: 700; font-size: 9px;
+  display: flex; align-items: center; justify-content: center;
+}
+.sp-bt.is-hit .sp-bt-av { color: var(--gx-text); }
+.sp-bt-n { flex: 1; min-width: 0; font-size: 12.5px; color: var(--gx-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-bt.is-hit .sp-bt-n { font-weight: 600; color: var(--gx-green-bright); }
+.sp-bt-d { font-size: 11px; color: var(--gx-text-mute); font-variant-numeric: tabular-nums; }
+.sp-bt-u { font-size: 12.5px; color: var(--gx-text-dim); font-variant-numeric: tabular-nums; }
+.sp-bt.is-hit .sp-bt-u { font-weight: 700; color: var(--gx-green-bright); }
+
+.sp-pg-fail { padding: 14px 15px; }
+.sp-pg-fail p { margin: 0 0 12px; font-size: 12px; line-height: 1.5; color: var(--gx-text-dim); }
+.sp-pg-fail .gx-btn { width: 100%; }
+
+.sp-pg-live {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--gx-green); border: 1px solid var(--gx-green-dim);
+  background: var(--gx-green-soft); border-radius: var(--gx-radius-pill); padding: 4px 11px;
+}
+.sp-pg-pulled { font-size: 11px; color: var(--gx-text-mute); }
+
+@media (max-width: 1100px) {
+  .sp-pg-stats { grid-template-columns: repeat(2, 1fr); }
+  .sp-pg-grid { grid-template-columns: 1fr; }
+}

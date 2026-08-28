@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.290"/>
-<link rel="stylesheet" href="spiff.css?v=1.290"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.291"/>
+<link rel="stylesheet" href="spiff.css?v=1.291"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -100,6 +100,15 @@
     <div class="sp-subnav-right">
       <button class="gx-btn" id="calcSave">Save as program</button>
       <button class="sp-btn-gold" id="calcPresent" title="Full-screen, no chrome — what the vendor sees">&#9656; Present to vendor</button>
+    </div>
+  </div>
+
+  <div class="sp-subnav" id="subnavProgress" hidden>
+    <select class="sp-in" id="pgProgram" style="max-width:260px" title="Which program to track"></select>
+    <span id="pgLive"></span>
+    <div class="sp-subnav-right">
+      <span class="sp-pg-pulled" id="pgPulled"></span>
+      <button class="gx-btn" id="pgRefresh">&#8635; Refresh</button>
     </div>
   </div>
 
@@ -194,16 +203,8 @@
     <!-- ============ PROGRESS ============ -->
     <!-- The budtender matrix, fed from Dutchie directly — no per-store Excel export/paste. -->
     <section class="panel" id="panel-progress">
-      <div class="gx-section-head">
-        <h2>Live progress</h2>
-        <span class="calc-actions head-actions">
-          <select class="gx-input" id="pgProgram" title="Which program to track"></select>
-          <button class="gx-btn" id="pgRefresh">Refresh</button>
-        </span>
-      </div>
-      <p class="dim">Units by budtender by store against target, pulled from Dutchie through GX Core.
-         No per-store exports, no pasting.</p>
-      <div class="hist-stats" id="pgStats"></div>
+      <div class="sp-pg-stats" id="pgStats"></div>
+      <p class="sp-pg-note" id="pgNote"></p>
       <div id="pgBody"></div>
     </section>
 
@@ -308,6 +309,6 @@
     'clientView', 'emailDraft', 'login', 'programs', 'sellthrough', 'stores'
   ];
 </script>
-<script src="spiff.js?v=1.290"></script>
+<script src="spiff.js?v=1.291"></script>
 </body>
 </html>
