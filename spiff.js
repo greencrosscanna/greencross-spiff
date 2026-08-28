@@ -1322,17 +1322,29 @@
     var pending = refPending();
 
     /* ---- stat strip. Only the ROI card is tinted; it is the figure being argued for. */
+    /* NOTHING TO COMPUTE FROM IS NOT A RESULT OF ZERO. With no product picked there is no
+       last-month figure, so revenue increase, return and unit lift have no basis — and the
+       arithmetic still produced confident numbers: a fresh Calculator was announcing
+       "Your return −100%" and "Break-even 90 units" off a budtender count that is only a
+       per-store default of 6. On a screen that gets turned around to face a vendor, that is
+       worse than blank. An em dash says "not yet"; −100% says "this deal loses money". */
+    var hasBase = m.baseUnits > 0;
+    var hasAsk  = hasBase && (Number(calc.target) || 0) > 0;
+
     var stats = $('#calcStats');
     if (stats) stats.innerHTML =
-        cstat('You fund, at most', money(m.invest),
-              calc.model === 'per_unit'
-                ? money(calc.spiff) + ' on each of ' + (Number(calc.target) || 0).toLocaleString() + ' units'
-                : 'only if all ' + m.bts + ' reach their target', '')
-      + cstat('Your revenue increase', money(m.revInc), money(m.baseRev) + ' → ' + money(m.targetRev), '')
-      + cstat('Your return', m.invest ? pctWhole(m.roiPct) : '—',
-              money(m.roi) + ' net of the bounty', m.roi < 0 ? 'is-neg' : 'is-hero')
-      + cstat('Unit lift', (m.unitInc > 0 ? '+' : '') + m.unitInc.toLocaleString(),
-              pct(m.growth) + ' over last month', '');
+        cstat('You fund, at most', hasAsk ? money(m.invest) : '—',
+              !hasAsk ? 'set a product and a target first'
+                : calc.model === 'per_unit'
+                  ? money(calc.spiff) + ' on each of ' + (Number(calc.target) || 0).toLocaleString() + ' units'
+                  : 'only if all ' + m.bts + ' reach their target', '')
+      + cstat('Your revenue increase', hasAsk ? money(m.revInc) : '—',
+              hasAsk ? money(m.baseRev) + ' → ' + money(m.targetRev) : 'needs last month and a target', '')
+      + cstat('Your return', hasAsk && m.invest ? pctWhole(m.roiPct) : '—',
+              hasAsk ? money(m.roi) + ' net of the bounty' : 'once there is an ask to price',
+              !hasAsk ? '' : m.roi < 0 ? 'is-neg' : 'is-hero')
+      + cstat('Unit lift', hasBase ? (m.unitInc > 0 ? '+' : '') + m.unitInc.toLocaleString() : '—',
+              hasBase ? pct(m.growth) + ' over last month' : 'pick a product to pull last month', '');
 
     /* ---- the goal bar, which is also the goal CONTROL.
        The track is a units axis: 0 .. lastMonth × (1 + GOAL_MAX). That makes the dark segment
@@ -1374,12 +1386,22 @@
       if (!draggingGoal) range.value = Math.max(0, Math.min(GOAL_MAX, Math.round(m.growth * 100)));
       /* Three states, not two. `live` folds "no base" together with "still loading", and using
          it for the caption told someone who had just picked a product to go and pick one. */
+      /* A target BELOW last month is a real state and it is said out loud, not clamped away.
+         It happens the moment a fresh pull lands: a program saved against an older, smaller
+         reference now asks for less than the product already sells. The slider cannot show it
+         (min is 0), so the first drag silently "fixes" it to 0% — which is how a program gets
+         re-pitched at a number nobody decided on. Naming it is the difference between Tawny
+         choosing a new target and the app choosing one for her. */
+      var below = m.baseUnits > 0 && m.unitInc < 0;
       foot.innerHTML = '<span>' + m.baseUnits.toLocaleString() + ' sold last month</span>'
         + (pending
             ? '<span>waiting on Dutchie&hellip;</span>'
-            : m.baseUnits > 0
-              ? '<span class="is-add">' + (m.unitInc > 0 ? '+' + m.unitInc.toLocaleString() + ' asked for' : 'no increase asked') + '</span>'
-              : '<span>pick a product to pull it</span>');
+            : below
+              ? '<span style="color:var(--gx-gold)">target is ' + Math.abs(m.unitInc).toLocaleString()
+                + ' BELOW last month &mdash; set a new one</span>'
+              : m.baseUnits > 0
+                ? '<span class="is-add">' + (m.unitInc > 0 ? '+' + m.unitInc.toLocaleString() + ' asked for' : 'no increase asked') + '</span>'
+                : '<span>pick a product to pull it</span>');
     }
 
     /* ---- scales-with-success */
@@ -1427,14 +1449,16 @@
     /* ---- the two questions a vendor asks next */
     var minis = $('#calcMinis');
     if (minis) {
-      var perExtra = m.unitInc > 0 ? m.invest / m.unitInc : null;
-      var breakEven = (Number(calc.cost) || 0) ? Math.ceil(m.invest / (Number(calc.cost) || 0)) : null;
+      var perExtra = (hasAsk && m.unitInc > 0) ? m.invest / m.unitInc : null;
+      /* Break-even was the loudest of these: 90 units, stated flatly, off an investment that
+         only existed because every store defaults to six budtenders. */
+      var breakEven = (hasAsk && (Number(calc.cost) || 0)) ? Math.ceil(m.invest / (Number(calc.cost) || 0)) : null;
       minis.innerHTML =
           mini('Your cost per extra unit', perExtra == null ? '—' : money(perExtra),
                perExtra == null ? 'set a target above last month'
                                 : money(m.invest) + ' across ' + m.unitInc.toLocaleString() + ' extra units')
         + mini('Break-even', breakEven == null ? '—' : breakEven.toLocaleString() + ' units',
-               'against last month, chain-wide');
+               breakEven == null ? 'needs last month and a target' : 'against last month, chain-wide');
     }
 
     /* ---- the merged per-store table */
