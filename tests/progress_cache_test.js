@@ -155,8 +155,13 @@ const PUBLIC = new Function('return ' + (gs.match(/var PUBLIC_ACTIONS = (\[[\s\S
    away from an open payroll read. */
 ok('and none of them is merely PUBLIC',
    SECRET_ACTIONS.every(a => PUBLIC.indexOf(a) < 0));
+/* Position, not distance. The first version allowed 400 characters between the two anchors and
+   broke the moment an unrelated comment grew between them — a test failing for a reason that has
+   nothing to do with what it checks. All that matters is the secret check coming FIRST. */
+const guardSrc = grab('guard_');
 ok('guard_ checks the secret before it asks for a session',
-   /SECRET_ACTIONS\.indexOf\(action\)[\s\S]{0,400}gxAuth_\(p\.token\)/.test(gs));
+   guardSrc.indexOf('SECRET_ACTIONS.indexOf(action)') >= 0 &&
+   guardSrc.indexOf('SECRET_ACTIONS.indexOf(action)') < guardSrc.indexOf('gxAuth_(p.token)'));
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nprogress cache: all passed');
 process.exit(fail ? 1 : 0);
