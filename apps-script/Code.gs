@@ -191,6 +191,15 @@ function guard_(action, p) {
     if (String(p.secret || '') === want) return null;      // the handler re-checks; belt and braces
     return { ok: false, error: 'Unauthorized' };
   }
+  /* A correct deploy secret satisfies a token-gated route too. The secret is strictly MORE
+     privileged than a user session — server-only, never in the repo, and it already opens every
+     SECRET_ACTION — so demanding a browser session on top of it buys nothing and makes these
+     routes impossible to verify from a terminal without borrowing someone's password.
+     Compared against the STORED value, never against a blank: a script with no GX_DEPLOY_SECRET
+     set must not be openable by sending an empty `secret=`. */
+  var deploySecret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  if (deploySecret && p.secret && String(p.secret) === deploySecret) return null;
+
   var auth = gxAuth_(p.token);
   if (!auth.ok) {
     return { ok: false, error: auth.error || 'Not signed in',
@@ -235,6 +244,7 @@ function doGet(e) {
       // without a session. Reads no more than `programs` already exposes.
       case 'previewDocs': out = previewDocs_(p);                                    break;
       case 'sellthrough': out = sellthrough_(p);                                    break;
+      case 'catalog':     out = catalog_(p);                                        break;
       // The progress cache — the fast read GX Crew's incentive column and Leaderboard's kiosk
       // ticks both use. Secret-gated: a kiosk holds no session and Crew's engine has no browser.
       case 'progress':    out = spiffProgress_(p);                                   break;
@@ -2094,4 +2104,118 @@ function mergeDocsIntoPrograms_(docs, user) {
                stores: prog.stores_json.length, docs: list.length });
   });
   return out;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * PRODUCT CATALOG — the featured product a program is actually about.
+ *
+ * WHY THIS EXISTS: the Calculator had no way to say WHICH product the SPIFF is on.
+ * Vendor, cost per unit and reference units were all typed from memory, which is
+ * how a program gets modelled against the wrong sell-through and pitched to a
+ * vendor with a number nobody can reproduce.
+ *
+ * THE SOURCE IS THE BOUND LIBRARY, NOT AN HTTP HOP. `dutchieProducts` has no
+ * trailing underscore, so GX Core exposes it to binding scripts — SPIFF pins v220
+ * and v220 has it (verified against the commit that stamped it). That matters: the
+ * secret-gated sales_by_employee route costs a UrlFetch round trip per store, and
+ * a type-ahead cannot afford one.
+ *
+ * CACHED HARD, ON PURPOSE: /products is ~1,100 rows per store and six stores is a
+ * multi-second pull. The catalog changes on the timescale of a purchase order, not
+ * a keystroke, so it is cached for six hours and refreshable on demand.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+var CATALOG_CACHE_KEY  = 'spiff_catalog_v1';
+var CATALOG_CACHE_SECS = 6 * 60 * 60;
+/* CacheService caps ONE value at 100KB, and the conformed catalog runs past that. Split
+   across numbered chunks with a small manifest rather than silently not caching — an
+   uncached catalog means a multi-second Dutchie pull on every page load. */
+var CATALOG_CHUNK = 90000;
+
+function catalogPut_(obj) {
+  var c = CacheService.getScriptCache();
+  try {
+    var body = JSON.stringify(obj), parts = [];
+    for (var i = 0; i < body.length; i += CATALOG_CHUNK) parts.push(body.slice(i, i + CATALOG_CHUNK));
+    var map = {};
+    parts.forEach(function (s, i) { map[CATALOG_CACHE_KEY + '_' + i] = s; });
+    map[CATALOG_CACHE_KEY + '_n'] = String(parts.length);
+    c.putAll(map, CATALOG_CACHE_SECS);
+  } catch (e) { /* a cache miss is slow, not wrong */ }
+}
+
+function catalogGet_() {
+  var c = CacheService.getScriptCache();
+  try {
+    var n = Number(c.get(CATALOG_CACHE_KEY + '_n') || 0);
+    if (!n) return null;
+    var keys = [];
+    for (var i = 0; i < n; i++) keys.push(CATALOG_CACHE_KEY + '_' + i);
+    var got = c.getAll(keys), body = '';
+    for (var j = 0; j < n; j++) {
+      var part = got[CATALOG_CACHE_KEY + '_' + j];
+      if (part == null) return null;          // a chunk expired — treat the whole thing as a miss
+      body += part;
+    }
+    return JSON.parse(body);
+  } catch (e) { return null; }
+}
+
+/* One Dutchie product row → the few fields a picker needs. Deliberately NOT the whole
+   row: the payload crosses the wire on every Calculator load and most of /products is
+   inventory bookkeeping the Calculator has no use for. */
+function conformProduct_(pr) {
+  var name  = String(pr.productName || pr.name || '').trim();
+  if (!name) return null;
+  return {
+    n: name,
+    b: String(pr.brandName || pr.brand || '').trim(),
+    c: String(pr.category || '').trim(),
+    s: String(pr.size || pr.unitSize || '').trim()
+  };
+}
+
+/* The catalog, deduped across stores. A product carried at five stores is ONE row here —
+   the Calculator asks "which product", not "which product at which store". */
+function buildCatalog_() {
+  var stores = [];
+  try { stores = GXCore.getStores() || []; } catch (e) { return { ok: false, error: 'GX Core getStores failed: ' + (e && e.message || e) }; }
+
+  var by = Object.create(null), errs = [], seen = 0;
+  stores.forEach(function (s) {
+    var dn = String(s.dutchie_name || '').trim();
+    if (!dn) return;
+    var rows;
+    try { rows = GXCore.dutchieProducts(dn) || []; }
+    catch (e) { errs.push(String(s.store_id) + ': ' + (e && e.message || e)); return; }
+    rows.forEach(function (pr) {
+      var x = conformProduct_(pr);
+      if (!x) return;
+      seen++;
+      var k = (x.b + '|' + x.n + '|' + x.s).toLowerCase();
+      if (!by[k]) by[k] = x;
+    });
+  });
+
+  var list = Object.keys(by).map(function (k) { return by[k]; })
+    .sort(function (a, b) { return (a.b + a.n).localeCompare(b.b + b.n); });
+
+  /* Brands are derived here rather than in the browser so the vendor field and the product
+     picker can never disagree about what we carry. */
+  var brands = Object.create(null);
+  list.forEach(function (x) { if (x.b) brands[x.b] = (brands[x.b] || 0) + 1; });
+  var brandList = Object.keys(brands).sort().map(function (b) { return { name: b, count: brands[b] }; });
+
+  return { ok: true, products: list, brands: brandList,
+           stores_read: stores.length, rows_seen: seen, errors: errs, built_at: nowStamp_() };
+}
+
+function catalog_(p) {
+  if (String(p && p.refresh) !== '1') {
+    var hit = catalogGet_();
+    if (hit) { hit.cached = true; return hit; }
+  }
+  var built = buildCatalog_();
+  if (built.ok) { built.cached = false; catalogPut_(built); }
+  return built;
 }
