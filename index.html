@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.289"/>
-<link rel="stylesheet" href="spiff.css?v=1.289"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.290"/>
+<link rel="stylesheet" href="spiff.css?v=1.290"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -92,6 +92,17 @@
     </div>
   </div>
 
+  <div class="sp-subnav" id="subnavCalculator" hidden>
+    <span class="sp-subnav-label">Modelling</span>
+    <select class="sp-in" id="calcLoad" style="max-width:240px" title="Model from a past program">
+      <option value="">Start from scratch&hellip;</option>
+    </select>
+    <div class="sp-subnav-right">
+      <button class="gx-btn" id="calcSave">Save as program</button>
+      <button class="sp-btn-gold" id="calcPresent" title="Full-screen, no chrome — what the vendor sees">&#9656; Present to vendor</button>
+    </div>
+  </div>
+
   <main class="workspace">
 
     <!-- ============ PROGRAMS ============ -->
@@ -112,47 +123,72 @@
     <!-- The vendor-facing ROI model. Every input recomputes cost, investment, ROI and
          per-store / per-budtender targets live — it is a sales tool as much as a form. -->
     <section class="panel" id="panel-calculator">
-      <div class="gx-section-head">
-        <h2>Vendor calculator</h2>
-        <span class="calc-actions head-actions">
-          <select class="gx-input" id="calcLoad" title="Model from a past program">
-            <option value="">Start from scratch…</option>
-          </select>
-          <button class="gx-btn" id="calcSave">Save as program</button>
-        </span>
-      </div>
+      <!-- Stat strip: what the vendor is asked for, and what it returns. -->
+      <div class="sp-calc-stats" id="calcStats"></div>
 
-      <!-- The pitch: what the vendor is being asked for, and what it returns. -->
-      <div class="calc-hero" id="calcHero"></div>
-
-      <div class="calc-grid">
-        <div class="calc-inputs">
-          <h4>The deal</h4>
-          <div class="fld-grid">
-            <label class="fld"><span>Program name</span><input class="gx-input" id="cName" placeholder="Wyld 10pc"></label>
-            <label class="fld"><span>Vendor</span><input class="gx-input" id="cVendor" placeholder="Wyld"></label>
-            <label class="fld"><span>Cost per unit</span><input class="gx-input" id="cCost" type="number" step="0.01" value="10"></label>
-            <label class="fld"><span>SPIFF per budtender</span><input class="gx-input" id="cSpiff" type="number" step="5" value="25"></label>
+      <div class="sp-calc-grid">
+        <div class="sp-calc-left">
+          <div>
+            <h4 class="sp-h4">The deal</h4>
+            <div class="sp-flds">
+              <label class="sp-fld is-wide"><span>Program name</span>
+                <input id="cName" placeholder="Wyld 10pc"></label>
+              <label class="sp-fld"><span>Vendor</span>
+                <input id="cVendor" placeholder="Wyld"></label>
+              <label class="sp-fld"><span>Cost per unit</span>
+                <input id="cCost" type="number" step="0.01" value="10" class="sp-num-in"></label>
+              <div class="sp-fld is-wide"><span>Payout</span>
+                <div class="sp-payout">
+                  <!-- per_unit is REAL and implemented in the engine (Hapy Kitchen paid $1/unit).
+                       The Calculator could only express flat, which is why the imported history
+                       looked uniformly flat when the SPIF docs say otherwise. -->
+                  <div class="sp-seg-sm" id="cModel" role="group" aria-label="Payout model">
+                    <button type="button" class="is-on" data-model="flat">Flat</button>
+                    <button type="button" data-model="per_unit">Per unit</button>
+                  </div>
+                  <input id="cSpiff" type="number" step="1" value="25" class="sp-num-in" aria-label="Payout amount">
+                </div>
+                <span class="sp-hint" id="cPayoutHint"></span>
+              </div>
+            </div>
           </div>
 
-          <h4>The goal</h4>
-          <div class="fld-grid">
-            <label class="fld"><span>Target units</span><input class="gx-input" id="cTarget" type="number" value="0"></label>
-            <label class="fld"><span>…or growth over baseline</span><input class="gx-input" id="cGrowth" type="number" step="5" value="0"></label>
+          <div>
+            <h4 class="sp-h4">The goal</h4>
+            <div class="sp-goal">
+              <div class="sp-goal-row">
+                <label><span>Target units</span>
+                  <input id="cTarget" type="number" value="0" class="sp-in sp-num-in"></label>
+                <span class="sp-goal-or">or</span>
+                <label><span>Growth</span>
+                  <input id="cGrowth" type="number" step="5" value="0" class="sp-in sp-num-in"></label>
+              </div>
+              <div class="sp-goal-bar" id="cGoalBar"></div>
+              <div class="sp-goal-foot" id="cGoalFoot"></div>
+            </div>
           </div>
-          <p class="hint">Change either one — they stay in step.</p>
-
-          <h4>Stores &amp; baseline</h4>
-          <p class="hint">Untick a store to model the program without it. Budtender counts start split evenly,
-             the way the Calculator sheet assumes — correct any store that differs.</p>
-          <div id="calcStores" class="calc-stores"></div>
         </div>
 
-        <div class="calc-out">
-          <h4>Per store</h4>
-          <div id="calcTable"></div>
+        <div>
+          <div class="sp-h4-row">
+            <h4 class="sp-h4">It scales with success</h4>
+            <span class="sp-h4-note">the vendor funds results, not attempts</span>
+          </div>
+          <div class="sp-tbl-wrap" id="calcScale"></div>
+          <p class="sp-argue" id="calcArgue"></p>
+          <div class="sp-two-up" id="calcMinis"></div>
         </div>
       </div>
+
+      <div class="sp-h4-row">
+        <h4 class="sp-h4">Per store</h4>
+        <span class="sp-h4-note">reference and budtender counts are editable — every store runs the program</span>
+      </div>
+      <div class="sp-tbl-wrap" id="calcTable"></div>
+      <p class="sp-tbl-note">&ldquo;Reference&rdquo; is each store&rsquo;s sell-through in the comparable period
+        before the program &mdash; GX Core reserves the word &ldquo;baseline&rdquo; for the Hillsboro store.
+        Goals divide by that store&rsquo;s own budtender count, which is why the count is editable here rather
+        than assumed even. A new store joins by appearing in the GX Core registry &mdash; the table grows with it.</p>
     </section>
 
     <!-- ============ PROGRESS ============ -->
@@ -272,6 +308,6 @@
     'clientView', 'emailDraft', 'login', 'programs', 'sellthrough', 'stores'
   ];
 </script>
-<script src="spiff.js?v=1.289"></script>
+<script src="spiff.js?v=1.290"></script>
 </body>
 </html>

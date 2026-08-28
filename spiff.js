@@ -928,20 +928,23 @@
 
   var calc = {
     name: '', vendor: '', cost: 10, spiff: 25, target: 0,
-    stores: []   // [{ store_id, name, on, baseline, bts }]
+    model: 'flat',   // 'flat' | 'per_unit' — per_unit is real; see payoutLabel/CLAUDE.md
+    stores: []       // [{ store_id, name, baseline, bts }]
   };
 
+  /* No participation flag any more. Every store runs every program, so the old tick-box was a
+     control nobody used -- and it let a store be silently dropped from the model while its row
+     stayed visible. Stores come from the GX Core registry; a seventh appears on its own. */
   function calcInit() {
     if (calc.stores.length || !state.stores.length) return;
     calc.stores = state.stores.map(function (s) {
-      return { store_id: s.store_id, name: s.display_name || s.store_id, on: true, baseline: 0, bts: 6 };
+      return { store_id: s.store_id, name: s.display_name || s.store_id, baseline: 0, bts: 6 };
     });
-    renderCalcStores();
     recalc();
   }
 
   function calcModel() {
-    var on = calc.stores.filter(function (s) { return s.on; });
+    var on = calc.stores;
     var baseUnits = on.reduce(function (n, s) { return n + (Number(s.baseline) || 0); }, 0);
     var bts       = on.reduce(function (n, s) { return n + (Number(s.bts) || 0); }, 0);
     var target    = Number(calc.target) || 0;
@@ -951,7 +954,11 @@
     var baseRev   = baseUnits * cost;
     var targetRev = target * cost;
     var revInc    = targetRev - baseRev;
-    var invest    = (Number(calc.spiff) || 0) * bts;
+    /* What the vendor funds AT MOST. Flat pays a bounty per budtender who hits; per_unit pays
+       on every unit sold, so its ceiling scales with the target instead of the headcount. */
+    var invest    = calc.model === 'per_unit'
+      ? (Number(calc.spiff) || 0) * target
+      : (Number(calc.spiff) || 0) * bts;
 
     return {
       on: on, baseUnits: baseUnits, bts: bts, ratio: ratio,
@@ -965,97 +972,364 @@
     };
   }
 
-  function recalc() {
+  /* "It scales with success" — the panel the Calculator never had.
+     ASSUMPTION, stated because it is not derivable from the sheet: a budtender who hits
+     contributes their full goal, one who misses contributes their reference. That is the only
+     reading that invents no behaviour -- any smoother curve would be a number we made up and
+     then showed to a vendor. Everything else here follows from it arithmetically. */
+  function scaleRows(m) {
+    var bts = m.bts;
+    if (!bts || !m.baseUnits) return [];
+    var perBtRef  = m.baseUnits / bts;
+    var perBtGoal = (Number(calc.target) || 0) / bts;
+    var cost = Number(calc.cost) || 0;
+    var steps = [bts, Math.round(bts * .75), Math.round(bts * .5), Math.round(bts * .2), 0];
+    var seen = {};
+    return steps.filter(function (n) {
+      if (n < 0 || seen[n]) return false; seen[n] = 1; return true;
+    }).map(function (hit) {
+      var units = hit * perBtGoal + (bts - hit) * perBtRef;
+      var funds = calc.model === 'per_unit'
+        ? (Number(calc.spiff) || 0) * units
+        : (Number(calc.spiff) || 0) * hit;
+      var gain  = (units - m.baseUnits) * cost;
+      return {
+        hit: hit, label: hit === bts ? 'All ' + bts : (hit === 0 ? 'Nobody' : hit + ' of ' + bts),
+        funds: funds, units: Math.round(units),
+        net: Math.round(gain - funds),
+        ret: funds ? (gain - funds) / funds : null
+      };
+    });
+  }
+
+  function recalc(changedIds) {
     var m = calcModel();
 
-    // Lead with what the vendor cares about: what it costs them, what it returns.
-    $('#calcHero').innerHTML =
-        heroStat('Investment', money(m.invest), (m.bts || 0) + ' budtenders × ' + money(calc.spiff))
-      + heroStat('Revenue increase', money(m.revInc), money(m.baseRev) + ' → ' + money(m.targetRev))
-      + heroStat('ROI', money(m.roi), pct(m.roiPct) + ' return', m.roi < 0 ? 'neg' : 'pos')
-      + heroStat('Unit lift', (m.unitInc > 0 ? '+' : '') + m.unitInc.toLocaleString(), pct(m.growth) + ' over baseline');
+    /* ---- stat strip. Only the ROI card is tinted; it is the figure being argued for. */
+    var stats = $('#calcStats');
+    if (stats) stats.innerHTML =
+        cstat('Vendor funds, at most', money(m.invest),
+              calc.model === 'per_unit'
+                ? money(calc.spiff) + ' on each of ' + (Number(calc.target) || 0).toLocaleString() + ' units'
+                : 'only if all ' + m.bts + ' reach their target', '')
+      + cstat('Revenue increase', money(m.revInc), money(m.baseRev) + ' → ' + money(m.targetRev), '')
+      + cstat('Return on the SPIFF', m.invest ? pctWhole(m.roiPct) : '—',
+              money(m.roi) + ' net of the bounty', m.roi < 0 ? 'is-neg' : 'is-hero')
+      + cstat('Unit lift', (m.unitInc > 0 ? '+' : '') + m.unitInc.toLocaleString(),
+              pct(m.growth) + ' over the reference period', '');
 
-    var rows = m.on.map(function (s) {
-      var base = Number(s.baseline) || 0;
-      var n    = Number(s.bts) || 0;
-      var tgt  = Math.round(base * m.ratio);
-      return '<tr>'
-        + '<td>' + esc(s.name) + '</td>'
-        + '<td class="num">' + base.toLocaleString() + '</td>'
-        + '<td class="num">' + (n ? Math.round(base / n) : '&mdash;') + '</td>'
-        + '<td class="num strong">' + tgt.toLocaleString() + '</td>'
-        + '<td class="num strong">' + (n ? Math.round(Math.round(base / n) * m.ratio) : '&mdash;') + '</td>'
-        + '<td class="num">' + money(tgt * (Number(calc.cost) || 0)) + '</td>'
-        + '</tr>';
-    }).join('');
+    /* ---- the goal bar: the ask drawn as an EXTENSION past the reference, not a fraction
+       of it. A fill that only ever approaches 100% cannot show growth at all. */
+    var bar = $('#cGoalBar'), foot = $('#cGoalFoot');
+    if (bar) {
+      var tot = Math.max(m.baseUnits, Number(calc.target) || 0) || 1;
+      var basePct = Math.min(100, (m.baseUnits / tot) * 100);
+      bar.innerHTML = '<div class="sp-goal-base" style="width:' + basePct.toFixed(1) + '%"></div>'
+        + (m.unitInc > 0 ? '<div class="sp-goal-add" style="left:' + basePct.toFixed(1) + '%"></div>' : '');
+      foot.innerHTML = '<span>' + m.baseUnits.toLocaleString() + ' in the reference period</span>'
+        + (m.unitInc > 0 ? '<span class="is-add">+' + m.unitInc.toLocaleString() + ' asked for</span>'
+                         : '<span></span>');
+    }
 
-    $('#calcTable').innerHTML = m.on.length
-      ? '<div class="grid-wrap"><table class="grid"><thead><tr>'
-        + '<th>Store</th><th class="num">Baseline</th><th class="num">Per BT</th>'
-        + '<th class="num">Target</th><th class="num">Per BT</th><th class="num">Target value</th>'
-        + '</tr></thead><tbody>' + rows
-        + '<tr class="total"><td>Total</td><td class="num">' + m.baseUnits.toLocaleString() + '</td><td></td>'
-        + '<td class="num strong">' + (Number(calc.target) || 0).toLocaleString() + '</td><td></td>'
-        + '<td class="num">' + money(m.targetRev) + '</td></tr>'
-        + '</tbody></table></div>'
-      : '<p class="hint">Tick at least one store.</p>';
+    /* ---- scales-with-success */
+    var scale = $('#calcScale');
+    if (scale) {
+      var rows = scaleRows(m);
+      scale.innerHTML = rows.length
+        ? '<table class="sp-tbl"><thead><tr><th>Budtenders who hit</th><th class="num">Vendor funds</th>'
+          + '<th class="num">Units that implies</th><th class="num">Their net gain</th></tr></thead><tbody>'
+          + rows.map(function (r, i) {
+              var lead = i === 0;
+              return '<tr><td class="' + (lead ? 'strong' : 'dim') + '">' + esc(r.label) + '</td>'
+                + '<td class="num ' + (lead ? 'strong' : 'dim') + '">' + money(r.funds) + '</td>'
+                + '<td class="num dim">' + r.units.toLocaleString() + '</td>'
+                + '<td class="num ' + (r.net > 0 ? 'pos' : 'dim') + '">'
+                + (r.net > 0 ? money(r.net) : 'costs them nothing') + '</td></tr>';
+            }).join('')
+          + '</tbody></table>'
+        : '<table class="sp-tbl"><tbody><tr><td class="dim">Set a reference and a target to see how the cost scales.</td></tr></tbody></table>';
+    }
+
+    /* The percentage return is INVARIANT under a flat bounty -- funds and the units they buy
+       both scale with the number who hit, so the ratio cancels. Printing it down a column would
+       repeat one figure four times and read as a broken table; said once, it is a stronger claim
+       than a declining curve would be. */
+    var argue = $('#calcArgue');
+    if (argue) {
+      var inv = m.invest && m.unitInc > 0 ? pctWhole(m.roiPct) : null;
+      argue.innerHTML = 'This is the argument, and the Calculator has never shown it: the bounty is only '
+        + 'paid on a budtender who actually reaches their number, so the downside is bounded and the cost '
+        + 'rises only alongside the sell-through that pays for it.'
+        + (inv && calc.model === 'flat'
+            ? ' The percentage return does not move with the hit rate &mdash; it stays at <b>' + inv
+              + '</b> whether ' + Math.round(m.bts * .2) + ' budtenders hit or all ' + m.bts
+              + ' do, because the vendor funds exactly the results they get.'
+            : '');
+    }
+
+    /* ---- the two questions a vendor asks next */
+    var minis = $('#calcMinis');
+    if (minis) {
+      var perExtra = m.unitInc > 0 ? m.invest / m.unitInc : null;
+      var breakEven = (Number(calc.cost) || 0) ? Math.ceil(m.invest / (Number(calc.cost) || 0)) : null;
+      minis.innerHTML =
+          mini('Cost per extra unit', perExtra == null ? '—' : money(perExtra),
+               perExtra == null ? 'set a target above the reference'
+                                : money(m.invest) + ' across ' + m.unitInc.toLocaleString() + ' extra units')
+        + mini('Break-even', breakEven == null ? '—' : breakEven.toLocaleString() + ' units',
+               'over the reference period, chain-wide');
+    }
+
+    /* ---- the merged per-store table */
+    var tbl = $('#calcTable');
+    if (tbl) {
+      var body = m.on.map(function (st, i) {
+        var base = Number(st.baseline) || 0;
+        var n    = Number(st.bts) || 0;
+        var goal = Math.round(base * m.ratio);
+        var perNow = n ? Math.round(base / n) : null;
+        return '<tr>'
+          + '<td><span class="sp-store-cell" style="--dot:' + esc(storeColor(st.store_id)) + '">'
+          +   '<span class="sp-dot"></span>' + esc(st.name) + '</span></td>'
+          + '<td class="num"><input class="sp-in sp-num-in" type="number" min="0" data-i="' + i + '" data-f="baseline" value="' + base + '" aria-label="Reference units, ' + esc(st.name) + '"></td>'
+          + '<td class="num"><input class="sp-in sp-num-in narrow" type="number" min="0" data-i="' + i + '" data-f="bts" value="' + n + '" aria-label="Budtenders, ' + esc(st.name) + '"></td>'
+          + '<td class="num dim">' + (perNow == null ? '—' : perNow.toLocaleString()) + '</td>'
+          + '<td class="num strong">' + goal.toLocaleString() + '</td>'
+          + '<td class="num strong">' + (n ? Math.round(goal / n).toLocaleString() : '—') + '</td>'
+          + '<td class="num dim">' + money(goal * (Number(calc.cost) || 0)) + '</td>'
+          + '</tr>';
+      }).join('');
+      tbl.innerHTML =
+        '<table class="sp-tbl"><thead><tr><th>Store</th><th class="num">Reference units</th>'
+        + '<th class="num">BTs</th><th class="num">per BT now</th><th class="num">Goal</th>'
+        + '<th class="num">per BT goal</th><th class="num">Goal value</th></tr></thead><tbody>'
+        + body
+        + '<tr class="sp-total"><td>Total · ' + m.on.length + ' store' + (m.on.length === 1 ? '' : 's')
+        +   ', ' + m.bts + ' budtender' + (m.bts === 1 ? '' : 's') + '</td>'
+        +   '<td class="num">' + m.baseUnits.toLocaleString() + '</td>'
+        +   '<td class="num">' + m.bts + '</td><td></td>'
+        +   '<td class="num goal">' + (Number(calc.target) || 0).toLocaleString() + '</td><td></td>'
+        +   '<td class="num">' + money(m.targetRev) + '</td></tr>'
+        + '</tbody></table>';
+    }
+
+    var hint = $('#cPayoutHint');
+    if (hint) hint.textContent = calc.model === 'per_unit'
+      ? money(calc.spiff) + ' on every unit that budtender sells, from the first one.'
+      : money(calc.spiff) + ' to each budtender who reaches their own target — and nothing for one who doesn’t.';
+
+    pulse(changedIds);
   }
 
-  function heroStat(label, value, sub, tone) {
-    return '<div class="hero-stat' + (tone ? ' is-' + tone : '') + '">'
-      + '<span class="hero-label">' + esc(label) + '</span>'
-      + '<span class="hero-value">' + value + '</span>'
-      + '<span class="hero-sub">' + sub + '</span></div>';
+  /* One gxpulse on the figures a change actually moved. Removing the class and forcing a
+     reflow re-arms it; without that, a second edit in a row would not animate at all. */
+  function pulse(ids) {
+    if (!ids || !ids.length) return;
+    ids.forEach(function (sel) {
+      var el = $(sel);
+      if (!el) return;
+      el.classList.remove('sp-changed');
+      void el.offsetWidth;
+      el.classList.add('sp-changed');
+    });
   }
 
-  function renderCalcStores() {
-    $('#calcStores').innerHTML = calc.stores.map(function (s, i) {
-      return '<div class="calc-store">'
-        + '<label class="calc-store-on"><input type="checkbox" data-i="' + i + '" data-f="on"' + (s.on ? ' checked' : '') + '> ' + esc(s.name) + '</label>'
-        + '<label class="fld"><span>Baseline units</span><input class="gx-input" type="number" data-i="' + i + '" data-f="baseline" value="' + (s.baseline || 0) + '"></label>'
-        + '<label class="fld"><span>Budtenders</span><input class="gx-input" type="number" data-i="' + i + '" data-f="bts" value="' + (s.bts || 0) + '"></label>'
-        + '</div>';
-    }).join('');
+  /* A return in the hundreds of percent does not need a tenth of a point, and "695.8%" next to
+     a 64px headline reads as false precision. pct() keeps the decimal for the record tables. */
+  function pctWhole(n) { return Math.round((Number(n) || 0) * 100) + '%'; }
+
+  function cstat(label, value, sub, cls) {
+    return '<div class="sp-cstat ' + cls + '"><span class="sp-cstat-l">' + esc(label) + '</span>'
+      + '<span class="sp-cstat-v">' + esc(String(value)) + '</span>'
+      + '<span class="sp-cstat-s">' + esc(sub) + '</span></div>';
   }
+  function mini(label, value, sub) {
+    return '<div class="sp-mini"><div class="sp-mini-l">' + esc(label) + '</div>'
+      + '<div class="sp-mini-v">' + esc(String(value)) + '</div>'
+      + '<div class="sp-mini-s">' + esc(sub) + '</div></div>';
+  }
+
+  /* Which stat cards a given input actually moves, so the gxpulse lands on those and not
+     on the whole strip. A pulse on everything says nothing about what changed. */
+  var PULSE_ALL = ['#calcStats'];
 
   function wireCalculator() {
     ['cName', 'cVendor', 'cCost', 'cSpiff'].forEach(function (id) {
       $('#' + id).addEventListener('input', function () {
         calc[{ cName: 'name', cVendor: 'vendor', cCost: 'cost', cSpiff: 'spiff' }[id]] = $('#' + id).value;
-        recalc();
+        recalc(id === 'cName' || id === 'cVendor' ? null : PULSE_ALL);
       });
+    });
+
+    /* Payout model. Switching it changes what "vendor funds" even means, so it recomputes
+       the whole strip rather than just the amount. */
+    var seg = $('#cModel');
+    if (seg) seg.addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-model]');
+      if (!b) return;
+      calc.model = b.dataset.model;
+      $$('#cModel button').forEach(function (x) { x.classList.toggle('is-on', x === b); });
+      recalc(PULSE_ALL);
     });
 
     // Target units and growth % are two views of one number — editing either updates the
     // other, so Tawny can pitch "1,200 units" or "+40%" whichever way the vendor thinks.
+    // The one being typed in takes the green ring so it is clear which is driving.
     $('#cTarget').addEventListener('input', function () {
       calc.target = Number($('#cTarget').value) || 0;
       var base = calcModel().baseUnits;
       $('#cGrowth').value = base ? Math.round(((calc.target - base) / base) * 100) : 0;
-      recalc();
+      driving('#cTarget');
+      recalc(PULSE_ALL);
     });
     $('#cGrowth').addEventListener('input', function () {
       var base = calcModel().baseUnits;
       calc.target = Math.round(base * (1 + (Number($('#cGrowth').value) || 0) / 100));
       $('#cTarget').value = calc.target;
-      recalc();
+      driving('#cGrowth');
+      recalc(PULSE_ALL);
     });
 
-    $('#calcStores').addEventListener('input', function (e) {
-      var el = e.target, i = el.dataset.i;
+    /* Per-store inputs live inside the table recalc() rebuilds, so listen on the wrapper.
+       Rebuilding on every keystroke would blow away focus mid-type, so the edited field is
+       restored afterwards -- see restoreFocus. */
+    var tbl = $('#calcTable');
+    if (tbl) tbl.addEventListener('input', function (e) {
+      var el = e.target, i = el.dataset && el.dataset.i;
       if (i == null) return;
-      var s = calc.stores[i];
-      if (el.dataset.f === 'on') s.on = el.checked;
-      else s[el.dataset.f] = Number(el.value) || 0;
-      if (el.dataset.f !== 'bts') {
+      var st = calc.stores[i];
+      if (!st) return;
+      st[el.dataset.f] = Number(el.value) || 0;
+      /* Editing a reference moves the total, so the growth echo has to follow it — the
+         target is the number being held fixed here, not the percentage. */
+      if (el.dataset.f === 'baseline') {
         var base = calcModel().baseUnits;
         $('#cGrowth').value = base ? Math.round(((calc.target - base) / base) * 100) : 0;
       }
-      recalc();
+      var key = el.dataset.i + '/' + el.dataset.f, pos = el.selectionStart;
+      recalc(PULSE_ALL);
+      restoreFocus(key, pos);
     });
 
     $('#calcLoad').addEventListener('change', loadIntoCalc);
     $('#calcSave').addEventListener('click', saveCalcProgram);
+    var pres = $('#calcPresent');
+    if (pres) pres.addEventListener('click', enterPitch);
+  }
+
+  function driving(sel) {
+    ['#cTarget', '#cGrowth'].forEach(function (x) {
+      var el = $(x); if (el) el.classList.toggle('sp-driving', x === sel);
+    });
+  }
+
+  /* The per-store table is innerHTML-replaced on every keystroke, which destroys the node
+     being typed into. Put the caret back where it was, or the field silently loses focus
+     after one character and the next keystroke goes nowhere. */
+  function restoreFocus(key, pos) {
+    var parts = key.split('/');
+    var el = document.querySelector('#calcTable input[data-i="' + parts[0] + '"][data-f="' + parts[1] + '"]');
+    if (!el) return;
+    el.focus();
+    try { el.setSelectionRange(pos, pos); } catch (e) { /* number inputs refuse this in some browsers */ }
+  }
+
+  /* ------------------------------------------------------- pitch mode (1c) */
+  /* The Calculator, with the chrome taken away and the type scale raised, for showing a
+     vendor across a desk. Nothing here is interactive except leaving -- a stray click in
+     front of a vendor must not change a number that is being pitched. */
+  function enterPitch() {
+    var m = calcModel();
+    if (!m.baseUnits || !calc.target) {
+      alert('Set the reference units and a target before presenting.');
+      return;
+    }
+    var wrap = document.createElement('div');
+    wrap.className = 'sp-pitch';
+    wrap.id = 'spPitch';
+    wrap.setAttribute('role', 'dialog');
+    wrap.setAttribute('aria-label', 'SPIFF proposal');
+
+    var perBt = m.bts ? Math.round(calc.target / m.bts) : 0;
+    var ask = calc.model === 'per_unit'
+      ? 'a <b>' + money(calc.spiff) + '</b> bounty on every unit a budtender sells'
+      : 'a <b>' + money(calc.spiff) + '</b> bounty per budtender who reaches their own target';
+
+    var cards = m.on.map(function (st) {
+      var base = Number(st.baseline) || 0;
+      var n    = Number(st.bts) || 0;
+      var goal = Math.round(base * m.ratio);
+      var add  = goal - base;
+      var span = goal || 1;
+      var havePct = Math.max(0, Math.min(100, (base / span) * 100));
+      return '<div class="sp-pstore" style="--dot:' + esc(storeColor(st.store_id)) + '">'
+        + '<div class="sp-pstore-h"><span class="sp-dot"></span>' + esc(st.name) + '</div>'
+        + '<div class="sp-pstore-n"><span class="sp-pstore-v">' + goal.toLocaleString() + '</span>'
+        +   '<span class="sp-pstore-u">units' + (n ? ' · ' + Math.round(goal / n) + ' each' : '') + '</span></div>'
+        + '<div class="sp-pstore-bar">'
+        +   '<div class="sp-pstore-have" style="width:' + havePct.toFixed(1) + '%"></div>'
+        +   (add > 0 ? '<div class="sp-pstore-add" style="left:' + havePct.toFixed(1) + '%"></div>' : '')
+        +   '<div class="sp-pstore-tick" style="left:' + havePct.toFixed(1) + '%"></div>'
+        + '</div>'
+        + '<div class="sp-pstore-f"><span class="now">' + base.toLocaleString() + ' today</span>'
+        +   '<span class="add">' + (add >= 0 ? '+' : '') + add.toLocaleString() + '</span></div>'
+        + '</div>';
+    }).join('');
+
+    var fundSub = pbig('You fund', money(m.invest),
+      calc.model === 'per_unit'
+        ? (Number(calc.target) || 0).toLocaleString() + ' units × ' + money(calc.spiff)
+        : m.bts + ' budtenders × ' + money(calc.spiff), '');
+    var revSub = pbig('Your revenue moves', '+' + money(m.revInc),
+      money(m.baseRev) + ' → ' + money(m.targetRev), '');
+    var roiSub = pbig('Return on the SPIFF', m.invest ? pctWhole(m.roiPct) : '—',
+      money(m.roi) + ' net of the bounty', m.roi < 0 ? '' : 'is-hero');
+
+    wrap.innerHTML =
+      '<div class="sp-pitch-bar">'
+      +   '<img src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross">'
+      +   '<span class="sp-pitch-mark">SPIFF proposal</span>'
+      +   '<span class="sp-pitch-right">'
+      +     '<button class="gx-btn" id="pitchExit">Exit &#10005;</button>'
+      +   '</span>'
+      + '</div>'
+      + '<div class="sp-pitch-body">'
+      +   '<div>'
+      +     (calc.vendor ? '<div class="sp-pitch-vendor">' + esc(calc.vendor) + '</div>' : '')
+      +     '<h1 class="sp-pitch-h1">' + esc(calc.name || 'SPIFF proposal') + ' &mdash; '
+      +       m.bts + ' budtenders, ' + (Number(calc.target) || 0).toLocaleString() + ' units</h1>'
+      +     '<p class="sp-pitch-lede">Green Cross is asking for ' + ask
+      +       ' across ' + m.on.length + ' store' + (m.on.length === 1 ? '' : 's')
+      +       ', funded as a credit against the next order.</p>'
+      +   '</div>'
+      +   '<div class="sp-pitch-3">' + fundSub + revSub + roiSub + '</div>'
+      +   '<div><div class="sp-pitch-l">What each store is being asked for</div>'
+      +     '<div class="sp-pstores">' + cards + '</div></div>'
+      + '</div>';
+
+    document.body.appendChild(wrap);
+    document.body.style.overflow = 'hidden';
+    var exit = document.getElementById('pitchExit');
+    exit.addEventListener('click', exitPitch);
+    exit.focus();
+    document.addEventListener('keydown', pitchKey);
+  }
+
+  /* Escape leaves, and it is captured here rather than relying on the record modal's handler --
+     that one calls closeRecord and would do nothing while a pitch is up. */
+  function pitchKey(e) { if (e.key === 'Escape') exitPitch(); }
+  function exitPitch() {
+    var w = document.getElementById('spPitch');
+    if (w) w.remove();
+    document.body.style.overflow = '';
+    document.removeEventListener('keydown', pitchKey);
+    var b = $('#calcPresent'); if (b) b.focus();
+  }
+
+  function pbig(label, value, sub, cls) {
+    return '<div class="sp-pbig ' + cls + '"><div class="sp-pbig-l">' + esc(label) + '</div>'
+      + '<div class="sp-pbig-v">' + esc(String(value)) + '</div>'
+      + '<div class="sp-pbig-s">' + esc(sub) + '</div></div>';
   }
 
   // Model a new deal off a past one — "what if we ran Wyld again, but at $50?"
@@ -1067,13 +1341,17 @@
     calc.vendor = p.vendor;
     calc.cost   = (p.cost_json || {}).per_unit || 0;
     calc.spiff  = (p.payout_json || {}).amount || 0;
+    calc.model  = (p.payout_json || {}).model || p.payout_type || 'flat';
     calc.target = tgt.units || 0;
+    /* EVERY registry store, not just the ones this program ran in. The Calculator models a NEW
+       deal; loading a past one seeds its numbers, it does not re-scope the chain. A store that
+       sat out last time has a 0 reference here, which is visible and editable -- where the old
+       `on` flag hid it behind an unticked box. */
     calc.stores = state.stores.map(function (s) {
       var b = (base.by_store || {})[s.store_id];
       var perBt = (base.per_bt || {})[s.store_id];
       return {
         store_id: s.store_id, name: s.display_name || s.store_id,
-        on: (p.stores_json || []).indexOf(s.store_id) >= 0,
         baseline: b || 0,
         bts: perBt ? Math.max(1, Math.round((b || 0) / perBt)) : 6
       };
@@ -1081,9 +1359,9 @@
     $('#cName').value = calc.name; $('#cVendor').value = calc.vendor;
     $('#cCost').value = calc.cost; $('#cSpiff').value = calc.spiff;
     $('#cTarget').value = calc.target;
+    $$('#cModel button').forEach(function (x) { x.classList.toggle('is-on', x.dataset.model === calc.model); });
     var m = calcModel();
     $('#cGrowth').value = m.baseUnits ? Math.round(m.growth * 100) : 0;
-    renderCalcStores();
     recalc();
   }
 
@@ -1106,11 +1384,17 @@
         program: JSON.stringify({
           program_name: calc.name, vendor: calc.vendor,
           cost_json:   { mode: 'flat', per_unit: Number(calc.cost) || 0, source_label: 'calculator' },
-          payout_type: 'flat',
-          payout_json: { amount: Number(calc.spiff) || 0 },
+          /* The model is SAVED now. It used to be hardcoded 'flat', so a per-unit program
+             (Hapy Kitchen paid $1/unit) came back out of the datastore looking flat — which
+             is exactly how the imported history came to look uniformly flat. */
+          payout_type: calc.model,
+          payout_json: { amount: Number(calc.spiff) || 0, model: calc.model },
           stores_json: m.on.map(function (s) { return s.store_id; }),
           baseline_json: { units: m.baseUnits, revenue: m.baseRev },
-          target_json:   { units: Number(calc.target) || 0, revenue: m.targetRev, by_store: byStore, per_bt: perBt }
+          /* budtenders is what Programs divides the payout by; without it the hero showed
+             "of 0 hit" and an earned-so-far of $0 on a program that was paying out. */
+          target_json:   { units: Number(calc.target) || 0, revenue: m.targetRev,
+                           budtenders: m.bts, by_store: byStore, per_bt: perBt }
         })
       });
       if (!r || !r.ok) throw new Error((r && r.error) || 'save failed');

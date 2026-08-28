@@ -575,3 +575,194 @@ body.is-gated .workspace { display: none !important; }
 }
 .sp-flag.is-bad  { color: var(--gx-red); }
 .sp-flag.is-warn { color: var(--gx-gold); }
+
+/* ══════════════════════════════════════════════════════ 1b  CALCULATOR ══ */
+/* Two columns: the model on the left, the ARGUMENT on the right. The merged per-store
+   table runs full width underneath. The old layout had two separate store lists whose
+   first two columns duplicated each other with no headers — hence one table now. */
+
+.sp-calc-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 26px; }
+.sp-cstat {
+  padding: 16px 18px; border: 1px solid var(--gx-border); border-radius: var(--gx-radius-xl);
+  background: var(--gx-surface); display: flex; flex-direction: column; gap: 5px;
+}
+.sp-cstat-l { font-size: 10px; text-transform: uppercase; letter-spacing: 1.1px; color: var(--gx-text-mute); font-weight: 700; }
+.sp-cstat-v { font-family: var(--sp-display); font-size: 30px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.sp-cstat-s { font-size: 12px; color: var(--gx-text-dim); font-variant-numeric: tabular-nums; }
+/* Only the ROI card is tinted. It is the one figure the vendor is being asked to accept. */
+.sp-cstat.is-hero { border-color: rgba(74,222,128,.35); background: var(--gx-green-soft); }
+.sp-cstat.is-hero .sp-cstat-v { color: var(--gx-green-bright); }
+.sp-cstat.is-neg .sp-cstat-v { color: var(--gx-red); }
+
+.sp-calc-grid { display: grid; grid-template-columns: minmax(340px, 400px) 1fr; gap: 28px; align-items: start; margin-bottom: 26px; }
+.sp-calc-left { display: flex; flex-direction: column; gap: 20px; }
+.sp-h4 { margin: 0 0 10px; font-size: 10px; text-transform: uppercase; letter-spacing: 1.1px; color: var(--gx-text-mute); font-weight: 700; }
+.sp-h4-row { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; }
+.sp-h4-row .sp-h4 { margin: 0; }
+.sp-h4-note { font-size: 11px; color: var(--gx-text-mute); }
+
+/* Field cards: a labelled well per input. Only program identity gets this treatment —
+   the per-store numbers are a table, because they are compared down a column. */
+.sp-flds { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.sp-fld {
+  display: flex; flex-direction: column; gap: 5px;
+  background: var(--gx-surface); border: 1px solid var(--gx-border);
+  border-radius: 9px; padding: 11px 13px;
+}
+.sp-fld.is-wide { grid-column: span 2; }
+.sp-fld > span {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--gx-text-mute);
+}
+.sp-fld input, .sp-in {
+  background: var(--gx-surface-3); border: 1px solid var(--gx-border);
+  border-radius: var(--gx-radius); color: var(--gx-text);
+  padding: 7px 9px; font: inherit; font-size: 13.5px; outline: none;
+  width: 100%; box-sizing: border-box; color-scheme: dark;
+}
+.sp-fld input:focus, .sp-in:focus { border-color: var(--gx-green); }
+.sp-fld .sp-hint { font-size: 10.5px; color: var(--gx-text-mute); }
+.sp-num-in { font-variant-numeric: tabular-nums; text-align: right; }
+
+/* The payout model is a VISIBLE control. per_unit is real and implemented in the engine —
+   Hapy Kitchen paid $1/unit — and the Calculator had no way to express it, which is why
+   the imported history looked uniformly flat. */
+.sp-payout { display: flex; gap: 8px; align-items: center; }
+.sp-seg-sm { display: flex; background: var(--gx-surface-2); border: 1px solid var(--gx-border); border-radius: 7px; padding: 2px; flex: none; }
+.sp-seg-sm button {
+  border: 0; border-radius: 5px; padding: 6px 11px; font: inherit;
+  font-size: 11.5px; font-weight: 600; line-height: 1; cursor: pointer;
+  background: transparent; color: var(--gx-text-dim);
+}
+.sp-seg-sm button.is-on { background: var(--gx-border); color: var(--gx-text); }
+.sp-seg-sm button:focus-visible { outline: 2px solid var(--gx-green); outline-offset: 1px; }
+
+/* The goal well: two views of one number, and a bar showing the ask as an EXTENSION
+   past the reference period rather than a fraction of it. */
+.sp-goal { background: var(--gx-surface); border: 1px solid var(--gx-border); border-radius: 9px; padding: 14px; }
+.sp-goal-row { display: flex; gap: 10px; align-items: flex-end; }
+.sp-goal-row label { display: flex; flex-direction: column; gap: 5px; flex: 1; }
+.sp-goal-or { padding-bottom: 9px; color: var(--gx-text-mute); font-size: 11px; letter-spacing: .6px; text-transform: uppercase; }
+.sp-goal-bar { margin-top: 12px; position: relative; height: 8px; border-radius: 5px; background: var(--gx-surface-3); overflow: hidden; }
+.sp-goal-base { position: absolute; left: 0; top: 0; bottom: 0; background: #265939; }
+.sp-goal-add {
+  position: absolute; top: 0; bottom: 0; right: 0;
+  background: linear-gradient(90deg, var(--gx-green), var(--gx-green-bright));
+  animation: gxaheadglow 2.6s ease-in-out infinite;
+}
+.sp-goal-foot { display: flex; justify-content: space-between; margin-top: 7px; font-size: 10.5px; color: var(--gx-text-mute); font-variant-numeric: tabular-nums; }
+.sp-goal-foot .is-add { color: var(--gx-green); }
+/* The field the user is driving takes the green ring, so it is obvious which of the two
+   is the input and which is the echo. */
+.sp-driving { border-color: var(--gx-green-dim) !important; box-shadow: 0 0 0 3px var(--gx-green-soft); }
+
+/* --- shared table shell for both calculator tables ----------------------- */
+.sp-tbl-wrap { border: 1px solid var(--gx-border); border-radius: var(--gx-radius-lg); overflow: hidden; background: var(--gx-surface); }
+.sp-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.sp-tbl th {
+  text-align: left; padding: 9px 14px; font-size: 10px; font-weight: 700;
+  color: var(--gx-text-mute); text-transform: uppercase; letter-spacing: 1px;
+  background: var(--sp-inset); border-bottom: 1px solid var(--gx-border); white-space: nowrap;
+}
+.sp-tbl td { padding: 9px 14px; border-bottom: 1px solid var(--sp-divider); }
+.sp-tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
+.sp-tbl th.num { text-align: right; }
+.sp-tbl .dim { color: var(--gx-text-dim); }
+.sp-tbl .strong { font-weight: 700; }
+.sp-tbl .pos { color: var(--gx-green); font-weight: 700; }
+.sp-tbl tr.sp-total td { background: var(--sp-inset); padding: 12px 14px; font-weight: 700; border-top: 1px solid var(--gx-border-strong); border-bottom: 0; }
+.sp-tbl tr.sp-total .goal { color: var(--gx-green); }
+.sp-tbl-note { margin: 10px 0 0; font-size: 11px; color: var(--gx-text-mute); line-height: 1.55; max-width: 760px; text-wrap: pretty; }
+.sp-argue { margin: 12px 0 0; font-size: 12px; color: var(--gx-text-dim); line-height: 1.6; max-width: 600px; text-wrap: pretty; }
+.sp-store-cell { display: inline-flex; align-items: center; gap: 9px; font-size: 13px; }
+.sp-store-cell .sp-dot { width: 7px; height: 7px; }
+.sp-tag {
+  font-size: 9.5px; letter-spacing: .8px; text-transform: uppercase; color: var(--gx-text-mute);
+  border: 1px solid var(--gx-border-strong); border-radius: 4px; padding: 1px 5px;
+}
+.sp-tbl input { width: 74px; padding: 5px 8px; font-size: 12.5px; }
+.sp-tbl input.narrow { width: 52px; }
+
+.sp-two-up { margin-top: 16px; display: flex; gap: 12px; }
+.sp-mini { flex: 1; padding: 14px 16px; border: 1px solid var(--gx-border); border-radius: var(--gx-radius-lg); background: var(--gx-surface); }
+.sp-mini-l { font-size: 10px; text-transform: uppercase; letter-spacing: 1.1px; color: var(--gx-text-mute); font-weight: 700; }
+.sp-mini-v { font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 5px; }
+.sp-mini-s { font-size: 11.5px; color: var(--gx-text-mute); margin-top: 2px; }
+
+/* One-shot confirmation on a figure that just changed. Re-armed by removing and
+   re-adding the class, since an animation does not restart on a class that is already there. */
+.sp-changed { animation: gxpulse 1s ease-out 1; border-radius: var(--gx-radius); }
+
+.sp-btn-gold {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: transparent; color: var(--gx-gold); border: 1px solid var(--gx-gold-line);
+  border-radius: var(--gx-radius); padding: 6px 12px; font: inherit; font-size: 12px;
+  font-weight: 600; cursor: pointer;
+}
+.sp-btn-gold:hover { background: var(--gx-gold-soft); }
+
+@media (max-width: 1100px) {
+  .sp-calc-stats { grid-template-columns: repeat(2, 1fr); }
+  .sp-calc-grid { grid-template-columns: 1fr; }
+}
+
+/* ══════════════════════════════════════════════════════ 1c  PITCH MODE ══ */
+/* What the vendor sees across the desk. Full-bleed, no chrome, nothing interactive except
+   leaving. It is an OVERLAY rather than a panel so it cannot be reached by a stray tab click
+   and cannot leave the operator app in a half-presented state. */
+.sp-pitch {
+  position: fixed; inset: 0; z-index: 60; overflow: auto;
+  background: var(--gx-bg);
+  background-image: radial-gradient(1100px 560px at 50% -12%, var(--gx-glow), transparent 62%);
+}
+.sp-pitch-bar { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 14px; padding: 18px 28px; }
+.sp-pitch-bar img { height: 24px; display: block; }
+.sp-pitch-mark { color: var(--gx-text-mute); font-size: 11px; text-transform: uppercase; letter-spacing: 1.4px; font-weight: 700; }
+.sp-pitch-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.sp-pitch-when { font-size: 11px; color: var(--gx-text-mute); letter-spacing: .6px; text-transform: uppercase; }
+.sp-pitch-body { padding: 96px 72px 72px; display: flex; flex-direction: column; gap: 44px; }
+
+.sp-pitch-vendor { font-size: 12px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase; color: var(--gx-green); margin-bottom: 10px; }
+.sp-pitch-h1 { margin: 0; font-family: var(--sp-display); font-size: 52px; font-weight: 800; letter-spacing: -1px; line-height: 1.05; }
+.sp-pitch-lede { margin: 14px 0 0; font-size: 19px; line-height: 1.5; color: var(--gx-text-dim); max-width: 900px; text-wrap: pretty; }
+.sp-pitch-lede b { color: var(--gx-text); }
+
+.sp-pitch-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.sp-pbig { padding: 28px 30px; border: 1px solid var(--gx-border); border-radius: 16px; background: var(--gx-surface); }
+.sp-pbig.is-hero { border-color: rgba(74,222,128,.35); background: var(--gx-green-soft); }
+.sp-pbig-l { font-size: 11px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase; color: var(--gx-text-mute); }
+.sp-pbig-v {
+  font-family: var(--sp-display); font-size: 64px; font-weight: 900; line-height: 1;
+  letter-spacing: -1.5px; margin-top: 12px; font-variant-numeric: tabular-nums;
+}
+.sp-pbig.is-hero .sp-pbig-v { color: var(--gx-green-bright); }
+.sp-pbig-s { font-size: 14px; color: var(--gx-text-dim); margin-top: 10px; font-variant-numeric: tabular-nums; }
+
+.sp-pitch-l { font-size: 11px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase; color: var(--gx-text-mute); margin-bottom: 14px; }
+.sp-pstores { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.sp-pstore { padding: 20px 22px; border: 1px solid var(--gx-border); border-radius: 14px; background: var(--gx-surface); }
+.sp-pstore-h { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 600; }
+.sp-pstore-h .sp-dot { width: 9px; height: 9px; }
+.sp-pstore-n { display: flex; align-items: baseline; gap: 12px; margin-top: 12px; }
+.sp-pstore-v { font-family: var(--sp-display); font-size: 40px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.sp-pstore-u { font-size: 14px; color: var(--gx-text-mute); font-variant-numeric: tabular-nums; }
+/* The bar SPLITS at today's number: the store's own colour for what it already sells, the
+   green glow for the increase being asked for. One picture of "you keep this, we add that". */
+.sp-pstore-bar { position: relative; height: 10px; border-radius: 6px; background: var(--gx-surface-3); margin-top: 18px; }
+.sp-pstore-have { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px 0 0 6px; background: var(--dot); opacity: .55; }
+.sp-pstore-add {
+  position: absolute; right: 0; top: 0; bottom: 0; border-radius: 0 6px 6px 0;
+  background: linear-gradient(90deg, var(--gx-green), var(--gx-green-bright));
+  animation: gxaheadglow 2.6s ease-in-out infinite;
+}
+.sp-pstore-tick { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--gx-text); opacity: .55; }
+.sp-pstore-f { display: flex; justify-content: space-between; margin-top: 9px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.sp-pstore-f .now { color: var(--gx-text-dim); }
+.sp-pstore-f .add { color: var(--gx-green-bright); font-weight: 600; }
+
+@media (max-width: 1100px) {
+  .sp-pitch-body { padding: 88px 28px 48px; gap: 32px; }
+  .sp-pitch-h1 { font-size: 34px; }
+  .sp-pbig-v { font-size: 44px; }
+  .sp-pitch-3, .sp-pstores { grid-template-columns: 1fr; }
+}
