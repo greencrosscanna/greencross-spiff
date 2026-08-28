@@ -1005,3 +1005,31 @@ body.is-gated .workspace { display: none !important; }
 .sp-editing b { color: var(--gx-text); }
 .sp-editing .gx-btn { padding: 3px 9px; font-size: 11px; }
 @media (max-width: 900px) { .sp-plan { grid-template-columns: repeat(2, 1fr); } }
+
+/* ── Waiting on last-month data ────────────────────────────────────────────
+   Everything downstream of the reference pull is stale until it lands: the goal, the whole
+   per-store table, and every figure derived from them. Dimming says "these are not your
+   numbers yet" without blanking them — a screen that empties looks broken, and Tawny may be
+   mid-sentence with a vendor. The sweep is what says the app is still working. */
+.is-awaiting { position: relative; opacity: .5; transition: opacity .15s ease; }
+/* Only the CONTROLS are frozen. The figures stay readable and selectable, so a number can
+   still be quoted off the screen while the next one is on its way. */
+.is-awaiting input, .is-awaiting select, .is-awaiting button { pointer-events: none; }
+.is-awaiting::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+  background: linear-gradient(100deg, transparent 30%, rgba(230,236,233,.06) 50%, transparent 70%);
+  background-size: 220% 100%;
+  animation: gxsweep 1.5s ease-in-out infinite;
+}
+@keyframes gxsweep { 0% { background-position: 140% 0 } 100% { background-position: -40% 0 } }
+
+/* A line that names what is being waited on, rather than leaving the dimming unexplained. */
+.sp-waiting {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--gx-text-mute);
+}
+.sp-waiting .sp-live-dot { background: var(--gx-gold); animation: gxskel 1.2s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .is-awaiting::after { animation: none; }
+}

@@ -332,6 +332,9 @@
   function newProgram() {
     calc.name = ''; calc.vendor = ''; calc.cost = 10; calc.spiff = 25;
     calc.target = 0; calc.model = 'flat';
+    /* Leaving these behind is how a "new" program inherits the last one's product and, worse,
+       its editingId — which would make Save overwrite the program you thought you had left. */
+    calc.product = null; calc.editingId = null; calc.window = null; calc.refRun = null;
     /* Reference units reset to 0, budtender counts do NOT: headcount is a property of the
        store, not of the program being modelled, so re-typing it every time would be busywork. */
     calc.stores = state.stores.map(function (st) {
@@ -345,6 +348,8 @@
     var load = $('#calcLoad'); if (load) load.value = '';
     $$('#cModel button').forEach(function (x) { x.classList.toggle('is-on', x.dataset.model === 'flat'); });
     $$('#cTarget, #cGrowth').forEach(function (x) { x.classList.remove('sp-driving'); });
+    if (calcPicker) { calcPicker.setChosen(null); calcPicker.setVendorSilently(''); }
+    renderCalcEditing();
     showTab('calculator');
     recalc();
     $('#cName').focus();
@@ -452,6 +457,14 @@
     return prettyDay(p.start_date) + ' → ' + (p.end_date ? prettyDay(p.end_date) : '?');
   }
   /* per_unit is REAL and shipped (Hapy Kitchen paid $1/unit) — do not assume flat. */
+  /* FLAT IS THE DEFAULT, and anything unrecognised resolves to it. `tiered` is schema'd but
+     unimplemented, and a blank or unknown payout_type must not leave the Calculator modelling
+     a mode the engine will not honour. */
+  function normalModel(v) {
+    var m = String(v || '').toLowerCase();
+    return m === 'per_unit' ? 'per_unit' : 'flat';
+  }
+
   function payoutLabel(p) {
     var m = (p.payout_json && p.payout_json.model) || 'flat';
     return m === 'per_unit' ? 'per unit' : (m === 'tiered' ? 'tiered' : 'flat per budtender');
@@ -1297,8 +1310,16 @@
     });
   }
 
+  /* How many stores are still answering. Every figure below the picker is derived from the
+     reference total, so while ANY store is outstanding the whole lower half of the screen is
+     showing arithmetic on an incomplete base. */
+  function refPending() {
+    return calc.stores.filter(function (st) { return st.refState === 'loading'; }).length;
+  }
+
   function recalc(changedIds) {
     var m = calcModel();
+    var pending = refPending();
 
     /* ---- stat strip. Only the ROI card is tinted; it is the figure being argued for. */
     var stats = $('#calcStats');
@@ -1337,7 +1358,10 @@
       range.style.width = Math.max(0, 100 - basePct).toFixed(2) + '%';
       /* No reference yet means nothing to grow FROM: a slider off a base of zero produces a
          goal of zero however far it is dragged, which reads as a broken control. */
-      var live = m.baseUnits > 0;
+      /* Disabled while the pull is in flight as well as when there is no base at all: dragging
+         against a total that is still growing sets a target off a number that no longer exists
+         by the time the drag ends. */
+      var live = m.baseUnits > 0 && !pending;
       range.disabled = !live;
       $('#cGoalBar').classList.toggle('is-off', !live);
       /* Target units, Growth % and the slider are three views of ONE number, so recalc is where
@@ -1348,10 +1372,14 @@
       var gEl = $('#cGrowth');
       if (gEl && document.activeElement !== gEl) gEl.value = live ? Math.round(m.growth * 100) : 0;
       if (!draggingGoal) range.value = Math.max(0, Math.min(GOAL_MAX, Math.round(m.growth * 100)));
+      /* Three states, not two. `live` folds "no base" together with "still loading", and using
+         it for the caption told someone who had just picked a product to go and pick one. */
       foot.innerHTML = '<span>' + m.baseUnits.toLocaleString() + ' sold last month</span>'
-        + (live
-            ? '<span class="is-add">' + (m.unitInc > 0 ? '+' + m.unitInc.toLocaleString() + ' asked for' : 'no increase asked') + '</span>'
-            : '<span>pick a product to pull it</span>');
+        + (pending
+            ? '<span>waiting on Dutchie&hellip;</span>'
+            : m.baseUnits > 0
+              ? '<span class="is-add">' + (m.unitInc > 0 ? '+' + m.unitInc.toLocaleString() + ' asked for' : 'no increase asked') + '</span>'
+              : '<span>pick a product to pull it</span>');
     }
 
     /* ---- scales-with-success */
@@ -1472,6 +1500,21 @@
         +     (m.bts ? (m.unitInc > 0 ? '+' : '') + Math.round(m.unitInc / m.bts).toLocaleString() : '—') + '</td>'
         +   '<td class="num">' + money(m.targetRev) + '</td></tr>'
         + '</tbody></table>';
+    }
+
+    /* Dim what is waiting. The stat strip, the goal and the per-store table all read from the
+       reference total; the scales panel and the two mini-cards do too. The product picker and
+       the deal fields are NOT dimmed — those are the controls Tawny may want to change while
+       the pull runs, and freezing them would make the wait feel like a hang. */
+    ['#calcStats', '#calcGoalWrap', '#calcTable', '#calcScale', '#calcMinis'].forEach(function (sel) {
+      var el = $(sel);
+      if (el) el.classList.toggle('is-awaiting', pending > 0);
+    });
+    var waitEl = $('#calcWaiting');
+    if (waitEl) {
+      waitEl.hidden = !pending;
+      if (pending) waitEl.innerHTML = '<span class="sp-live-dot"></span>pulling last month&rsquo;s sales &mdash; '
+        + pending + ' of ' + calc.stores.length + ' store' + (calc.stores.length === 1 ? '' : 's') + ' to go';
     }
 
     var hint = $('#cPayoutHint');
@@ -2126,7 +2169,7 @@
     calc.vendor = merged.vendor || '';
     calc.cost   = (merged.cost_json || {}).per_unit || 0;
     calc.spiff  = (merged.payout_json || {}).amount || 0;
-    calc.model  = (merged.payout_json || {}).model || merged.payout_type || 'flat';
+    calc.model  = normalModel((merged.payout_json || {}).model || merged.payout_type);
     calc.target = (merged.target_json || {}).units || 0;
     calc.window = { start: merged.start_date || '', end: merged.end_date || '' };
 
@@ -2289,6 +2332,10 @@
 
   // Model a new deal off a past one — "what if we ran Wyld again, but at $50?"
   function loadIntoCalc() {
+    /* "Start from scratch…" is the empty option, and it used to return early — leaving every
+       value from the LAST program loaded, including a per_unit payout, under a heading that
+       says the model is new. Selecting it now genuinely resets. */
+    if (!$('#calcLoad').value) { newProgram(); return; }
     var p = state.programs.filter(function (x) { return x.program_id === $('#calcLoad').value; })[0];
     if (!p) return;
     var base = p.baseline_json || {}, tgt = p.target_json || {};
@@ -2296,7 +2343,7 @@
     calc.vendor = p.vendor;
     calc.cost   = (p.cost_json || {}).per_unit || 0;
     calc.spiff  = (p.payout_json || {}).amount || 0;
-    calc.model  = (p.payout_json || {}).model || p.payout_type || 'flat';
+    calc.model  = normalModel((p.payout_json || {}).model || p.payout_type);
     calc.target = tgt.units || 0;
     /* EVERY registry store, not just the ones this program ran in. The Calculator models a NEW
        deal; loading a past one seeds its numbers, it does not re-scope the chain. A store that
