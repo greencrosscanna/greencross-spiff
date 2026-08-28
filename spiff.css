@@ -971,3 +971,20 @@ body.is-gated .workspace { display: none !important; }
 /* A negative net in the scales table. Muted red, not alarm red — a scenario that loses money
    is information the vendor is entitled to, not an error state. */
 .sp-tbl .neg { color: var(--gx-red); font-weight: 600; }
+
+/* ── Edit Program modal ─────────────────────────────────────────────────── */
+.modal-body .sp-flds { margin-bottom: 4px; }
+.modal-body .sp-h4 { margin-top: 20px; }
+.modal-body .sp-h4-row { margin-top: 20px; align-items: center; }
+.sp-fld-note { grid-column: span 2; font-size: 11px; color: var(--gx-text-mute); margin: -4px 0 2px; line-height: 1.45; }
+.sp-fld select.sp-in { color-scheme: dark; }
+/* A date input's picker glyph is near-black on the dark surface by default. */
+.sp-fld input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(.7); cursor: pointer; }
+/* The whole actuals block dims while it is being refetched, so nobody reads a half-updated
+   set of figures as final. */
+#rActuals.is-busy { opacity: .45; pointer-events: none; transition: opacity .12s ease; }
+/* The modal body MUST keep scrolling — this record is long and the header/footer are fixed —
+   so the picker menu cannot escape it. Overriding overflow to visible would have traded a
+   clipped dropdown for a modal whose Save button walks off the bottom of the screen. Instead
+   the menu is kept short enough to sit inside the body, and scrolls itself when it is not. */
+.modal-body .sp-pick-menu { max-height: 220px; }

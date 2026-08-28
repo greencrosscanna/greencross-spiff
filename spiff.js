@@ -739,50 +739,199 @@
       + '<input class="gx-input" data-key="' + esc(key) + '" type="' + (type || 'text') + '" value="' + esc(value == null ? '' : value) + '"' + ro + '></label>';
   }
 
+  /* <input type="date"> accepts ONLY yyyy-mm-dd. Hand it anything else and it renders EMPTY —
+     silently — and an empty date field then patches the stored value to ''. Three of the 23
+     live programs carry non-ISO dates (two blank, one "8/17/26" whose end date is the corrupt
+     "8/3026"), so opening those records and pressing Save would have wiped the window a
+     closed program was paid against.
+     Normalises what can be normalised; returns null for what cannot, so the caller can show
+     the raw value rather than pretend there is none. */
+  function toISODate(v) {
+    var raw = String(v == null ? '' : v).trim();
+    if (!raw) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    var m = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(raw);
+    if (m) {
+      var yy = Number(m[3]);
+      var year = m[3].length === 2 ? (yy >= 70 ? 1900 + yy : 2000 + yy) : yy;
+      var mo = Number(m[1]), da = Number(m[2]);
+      if (mo >= 1 && mo <= 12 && da >= 1 && da <= 31) {
+        return year + '-' + String(mo).padStart(2, '0') + '-' + String(da).padStart(2, '0');
+      }
+    }
+    return null;                       // unparseable — "8/3026" lands here
+  }
+
+  /* A date field that keeps a bad value visible instead of eating it. */
+  function dateField(label, key, value) {
+    var iso = toISODate(value);
+    if (iso === null) {
+      return '<label class="sp-fld"><span>' + esc(label) + '</span>'
+        + '<input class="sp-in" data-key="' + esc(key) + '" type="text" value="' + esc(value) + '"'
+        + (canEdit() ? '' : ' readonly') + '>'
+        + '<span class="sp-cost-warn">Not a date this app can read &mdash; retype it as '
+        + 'YYYY-MM-DD.</span></label>';
+    }
+    return recField(label, key, iso, 'date');
+  }
+
+  function selField(label, key, value, opts) {
+    var ro = canEdit() ? '' : ' disabled';
+    return '<label class="sp-fld"><span>' + esc(label) + '</span>'
+      + '<select class="sp-in" data-key="' + esc(key) + '"' + ro + '>'
+      + opts.map(function (o) {
+          return '<option value="' + esc(o.v) + '"' + (String(o.v) === String(value == null ? '' : value) ? ' selected' : '')
+            + '>' + esc(o.l) + '</option>';
+        }).join('')
+      + '</select></label>';
+  }
+
+  function recField(label, key, value, type, cls) {
+    var ro = canEdit() ? '' : ' readonly';
+    return '<label class="sp-fld ' + (cls || '') + '"><span>' + esc(label) + '</span>'
+      + '<input class="sp-in ' + (type === 'number' ? 'sp-num-in' : '') + '" data-key="' + esc(key)
+      + '" type="' + (type || 'text') + '" value="' + esc(value == null ? '' : value) + '"' + ro + '></label>';
+  }
+
   function renderRecord(p) {
     var a = p.actual_json || {};
     var warn = '';
 
     if (a.duplicate_of && a.duplicate_of.length) {
-      warn += '<div class="notice is-warn"><b>Actuals look copied.</b> Identical units sold, budtenders hit and '
-        + 'investment as <b>' + esc(a.duplicate_of.join(', ')) + '</b>. Duplicating a tab copies its typed cells while '
-        + 'formulas recalculate, so these numbers may belong to another program. Correct them here — the vendor '
-        + 'close-out PDF in Drive is the reliable source.</div>';
+      warn += '<div class="sp-notice is-bad"><span class="sp-notice-l">Actuals look copied</span>'
+        + 'Identical units sold, budtenders hit and investment as <b>' + esc(a.duplicate_of.join(', ')) + '</b>. '
+        + 'Duplicating a tab copies its typed cells while formulas recalculate, so these numbers may belong to '
+        + 'another program. Pull live actuals below, or correct them by hand — the vendor close-out PDF in Drive '
+        + 'is the reliable source.</div>';
     }
     if (a.rate_changed) {
-      warn += '<div class="notice"><b>Rate differs.</b> Modelled at ' + money(p.payout_json && p.payout_json.amount)
-        + ', actuals recorded at ' + money(a.spiff_amount) + '.</div>';
+      warn += '<div class="sp-notice is-warn"><span class="sp-notice-l">Rate differs</span>'
+        + 'Modelled at ' + money(p.payout_json && p.payout_json.amount)
+        + ', settled at ' + money(a.spiff_amount) + '.</div>';
+    }
+    if (!p.contact_email) {
+      warn += '<div class="sp-notice is-warn"><span class="sp-notice-l">No contact email</span>'
+        + 'A vendor link opens nothing without it &mdash; the rep signs in with their own address.</div>';
     }
     if (p.edited_by) {
-      warn += '<div class="notice is-ok">Corrected by <b>' + esc(p.edited_by) + '</b> on ' + esc(p.edited_at)
+      warn += '<div class="sp-notice"><span class="sp-notice-l">Hand-corrected</span>'
+        + 'By <b>' + esc(p.edited_by) + '</b> on ' + esc(p.edited_at)
         + '. Re-importing the Calculator will not overwrite this record.</div>';
     }
 
+    var pps = payPeriodOptions(p.pay_period_start || p.start_date);
+    var ppNow = periodIndexOf(today());
+    var ppOpts = [{ v: '', l: 'Custom dates…' }].concat(pps.map(function (x) {
+      var rel = x.index === ppNow ? ' · current' : (x.index > ppNow ? ' · upcoming' : '');
+      return { v: x.start, l: periodLabel(x) + rel };
+    }));
+
+    /* The pay period a program's dates already fall in, so the dropdown opens on the right row
+       instead of "Custom dates…" for every historical record. Only claims a match when the
+       dates line up EXACTLY — a program that ran Aug 16→31 is not the Aug 17→30 period, and
+       quietly snapping it to one would move a closed program's window. */
+    var ppSel = '';
+    if (p.start_date && p.end_date) {
+      var cand = periodByIndex(periodIndexOf(p.start_date));
+      if (cand.start === p.start_date && cand.end === p.end_date) ppSel = cand.start;
+    }
+
     $('#recordBody').innerHTML = warn
-      + '<div class="fld-grid">'
-      +   field('Vendor', 'vendor', p.vendor)
-      +   field('Program name (Calculator A3)', 'program_name', p.program_name)
-      +   field('Vendor contact', 'contact_name', p.contact_name)
-      +   field('Contact email (their login)', 'contact_email', p.contact_email)
-      +   field('Status', 'status', p.status)
-      +   field('Start date', 'start_date', p.start_date)
-      +   field('End date', 'end_date', p.end_date)
-      +   field('Pay period', 'pay_period', p.pay_period)
+      + '<h4 class="sp-h4">The program</h4>'
+      + '<div class="sp-flds">'
+      +   recField('Program name', 'program_name', p.program_name, 'text', 'is-wide')
+      +   '<div class="sp-fld sp-pick"><span>Vendor</span>'
+      +     '<div class="sp-pick-input"><input id="rVendor" autocomplete="off" placeholder="Start typing a brand…"'
+      +       (canEdit() ? '' : ' readonly') + ' role="combobox" aria-expanded="false" aria-controls="rVendorMenu"></div>'
+      +     '<div class="sp-pick-menu" id="rVendorMenu" role="listbox" hidden></div></div>'
+      +   selField('Status', 'status', p.status, [
+            { v: 'draft', l: 'Draft — not started' },
+            { v: 'active', l: 'Active — running now' },
+            { v: 'closed', l: 'Closed — paid out' }
+          ])
+      +   '<div class="sp-fld is-wide sp-pick"><span>Featured product</span>'
+      +     '<div class="sp-pick-input"><input id="rProduct" autocomplete="off" placeholder="Search this vendor’s products…" disabled'
+      +       ' role="combobox" aria-expanded="false" aria-controls="rProductMenu"></div>'
+      +     '<div class="sp-pick-menu" id="rProductMenu" role="listbox" hidden></div>'
+      +     '<div id="rChosen"></div>'
+      +     '<span class="sp-hint" id="rProductHint">Pick a vendor first.</span></div>'
       + '</div>'
-      + '<h4>Plan</h4><div class="fld-grid">'
-      +   field('SPIFF per budtender', 'payout_json.amount', (p.payout_json || {}).amount, 'number')
-      +   field('Cost per unit', 'cost_json.per_unit', (p.cost_json || {}).per_unit, 'number')
-      +   field('Target units', 'target_json.units', (p.target_json || {}).units, 'number')
-      +   field('Baseline units', 'baseline_json.units', (p.baseline_json || {}).units, 'number')
+
+      + '<h4 class="sp-h4">When it runs</h4>'
+      + '<div class="sp-flds">'
+      +   selField('Pay period', '', ppSel, ppOpts).replace('data-key=""', 'id="rPayPeriod"')
+      +   '<span class="sp-fld-note">Choosing a period fills the dates below. They stay editable — not every program lines up with payroll.</span>'
+      +   dateField('Start date', 'start_date', p.start_date)
+      +   dateField('End date', 'end_date', p.end_date)
       + '</div>'
-      + '<h4>Actuals</h4><div class="fld-grid">'
-      +   field('Units sold', 'actual_json.units_sold', a.units_sold, 'number')
-      +   field('Budtenders hit', 'actual_json.bts_hit', a.bts_hit, 'number')
-      +   field('Rate paid', 'actual_json.spiff_amount', a.spiff_amount, 'number')
-      +   field('Investment', 'actual_json.investment', a.investment, 'number')
-      +   field('ROI $', 'actual_json.roi', a.roi, 'number')
-      +   field('ROI % (as decimal)', 'actual_json.roi_pct', a.roi_pct, 'number')
+
+      + '<h4 class="sp-h4">The plan</h4>'
+      + '<div class="sp-flds">'
+      +   recField('SPIFF per budtender', 'payout_json.amount', (p.payout_json || {}).amount, 'number')
+      +   recField('Cost per unit', 'cost_json.per_unit', (p.cost_json || {}).per_unit, 'number')
+      +   recField('Target units', 'target_json.units', (p.target_json || {}).units, 'number')
+      +   recField('Last month units', 'baseline_json.units', (p.baseline_json || {}).units, 'number')
+      +   recField('Budtenders', 'target_json.budtenders', (p.target_json || {}).budtenders, 'number')
+      +   recField('Vendor contact', 'contact_name', p.contact_name)
+      +   recField('Contact email', 'contact_email', p.contact_email, 'text', 'is-wide')
+      + '</div>'
+
+      + '<div class="sp-h4-row"><h4 class="sp-h4">Actuals</h4>'
+      +   '<span class="sp-h4-note" id="rActualsNote">what was really sold in the window above</span>'
+      +   '<button type="button" class="gx-btn" id="rPullActuals" style="margin-left:auto">Pull live from Dutchie</button>'
+      + '</div>'
+      + '<div class="sp-flds" id="rActuals">'
+      +   recField('Units sold', 'actual_json.units_sold', a.units_sold, 'number')
+      +   recField('Budtenders hitting goal', 'actual_json.bts_hit', a.bts_hit, 'number')
+      +   recField('Rate paid', 'actual_json.spiff_amount', a.spiff_amount, 'number')
+      +   recField('Investment', 'actual_json.investment', a.investment, 'number')
+      +   recField('ROI $', 'actual_json.roi', a.roi, 'number')
+      +   recField('ROI % (decimal)', 'actual_json.roi_pct', a.roi_pct, 'number')
       + '</div>';
+
+    /* SAME picker instance factory as the Calculator — not a copy. The catalog is already
+       cached from any earlier use, so this usually mounts without a fetch. */
+    recPicker = mountPicker({
+      vendor: '#rVendor', vendorMenu: '#rVendorMenu',
+      product: '#rProduct', productMenu: '#rProductMenu',
+      chosen: '#rChosen', hint: '#rProductHint',
+      onProduct: function (chosen, cost) {
+        /* Cost follows the product, exactly as in the Calculator. Written into the field the
+           patch collector reads, so it saves like anything the user typed. */
+        var el = $('#recordBody [data-key="cost_json.per_unit"]');
+        if (el) el.value = cost;
+        var mj = $('#recordBody [data-key="match_json"]');
+        if (mj) mj.value = JSON.stringify(matchOf(chosen));
+      }
+    });
+    if (recPicker) {
+      recPicker.setVendorSilently(p.vendor || '');
+      var mj0 = p.match_json || {};
+      if (mj0.brand || mj0.filter_text || (mj0.products || []).length) {
+        recPicker.setChosen({
+          label: mj0.filter_text ? (mj0.brand || '') + ' · ' + mj0.filter_text
+                                 : (mj0.products || []).join(', ') || (mj0.brand || 'current filter'),
+          brand: mj0.brand || '', filter_text: mj0.filter_text || '',
+          products: mj0.products || [], skus: (mj0.products || []).length || 0,
+          qty: 0, category: mj0.category || ''
+        });
+      }
+    }
+    /* The saved match travels in a hidden field so collectPatch picks it up with everything
+       else, instead of needing its own save path that could disagree about what changed. */
+    $('#recordBody').insertAdjacentHTML('beforeend',
+      '<input type="hidden" data-key="match_json" value="' + esc(JSON.stringify(p.match_json || {})) + '">');
+
+    var ppSelEl = $('#rPayPeriod');
+    if (ppSelEl) ppSelEl.addEventListener('change', function () {
+      if (!ppSelEl.value) return;                     // "Custom dates…" leaves them alone
+      var per = periodByIndex(periodIndexOf(ppSelEl.value));
+      $('#recordBody [data-key="start_date"]').value = per.start;
+      $('#recordBody [data-key="end_date"]').value = per.end;
+    });
+
+    var pull = $('#rPullActuals');
+    if (pull) pull.addEventListener('click', function () { pullActuals(p, pull); });
 
     // Minting a vendor link exposes this program to an outside party, so it sits behind
     // the same role gate as editing and says plainly what it does.
@@ -904,6 +1053,21 @@
       var key = el.dataset.key, raw = el.value.trim();
       var val = el.type === 'number' ? (raw === '' ? null : Number(raw)) : raw;
       var parts = key.split('.');
+      /* match_json travels as a JSON STRING in a hidden input so it rides the same collector as
+         everything else. It needs parsing back to an object, and comparing STRUCTURALLY — the
+         default comparison stringifies the stored object to "[object Object]", which never
+         equals the JSON text, so the field would be reported dirty on every save and overwrite
+         a hand-tuned filter with itself. */
+      if (key === 'match_json') {
+        var parsed;
+        try { parsed = JSON.parse(raw || '{}'); } catch (e) { return; }
+        if (JSON.stringify(parsed) !== JSON.stringify(p.match_json || {})) patch.match_json = parsed;
+        return;
+      }
+      /* Never turn a date that HAD a value into an empty one. dateField now keeps unreadable
+         dates visible, so a blank here means the browser refused the value — not that anyone
+         chose to clear it, and the difference is a closed program's payout window. */
+      if ((key === 'start_date' || key === 'end_date') && raw === '' && p[key]) return;
       if (parts.length === 1) {
         if (String(p[key] == null ? '' : p[key]) !== String(raw)) patch[key] = val;
       } else {
@@ -923,6 +1087,84 @@
     return patch;
   }
 
+  function matchOf(chosen) {
+    return chosen
+      ? { brand: chosen.brand || '', category: '', filter_text: chosen.filter_text || '',
+          products: chosen.products || [] }
+      : { brand: '', category: '', filter_text: '', products: [] };
+  }
+
+  /* Live actuals. Fans out one sell-through request per store over the program's OWN window and
+     aggregates — the same route Progress uses, so the two can never disagree about what a
+     program sold. Fills the fields rather than saving: these numbers go to a vendor, so a human
+     reads them before they are committed. */
+  async function pullActuals(p, btn) {
+    var stores = p.stores_json || [];
+    var from = ($('#recordBody [data-key="start_date"]') || {}).value || p.start_date;
+    var to   = ($('#recordBody [data-key="end_date"]')   || {}).value || p.end_date;
+    var note = $('#rActualsNote');
+    if (!from || !to) { note.textContent = 'set a start and end date first'; return; }
+    if (!stores.length) { note.textContent = 'this program has no stores'; return; }
+
+    btn.disabled = true;
+    var label = btn.textContent;
+    btn.textContent = 'Pulling…';
+    $('#rActuals').classList.add('is-busy');
+
+    var windows = dateWindows(from, to, PROGRESS_WINDOW_DAYS);
+    var got = 0, failed = [];
+    var units = 0, hit = 0, bts = 0;
+
+    await Promise.all(stores.map(async function (st) {
+      try {
+        var r = await pullStore(p.program_id, st, windows, null);
+        units += r.units; hit += r.hit; bts += r.budtenders;
+        got++;
+        note.textContent = 'pulled ' + got + ' of ' + stores.length + ' stores…';
+      } catch (e) { failed.push(storeName(st)); }
+    }));
+
+    $('#rActuals').classList.remove('is-busy');
+    btn.disabled = false; btn.textContent = label;
+
+    if (!got) {
+      note.innerHTML = '<span style="color:var(--gx-red)">nothing came back &mdash; fields left alone</span>';
+      return;
+    }
+
+    var rate   = Number(($('#recordBody [data-key="payout_json.amount"]') || {}).value) || 0;
+    var cost   = Number(($('#recordBody [data-key="cost_json.per_unit"]') || {}).value) || 0;
+    var base   = Number(($('#recordBody [data-key="baseline_json.units"]') || {}).value) || 0;
+    var invest = rate * hit;                        // paid only on budtenders who actually hit
+    var roi    = (units - base) * cost - invest;    // same identity the Calculator models on
+
+    setRecField('actual_json.units_sold', units);
+    setRecField('actual_json.bts_hit', hit);
+    setRecField('actual_json.spiff_amount', rate);
+    setRecField('actual_json.investment', Math.round(invest * 100) / 100);
+    setRecField('actual_json.roi', Math.round(roi * 100) / 100);
+    setRecField('actual_json.roi_pct', invest ? Math.round((roi / invest) * 10000) / 10000 : 0);
+
+    /* Says WHAT IT COVERS, always. A partial pull that reports a total without naming the gap
+       is how a vendor gets invoiced against four stores' sales as though it were six. */
+    note.innerHTML = 'pulled ' + prettyDay(from) + ' → ' + prettyDay(to)
+      + ' · ' + got + ' of ' + stores.length + ' stores · ' + bts + ' budtenders'
+      + (failed.length
+          ? ' · <span style="color:var(--gx-red)">missing ' + esc(failed.join(', '))
+            + ' — these totals undercount</span>'
+          : '')
+      + ' · nothing saved until you press Save changes';
+  }
+
+  function setRecField(key, v) {
+    var el = $('#recordBody [data-key="' + key + '"]');
+    if (!el) return;
+    el.value = v;
+    el.classList.remove('sp-changed');
+    void el.offsetWidth;
+    el.classList.add('sp-changed');
+  }
+
   async function saveRecord() {
     var p = state.record;
     if (!p) return;
@@ -940,9 +1182,13 @@
       }
       $('#recordMsg').textContent = 'Saved (' + (r.changed || []).join(', ') + ')';
       await loadPrograms();
+      renderPrograms();
       renderHistory();
-      state.record = state.programs.filter(function (x) { return x.program_id === p.program_id; })[0] || p;
-      renderRecord(state.record);
+      /* Close on success, per Sky. The modal staying open after a save invites a second press
+         of a button that now has nothing to do, and leaves the list underneath looking stale
+         even though it has already been refreshed. Brief pause so the confirmation is readable
+         rather than a flash. */
+      setTimeout(closeRecord, 550);
     } catch (err) {
       $('#recordMsg').textContent = String(err.message || err);
     }
@@ -1269,6 +1515,7 @@
      typed must never be quietly rewritten by a control she did not touch. */
   var GOAL_MAX = 150;
   var draggingGoal = false;
+  var calcPicker = null, recPicker = null;
 
   function wireCalculator() {
     ['cName', 'cVendor', 'cCost', 'cSpiff'].forEach(function (id) {
@@ -1361,13 +1608,36 @@
       if (r) pullReferenceFor(Number(r.dataset.refretry));
     });
 
-    wirePicker();
+    calcPicker = mountPicker({
+      vendor: '#cVendor', vendorMenu: '#cVendorMenu',
+      product: '#cProduct', productMenu: '#cProductMenu',
+      chosen: '#cChosen', hint: '#cProductHint',
+      onVendor: function (name) { calc.vendor = name; },
+      onProduct: function (chosen, cost) {
+        calc.product = chosen;
+        calc.cost = cost;
+        $('#cCost').value = cost;
+        recalc(PULSE_ALL);
+        pullReference();
+      }
+    });
 
     $('#calcLoad').addEventListener('change', loadIntoCalc);
     $('#calcSave').addEventListener('click', saveCalcProgram);
     var pres = $('#calcPresent');
     if (pres) pres.addEventListener('click', enterPitch);
   }
+
+  /* One document-level dismissal for every picker on the page, registered once rather than
+     per mount — two mounts each adding their own listener would close the other's menu. */
+  document.addEventListener('mousedown', function (e) {
+    if (e.target.closest('.sp-pick')) return;
+    [calcPicker, recPicker].forEach(function (x) { if (x) x.close(); });
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    [calcPicker, recPicker].forEach(function (x) { if (x) x.close(); });
+  });
 
   function driving(sel) {
     ['#cTarget', '#cGrowth'].forEach(function (x) {
@@ -1384,6 +1654,77 @@
     if (!el) return;
     el.focus();
     try { el.setSelectionRange(pos, pos); } catch (e) { /* number inputs refuse this in some browsers */ }
+  }
+
+  /* ══════════════════════════════════════════════ PAY PERIODS ═══════════ */
+  /* Pay periods are 14 days from a fixed anchor. Both constants come from GX CORE's public
+     config (cfg.payPeriodAnchor / cfg.payPeriodDays) — the SAME values Leaderboard's incentive
+     run uses. Hardcoding them here would put SPIFF's idea of a pay period on a different
+     timeline from payroll's the first time Mike moves the anchor, and nothing would announce
+     the drift; a SPIFF would just close against a fortnight nobody paid out on.
+     The fallbacks match today's config so a Core hiccup degrades to the right answer rather
+     than to no answer, and the app still says which it used. */
+  var payCfg = { anchor: '2026-05-11', days: 14, live: false };
+
+  async function loadPayPeriods() {
+    try {
+      var r = await GX.jsonp('config', {});
+      if (r && r.ok && r.config) {
+        var a = String(r.config['cfg.payPeriodAnchor'] || '').slice(0, 10);
+        var d = Number(r.config['cfg.payPeriodDays']);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(a)) { payCfg.anchor = a; payCfg.live = true; }
+        if (d > 0) payCfg.days = d;
+      }
+    } catch (e) { console.warn('[spiff] pay-period config unavailable, using built-in anchor'); }
+    return payCfg;
+  }
+
+  /* Day arithmetic in UTC, then formatted back — the same rule as everywhere else in this app.
+     A local Date constructor shifts the day across a DST boundary, and Leaderboard has already
+     paid for that lesson once: an anchor an hour before PT midnight formats as the day before. */
+  function ymdPlus(ymd, n) {
+    var q = String(ymd).split('-');
+    var d = new Date(Date.UTC(Number(q[0]), Number(q[1]) - 1, Number(q[2]) + n));
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0')
+         + '-' + String(d.getUTCDate()).padStart(2, '0');
+  }
+  function daysBetween(a, b) {
+    var pa = String(a).split('-'), pb = String(b).split('-');
+    return Math.round((Date.UTC(+pb[0], +pb[1] - 1, +pb[2]) - Date.UTC(+pa[0], +pa[1] - 1, +pa[2])) / 864e5);
+  }
+
+  /* Which period contains a date — floor for dates after the anchor, and a floor that still
+     works BEFORE it (JS truncates toward zero, so -1/14 would land on period 0). */
+  function periodIndexOf(ymd) {
+    var diff = daysBetween(payCfg.anchor, ymd);
+    return Math.floor(diff / payCfg.days);
+  }
+  function periodByIndex(i) {
+    var start = ymdPlus(payCfg.anchor, i * payCfg.days);
+    return { index: i, start: start, end: ymdPlus(start, payCfg.days - 1) };
+  }
+  function periodLabel(pp) {
+    return prettyDay(pp.start) + ' → ' + prettyDay(pp.end);
+  }
+
+  /* Past periods for the archive, plus a bounded run of future ones so a program can be set up
+     before it starts. Capped at 10 ahead per Sky — an unbounded list is a scroll, not a choice. */
+  var PP_FUTURE = 10, PP_PAST = 14;
+  function payPeriodOptions(selectedStart) {
+    var now = periodIndexOf(today());
+    var out = [];
+    for (var i = now + PP_FUTURE; i >= now - PP_PAST; i--) out.push(periodByIndex(i));
+    /* A program whose dates predate the window still has to be selectable, or opening an old
+       record silently re-points it at a period it never ran in. */
+    if (selectedStart && !out.some(function (x) { return x.start === selectedStart; })) {
+      out.push(periodByIndex(periodIndexOf(selectedStart)));
+    }
+    return out;
+  }
+  function today() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+         + '-' + String(d.getDate()).padStart(2, '0');
   }
 
   /* ═══════════════════════════════════ FEATURED PRODUCT PICKER ══════════ */
@@ -1405,10 +1746,182 @@
     loading: false
   };
 
-  function pickMenu(id) { return $('#' + id); }
-  function closeMenus() {
-    ['cVendorMenu', 'cProductMenu'].forEach(function (m) { var el = $('#' + m); if (el) el.hidden = true; });
-    ['cVendor', 'cProduct'].forEach(function (i) { var el = $('#' + i); if (el) el.setAttribute('aria-expanded', 'false'); });
+  /* ONE picker, mounted twice. The Calculator and the Edit Program modal ask the identical
+     question — which product is this SPIFF on — so they run the same instance factory rather
+     than two copies that drift. The catalog cache (`pick`) is shared across mounts, so opening
+     the modal after using the Calculator costs no fetch at all. */
+  function mountPicker(cfg) {
+    var vEl  = $(cfg.vendor), vMenu = $(cfg.vendorMenu);
+    var pEl  = $(cfg.product), pMenu = $(cfg.productMenu);
+    var chosenHost = $(cfg.chosen), hintEl = cfg.hint ? $(cfg.hint) : null;
+    if (!vEl || !pEl) return null;
+
+    var open = Object.create(null);   // expanded groups, per mount
+    var api = { chosen: null };
+
+    function closeBoth() {
+      vMenu.hidden = true; pMenu.hidden = true;
+      vEl.setAttribute('aria-expanded', 'false');
+      pEl.setAttribute('aria-expanded', 'false');
+    }
+
+    function renderVendors(q) {
+      var s2 = String(q || '').trim().toLowerCase();
+      var list = pick.brands.filter(function (b) { return !s2 || b.name.toLowerCase().indexOf(s2) >= 0; }).slice(0, 40);
+      vMenu.hidden = false;
+      vEl.setAttribute('aria-expanded', 'true');
+      vMenu.innerHTML = list.length
+        ? list.map(function (b) {
+            return '<div class="sp-pick-row" data-b="' + esc(b.name) + '" role="option">'
+              + '<span class="sp-pick-spacer"></span><div class="sp-pick-body">'
+              + '<div class="sp-pick-1"><span class="sp-pick-name">' + esc(b.name) + '</span></div></div>'
+              + '<span class="sp-pick-cost">' + b.count + '</span></div>';
+          }).join('')
+        : '<div class="sp-pick-empty">No vendor in stock matches that.</div>';
+    }
+
+    function renderProducts(q) {
+      pMenu.hidden = false;
+      pEl.setAttribute('aria-expanded', 'true');
+      if (pick.loading) {
+        pMenu.innerHTML = Array(5).join(',').split(',').map(function () {
+          return '<div class="sp-pick-row"><span class="sp-pick-spacer"></span><div class="sp-pick-body">'
+            + '<div class="sp-skel sp-skel-line" style="width:60%"></div></div></div>';
+        }).join('');
+        return;
+      }
+      var groups = groupProducts(matchProducts(q));
+      if (!groups.length) {
+        pMenu.innerHTML = '<div class="sp-pick-empty">Nothing in stock matches that for '
+          + esc(pick.brand || 'this vendor') + '.</div>';
+        return;
+      }
+      pMenu.innerHTML = groups.slice(0, 60).map(function (g, gi) {
+        var p0 = g.items[0];
+        if (g.items.length === 1) {
+          return '<div class="sp-pick-row" data-g="' + gi + '" data-c="0" role="option">'
+            + '<span class="sp-pick-spacer"></span>'
+            + '<div class="sp-pick-body"><div class="sp-pick-1"><span class="sp-pick-name">'
+            +   esc(p0.n) + '</span></div>'
+            + '<div class="sp-pick-2">' + money(p0.price) + ' &middot; '
+            +   esc([p0.c, p0.s].filter(Boolean).join(' · '))
+            +   ' &middot; ' + p0.qty.toLocaleString() + ' in stock</div></div>'
+            + '<span class="sp-pick-cost">' + money(p0.cost) + '</span></div>';
+        }
+        var isOpen = !!open[g.key];
+        var out = '<div class="sp-pick-row' + (isOpen ? ' is-open' : '') + '" data-g="' + gi + '" data-c="-1" role="option">'
+          + '<button type="button" class="sp-pick-chev" data-x="' + gi + '" title="Show flavors">&#9656;</button>'
+          + '<div class="sp-pick-body"><div class="sp-pick-1">'
+          +   '<span class="sp-pick-name">' + esc(p0.b) + ' &middot; ' + esc(g.noun) + '</span>'
+          +   '<button type="button" class="sp-pick-n" data-x="' + gi + '" title="'
+          +     g.items.length + ' flavors — the SPIFF covers all of them">' + g.items.length + '</button>'
+          + '</div>'
+          + '<div class="sp-pick-2">' + money(p0.price) + ' &middot; '
+          +   esc([p0.c, p0.s].filter(Boolean).join(' · '))
+          +   ' &middot; ' + groupQty(g).toLocaleString() + ' in stock</div></div>'
+          + '<span class="sp-pick-cost">' + money(groupCost(g)) + '</span></div>';
+        if (isOpen) out += g.items.map(function (x, ci) {
+          return '<div class="sp-pick-row is-child" data-g="' + gi + '" data-c="' + ci + '" role="option">'
+            + '<div class="sp-pick-body"><div class="sp-pick-1"><span class="sp-pick-name">'
+            +   esc(x.n) + '</span></div>'
+            + '<div class="sp-pick-2">' + x.qty.toLocaleString() + ' in stock</div></div>'
+            + '<span class="sp-pick-cost">' + money(x.cost) + '</span></div>';
+        }).join('');
+        return out;
+      }).join('');
+      pMenu._groups = groups;
+    }
+
+    function renderChosen() {
+      if (!chosenHost) return;
+      if (!api.chosen) { chosenHost.innerHTML = ''; if (hintEl) hintEl.hidden = false; return; }
+      if (hintEl) hintEl.hidden = true;
+      var c = api.chosen;
+      chosenHost.innerHTML = '<div class="sp-chosen"><div class="sp-chosen-b">'
+        + '<div class="sp-chosen-n">' + esc(c.label) + '</div>'
+        + '<div class="sp-chosen-m">'
+        +   (c.skus > 1 ? c.skus + ' flavors &mdash; the SPIFF covers all of them' : 'this SKU only')
+        +   ' &middot; ' + (c.qty || 0).toLocaleString() + ' in stock'
+        +   (c.price ? ' &middot; ' + money(c.price) + ' on the shelf' : '')
+        +   (c.category ? ' &middot; ' + esc(c.category) : '') + '</div>'
+        + (c.costSuspect
+            ? '<span class="sp-cost-warn">Dutchie lists a unit cost under a cent for this &mdash; check it before quoting a vendor.</span>'
+            : '')
+        + '</div><button type="button" class="gx-btn" data-unpick="1">Change</button></div>';
+    }
+
+    function choose(g, ci) {
+      var whole = ci < 0, p0 = g.items[0];
+      var cost = whole ? groupCost(g) : g.items[ci].cost;
+      api.chosen = whole
+        ? { label: p0.b + ' · ' + g.noun, brand: p0.b, filter_text: g.noun, products: [],
+            skus: g.items.length, qty: groupQty(g), category: p0.c, price: p0.price,
+            costSuspect: g.items.some(function (x) { return x.costSuspect; }) }
+        : { label: g.items[ci].n, brand: p0.b, filter_text: '', products: [g.items[ci].n],
+            skus: 1, qty: g.items[ci].qty, category: g.items[ci].c, price: g.items[ci].price,
+            costSuspect: !!g.items[ci].costSuspect };
+      pEl.value = '';
+      closeBoth();
+      renderChosen();
+      if (cfg.onProduct) cfg.onProduct(api.chosen, Math.round(cost * 100) / 100);
+    }
+
+    async function setVendor(name) {
+      vEl.value = name;
+      closeBoth();
+      /* Changing vendor invalidates the product and everything derived from it. Leaving a
+         Wyld product selected under vendor "Mule" is the kind of state that gets pitched. */
+      api.chosen = null;
+      renderChosen();
+      pEl.disabled = false;
+      pEl.placeholder = 'Search ' + name + '’s products…';
+      if (cfg.onVendor) cfg.onVendor(name);
+      await loadBrandProducts(name);
+      pEl.focus();
+      renderProducts('');
+    }
+
+    vEl.addEventListener('focus', async function () { await loadBrands(); renderVendors(vEl.value); });
+    vEl.addEventListener('input', function () {
+      if (cfg.onVendor) cfg.onVendor(vEl.value);
+      renderVendors(vEl.value);
+    });
+    vMenu.addEventListener('mousedown', function (e) {
+      var row = e.target.closest('[data-b]');
+      if (!row) return;
+      e.preventDefault();
+      setVendor(row.dataset.b);
+    });
+
+    pEl.addEventListener('focus', function () { if (pick.brand) renderProducts(pEl.value); });
+    pEl.addEventListener('input', function () { renderProducts(pEl.value); });
+    pMenu.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      var x = e.target.closest('[data-x]');
+      if (x) {                                  // chevron / count pill expands, never selects
+        var g = (pMenu._groups || [])[Number(x.dataset.x)];
+        if (g) { open[g.key] = !open[g.key]; renderProducts(pEl.value); }
+        return;
+      }
+      var row = e.target.closest('[data-g]');
+      if (!row) return;
+      var grp = (pMenu._groups || [])[Number(row.dataset.g)];
+      if (grp) choose(grp, Number(row.dataset.c));
+    });
+    if (chosenHost) chosenHost.addEventListener('click', function (e) {
+      if (!e.target.closest('[data-unpick]')) return;
+      api.chosen = null; renderChosen(); pEl.focus();
+    });
+
+    api.close = closeBoth;
+    api.renderChosen = renderChosen;
+    api.setVendorSilently = function (name) {
+      vEl.value = name || '';
+      pEl.disabled = !name;
+      if (name) { pEl.placeholder = 'Search ' + name + '’s products…'; loadBrandProducts(name); }
+    };
+    api.setChosen = function (c) { api.chosen = c; renderChosen(); };
+    return api;
   }
 
   async function loadBrands() {
@@ -1423,7 +1936,6 @@
   async function loadBrandProducts(brand) {
     if (pick.brand === brand && pick.products.length) return pick.products;
     pick.loading = true;
-    renderProductMenu('');
     try {
       var r = await ENG.jsonp('catalog', { token: (session() || {}).token, brand: brand });
       pick.products = (r && r.ok) ? (r.products || []) : [];
@@ -1452,8 +1964,8 @@
     return w[i];
   }
 
-  /* Group by brand + noun + PRICE. Price is in the key on purpose: a $5 gummy and a $27
-     gummy are different offers, and a SPIFF on "the $5 tier" must not sweep in the other. */
+  /* Group by brand + noun + PRICE. Price is in the key on purpose: a $5 gummy and a $6 gummy
+     are different offers, and a SPIFF on "the $5 tier" must not sweep in the other. */
   function groupProducts(list) {
     var groups = [], by = Object.create(null);
     list.forEach(function (p) {
@@ -1469,76 +1981,11 @@
   }
 
   function matchProducts(q) {
-    var s = q.trim().toLowerCase();
-    if (!s) return pick.products.slice(0, 400);
+    var s2 = String(q || '').trim().toLowerCase();
+    if (!s2) return pick.products.slice(0, 400);
     return pick.products.filter(function (p) {
-      return (p.n + ' ' + p.c).toLowerCase().indexOf(s) >= 0;
+      return (p.n + ' ' + p.c).toLowerCase().indexOf(s2) >= 0;
     }).slice(0, 400);
-  }
-
-  var PICK_OPEN = Object.create(null);
-
-  function renderProductMenu(q) {
-    var menu = $('#cProductMenu');
-    if (!menu) return;
-    menu.hidden = false;
-    $('#cProduct').setAttribute('aria-expanded', 'true');
-
-    if (pick.loading) {
-      menu.innerHTML = Array(5).join(',').split(',').map(function () {
-        return '<div class="sp-pick-row"><span class="sp-pick-spacer"></span><div class="sp-pick-body">'
-          + '<div class="sp-skel sp-skel-line" style="width:60%"></div></div></div>';
-      }).join('');
-      return;
-    }
-
-    var groups = groupProducts(matchProducts(q));
-    if (!groups.length) {
-      menu.innerHTML = '<div class="sp-pick-empty">Nothing in stock matches that for '
-        + esc(pick.brand || 'this vendor') + '.</div>';
-      return;
-    }
-
-    menu.innerHTML = groups.slice(0, 60).map(function (g, gi) {
-      var one = g.items.length === 1;
-      var p0  = g.items[0];
-      var cost = groupCost(g);
-      if (one) {
-        return '<div class="sp-pick-row" data-g="' + gi + '" data-c="0" role="option">'
-          + '<span class="sp-pick-spacer"></span>'
-          + '<div class="sp-pick-body"><div class="sp-pick-1"><span class="sp-pick-name">'
-          +   esc(p0.n) + '</span></div>'
-            + '<div class="sp-pick-2">' + money(p0.price) + ' &middot; '
-          +   esc([p0.c, p0.s].filter(Boolean).join(' · '))
-          +   ' &middot; ' + p0.qty.toLocaleString() + ' in stock</div></div>'
-          + '<span class="sp-pick-cost">' + money(p0.cost) + '</span></div>';
-      }
-      var open = !!PICK_OPEN[g.key];
-      var out = '<div class="sp-pick-row' + (open ? ' is-open' : '') + '" data-g="' + gi + '" data-c="-1" role="option">'
-        + '<button type="button" class="sp-pick-chev" data-x="' + gi + '" title="Show flavors">&#9656;</button>'
-        + '<div class="sp-pick-body"><div class="sp-pick-1">'
-        +   '<span class="sp-pick-name">' + esc(p0.b) + ' &middot; ' + esc(g.noun) + '</span>'
-        +   '<button type="button" class="sp-pick-n" data-x="' + gi + '" title="'
-        +     g.items.length + ' flavors — the SPIFF covers all of them">' + g.items.length + '</button>'
-        + '</div>'
-        /* The SHELF PRICE is what separates two groups with the same noun — Green Cross sells
-           a $4.25 gummy and a $5 gummy, and both rows otherwise read "Green Cross · Gummy".
-           Since price is in the grouping key, it has to be on the row or the two are
-           indistinguishable at the moment of choosing. */
-        + '<div class="sp-pick-2">' + money(p0.price) + ' &middot; '
-        +   esc([p0.c, p0.s].filter(Boolean).join(' · '))
-        +   ' &middot; ' + groupQty(g).toLocaleString() + ' in stock</div></div>'
-        + '<span class="sp-pick-cost">' + money(cost) + '</span></div>';
-      if (open) out += g.items.map(function (p, ci) {
-        return '<div class="sp-pick-row is-child" data-g="' + gi + '" data-c="' + ci + '" role="option">'
-          + '<div class="sp-pick-body"><div class="sp-pick-1"><span class="sp-pick-name">'
-          +   esc(p.n) + '</span></div>'
-          + '<div class="sp-pick-2">' + p.qty + ' in stock</div></div>'
-          + '<span class="sp-pick-cost">' + money(p.cost) + '</span></div>';
-      }).join('');
-      return out;
-    }).join('');
-    menu._groups = groups;
   }
 
   /* A group's cost weighted by what is on the shelf — the same rule the engine uses when it
@@ -1549,177 +1996,6 @@
     return q ? c / q : (g.items[0].cost || 0);
   }
   function groupQty(g) { return g.items.reduce(function (n, p) { return n + (p.qty || 0); }, 0); }
-
-  function chooseProduct(g, ci) {
-    var whole = ci < 0;
-    var p0 = g.items[0];
-    var cost = whole ? groupCost(g) : g.items[ci].cost;
-
-    calc.product = whole
-      ? { label: p0.b + ' · ' + g.noun, brand: p0.b, filter_text: g.noun, products: [],
-          skus: g.items.length, qty: groupQty(g), category: p0.c, price: p0.price }
-      : { label: g.items[ci].n, brand: p0.b, filter_text: '', products: [g.items[ci].n],
-          skus: 1, qty: g.items[ci].qty, category: g.items[ci].c, price: g.items[ci].price };
-    calc.product.costSuspect = whole
-      ? g.items.some(function (p) { return p.costSuspect; })
-      : !!g.items[ci].costSuspect;
-
-    calc.cost = Math.round(cost * 100) / 100;
-    $('#cCost').value = calc.cost;
-    $('#cProduct').value = '';
-    closeMenus();
-    renderChosen();
-    recalc(PULSE_ALL);
-    pullReference();
-  }
-
-  function renderChosen() {
-    var host = $('#cChosen'), hint = $('#cProductHint');
-    if (!host) return;
-    if (!calc.product) { host.innerHTML = ''; if (hint) hint.hidden = false; return; }
-    if (hint) hint.hidden = true;
-    var p = calc.product;
-    host.innerHTML = '<div class="sp-chosen"><div class="sp-chosen-b">'
-      + '<div class="sp-chosen-n">' + esc(p.label) + '</div>'
-      + '<div class="sp-chosen-m">'
-      +   (p.skus > 1 ? p.skus + ' flavors &mdash; the SPIFF covers all of them' : 'this SKU only')
-      +   ' &middot; ' + p.qty.toLocaleString() + ' in stock'
-      +   (p.price ? ' &middot; ' + money(p.price) + ' on the shelf' : '')
-      +   (p.category ? ' &middot; ' + esc(p.category) : '') + '</div>'
-      + (p.costSuspect
-          ? '<span class="sp-cost-warn">Dutchie lists a unit cost under a cent for this &mdash; check it before quoting a vendor.</span>'
-          : '')
-      + '</div><button type="button" class="gx-btn" id="cUnpick">Change</button></div>';
-    $('#cUnpick').addEventListener('click', function () {
-      calc.product = null;
-      renderChosen();
-      $('#cProduct').focus();
-    });
-  }
-
-  /* Fan out one request per store, exactly like Progress and for the same measured reason:
-     the sell-through pull is ~9s a store against a ~60s /exec ceiling. Each cell shimmers
-     until its own store answers, so five stores are not held up by the slowest. */
-  async function pullReference() {
-    if (!calc.product) return;
-    var run = (calc.refRun = {});
-    calc.stores.forEach(function (st) { st.refState = 'loading'; });
-    recalc();
-    await Promise.all(calc.stores.map(function (st, i) { return pullReferenceFor(i, run); }));
-  }
-
-  /* One store. Also the retry path, so a store that timed out is re-pulled on its own
-     instead of re-running all six — the same rule Progress follows, and here it matters
-     more because each call is ~9 seconds. */
-  async function pullReferenceFor(i, run) {
-    var st = calc.stores[i], p = calc.product;
-    if (!st || !p) return;
-    if (!run) run = calc.refRun || (calc.refRun = {});
-    st.refState = 'loading';
-    recalc();
-    try {
-      var r = await ENG.jsonp('refunits', {
-        token: (session() || {}).token, store: st.store_id,
-        brand: p.brand, filter_text: p.filter_text,
-        products: (p.products || []).join(',')
-      }, { timeoutMs: 65000, retries: 1 });
-      if (calc.refRun !== run) return;            // a newer product was picked mid-flight
-      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
-      if (typeof r.reference !== 'number') throw new Error('engine returned no reference figure');
-      st.baseline = r.reference;
-      st.refUnits = typeof r.units === 'number' ? r.units : null;
-      st.refState = 'ok';
-    } catch (e) {
-      if (calc.refRun !== run) return;
-      st.refState = 'error';
-      st.refErr = e.message || String(e);
-    }
-    if (calc.refRun !== run) return;
-    /* The growth echo has to follow every arrival: it is a percentage OF the reference
-       total, which just changed underneath it. */
-    var base = calcModel().baseUnits;
-    $('#cGrowth').value = base ? Math.round(((calc.target - base) / base) * 100) : 0;
-    recalc();
-  }
-
-  function wirePicker() {
-    var v = $('#cVendor'), vm = $('#cVendorMenu');
-    if (!v) return;
-
-    v.addEventListener('focus', async function () {
-      await loadBrands();
-      renderVendorMenu(v.value);
-    });
-    v.addEventListener('input', function () {
-      calc.vendor = v.value;
-      renderVendorMenu(v.value);
-    });
-    vm.addEventListener('mousedown', function (e) {
-      var row = e.target.closest('[data-b]');
-      if (!row) return;
-      e.preventDefault();
-      setVendor(row.dataset.b);
-    });
-
-    var pr = $('#cProduct'), pm = $('#cProductMenu');
-    pr.addEventListener('focus', function () { if (pick.brand) renderProductMenu(pr.value); });
-    pr.addEventListener('input', function () { renderProductMenu(pr.value); });
-    pm.addEventListener('mousedown', function (e) {
-      e.preventDefault();
-      var x = e.target.closest('[data-x]');
-      if (x) {                                   // the chevron / count pill expands, never selects
-        var gs = pm._groups || [];
-        var g = gs[Number(x.dataset.x)];
-        if (g) { PICK_OPEN[g.key] = !PICK_OPEN[g.key]; renderProductMenu(pr.value); }
-        return;
-      }
-      var row = e.target.closest('[data-g]');
-      if (!row) return;
-      var groups = pm._groups || [];
-      var grp = groups[Number(row.dataset.g)];
-      if (grp) chooseProduct(grp, Number(row.dataset.c));
-    });
-    var clr = $('#cProductClear');
-    if (clr) clr.addEventListener('click', function () { pr.value = ''; renderProductMenu(''); pr.focus(); });
-
-    document.addEventListener('mousedown', function (e) {
-      if (!e.target.closest('.sp-pick')) closeMenus();
-    });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeMenus(); });
-  }
-
-  function renderVendorMenu(q) {
-    var vm = $('#cVendorMenu'), v = $('#cVendor');
-    if (!vm) return;
-    var s = String(q || '').trim().toLowerCase();
-    var list = pick.brands.filter(function (b) { return !s || b.name.toLowerCase().indexOf(s) >= 0; }).slice(0, 40);
-    vm.hidden = false;
-    v.setAttribute('aria-expanded', 'true');
-    vm.innerHTML = list.length
-      ? list.map(function (b) {
-          return '<div class="sp-pick-row" data-b="' + esc(b.name) + '" role="option">'
-            + '<span class="sp-pick-spacer"></span><div class="sp-pick-body">'
-            + '<div class="sp-pick-1"><span class="sp-pick-name">' + esc(b.name) + '</span></div></div>'
-            + '<span class="sp-pick-cost">' + b.count + '</span></div>';
-        }).join('')
-      : '<div class="sp-pick-empty">No vendor in stock matches that.</div>';
-  }
-
-  async function setVendor(name) {
-    calc.vendor = name;
-    $('#cVendor').value = name;
-    closeMenus();
-    /* Changing vendor invalidates the product AND everything derived from it. Leaving a
-       Wyld product selected under vendor "Mule" is the kind of state that gets pitched. */
-    calc.product = null;
-    renderChosen();
-    var pr = $('#cProduct');
-    pr.disabled = false;
-    pr.placeholder = 'Search ' + name + '’s products…';
-    await loadBrandProducts(name);
-    pr.focus();
-    renderProductMenu('');
-  }
 
   /* ------------------------------------------------------- pitch mode (1c) */
   /* The Calculator, with the chrome taken away and the type scale raised, for showing a
