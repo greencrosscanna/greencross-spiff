@@ -245,7 +245,6 @@ function doGet(e) {
       case 'previewDocs': out = previewDocs_(p);                                    break;
       case 'sellthrough': out = sellthrough_(p);                                    break;
       case 'catalog':     out = catalog_(p);                                        break;
-      case 'invprobe':    out = invProbe_(p);                                       break;   // TEMP-PROBE
       // The progress cache — the fast read GX Crew's incentive column and Leaderboard's kiosk
       // ticks both use. Secret-gated: a kiosk holds no session and Crew's engine has no browser.
       case 'progress':    out = spiffProgress_(p);                                   break;
@@ -2178,17 +2177,26 @@ function catalogGet_() {
   } catch (e) { return null; }
 }
 
-/* One Dutchie product row → the few fields a picker needs. Deliberately NOT the whole
-   row: the payload crosses the wire on every Calculator load and most of /products is
-   inventory bookkeeping the Calculator has no use for. */
+/* One Dutchie INVENTORY row → the few fields a picker needs.
+   /reporting/inventory, not /products, and the difference is `unitCost`: the wholesale cost
+   per unit, which is the single number the Calculator could never source and Tawny has been
+   typing from memory. Probed live before committing to it — the field is real and populated.
+   Inventory also gives quantityAvailable (so the picker offers what we actually stock) and
+   pricingTierName (Dutchie's own notion of a price-tiered group).
+   Deliberately NOT the whole row: 54 fields cross the wire otherwise, and the Calculator
+   has no use for batchId or lab results. */
 function conformProduct_(pr) {
-  var name  = String(pr.productName || pr.name || '').trim();
+  var name = String(pr.productName || pr.name || '').trim();
   if (!name) return null;
   return {
     n: name,
     b: String(pr.brandName || pr.brand || '').trim(),
-    c: String(pr.category || '').trim(),
-    s: String(pr.size || pr.unitSize || '').trim()
+    c: String(pr.masterCategory || pr.category || '').trim(),
+    s: String(pr.size || pr.unitWeight || '').trim(),
+    t: String(pr.pricingTierName || '').trim(),
+    cost: num_(pr.unitCost),
+    price: num_(pr.unitPrice || pr.recUnitPrice || pr.medUnitPrice),
+    qty: num_(pr.quantityAvailable)
   };
 }
 
@@ -2203,19 +2211,42 @@ function buildCatalog_() {
     var dn = String(s.dutchie_name || '').trim();
     if (!dn) return;
     var rows;
-    try { rows = GXCore.dutchieProducts(dn) || []; }
+    try { rows = GXCore.dutchieInventory(dn) || []; }
     catch (e) { errs.push(String(s.store_id) + ': ' + (e && e.message || e)); return; }
     rows.forEach(function (pr) {
       var x = conformProduct_(pr);
       if (!x) return;
+      /* IN STOCK ONLY. A SPIFF is on something budtenders can actually sell this fortnight;
+         offering a product with nothing on the shelf is how a program starts already short. */
+      if (x.qty <= 0) return;
+      if (/^sample\b/i.test(x.n)) return;
       seen++;
       var k = (x.b + '|' + x.n + '|' + x.s).toLowerCase();
-      if (!by[k]) by[k] = x;
+      var hit = by[k];
+      if (!hit) { by[k] = x; x.stores = 1; return; }
+      /* Same product across stores and batches. Cost is averaged WEIGHTED BY QUANTITY --
+         a straight mean would let a two-unit remainder at an old cost move the number the
+         vendor gets quoted. costLo/costHi keep the spread visible rather than hiding it
+         behind an average that looks more certain than it is. */
+      var q0 = hit.qty || 0, q1 = x.qty || 0, tot = q0 + q1;
+      if (tot > 0 && (hit.cost || x.cost)) hit.cost = ((hit.cost * q0) + (x.cost * q1)) / tot;
+      hit.costLo = Math.min(hit.costLo == null ? hit.cost : hit.costLo, x.cost || hit.cost);
+      hit.costHi = Math.max(hit.costHi == null ? hit.cost : hit.costHi, x.cost || hit.cost);
+      hit.qty = tot;
+      hit.stores = (hit.stores || 1) + 1;
+      if (!hit.price && x.price) hit.price = x.price;
+      if (!hit.t && x.t) hit.t = x.t;
     });
   });
 
-  var list = Object.keys(by).map(function (k) { return by[k]; })
-    .sort(function (a, b) { return (a.b + a.n).localeCompare(b.b + b.n); });
+  var list = Object.keys(by).map(function (k) {
+    var x = by[k];
+    x.cost = Math.round((x.cost || 0) * 100) / 100;
+    x.costLo = Math.round((x.costLo == null ? x.cost : x.costLo) * 100) / 100;
+    x.costHi = Math.round((x.costHi == null ? x.cost : x.costHi) * 100) / 100;
+    x.qty = Math.round(x.qty);
+    return x;
+  }).sort(function (a, b) { return (a.b + a.n).localeCompare(b.b + b.n); });
 
   /* Brands are derived here rather than in the browser so the vendor field and the product
      picker can never disagree about what we carry. */
@@ -2227,19 +2258,6 @@ function buildCatalog_() {
            stores_read: stores.length, rows_seen: seen, errors: errs, built_at: nowStamp_() };
 }
 
-/* THE WIRE PAYLOAD IS BRAND-SCOPED, and that is the whole reason this route is usable.
-   The full deduped catalog is 7,760 products / ~711KB across six stores — measured, not
-   guessed — which is not a thing you ship to a browser on every Calculator load, let alone
-   through JSONP. But the flow picks a VENDOR first and then a product, so a brand-scoped
-   response is all the picker ever needs: the biggest brand we carry is 639 rows and most
-   are a few hundred.
-
-     ?action=catalog                 → brands + counts only (~6KB), for the vendor field
-     ?action=catalog&brand=Wyld      → that brand's products, for the product picker
-     ?action=catalog&all=1           → everything, for diagnostics. Not for the browser.
-
-   The FULL catalog is still what gets cached; only the slice sent back is narrowed. Caching
-   per brand would multiply a 14-second cold pull by however many vendors got looked at. */
 function catalog_(p) {
   var cat = null;
   if (String(p && p.refresh) !== '1') cat = catalogGet_();
@@ -2267,20 +2285,3 @@ function catalog_(p) {
   return out;
 }
 
-
-/* TEMP-PROBE — what does /reporting/inventory actually carry? Deciding cost-per-unit
-   sourcing needs the real field names, not a guess. Remove once answered. */
-function invProbe_(p) {
-  var stores = GXCore.getStores() || [];
-  var s = stores.filter(function (x) { return String(x.dutchie_name || '').trim(); })[0];
-  if (!s) return { ok: false, error: 'no store with a dutchie_name' };
-  var rows = GXCore.dutchieInventory(String(s.dutchie_name).trim()) || [];
-  var live = rows.filter(function (r) { return Number(r.quantityAvailable || 0) > 0; });
-  var costish = [];
-  if (live.length) Object.keys(live[0]).forEach(function (k) {
-    if (/cost|price|margin|markup/i.test(k)) costish.push(k + '=' + JSON.stringify(live[0][k]));
-  });
-  return { ok: true, store: s.store_id, total: rows.length, inStock: live.length,
-           fields: live.length ? Object.keys(live[0]) : [], costFields: costish,
-           sample: live.slice(0, 2) };
-}
