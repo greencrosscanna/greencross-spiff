@@ -2196,7 +2196,13 @@ function conformProduct_(pr) {
     s: String(pr.size || pr.unitWeight || '').trim(),
     t: String(pr.pricingTierName || '').trim(),
     cost: num_(pr.unitCost),
-    price: num_(pr.unitPrice || pr.recUnitPrice || pr.medUnitPrice),
+    /* REC PRICE FIRST, and the order is the whole point. `unitPrice` is the MEDICAL price on
+       these rows: it reported Green Cross gummies at $4.25 when the shelf price is $5 ($6 for
+       the ratio ones). Rec is what a customer pays and therefore what a SPIFF tier means, and
+       price is part of the picker's grouping key — so reading med silently grouped two tiers
+       under the wrong headline number. Same precedence Price Cards uses. */
+    price: num_(pr.recUnitPrice || pr.unitPrice || pr.medUnitPrice),
+    medPrice: num_(pr.medUnitPrice),
     qty: num_(pr.quantityAvailable)
   };
 }

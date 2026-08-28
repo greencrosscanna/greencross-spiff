@@ -7,7 +7,8 @@
       "runtimeArgs": [
         "serve.py"
       ],
-      "port": 8754
+      "port": 8754,
+      "autoPort": false
     }
   ]
 }
