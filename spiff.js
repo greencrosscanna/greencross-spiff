@@ -17,6 +17,15 @@
   /* ---------------------------------------------------------------- config */
   var GXCORE = 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec';
   var APP    = 'spiff';
+
+  /* PRE-LAUNCH HOLD. SPIFF is built but not handed to Tawny yet, so her `spiff` grant is revoked
+     in the GX Command Center and nobody outside superadmin can get in. This flag exists because
+     the lockout alone tells the locked-out person the WRONG story: the no-access panel's standing
+     copy says "ask Sky to add SPIFF to your account", which invites Tawny to ask for a grant Sky
+     will decline, and to ask again. While this is true the panel says the real reason instead.
+     LAUNCH DAY = flip this to false AND re-grant `spiff` to tawny in the cockpit. Both, or the
+     app is still shut; the flag only changes wording, never access -- the gate is GX Core's. */
+  var PRELAUNCH = true;
   // This app's own Apps Script engine. Same two-hop /exec as GX Core, so it gets the
   // same retry-aware client rather than a hand-rolled fetch.
   var ENGINE = 'https://script.google.com/macros/s/AKfycbw0JUgI01c7iaJRnuQgHdjUazDPtyEiEHZvlYkjflLSIVMY7qs-0Bkv4gPoxt8o2e6JZw/exec';
@@ -1353,10 +1362,16 @@
           '<div class="gx-login-sub">SPIFF</div>' +
         '</div>' +
         '<div class="noaccess-body">' +
-          '<p class="noaccess-lead">You are signed in' + (who ? ' as <strong>' + esc(who) + '</strong>' : '') +
-            ', but your account has not been granted SPIFF.</p>' +
-          '<p class="noaccess-note">Nothing is wrong with your password. Access is granted per app in ' +
-            'the GX Command Center &mdash; ask Sky to add SPIFF to your account, then reload.</p>' +
+          (PRELAUNCH
+            ? '<p class="noaccess-lead">You are signed in' + (who ? ' as <strong>' + esc(who) + '</strong>' : '') +
+                ', but SPIFF has not launched yet.</p>' +
+              '<p class="noaccess-note">Nothing is wrong with your password &mdash; the app is still ' +
+                'being finished, so it is closed to everyone for now. Sky will turn it on for you when ' +
+                'it is ready; there is nothing to request in the meantime.</p>'
+            : '<p class="noaccess-lead">You are signed in' + (who ? ' as <strong>' + esc(who) + '</strong>' : '') +
+                ', but your account has not been granted SPIFF.</p>' +
+              '<p class="noaccess-note">Nothing is wrong with your password. Access is granted per app in ' +
+                'the GX Command Center &mdash; ask Sky to add SPIFF to your account, then reload.</p>') +
           '<button class="gx-btn" id="naOther">Sign in as someone else</button>' +
         '</div>' +
       '</div>';

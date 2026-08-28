@@ -17,6 +17,10 @@
   var ENGINE = 'https://script.google.com/macros/s/AKfycbw0JUgI01c7iaJRnuQgHdjUazDPtyEiEHZvlYkjflLSIVMY7qs-0Bkv4gPoxt8o2e6JZw/exec';
   var APP    = 'spiff';
 
+  /* PRE-LAUNCH HOLD -- keep in step with the same flag in spiff.js. Wording only; the gate is the
+     revoked `spiff` grant in GX Core. Flip BOTH files to false on launch day, and re-grant. */
+  var PRELAUNCH = true;
+
   var GX  = GXClient(GXCORE);
   var ENG = GXClient(ENGINE);
 
@@ -94,10 +98,16 @@
           '<div class="gx-login-sub">My SPIFF</div>' +
         '</div>' +
         '<div class="fl-msg">' +
-          '<p class="fl-lead">You are signed in' + (who ? ' as <strong>' + esc(who) + '</strong>' : '') +
-            ', but your account has not been granted SPIFF.</p>' +
-          '<p class="fl-note">Nothing is wrong with your password. Ask Sky to add SPIFF to your ' +
-            'account, then reload this page.</p>' +
+          (PRELAUNCH
+            ? '<p class="fl-lead">You are signed in' + (who ? ' as <strong>' + esc(who) + '</strong>' : '') +
+                ', but SPIFF has not launched yet.</p>' +
+              '<p class="fl-note">Nothing is wrong with your password &mdash; the app is still being ' +
+                'finished, so it is closed to everyone for now. There is nothing to request; it will ' +
+                'open when it is ready.</p>'
+            : '<p class="fl-lead">You are signed in' + (who ? ' as <strong>' + esc(who) + '</strong>' : '') +
+                ', but your account has not been granted SPIFF.</p>' +
+              '<p class="fl-note">Nothing is wrong with your password. Ask Sky to add SPIFF to your ' +
+                'account, then reload this page.</p>') +
           '<button class="gx-btn" id="flOther">Sign in as someone else</button>' +
         '</div>' +
       '</div>';
