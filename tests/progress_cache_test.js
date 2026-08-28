@@ -135,7 +135,13 @@ ok('flat pays nothing to somebody who missed',
    M.progEarned_({ payout_json: { type: 'flat', amount: 25 } }, 4, false) === 0);
 
 /* ── the gate ── */
-ok('a wrong secret is refused', M.spiffProgress_({ secret: 'nope' }).ok === false);
+/* spiffProgress_ no longer re-checks the secret itself: `progress` is a token-gated READ so a
+   signed-in browser can render the landing page, and guard_ has already authorised the call by
+   the time the handler runs. Re-demanding the secret here made the route unreachable from a
+   browser whatever the router allowed. The gate is still asserted — below, on guard_ — because
+   that is where it actually lives now. */
+ok('the handler no longer re-gates what guard_ already authorised',
+   M.spiffProgress_({}).ok === true);
 ok('filtering by pay period works, since Crew asks for one',
    M.spiffProgress_({ secret: 'SEKRET', pay_period: '2026-08-17' }).rows.length === 3 &&
    M.spiffProgress_({ secret: 'SEKRET', pay_period: '2020-01-01' }).rows.length === 0);
@@ -147,9 +153,19 @@ ok('filtering by pay period works, since Crew asks for one',
    afternoon (Leaderboard's incentiveperf below requireAuth_), so it is pinned here. */
 const SECRET_ACTIONS = new Function('return ' +
   (gs.match(/var SECRET_ACTIONS = (\[[\s\S]*?\]);/) || [])[1])();
-['progress', 'refreshProgress', 'installProgressTrigger'].forEach(function (a) {
+/* The two EXPENSIVE ones stay secret-only: refreshProgress walks every store's date windows
+   (57s measured) and installProgressTrigger changes the schedule. `progress` only reads the
+   cache and moved to the token-gated reads so the landing page can show it. */
+['refreshProgress', 'installProgressTrigger'].forEach(function (a) {
   ok(a + ' is a declared machine route', SECRET_ACTIONS.indexOf(a) >= 0);
 });
+ok('progress is NOT secret-only — the browser has a session, not the secret',
+   SECRET_ACTIONS.indexOf('progress') < 0);
+/* The point of the original assertion survives: this is payroll-shaped data and must never be
+   readable without credentials of SOME kind. Public would mean anyone with the /exec URL. */
+ok('progress is still not PUBLIC — a session is required',
+   new Function('return ' + (gs.match(/var PUBLIC_ACTIONS = (\[[\s\S]*?\]);/) || [])[1])()
+     .indexOf('progress') < 0);
 const PUBLIC = new Function('return ' + (gs.match(/var PUBLIC_ACTIONS = (\[[\s\S]*?\]);/) || [])[1])();
 /* Listing them public would work today — the handlers check the secret — and be one careless edit
    away from an open payroll read. */
