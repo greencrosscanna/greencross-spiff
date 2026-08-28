@@ -1152,11 +1152,12 @@ function flyer_(p) {
   /* Dates are TEXT (YYYY-MM-DD) and compared as text. Lexicographic order IS chronological
      for that format, so this never coerces a Date and never trips the timezone shift. */
   var today = nowStamp_().slice(0, 10);
-  var running = null, recent = null;
+  var running = null, recent = null, alsoRunning = [];
   listPrograms_().forEach(function (pr) {
     var st = String(pr.status || '').toLowerCase(), s = pr.start_date || '', e = pr.end_date || '';
     if (!e) return;
     if (st !== 'closed' && s && s <= today && today <= e) {
+      alsoRunning.push(pr);
       if (!running || e < running.end_date) running = pr;   // the one ending soonest
     }
     if (e <= today && (!recent || e > recent.end_date)) recent = pr;
@@ -1165,9 +1166,16 @@ function flyer_(p) {
   /* No program running is a REAL state, not an error -- today every program on record is
      closed. Fall back to the most recently ended one so the page can still answer "what do
      I have coming", and flag which it is rather than letting the page guess. */
-  var prog = running || recent;
+  /* ?id= targets ONE program. The flyer paints its headline program first and then asks for
+     each "also running" figure separately, because each answer costs a sell-through call
+     (~9s): fetching all of them up front would put a phone screen behind half a minute of
+     nothing to look at. */
+  var wantProg = String(p.id || '').trim();
+  var prog = wantProg
+    ? listPrograms_().filter(function (x) { return String(x.program_id) === wantProg; })[0]
+    : (running || recent);
   if (!prog) return { ok: true, linked: true, employee: me, program: null,
-                      note: 'No SPIFF program on record yet.' };
+                      note: wantProg ? 'That program is not on record.' : 'No SPIFF program on record yet.' };
 
   var st = sellthrough_({ id: prog.program_id, store: store });
   if (!st.ok) return { ok: false, error: st.error || 'Could not read sell-through' };
@@ -1199,7 +1207,17 @@ function flyer_(p) {
       start_date: prog.start_date || '', end_date: prog.end_date || '',
       status: prog.status || '', payout_type: prog.payout_type || 'flat'
     },
-    mine: { units: units, target: Number(st.target) || 0, hit: hit, payout: payout, rate: Number(st.rate) || 0 }
+    mine: { units: units, target: Number(st.target) || 0, hit: hit, payout: payout, rate: Number(st.rate) || 0 },
+    /* IDENTITY ONLY — no sell-through, so this costs nothing. The flyer fetches each figure
+       on its own once the main card is on screen. Excludes whichever program is being shown. */
+    others: alsoRunning
+      .filter(function (x) { return String(x.program_id) !== String(prog.program_id); })
+      .map(function (x) {
+        return { program_id: x.program_id, name: x.program_name || x.title || '',
+                 vendor: x.vendor || '', payout_type: x.payout_type || 'flat',
+                 rate: (x.payout_json && x.payout_json.amount) || 0,
+                 end_date: x.end_date || '' };
+      })
   };
 }
 
