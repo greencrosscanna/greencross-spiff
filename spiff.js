@@ -401,8 +401,13 @@
       var by = Object.create(null);
       r.rows.forEach(function (row) {
         var g = by[row.program_id] || (by[row.program_id] = {
-          units: 0, hit: 0, bts: 0, stores: Object.create(null), refreshed_at: row.refreshed_at
+          units: 0, hit: 0, bts: 0, stores: Object.create(null), rows: [], refreshed_at: row.refreshed_at
         });
+        /* Kept per program so Reports can name the budtenders on the gift-card list. That list
+           used to say "per-budtender names need sell-through detail, which arrives with the
+           Progress tab" — the detail is here now, and a buy list without names is a list
+           nobody can take to a till. */
+        g.rows.push(row);
         g.units += Number(row.units) || 0;
         if (row.hit) g.hit++;
         g.bts++;
@@ -1701,7 +1706,11 @@
 
   /* A return in the hundreds of percent does not need a tenth of a point, and "695.8%" next to
      a 64px headline reads as false precision. pct() keeps the decimal for the record tables. */
-  function pctWhole(n) { return Math.round((Number(n) || 0) * 100) + '%'; }
+  function pctWhole(n) {
+    /* Grouped: a vendor return runs into the thousands of percent (2,521% on Mule), and an
+       ungrouped "2521%" is a number you have to count the digits of. */
+    return Math.round((Number(n) || 0) * 100).toLocaleString('en-US') + '%';
+  }
 
   /* Each store's reference cell owns its own state. It stays an EDITABLE input in every
      outcome -- a pull that fails or returns a figure Tawny knows is wrong must never leave
@@ -2620,7 +2629,62 @@
       if (!b) return;
       if (b.dataset.act === 'pdf')   fileReport(b);
       if (b.dataset.act === 'copy')  copyEmail(b);
+      if (b.dataset.act === 'print') window.print();
+      if (b.dataset.act === 'mailto') openInMail(b);
+      if (b.dataset.act === 'cards')  copyCards(b);
+      if (b.dataset.act === 'printcards') window.print();
     });
+  }
+
+  /* mailto: with the drafted subject and body. Deliberately does NOT send — it opens the
+     user's own client with the message in it, which is the whole rule this app follows about
+     vendors: a human presses send. Long bodies can exceed what some clients accept from a
+     mailto, so the copy button stays the reliable path and says so. */
+  function openInMail(btn) {
+    var to = ($('#repTo') || {}).value || '';
+    var subj = ($('#repSubj') || {}).value || '';
+    var body = ($('#repMail') || {}).value || '';
+    var url = 'mailto:' + encodeURIComponent(to)
+      + '?subject=' + encodeURIComponent(subj)
+      + '&body=' + encodeURIComponent(body);
+    if (url.length > 1800) {
+      btn.textContent = 'Too long — use Copy email';
+      setTimeout(function () { btn.textContent = 'Open in mail ↗'; }, 2600);
+      return;
+    }
+    window.location.href = url;
+  }
+
+  function copyCards(btn) {
+    var rows = $$('#repBody .sp-card-row').map(function (el) {
+      return el.querySelector('.sp-card-n').textContent + '\t'
+           + el.querySelector('.sp-hist-lbl').textContent + '\t'
+           + el.querySelector('.sp-card-v').textContent;
+    });
+    if (!rows.length) return;
+    /* Tab-separated so it pastes into a sheet as columns — the list gets handed to whoever
+       buys the cards, and they are not going to retype it. */
+    copyText(rows.join('\n'), btn, 'Copy buy list');
+  }
+
+  function copyText(text, btn, label) {
+    var done = function () {
+      btn.textContent = 'Copied';
+      setTimeout(function () { btn.textContent = label; }, 1800);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text, done); });
+    } else fallbackCopy(text, done);
+  }
+
+  function fallbackCopy(text, done) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) { /* nothing else to offer */ }
+    ta.remove();
   }
 
   function fillReportPicker() {
@@ -2635,16 +2699,34 @@
 
   async function renderReport() {
     var p = state.programs.filter(function (x) { return x.program_id === $('#repProgram').value; })[0];
-    if (!p) { $('#repBody').innerHTML = '<p class="hint">No closed programs yet.</p>'; return; }
+    var host = $('#repBody');
+    if (!p) { host.innerHTML = '<div class="sp-notice">No closed programs yet.</div>'; return; }
 
     var a    = p.actual_json || {};
+    var t    = p.target_json || {};
+    var base = p.baseline_json || {};
     var rate = a.spiff_amount || (p.payout_json || {}).amount || 0;
-    var owed = (a.bts_hit || 0) * rate;
+    var cache = progCache && progCache[p.program_id];
+    /* Prefer live/cached sell-through over the recorded actuals: a program being closed out
+       today may never have had actuals written, and the recorded ones are what the importer
+       flagged as possibly copied. */
+    var hit   = cache ? cache.hit : (a.bts_hit || 0);
+    var sold  = cache ? cache.units : (a.units_sold || 0);
+    var owed  = hit * rate;
+    var goal  = t.units || 0;
+    var before = base.units || 0;
+    var cost  = (p.cost_json || {}).per_unit || 0;
+    var extra = sold - before;
+    var added = extra * cost;
+    var net   = added - owed;
+
+    var chip = $('#repStatus');
+    if (chip) chip.innerHTML = '<span class="sp-chip is-' + esc(p.status) + '">' + esc(p.status) + '</span>';
 
     var suspect = a.duplicate_of && a.duplicate_of.length
-      ? '<div class="notice is-warn"><b>Check these numbers before sending.</b> This program\'s actuals are '
-        + 'identical to <b>' + esc(a.duplicate_of.join(', ')) + '</b> and may be copied from another tab. '
-        + 'A vendor credit built on them would be wrong.</div>'
+      ? '<div class="sp-notice is-bad"><span class="sp-notice-l">Check these numbers before sending</span>'
+        + 'These actuals are identical to <b>' + esc(a.duplicate_of.join(', ')) + '</b> and may be copied '
+        + 'from another tab. A vendor credit built on them would be wrong.</div>'
       : '';
 
     var mail = { subject: '', body: '' };
@@ -2653,36 +2735,136 @@
       if (r && r.ok) mail = r;
     } catch (e) { console.error('[spiff] email draft failed:', e); }
 
-    $('#repBody').innerHTML = suspect
-      + '<div class="rep-grid">'
-      +   '<div class="rep-card">'
-      +     '<h4>What the vendor owes</h4>'
-      +     '<div class="rep-owed"><b>' + money(owed) + '</b>'
-      +       '<span>' + (a.bts_hit || 0) + ' budtenders × ' + money(rate) + '</span></div>'
-      +     '<dl class="rep-facts">'
-      +       '<dt>Units sold</dt><dd>' + (a.units_sold || 0).toLocaleString() + '</dd>'
-      +       '<dt>Target</dt><dd>' + ((p.target_json || {}).units || 0).toLocaleString() + '</dd>'
-      +       '<dt>Period</dt><dd>' + (p.start_date ? esc(p.start_date) + ' → ' + esc(p.end_date || '') : '—') + '</dd>'
-      +     '</dl>'
-      +     '<button class="gx-btn gx-btn-green" data-act="pdf">Save PDF to Drive</button>'
-      +     '<p class="hint">Files it in the SPIFF close-out folder as '
-      +       '<code>SPIFF_Sales Report - ' + esc(p.vendor) + ' - MMDDYY.pdf</code>.</p>'
-      +   '</div>'
-      +   '<div class="rep-card">'
-      +     '<h4>Vendor email &mdash; draft</h4>'
-      +     '<input class="gx-input" id="repSubj" value="' + esc(mail.subject) + '" readonly>'
-      +     '<textarea class="gx-input rep-mail" id="repMail" rows="14" readonly>' + esc(mail.body) + '</textarea>'
-      +     '<button class="gx-btn" data-act="copy">Copy email</button>'
-      +     '<p class="hint">Copy into your mail client, attach the PDF, and send it yourself. '
-      +       'The app has no ability to email a vendor.</p>'
-      +   '</div>'
-      +   '<div class="rep-card">'
-      +     '<h4>Gift cards</h4>'
-      +     '<div class="rep-owed"><b>' + money(owed) + '</b><span>to buy in gift cards</span></div>'
-      +     '<p class="hint">Per-budtender names need sell-through detail, which arrives with the '
-      +       'Progress tab. This program recorded <b>' + (a.bts_hit || 0) + '</b> budtenders at '
-      +       money(rate) + ' each.</p>'
-      +   '</div>'
+    /* Per-store rollup for the vendor's table, from the same cached rows the gift list uses. */
+    var byStore = Object.create(null);
+    (cache && cache.rows || []).forEach(function (row) {
+      var g = byStore[row.store_id] || (byStore[row.store_id] = { sold: 0, hit: 0, bts: 0 });
+      g.sold += Number(row.units) || 0; g.bts++; if (row.hit) g.hit++;
+    });
+    var storeIds = Object.keys(byStore);
+    var storeRows = storeIds.map(function (id) {
+      var g = byStore[id];
+      var bBefore = (base.by_store || {})[id] || 0;
+      var bGoal   = (t.by_store || {})[id] || 0;
+      return '<tr><td>' + esc(storeName(id)) + '</td>'
+        + '<td class="num">' + bBefore.toLocaleString() + '</td>'
+        + '<td class="num">' + bGoal.toLocaleString() + '</td>'
+        + '<td class="num"><b>' + g.sold.toLocaleString() + '</b></td>'
+        + '<td class="num">' + g.hit + ' / ' + g.bts + '</td></tr>';
+    }).join('');
+
+    host.innerHTML = suspect
+      + '<div class="sp-rep-hero">'
+      +   '<div><div class="sp-rep-owed-l">The vendor owes</div>'
+      +     '<div class="sp-rep-owed-v">' + money(owed) + '</div>'
+      +     '<div class="sp-rep-owed-s">' + hit + ' budtender' + (hit === 1 ? '' : 's') + ' &times; ' + money(rate) + '</div></div>'
+      +   '<dl class="sp-rep-facts">'
+      +     '<dt>Units sold</dt><dd>' + sold.toLocaleString() + '</dd>'
+      +     '<dt>Goal</dt><dd>' + goal.toLocaleString()
+      +       (goal ? ' <span class="' + (sold >= goal ? 'up' : 'down') + '">' + (sold - goal >= 0 ? '+' : '') + (sold - goal).toLocaleString() + '</span>' : '') + '</dd>'
+      +     '<dt>Period</dt><dd>' + (p.start_date ? esc(prettyDay(p.start_date)) + ' → ' + esc(prettyDay(p.end_date || '')) : '—') + '</dd>'
+      +     '<dt>Stores</dt><dd>' + (p.stores_json || []).map(function (id) {
+              return '<span class="sp-dot" style="--dot:' + esc(storeColor(id)) + '" title="' + esc(storeName(id)) + '"></span>';
+            }).join(' ') + '</dd>'
+      +   '</dl>'
+      +   '<div style="text-align:right"><div class="sp-rep-ret-l">Vendor&rsquo;s return</div>'
+      +     '<div class="sp-rep-ret-v">' + (owed ? pctWhole(net / owed) : '—') + '</div>'
+      +     '<div class="sp-rep-ret-s">' + money(added) + ' sell-through, net ' + money(net) + '</div></div>'
+      + '</div>'
+
+      /* ---- step 1: the artefact the vendor receives */
+      + '<div class="sp-step" id="repStep1">'
+      +   '<div class="sp-step-h"><span class="sp-step-n">1</span><h4>File the vendor report</h4>'
+      +     '<span class="sp-step-note" id="repStep1Note">saved to the SPIFF Reports folder in Drive</span></div>'
+      +   '<div class="sp-step-b">'
+      +     '<div class="sp-paper" id="printArea">'
+      +       '<div class="sp-paper-h"><div class="sp-paper-mark">GC</div>'
+      +         '<div class="sp-paper-t"><h3>' + esc(p.program_name || p.title) + ' &mdash; SPIFF results</h3>'
+      +           '<p>Green Cross Cannabis Emporium &middot; ' + esc(prettyDay(p.start_date)) + ' &ndash; '
+      +             esc(prettyDay(p.end_date || '')) + '</p></div>'
+      +         '<div class="sp-paper-credit"><div class="sp-paper-credit-l">Credit requested</div>'
+      +           '<div class="sp-paper-credit-v">' + money(owed) + '</div></div></div>'
+      +       '<div class="sp-paper-stats">'
+      +         paperStat('Units sold', sold.toLocaleString(), goal ? (sold - goal >= 0 ? '+' : '') + (sold - goal).toLocaleString() + ' over goal' : '', sold >= goal)
+      +         paperStat('Growth', before ? (extra >= 0 ? '+' : '') + Math.round((extra / before) * 100) + '%' : '—', before ? 'vs. ' + before.toLocaleString() + ' before' : '', extra > 0)
+      +         paperStat('Added sell-through', money(added), extra.toLocaleString() + ' extra units', added > 0)
+      +         paperStat('Return on SPIFF', owed ? pctWhole(net / owed) : '—', 'net ' + money(net), net > 0)
+      +       '</div>'
+      +       (storeRows
+          ? '<table><thead><tr><th>Store</th><th class="num">Before</th><th class="num">Goal</th>'
+            + '<th class="num">Sold</th><th class="num">Hit</th></tr></thead><tbody>' + storeRows
+            + '<tr class="tot"><td>Total</td><td class="num">' + before.toLocaleString() + '</td>'
+            + '<td class="num">' + goal.toLocaleString() + '</td><td class="num">' + sold.toLocaleString() + '</td>'
+            + '<td class="num">' + hit + ' / ' + (cache ? cache.bts : (t.budtenders || 0)) + '</td></tr></tbody></table>'
+          : '<p style="color:#5a635f;font-size:11.5px">Per-store detail appears once sell-through has been pulled for this program.</p>')
+      +       '<div class="sp-paper-file">SPIFF_Sales Report - ' + esc(p.vendor) + ' - ' + esc(fileStamp(p)) + '.pdf'
+      +         (p.contact_name ? ' &middot; prepared for ' + esc(p.contact_name) + ', ' + esc(p.vendor) : '') + '</div>'
+      +     '</div>'
+      +     '<div class="sp-step-actions">'
+      +       '<button class="gx-btn gx-btn-green" data-act="pdf">Save PDF to Drive</button>'
+      +       '<button class="gx-btn" data-act="print">Print</button>'
+      +     '</div>'
+      +   '</div></div>'
+
+      /* ---- step 2: the message a human sends */
+      + '<div class="sp-step" id="repStep2">'
+      +   '<div class="sp-step-h"><span class="sp-step-n">2</span><h4>Send the vendor email</h4>'
+      +     '<span class="sp-step-note">draft &mdash; you send it</span></div>'
+      +   '<div class="sp-step-b">'
+      +     '<div class="sp-mail-f">'
+      +       '<label for="repTo">To</label><input class="sp-in" id="repTo" value="' + esc(p.contact_email || '') + '" placeholder="no contact email on this record">'
+      +       '<label for="repSubj">Subject</label><input class="sp-in" id="repSubj" value="' + esc(mail.subject) + '">'
+      +     '</div>'
+      +     '<textarea class="sp-mail-body" id="repMail">' + esc(mail.body) + '</textarea>'
+      +     '<div class="sp-step-actions">'
+      +       '<button class="gx-btn" data-act="copy">Copy email</button>'
+      +       '<button class="gx-btn" data-act="mailto">Open in mail &#8599;</button>'
+      +     '</div>'
+      +     '<p class="sp-step-hint">The app cannot email a vendor. Attach the PDF and send it yourself.</p>'
+      +   '</div></div>'
+
+      /* ---- step 3: what staff actually get */
+      + '<div class="sp-step" id="repStep3">'
+      +   '<div class="sp-step-h"><span class="sp-step-n">3</span><h4>Buy the gift cards</h4>'
+      +     '<span class="sp-step-note">' + money(owed) + ' &middot; ' + hit + ' card' + (hit === 1 ? '' : 's') + ' at ' + money(rate) + '</span></div>'
+      +   '<div class="sp-step-b">' + giftList(p, cache, rate) + '</div></div>';
+
+    var to = $('#repTo');
+    if (to && !p.contact_email) to.classList.add('sp-driving');
+  }
+
+  function paperStat(label, value, sub, good) {
+    return '<div class="sp-paper-s' + (good ? ' is-pos' : '') + '"><div class="sp-paper-s-l">' + esc(label) + '</div>'
+      + '<div class="sp-paper-s-v">' + esc(String(value)) + '</div>'
+      + '<div class="sp-paper-s-s">' + esc(sub) + '</div></div>';
+  }
+
+  /* MMDDYY, matching the filenames already in the SPIFF Reports folder
+     (SPIFF_Sales Report - Gron - 092925.pdf) so the close-outs keep sorting together. */
+  function fileStamp(p) {
+    var d = String(p.end_date || today()).split('-');
+    return d.length === 3 ? d[1] + d[2] + d[0].slice(2) : '';
+  }
+
+  /* The buy list, by name and store. Only budtenders who actually HIT — paying someone who
+     missed is the one thing this program promises not to do. */
+  function giftList(p, cache, rate) {
+    var winners = (cache && cache.rows || []).filter(function (r) { return r.hit; });
+    if (!winners.length) {
+      return '<div class="sp-notice"><span class="sp-notice-l">No names yet</span>'
+        + 'Pull this program on the Progress tab and the buy list fills in with who earned what.</div>';
+    }
+    winners.sort(function (x, y) { return String(x.store_id).localeCompare(String(y.store_id)) || String(x.name).localeCompare(String(y.name)); });
+    return '<div class="sp-cards">' + winners.map(function (w) {
+        return '<div class="sp-card-row" style="--dot:' + esc(storeColor(w.store_id)) + '">'
+          + '<span class="sp-dot"></span>'
+          + '<span class="sp-card-n">' + esc(w.name) + '</span>'
+          + '<span class="sp-hist-lbl">' + esc(storeName(w.store_id)) + '</span>'
+          + '<span class="sp-card-v">' + money(w.earned || rate) + '</span></div>';
+      }).join('') + '</div>'
+      + '<div class="sp-step-actions">'
+      +   '<button class="gx-btn" data-act="cards">Copy buy list</button>'
+      +   '<button class="gx-btn" data-act="printcards">Print</button>'
       + '</div>';
   }
 
@@ -2769,12 +2951,15 @@
     }, { units: 0, spend: 0, roi: 0 });
 
     $('#hStats').innerHTML =
-        histStat(list.length, list.length === 1 ? 'program' : 'programs')
-      + histStat(t.units.toLocaleString(), 'units sold')
-      + histStat(money(t.spend), 'paid in SPIFF')
-      + histStat(money(t.roi), 'net return', t.roi < 0 ? 'neg' : 'pos');
+        statTile(list.length.toLocaleString(), list.length === 1 ? 'program on record' : 'programs on record', '')
+      + statTile(t.units.toLocaleString(), 'units sold', '')
+      + statTile(money(t.spend), 'paid in SPIFF', '')
+      + statTile((t.roi >= 0 ? '+' : '') + money(t.roi), 'net return', t.roi < 0 ? 'is-neg' : 'is-pos');
 
-    if (!list.length) { $('#hList').innerHTML = '<p class="hint">Nothing matches.</p>'; return; }
+    if (!list.length) {
+      $('#hList').innerHTML = '<div class="sp-hist-empty">Nothing matches those filters.</div>';
+      return;
+    }
 
     // Group by month — a pay period lives inside one, and it makes "9 periods ago"
     // countable by eye.
@@ -2790,15 +2975,24 @@
       return b.localeCompare(a);
     });
 
+    /* Each month carries its own totals in the sticky header. Scrolling to "9 periods ago"
+       and seeing what that month cost and returned is the question this screen exists for —
+       having to add the rows up by eye would defeat it. */
     $('#hList').innerHTML = keys.map(function (k) {
-      return '<div class="hist-group"><h3>' + esc(monthLabel(k)) + '</h3>'
-        + groups[k].map(histRow).join('') + '</div>';
+      var g = groups[k];
+      var m = g.reduce(function (acc, p) {
+        var a = p.actual_json || {};
+        acc.spend += (a.bts_hit || 0) * (a.spiff_amount || (p.payout_json || {}).amount || 0);
+        acc.roi   += a.roi || 0;
+        return acc;
+      }, { spend: 0, roi: 0 });
+      return '<div class="sp-month"><h3>' + esc(monthLabel(k)) + '</h3>'
+        + '<span class="sp-month-sum">' + g.length + ' program' + (g.length === 1 ? '' : 's')
+        +   ' &middot; ' + money(m.spend) + ' paid &middot; ' + (m.roi >= 0 ? '+' : '') + money(m.roi) + '</span></div>'
+        + '<div class="sp-hist-list">' + g.map(histRow).join('') + '</div>';
     }).join('');
   }
 
-  function histStat(value, label, tone) {
-    return '<div class="hist-stat' + (tone ? ' is-' + tone : '') + '"><b>' + value + '</b><span>' + esc(label) + '</span></div>';
-  }
 
   function monthLabel(k) {
     if (k === 'No period') return 'No period recorded';
@@ -2810,21 +3004,32 @@
   function histRow(p) {
     var a    = p.actual_json || {};
     var rate = a.spiff_amount || (p.payout_json || {}).amount || 0;
-    var flags = '';
-    if ((a.duplicate_of || []).length) flags += '<span class="flag is-warn">actuals may be copied</span>';
-    if (a.rate_changed) flags += '<span class="flag">rate ' + money((p.payout_json || {}).amount) + '&rarr;' + money(a.spiff_amount) + '</span>';
-    if (p.edited_by) flags += '<span class="flag is-ok">corrected by ' + esc(p.edited_by) + '</span>';
+    var tgt  = (p.target_json || {}).units || 0;
+    var sold = a.units_sold || 0;
+    var d    = tgt ? sold - tgt : null;
+    var dupe = (a.duplicate_of || []).length;
 
-    return '<div class="hist-row" data-id="' + esc(p.program_id) + '" tabindex="0">'
-      + '<div class="hist-main"><b>' + esc(p.program_name || p.title) + '</b>'
-      +   '<span class="hist-sub">' + esc(p.vendor) + ' · ' + esc(p.start_date || '—') + ' → ' + esc(p.end_date || '—') + '</span>'
-      +   (flags ? '<div class="hist-flags">' + flags + '</div>' : '')
+    var flag = '';
+    if (dupe) flag = '<span class="sp-flag is-bad" title="Identical actuals to '
+      + esc(a.duplicate_of.join(', ')) + '">actuals match ' + esc(a.duplicate_of.join(', ')) + ' &mdash; verify</span>';
+    else if (a.rate_changed) flag = '<span class="sp-flag is-warn">rate ' + money((p.payout_json || {}).amount)
+      + ' &rarr; ' + money(a.spiff_amount) + '</span>';
+
+    return '<div class="sp-hist-row' + (dupe ? ' is-suspect' : p.edited_by ? ' is-edited' : '')
+      + '" data-id="' + esc(p.program_id) + '" tabindex="0" role="button">'
+      + '<div><div class="sp-hist-n">' + esc(p.program_name || p.title)
+      +   (p.edited_by ? '<span class="sp-tag-edited">corrected by ' + esc(p.edited_by) + '</span>' : '') + '</div>'
+      +   '<div class="sp-hist-s">' + esc(p.vendor) + ' &middot; '
+      +     esc(p.start_date ? prettyDay(p.start_date) : '—') + ' &rarr; '
+      +     esc(p.end_date ? prettyDay(p.end_date) : '—') + '</div>'
+      +   (flag ? '<div>' + flag + '</div>' : '')
       + '</div>'
-      + '<div class="hist-nums">'
-      +   '<span><b>' + (a.units_sold || 0).toLocaleString() + '</b> sold</span>'
-      +   '<span><b>' + (a.bts_hit || 0) + '</b> hit × ' + money(rate) + '</span>'
-      +   '<span class="' + (a.roi < 0 ? 'neg' : '') + '"><b>' + money(a.roi) + '</b> ROI</span>'
-      + '</div></div>';
+      + '<div class="num"><b>' + sold.toLocaleString() + '</b> <span class="sp-hist-lbl">sold</span>'
+      +   (d == null ? '' : ' <span class="sp-delta ' + (d >= 0 ? 'up' : 'down') + '">' + (d >= 0 ? '+' : '') + d.toLocaleString() + '</span>') + '</div>'
+      + '<div class="num"><b>' + (a.bts_hit || 0) + '</b> <span class="sp-hist-lbl">hit &times; ' + money(rate) + '</span></div>'
+      + '<div class="num sp-money ' + (a.roi < 0 ? 'is-neg' : 'is-pos') + '"><b>'
+      +   (a.roi >= 0 ? '+' : '') + money(a.roi) + '</b> <span class="sp-hist-lbl">ROI</span></div>'
+      + '</div>';
   }
 
   /* -------------------------------------------------------------- progress

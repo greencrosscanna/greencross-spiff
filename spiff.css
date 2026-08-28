@@ -416,7 +416,10 @@ body.is-gated .workspace { display: none !important; }
 .sp-pill:hover { color: var(--gx-text); border-color: var(--gx-border-strong); }
 .sp-pill.is-on { color: var(--gx-text); border-color: var(--dot, var(--gx-green)); }
 .sp-pill:focus-visible { outline: 2px solid var(--gx-green); outline-offset: 1px; }
-.sp-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dot, var(--gx-text-mute)); flex: none; }
+/* inline-block, not the default inline: as a flex ITEM (pills, store tags) width/height
+   applied fine, but dropped into ordinary inline flow — the Reports "Stores" row — an inline
+   span ignores both and the dots vanished entirely. */
+.sp-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--dot, var(--gx-text-mute)); flex: none; }
 .sp-pill-n { color: var(--gx-text-mute); font-variant-numeric: tabular-nums; }
 .sp-subnav-right { margin-left: auto; display: flex; gap: 8px; }
 
@@ -1070,3 +1073,132 @@ body.is-gated .workspace { display: none !important; }
 .sp-head-note.is-partial { color: var(--gx-gold); }
 .sp-head-note.is-partial .sp-live-dot { background: var(--gx-gold); }
 @media (prefers-reduced-motion: reduce) { .sp-bar.is-over > .sp-bar-fill::after { animation: none; } }
+
+/* ══════════════════════════════════════════════════════════ 1e  REPORTS ══ */
+/* Three steps in order: review, file, send. Each is a numbered block, because close-out is a
+   sequence with a wrong order — emailing a vendor before the PDF exists means attaching nothing. */
+
+.sp-rep-hero {
+  display: grid; grid-template-columns: minmax(200px,1fr) 2fr minmax(200px,1fr);
+  gap: 20px; align-items: center;
+  background: var(--gx-surface); border: 1px solid var(--gx-border);
+  border-radius: var(--gx-radius-xl); padding: 20px 22px; margin-bottom: 22px;
+}
+.sp-rep-owed-l, .sp-rep-ret-l { font-size: 10px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; color: var(--gx-text-mute); }
+.sp-rep-owed-v { font-family: var(--sp-display); font-size: 38px; font-weight: 800; line-height: 1.05; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.sp-rep-owed-s, .sp-rep-ret-s { font-size: 12px; color: var(--gx-text-dim); margin-top: 5px; font-variant-numeric: tabular-nums; }
+.sp-rep-ret-v { font-family: var(--sp-display); font-size: 30px; font-weight: 800; line-height: 1.05; margin-top: 6px; color: var(--gx-green-bright); font-variant-numeric: tabular-nums; }
+.sp-rep-facts { display: grid; grid-template-columns: auto 1fr; gap: 7px 16px; margin: 0; font-size: 12.5px; align-items: baseline; }
+.sp-rep-facts dt { color: var(--gx-text-mute); }
+.sp-rep-facts dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
+.sp-rep-facts .up { color: var(--gx-green); font-weight: 600; }
+.sp-rep-facts .down { color: var(--gx-red); font-weight: 600; }
+
+.sp-step { border: 1px solid var(--gx-border); border-radius: var(--gx-radius-xl); background: var(--gx-surface); margin-bottom: 14px; overflow: hidden; }
+.sp-step-h { display: flex; align-items: center; gap: 11px; padding: 14px 18px; border-bottom: 1px solid var(--sp-divider); }
+.sp-step-n {
+  width: 22px; height: 22px; border-radius: 50%; flex: none;
+  background: var(--gx-surface-3); color: var(--gx-text-dim);
+  font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+}
+.sp-step.is-done .sp-step-n { background: var(--gx-green); color: var(--gx-green-ink); }
+.sp-step-h h4 { margin: 0; font-size: 13.5px; font-weight: 600; }
+.sp-step-note { margin-left: auto; font-size: 11.5px; color: var(--gx-text-mute); }
+.sp-step-b { padding: 18px; }
+.sp-step-actions { display: flex; gap: 9px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+.sp-step-hint { font-size: 11.5px; color: var(--gx-text-mute); margin: 10px 0 0; line-height: 1.5; }
+
+/* The close-out preview is LIGHT because it is going to be a PDF and then a printout on a
+   vendor's desk. Showing it dark would be showing something other than the artefact. */
+.sp-paper {
+  background: #fff; color: #1a1f1d; border-radius: var(--gx-radius-lg);
+  padding: 26px 28px; font-size: 12.5px; line-height: 1.5;
+}
+.sp-paper-h { display: flex; align-items: flex-start; gap: 14px; border-bottom: 2px solid #1a1f1d; padding-bottom: 14px; }
+.sp-paper-mark { width: 34px; height: 34px; border-radius: 8px; background: #1a1f1d; color: #4ade80; font-weight: 800; font-size: 13px; display: flex; align-items: center; justify-content: center; flex: none; }
+.sp-paper-t { flex: 1; min-width: 0; }
+.sp-paper-t h3 { margin: 0; font-family: var(--sp-display); font-size: 18px; font-weight: 800; color: #1a1f1d; }
+.sp-paper-t p { margin: 3px 0 0; font-size: 11.5px; color: #5a635f; }
+.sp-paper-credit { text-align: right; flex: none; }
+.sp-paper-credit-l { font-size: 9.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #5a635f; }
+.sp-paper-credit-v { font-family: var(--sp-display); font-size: 26px; font-weight: 800; color: #1a1f1d; font-variant-numeric: tabular-nums; }
+/* Growth leads, not the program terms — the vendor is being shown what they got. */
+.sp-paper-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 20px 0; }
+.sp-paper-s-l { font-size: 9.5px; font-weight: 700; letter-spacing: .9px; text-transform: uppercase; color: #5a635f; }
+.sp-paper-s-v { font-family: var(--sp-display); font-size: 22px; font-weight: 800; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.sp-paper-s-s { font-size: 11px; color: #5a635f; font-variant-numeric: tabular-nums; }
+.sp-paper-s.is-pos .sp-paper-s-v { color: #16833f; }
+.sp-paper table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.sp-paper th { text-align: left; padding: 7px 9px; font-size: 9.5px; font-weight: 700; letter-spacing: .9px; text-transform: uppercase; color: #5a635f; border-bottom: 1px solid #d7dedb; }
+.sp-paper td { padding: 7px 9px; border-bottom: 1px solid #eef2f0; font-variant-numeric: tabular-nums; }
+.sp-paper th.num, .sp-paper td.num { text-align: right; }
+.sp-paper tr.tot td { font-weight: 700; border-top: 1px solid #1a1f1d; border-bottom: 0; }
+.sp-paper-file { margin-top: 16px; font-size: 11px; color: #5a635f; }
+
+.sp-mail-f { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; align-items: center; font-size: 12.5px; }
+.sp-mail-f label { color: var(--gx-text-mute); font-size: 11px; text-transform: uppercase; letter-spacing: .8px; }
+.sp-mail-body {
+  width: 100%; box-sizing: border-box; margin-top: 12px;
+  background: var(--sp-inset); border: 1px solid var(--gx-border); border-radius: var(--gx-radius-md);
+  color: var(--gx-text); padding: 12px 14px; font: inherit; font-size: 12.5px; line-height: 1.6;
+  resize: vertical; min-height: 190px;
+}
+
+/* Gift cards: a buy list someone reads aloud at a till. Names and stores, nothing else. */
+.sp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+.sp-card-row {
+  display: flex; align-items: center; gap: 9px; padding: 8px 11px;
+  background: var(--sp-inset); border: 1px solid var(--gx-border); border-radius: 7px; font-size: 12.5px;
+}
+.sp-card-row .sp-dot { width: 7px; height: 7px; }
+.sp-card-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-card-v { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+@media print {
+  body > *:not(#printArea) { display: none !important; }
+  #printArea { display: block !important; }
+}
+@media (max-width: 1000px) {
+  .sp-rep-hero { grid-template-columns: 1fr; }
+  .sp-paper-stats { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ══════════════════════════════════════════════════════════ 1f  HISTORY ══ */
+/* The lookup surface: "what did we run 9 periods ago", "last time we did a Wyld SPIFF". Dense,
+   grouped by month, sticky labels so the month stays visible while scrolling its programs. */
+
+.sp-hist-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 22px; }
+.sp-month {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 9px 4px; margin-top: 18px;
+  background: var(--gx-bg); border-bottom: 1px solid var(--gx-border);
+}
+.sp-month h3 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: var(--gx-text-dim); }
+.sp-month-sum { font-size: 11.5px; color: var(--gx-text-mute); font-variant-numeric: tabular-nums; }
+.sp-hist-list { border: 1px solid var(--gx-border); border-top: 0; border-radius: 0 0 var(--gx-radius-xl) var(--gx-radius-xl); overflow: hidden; }
+.sp-hist-row {
+  display: grid; align-items: center; gap: 14px;
+  grid-template-columns: minmax(180px, 1.5fr) 120px 110px 110px;
+  padding: 12px 18px; background: var(--gx-surface);
+  border-bottom: 1px solid var(--sp-divider); cursor: pointer; font-size: 12.5px;
+}
+.sp-hist-row:last-child { border-bottom: 0; }
+.sp-hist-row:hover { background: var(--gx-surface-2); }
+.sp-hist-row:focus-visible { outline: 2px solid var(--gx-green); outline-offset: -2px; }
+.sp-hist-row.is-suspect { border-left: 3px solid var(--gx-red); }
+.sp-hist-row.is-edited { border-left: 3px solid var(--gx-green-dim); }
+.sp-hist-n { font-weight: 600; }
+.sp-hist-s { font-size: 11.5px; color: var(--gx-text-mute); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.sp-hist-row .num { text-align: right; font-variant-numeric: tabular-nums; }
+.sp-hist-lbl { font-size: 11px; color: var(--gx-text-mute); }
+.sp-hist-empty { padding: 30px 20px; text-align: center; color: var(--gx-text-mute); font-size: 13px; }
+.sp-tag-edited {
+  font-size: 9.5px; letter-spacing: .8px; text-transform: uppercase;
+  color: var(--gx-green); border: 1px solid var(--gx-green-dim); border-radius: 4px;
+  padding: 1px 5px; margin-left: 7px;
+}
+@media (max-width: 1000px) {
+  .sp-hist-stats { grid-template-columns: repeat(2, 1fr); }
+  .sp-hist-row { grid-template-columns: 1fr auto; row-gap: 6px; }
+}
