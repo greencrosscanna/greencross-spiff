@@ -988,3 +988,20 @@ body.is-gated .workspace { display: none !important; }
    clipped dropdown for a modal whose Save button walks off the bottom of the screen. Instead
    the menu is kept short enough to sit inside the body, and scrolls itself when it is not. */
 .modal-body .sp-pick-menu { max-height: 220px; }
+
+/* Read-only plan summary in the record. Deliberately not inputs — the Calculator edits these. */
+.sp-plan { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 4px; }
+.sp-plan-c { background: var(--sp-inset); border: 1px solid var(--gx-border); border-radius: 9px; padding: 10px 12px; }
+.sp-plan-l { font-size: 9.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--gx-text-mute); }
+.sp-plan-v { font-size: 13.5px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+/* The Calculator has to say which program it is editing, or Save silently forks a duplicate. */
+.sp-editing {
+  display: inline-flex; align-items: center; gap: 9px;
+  font-size: 11.5px; color: var(--gx-gold);
+  border: 1px solid var(--gx-gold-line); background: var(--gx-gold-soft);
+  border-radius: var(--gx-radius-pill); padding: 4px 6px 4px 12px;
+}
+.sp-editing b { color: var(--gx-text); }
+.sp-editing .gx-btn { padding: 3px 9px; font-size: 11px; }
+@media (max-width: 900px) { .sp-plan { grid-template-columns: repeat(2, 1fr); } }

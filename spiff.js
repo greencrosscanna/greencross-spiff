@@ -775,6 +775,11 @@
     return recField(label, key, iso, 'date');
   }
 
+  function planCell(label, value) {
+    return '<div class="sp-plan-c"><div class="sp-plan-l">' + esc(label) + '</div>'
+      + '<div class="sp-plan-v">' + esc(String(value == null ? '—' : value)) + '</div></div>';
+  }
+
   function selField(label, key, value, opts) {
     var ro = canEdit() ? '' : ' disabled';
     return '<label class="sp-fld"><span>' + esc(label) + '</span>'
@@ -849,12 +854,6 @@
             { v: 'active', l: 'Active — running now' },
             { v: 'closed', l: 'Closed — paid out' }
           ])
-      +   '<div class="sp-fld is-wide sp-pick"><span>Featured product</span>'
-      +     '<div class="sp-pick-input"><input id="rProduct" autocomplete="off" placeholder="Search this vendor’s products…" disabled'
-      +       ' role="combobox" aria-expanded="false" aria-controls="rProductMenu"></div>'
-      +     '<div class="sp-pick-menu" id="rProductMenu" role="listbox" hidden></div>'
-      +     '<div id="rChosen"></div>'
-      +     '<span class="sp-hint" id="rProductHint">Pick a vendor first.</span></div>'
       + '</div>'
 
       + '<h4 class="sp-h4">When it runs</h4>'
@@ -865,15 +864,35 @@
       +   dateField('End date', 'end_date', p.end_date)
       + '</div>'
 
-      + '<h4 class="sp-h4">The plan</h4>'
+      /* THE PLAN IS READ-ONLY HERE, and that is the point of the split. Everything below was
+         a flatter, worse copy of the Calculator: one target box against its per-store table,
+         one cost box against a picker that sources cost from Dutchie, no reference pull, no
+         scales panel. Two editors for one set of numbers means two answers to "what is this
+         program", and the weaker one wins whenever it is the one someone happens to open.
+         So this states the plan and hands off; identity, dates, contact and actuals — the
+         things the Calculator has no view of — stay editable right here. */
+      + '<div class="sp-h4-row"><h4 class="sp-h4">The plan</h4>'
+      +   '<span class="sp-h4-note">modelled in the Calculator</span>'
+      +   (canEdit()
+            ? '<button type="button" class="gx-btn" id="rEditParams" style="margin-left:auto">Edit parameters &rarr;</button>'
+            : '')
+      + '</div>'
+      + '<div class="sp-plan">'
+      +   planCell('Featured product', p.match_json && (p.match_json.filter_text || (p.match_json.products || []).join(', '))
+                   ? ((p.match_json.brand ? p.match_json.brand + ' · ' : '')
+                      + (p.match_json.filter_text || (p.match_json.products || []).join(', ')))
+                   : '— not set —')
+      +   planCell('Payout', money((p.payout_json || {}).amount) + ' ' + payoutLabel(p))
+      +   planCell('Cost per unit', money((p.cost_json || {}).per_unit))
+      +   planCell('Target units', ((p.target_json || {}).units || 0).toLocaleString())
+      +   planCell('Last month units', ((p.baseline_json || {}).units || 0).toLocaleString())
+      +   planCell('Budtenders', (p.target_json || {}).budtenders || '—')
+      + '</div>'
+
+      + '<h4 class="sp-h4">Contact</h4>'
       + '<div class="sp-flds">'
-      +   recField('SPIFF per budtender', 'payout_json.amount', (p.payout_json || {}).amount, 'number')
-      +   recField('Cost per unit', 'cost_json.per_unit', (p.cost_json || {}).per_unit, 'number')
-      +   recField('Target units', 'target_json.units', (p.target_json || {}).units, 'number')
-      +   recField('Last month units', 'baseline_json.units', (p.baseline_json || {}).units, 'number')
-      +   recField('Budtenders', 'target_json.budtenders', (p.target_json || {}).budtenders, 'number')
       +   recField('Vendor contact', 'contact_name', p.contact_name)
-      +   recField('Contact email', 'contact_email', p.contact_email, 'text', 'is-wide')
+      +   recField('Contact email', 'contact_email', p.contact_email)
       + '</div>'
 
       + '<div class="sp-h4-row"><h4 class="sp-h4">Actuals</h4>'
@@ -889,34 +908,16 @@
       +   recField('ROI % (decimal)', 'actual_json.roi_pct', a.roi_pct, 'number')
       + '</div>';
 
-    /* SAME picker instance factory as the Calculator — not a copy. The catalog is already
-       cached from any earlier use, so this usually mounts without a fetch. */
+    /* Vendor still autocompletes here — it is identity, not modelling, and a program filed
+       under a brand we do not carry is a data problem this screen owns. */
     recPicker = mountPicker({
-      vendor: '#rVendor', vendorMenu: '#rVendorMenu',
-      product: '#rProduct', productMenu: '#rProductMenu',
-      chosen: '#rChosen', hint: '#rProductHint',
-      onProduct: function (chosen, cost) {
-        /* Cost follows the product, exactly as in the Calculator. Written into the field the
-           patch collector reads, so it saves like anything the user typed. */
-        var el = $('#recordBody [data-key="cost_json.per_unit"]');
-        if (el) el.value = cost;
-        var mj = $('#recordBody [data-key="match_json"]');
-        if (mj) mj.value = JSON.stringify(matchOf(chosen));
-      }
+      vendor: '#rVendor', vendorMenu: '#rVendorMenu'
     });
-    if (recPicker) {
-      recPicker.setVendorSilently(p.vendor || '');
-      var mj0 = p.match_json || {};
-      if (mj0.brand || mj0.filter_text || (mj0.products || []).length) {
-        recPicker.setChosen({
-          label: mj0.filter_text ? (mj0.brand || '') + ' · ' + mj0.filter_text
-                                 : (mj0.products || []).join(', ') || (mj0.brand || 'current filter'),
-          brand: mj0.brand || '', filter_text: mj0.filter_text || '',
-          products: mj0.products || [], skus: (mj0.products || []).length || 0,
-          qty: 0, category: mj0.category || ''
-        });
-      }
-    }
+    /* Show the vendor this program is already filed under. Without this the field reads as a
+       blank waiting for input, which invites retyping a value that is already correct — and a
+       vendor typed slightly differently is a program that no longer groups with its own history. */
+    if (recPicker) recPicker.setVendorSilently(p.vendor || '');
+
     /* The saved match travels in a hidden field so collectPatch picks it up with everything
        else, instead of needing its own save path that could disagree about what changed. */
     $('#recordBody').insertAdjacentHTML('beforeend',
@@ -932,6 +933,9 @@
 
     var pull = $('#rPullActuals');
     if (pull) pull.addEventListener('click', function () { pullActuals(p, pull); });
+
+    var toCalc = $('#rEditParams');
+    if (toCalc) toCalc.addEventListener('click', function () { openInCalculator(p); });
 
     // Minting a vendor link exposes this program to an outside party, so it sits behind
     // the same role gate as editing and says plainly what it does.
@@ -1216,6 +1220,8 @@
   var calc = {
     name: '', vendor: '', cost: 10, spiff: 25, target: 0,
     model: 'flat',   // 'flat' | 'per_unit' — per_unit is real; see payoutLabel/CLAUDE.md
+    editingId: null, // set when the Calculator is updating an EXISTING program, not modelling a new one
+    window: null,    // that program's dates, carried for display only — the record owns them
     product: null,   // {label, brand, filter_text, products[], skus, qty} — the SPIFF's subject
     refRun: null,    // identity of the in-flight reference pull, so a stale one can be dropped
     stores: []       // [{ store_id, name, baseline, bts, refState, refUnits }]
@@ -1752,17 +1758,23 @@
      the modal after using the Calculator costs no fetch at all. */
   function mountPicker(cfg) {
     var vEl  = $(cfg.vendor), vMenu = $(cfg.vendorMenu);
-    var pEl  = $(cfg.product), pMenu = $(cfg.productMenu);
-    var chosenHost = $(cfg.chosen), hintEl = cfg.hint ? $(cfg.hint) : null;
-    if (!vEl || !pEl) return null;
+    var pEl  = cfg.product ? $(cfg.product) : null;
+    var pMenu = cfg.productMenu ? $(cfg.productMenu) : null;
+    var chosenHost = cfg.chosen ? $(cfg.chosen) : null, hintEl = cfg.hint ? $(cfg.hint) : null;
+    /* VENDOR-ONLY is a supported mount. The Edit Program modal autocompletes the vendor —
+       identity, which it owns — but sends product selection to the Calculator, so it has no
+       product elements to bind. Requiring both would have silently returned null and left the
+       vendor field a plain text box with no hint that anything was wrong. */
+    if (!vEl) return null;
+    var hasProduct = !!(pEl && pMenu);
 
     var open = Object.create(null);   // expanded groups, per mount
     var api = { chosen: null };
 
     function closeBoth() {
-      vMenu.hidden = true; pMenu.hidden = true;
+      vMenu.hidden = true;
       vEl.setAttribute('aria-expanded', 'false');
-      pEl.setAttribute('aria-expanded', 'false');
+      if (hasProduct) { pMenu.hidden = true; pEl.setAttribute('aria-expanded', 'false'); }
     }
 
     function renderVendors(q) {
@@ -1869,6 +1881,7 @@
     async function setVendor(name) {
       vEl.value = name;
       closeBoth();
+      if (!hasProduct) { if (cfg.onVendor) cfg.onVendor(name); return; }
       /* Changing vendor invalidates the product and everything derived from it. Leaving a
          Wyld product selected under vendor "Mule" is the kind of state that gets pitched. */
       api.chosen = null;
@@ -1893,6 +1906,7 @@
       setVendor(row.dataset.b);
     });
 
+    if (hasProduct) {
     pEl.addEventListener('focus', function () { if (pick.brand) renderProducts(pEl.value); });
     pEl.addEventListener('input', function () { renderProducts(pEl.value); });
     pMenu.addEventListener('mousedown', function (e) {
@@ -1908,15 +1922,17 @@
       var grp = (pMenu._groups || [])[Number(row.dataset.g)];
       if (grp) choose(grp, Number(row.dataset.c));
     });
+    }
     if (chosenHost) chosenHost.addEventListener('click', function (e) {
       if (!e.target.closest('[data-unpick]')) return;
-      api.chosen = null; renderChosen(); pEl.focus();
+      api.chosen = null; renderChosen(); if (hasProduct) pEl.focus();
     });
 
     api.close = closeBoth;
     api.renderChosen = renderChosen;
     api.setVendorSilently = function (name) {
       vEl.value = name || '';
+      if (!hasProduct) return;
       pEl.disabled = !name;
       if (name) { pEl.placeholder = 'Search ' + name + '’s products…'; loadBrandProducts(name); }
     };
@@ -1996,6 +2012,84 @@
     return q ? c / q : (g.items[0].cost || 0);
   }
   function groupQty(g) { return g.items.reduce(function (n, p) { return n + (p.qty || 0); }, 0); }
+
+  /* ─────────────── record → Calculator hand-off ───────────────
+     The modal owns identity, dates, contact and actuals; the Calculator owns the model. This
+     is the seam between them. It carries EVERYTHING the Calculator needs, including the
+     per-store references, so the target it shows is the target this program was actually set
+     against rather than one recomputed from a fresh 28-day pull.
+
+     UNSAVED EDITS IN THE MODAL ARE CARRIED TOO. Changing the payout here and then clicking
+     through would otherwise model the old rate, and nothing on the Calculator would say so. */
+  function openInCalculator(p) {
+    var patch = collectPatch(p);
+    var merged = Object.assign({}, p, patch);
+    if (Object.keys(patch).length) {
+      /* Say it plainly rather than silently binding unsaved values into the model. */
+      $('#recordMsg').textContent = 'Carrying your unsaved changes to the Calculator.';
+    }
+
+    calc.editingId = p.program_id;
+    calc.name   = merged.program_name || merged.title || '';
+    calc.vendor = merged.vendor || '';
+    calc.cost   = (merged.cost_json || {}).per_unit || 0;
+    calc.spiff  = (merged.payout_json || {}).amount || 0;
+    calc.model  = (merged.payout_json || {}).model || merged.payout_type || 'flat';
+    calc.target = (merged.target_json || {}).units || 0;
+    calc.window = { start: merged.start_date || '', end: merged.end_date || '' };
+
+    var mj = merged.match_json || {};
+    calc.product = (mj.filter_text || (mj.products || []).length)
+      ? { label: (mj.brand ? mj.brand + ' · ' : '') + (mj.filter_text || (mj.products || []).join(', ')),
+          brand: mj.brand || '', filter_text: mj.filter_text || '', products: mj.products || [],
+          skus: (mj.products || []).length || 0, qty: 0, category: mj.category || '' }
+      : null;
+
+    var base = merged.baseline_json || {};
+    calc.stores = state.stores.map(function (st) {
+      var b = (base.by_store || {})[st.store_id];
+      var perBt = (base.per_bt || {})[st.store_id];
+      return {
+        store_id: st.store_id, name: st.display_name || st.store_id,
+        baseline: b || 0,
+        bts: perBt ? Math.max(1, Math.round((b || 0) / perBt)) : 6
+      };
+    });
+
+    $('#cName').value = calc.name;
+    $('#cCost').value = calc.cost;
+    $('#cSpiff').value = calc.spiff;
+    $('#cTarget').value = calc.target;
+    $$('#cModel button').forEach(function (x) { x.classList.toggle('is-on', x.dataset.model === calc.model); });
+    if (calcPicker) {
+      calcPicker.setVendorSilently(calc.vendor);
+      calcPicker.setChosen(calc.product);
+    }
+    closeRecord();
+    showTab('calculator');
+    recalc(PULSE_ALL);
+    renderCalcEditing();
+  }
+
+  /* The Calculator has to say WHICH program it is editing, or "Save as program" silently forks
+     a duplicate off a record Tawny thought she was updating. */
+  function renderCalcEditing() {
+    var btn = $('#calcSave'), bar = $('#calcEditing');
+    var editing = !!calc.editingId;
+    if (btn) btn.textContent = editing ? 'Update this program' : 'Save as program';
+    if (!bar) return;
+    bar.hidden = !editing;
+    if (!editing) return;
+    var win = calc.window && calc.window.start
+      ? prettyDay(calc.window.start) + ' → ' + prettyDay(calc.window.end || '?')
+      : 'no dates set';
+    bar.innerHTML = 'Editing <b>' + esc(calc.name || 'this program') + '</b> &middot; ' + esc(win)
+      + ' <button type="button" class="gx-btn" id="calcStopEditing">Stop editing</button>';
+    $('#calcStopEditing').addEventListener('click', function () {
+      calc.editingId = null; calc.window = null;
+      renderCalcEditing();
+    });
+  }
 
   /* ------------------------------------------------------- pitch mode (1c) */
   /* The Calculator, with the chrome taken away and the type scale raised, for showing a
@@ -2134,15 +2228,40 @@
     if (!calc.name) { alert('Give the program a name first.'); return; }
 
     var byStore = Object.create(null), perBt = Object.create(null);
+    var baseByStore = Object.create(null), basePerBt = Object.create(null);
     m.on.forEach(function (s) {
       byStore[s.store_id] = Math.round((Number(s.baseline) || 0) * m.ratio);
       perBt[s.store_id]   = s.bts ? Math.round(Math.round(s.baseline / s.bts) * m.ratio) : 0;
+      /* The per-store LAST-MONTH split is saved too. It is what openInCalculator reads back,
+         so without it a second trip through Edit parameters would open on zeroed references
+         and recompute a different target than the one the vendor agreed to. */
+      baseByStore[s.store_id] = Number(s.baseline) || 0;
+      basePerBt[s.store_id]   = s.bts ? Math.round((Number(s.baseline) || 0) / s.bts) : 0;
     });
 
     var btn = $('#calcSave');
     btn.disabled = true; btn.textContent = 'Saving…';
     try {
-      var r = await ENG.jsonp('createProgram', {
+      /* UPDATE when we arrived from a record, CREATE otherwise. Without this the "Edit
+         parameters" route silently forked a duplicate off the program Tawny thought she was
+         updating, leaving two records with the same name and different numbers — and the
+         close-out would have been run against whichever one got opened. */
+      var r = calc.editingId
+        ? await ENG.jsonp('editProgram', {
+            token: (session() || {}).token, id: calc.editingId,
+            patch: JSON.stringify({
+              program_name: calc.name, vendor: calc.vendor,
+              cost_json:   { mode: 'flat', per_unit: Number(calc.cost) || 0, source_label: 'calculator' },
+              payout_type: calc.model,
+              payout_json: { amount: Number(calc.spiff) || 0, model: calc.model },
+              match_json:  matchOf(calc.product),
+              stores_json: m.on.map(function (x) { return x.store_id; }),
+              baseline_json: { units: m.baseUnits, revenue: m.baseRev, by_store: baseByStore, per_bt: basePerBt },
+              target_json: { units: Number(calc.target) || 0, revenue: m.targetRev,
+                             budtenders: m.bts, by_store: byStore, per_bt: perBt }
+            })
+          })
+        : await ENG.jsonp('createProgram', {
         token: (session() || {}).token,
         program: JSON.stringify({
           program_name: calc.name, vendor: calc.vendor,
@@ -2152,8 +2271,9 @@
              is exactly how the imported history came to look uniformly flat. */
           payout_type: calc.model,
           payout_json: { amount: Number(calc.spiff) || 0, model: calc.model },
+          match_json:  matchOf(calc.product),
           stores_json: m.on.map(function (s) { return s.store_id; }),
-          baseline_json: { units: m.baseUnits, revenue: m.baseRev },
+          baseline_json: { units: m.baseUnits, revenue: m.baseRev, by_store: baseByStore, per_bt: basePerBt },
           /* budtenders is what Programs divides the payout by; without it the hero showed
              "of 0 hit" and an earned-so-far of $0 on a program that was paying out. */
           target_json:   { units: Number(calc.target) || 0, revenue: m.targetRev,
@@ -2161,14 +2281,15 @@
         })
       });
       if (!r || !r.ok) throw new Error((r && r.error) || 'save failed');
-      btn.textContent = 'Saved';
+      btn.textContent = calc.editingId ? 'Updated' : 'Saved';
       await loadPrograms();
+      renderPrograms();
       fillCalcLoad();
     } catch (err) {
       btn.textContent = 'Save failed';
       console.error('[spiff] save program failed:', err);
     }
-    setTimeout(function () { btn.textContent = 'Save as program'; btn.disabled = false; }, 2500);
+    setTimeout(function () { renderCalcEditing(); btn.disabled = false; }, 2500);
   }
 
   function fillCalcLoad() {
