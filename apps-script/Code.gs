@@ -2210,12 +2210,42 @@ function buildCatalog_() {
            stores_read: stores.length, rows_seen: seen, errors: errs, built_at: nowStamp_() };
 }
 
+/* THE WIRE PAYLOAD IS BRAND-SCOPED, and that is the whole reason this route is usable.
+   The full deduped catalog is 7,760 products / ~711KB across six stores — measured, not
+   guessed — which is not a thing you ship to a browser on every Calculator load, let alone
+   through JSONP. But the flow picks a VENDOR first and then a product, so a brand-scoped
+   response is all the picker ever needs: the biggest brand we carry is 639 rows and most
+   are a few hundred.
+
+     ?action=catalog                 → brands + counts only (~6KB), for the vendor field
+     ?action=catalog&brand=Wyld      → that brand's products, for the product picker
+     ?action=catalog&all=1           → everything, for diagnostics. Not for the browser.
+
+   The FULL catalog is still what gets cached; only the slice sent back is narrowed. Caching
+   per brand would multiply a 14-second cold pull by however many vendors got looked at. */
 function catalog_(p) {
-  if (String(p && p.refresh) !== '1') {
-    var hit = catalogGet_();
-    if (hit) { hit.cached = true; return hit; }
+  var cat = null;
+  if (String(p && p.refresh) !== '1') cat = catalogGet_();
+  var cached = !!cat;
+  if (!cat) {
+    cat = buildCatalog_();
+    if (!cat.ok) return cat;
+    catalogPut_(cat);
   }
-  var built = buildCatalog_();
-  if (built.ok) { built.cached = false; catalogPut_(built); }
-  return built;
+
+  var brand = String((p && p.brand) || '').trim().toLowerCase();
+  var out = {
+    ok: true, cached: cached, built_at: cat.built_at,
+    stores_read: cat.stores_read, rows_seen: cat.rows_seen, errors: cat.errors,
+    brands: cat.brands
+  };
+
+  if (String(p && p.all) === '1') { out.products = cat.products; return out; }
+  if (!brand) { out.products = []; out.brand = ''; return out; }
+
+  /* Exact brand match, not substring: "Mule" must not drag in "Mule Extracts" rows and
+     quietly widen the program's reference units to a brand the vendor does not own. */
+  out.brand = brand;
+  out.products = cat.products.filter(function (x) { return String(x.b || '').toLowerCase() === brand; });
+  return out;
 }
