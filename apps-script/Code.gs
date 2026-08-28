@@ -245,6 +245,7 @@ function doGet(e) {
       case 'previewDocs': out = previewDocs_(p);                                    break;
       case 'sellthrough': out = sellthrough_(p);                                    break;
       case 'catalog':     out = catalog_(p);                                        break;
+      case 'invprobe':    out = invProbe_(p);                                       break;   // TEMP-PROBE
       // The progress cache — the fast read GX Crew's incentive column and Leaderboard's kiosk
       // ticks both use. Secret-gated: a kiosk holds no session and Crew's engine has no browser.
       case 'progress':    out = spiffProgress_(p);                                   break;
@@ -2248,4 +2249,22 @@ function catalog_(p) {
   out.brand = brand;
   out.products = cat.products.filter(function (x) { return String(x.b || '').toLowerCase() === brand; });
   return out;
+}
+
+
+/* TEMP-PROBE — what does /reporting/inventory actually carry? Deciding cost-per-unit
+   sourcing needs the real field names, not a guess. Remove once answered. */
+function invProbe_(p) {
+  var stores = GXCore.getStores() || [];
+  var s = stores.filter(function (x) { return String(x.dutchie_name || '').trim(); })[0];
+  if (!s) return { ok: false, error: 'no store with a dutchie_name' };
+  var rows = GXCore.dutchieInventory(String(s.dutchie_name).trim()) || [];
+  var live = rows.filter(function (r) { return Number(r.quantityAvailable || 0) > 0; });
+  var costish = [];
+  if (live.length) Object.keys(live[0]).forEach(function (k) {
+    if (/cost|price|margin|markup/i.test(k)) costish.push(k + '=' + JSON.stringify(live[0][k]));
+  });
+  return { ok: true, store: s.store_id, total: rows.length, inStock: live.length,
+           fields: live.length ? Object.keys(live[0]) : [], costFields: costish,
+           sample: live.slice(0, 2) };
 }
