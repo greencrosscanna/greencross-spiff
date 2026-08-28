@@ -140,5 +140,23 @@ ok('filtering by pay period works, since Crew asks for one',
    M.spiffProgress_({ secret: 'SEKRET', pay_period: '2026-08-17' }).rows.length === 3 &&
    M.spiffProgress_({ secret: 'SEKRET', pay_period: '2020-01-01' }).rows.length === 0);
 
+/* ── the machine routes must get PAST the session guard ──
+   guard_ runs before the switch and rejects everything not public as "Not signed in", so a
+   correctly secret-gated handler never runs and the symptom is a route that looks broken rather
+   than a gate that is missing. This is the second time in this suite that exact shape has cost an
+   afternoon (Leaderboard's incentiveperf below requireAuth_), so it is pinned here. */
+const SECRET_ACTIONS = new Function('return ' +
+  (gs.match(/var SECRET_ACTIONS = (\[[\s\S]*?\]);/) || [])[1])();
+['progress', 'refreshProgress', 'installProgressTrigger'].forEach(function (a) {
+  ok(a + ' is a declared machine route', SECRET_ACTIONS.indexOf(a) >= 0);
+});
+const PUBLIC = new Function('return ' + (gs.match(/var PUBLIC_ACTIONS = (\[[\s\S]*?\]);/) || [])[1])();
+/* Listing them public would work today — the handlers check the secret — and be one careless edit
+   away from an open payroll read. */
+ok('and none of them is merely PUBLIC',
+   SECRET_ACTIONS.every(a => PUBLIC.indexOf(a) < 0));
+ok('guard_ checks the secret before it asks for a session',
+   /SECRET_ACTIONS\.indexOf\(action\)[\s\S]{0,400}gxAuth_\(p\.token\)/.test(gs));
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nprogress cache: all passed');
 process.exit(fail ? 1 : 0);

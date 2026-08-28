@@ -174,8 +174,23 @@ var GATED_WRITES = ['importCalc'];
 
 /* Returns null when the call may proceed, or the response to send when it may not. Forwards
    GX Core's stable `code` untouched so the browser can tell "no grant" from "expired". */
+/* MACHINE ROUTES: a valid deploy secret instead of a session. Leaderboard's kiosk and GX Crew's
+   engine both read the progress cache and neither has a browser to sign in with — and every route
+   here is rejected as "Not signed in" before its handler runs, which is how the first attempt at
+   this looked like a broken route rather than a missing gate.
+   Deliberately NOT added to PUBLIC_ACTIONS: these handlers check the secret themselves, so listing
+   them as public would work today and be one careless edit away from an open payroll read. This
+   says what they actually are. */
+var SECRET_ACTIONS = ['progress', 'refreshProgress', 'installProgressTrigger'];
+
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
+  if (SECRET_ACTIONS.indexOf(action) >= 0) {
+    var want = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+    if (!want) return { ok: false, error: 'GX_DEPLOY_SECRET is not set on this script' };
+    if (String(p.secret || '') === want) return null;      // the handler re-checks; belt and braces
+    return { ok: false, error: 'Unauthorized' };
+  }
   var auth = gxAuth_(p.token);
   if (!auth.ok) {
     return { ok: false, error: auth.error || 'Not signed in',
