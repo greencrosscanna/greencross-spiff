@@ -141,8 +141,9 @@ body.flyer {
   color: var(--gx-text); font-weight: 700; font-size: 13px;
   display: flex; align-items: center; justify-content: center;
 }
-.fl-id-n { font-weight: 700; font-size: 15px; line-height: 1.2; }
-.fl-id-s { font-size: 12px; color: var(--gx-text-mute); margin-top: 1px; }
+/* block, or the name and the store render on one line as "Zach BBend". */
+.fl-id-n { display: block; font-weight: 700; font-size: 15px; line-height: 1.2; }
+.fl-id-s { display: block; font-size: 12px; color: var(--gx-text-mute); margin-top: 1px; }
 
 /* The earned figure is the largest thing on the page, deliberately: it is the reason the page
    is open, and it has to be readable at arm's length between customers. */

@@ -166,7 +166,7 @@
         : 'No target was set for you on this one.';
     }
 
-    var storeName = (d.employee && d.employee.home_store) || '';
+    var storeName = (d.employee && (d.employee.home_store_name || d.employee.home_store)) || '';
     var cleared = m.hit || (perUnit && units > 0);
 
     /* The bar carries the TARGET as a tick rather than treating it as the end of the track, so

@@ -1145,7 +1145,15 @@ function flyer_(p) {
   }
 
   var store = slug_(emp.home_store || '');
-  var me = { name: emp.full_name || auth.user, home_store: store };
+  /* The DISPLAY name, not the slug. A budtender at Century should not be told they work at
+     "Bend" — that is the store_id, and the two differ for four of the six stores. */
+  var storeLabel = store;
+  try {
+    (gxStores_() || []).forEach(function (x) {
+      if (slug_(x.store_id) === store && x.display_name) storeLabel = x.display_name;
+    });
+  } catch (e) { /* the slug is a poor label but better than none */ }
+  var me = { name: emp.full_name || auth.user, home_store: store, home_store_name: storeLabel };
   if (!store) return { ok: true, linked: true, employee: me, program: null,
                        note: 'Your employee record has no home store, so there is nothing to measure you against yet.' };
 

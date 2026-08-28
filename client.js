@@ -106,6 +106,8 @@
       +   (p.contact_name ? ' · prepared for ' + esc(p.contact_name) : '')
       +   ' by Green Cross Cannabis Emporium</p>';
 
+    setFoot(!!r);
+
     if (!r) {
       /* A PROPOSAL, not results. Same shape, but it must never imply anything has happened —
          so it leads with the ask rather than a return, and every figure is labelled as a plan. */
@@ -160,6 +162,18 @@
       + '<p class="cv-fine">&ldquo;Before SPIFF&rdquo; is each store&rsquo;s sell-through in the comparable '
       +   'period before the program. &ldquo;Sold&rdquo; counts the program period itself. Figures come '
       +   'from Dutchie point-of-sale data.</p>';
+  }
+
+  /* The footer was hardcoded to "figures are estimates based on recent sell-through" — true of
+     a proposal, and plainly false on a page showing a closed program's final numbers with a
+     credit attached to them. A vendor reading "estimates" beside an invoice figure has every
+     reason to query it. */
+  function setFoot(isResults) {
+    var el = document.getElementById('cvFoot');
+    if (!el) return;
+    el.textContent = isResults
+      ? 'Green Cross Cannabis Emporium · final figures from Dutchie point-of-sale data.'
+      : 'Green Cross Cannabis Emporium · figures are estimates based on recent sell-through.';
   }
 
   function storeTable(rows, withResults) {
