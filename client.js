@@ -70,61 +70,121 @@
     var v = $('#view');
     v.hidden = false;
 
-    var period = p.start_date ? esc(p.start_date) + ' – ' + esc(p.end_date || '') : 'Dates to be confirmed';
-    var invest = p.results ? p.results.investment : null;
+    var period = p.start_date ? prettyDay(p.start_date) + ' – ' + prettyDay(p.end_date || '') : 'Dates to be confirmed';
+    var r = p.results;
 
-    // Lead with the ask and the movement — this is a pitch, not a data dump.
-    var hero = p.results
-      ? [ stat('Units sold', num(p.results.units_sold)),
-          stat('Budtenders who hit', num(p.results.budtenders_hit)),
-          stat('SPIFF each', money(p.results.rate_paid)),
-          stat('Total credit', money(invest), 'accent') ]
-      : [ stat('Target units', num(p.target_units)),
-          stat('Unit lift', '+' + num(p.unit_lift)),
-          stat('SPIFF per budtender', money(p.spiff_per_budtender)),
-          stat('Added revenue', money(p.revenue_increase), 'accent') ];
-
-    // Totals shown explicitly. These are BEFORE/TARGET figures — they do not sum to
-    // "units sold", which counts the program period itself. Leaving a reader to work
-    // that out invites them to distrust the whole report.
-    var baseTotal = 0, tgtTotal = 0;
-    var rows = (p.by_store || []).map(function (s) {
-      baseTotal += Number(s.baseline) || 0;
-      tgtTotal  += Number(s.target) || 0;
-      return '<tr><td>' + esc(s.store) + '</td><td class="n">' + num(s.baseline)
-        + '</td><td class="n strong">' + num(s.target) + '</td></tr>';
-    }).join('');
+    /* Per-store rows carry the RESULT when there is one, and only the plan when there is not.
+       A results page whose table still shows targets invites the reader to check the sum
+       against the headline and find it does not tie. */
+    var rows = '', baseTotal = 0, tgtTotal = 0, soldTotal = 0, hitTotal = 0, btTotal = 0;
+    (p.by_store || []).forEach(function (s2) {
+      baseTotal += Number(s2.baseline) || 0;
+      tgtTotal  += Number(s2.target) || 0;
+      soldTotal += Number(s2.sold) || 0;
+      hitTotal  += Number(s2.hit) || 0;
+      btTotal   += Number(s2.budtenders) || 0;
+      rows += '<tr><td>' + esc(s2.store) + '</td>'
+        + '<td class="n">' + num(s2.baseline) + '</td>'
+        + '<td class="n">' + num(s2.target) + '</td>'
+        + (r ? '<td class="n strong">' + num(s2.sold) + '</td>'
+             + '<td class="n">' + num(s2.hit) + ' / ' + num(s2.budtenders) + '</td>' : '')
+        + '</tr>';
+    });
     if (rows) {
-      rows += '<tr class="total"><td>Total</td><td class="n">' + num(baseTotal)
-            + '</td><td class="n strong">' + num(tgtTotal) + '</td></tr>';
+      rows += '<tr class="total"><td>Total</td>'
+        + '<td class="n">' + num(baseTotal) + '</td>'
+        + '<td class="n">' + num(tgtTotal) + '</td>'
+        + (r ? '<td class="n">' + num(soldTotal) + '</td>'
+             + '<td class="n">' + num(hitTotal) + ' / ' + num(btTotal) + '</td>' : '')
+        + '</tr>';
     }
 
-    v.innerHTML =
-        '<h1>' + esc(p.name) + '</h1>'
-      + '<p class="client-sub">' + esc(p.vendor) + ' &middot; ' + period
-      +   (p.contact_name ? ' &middot; prepared for ' + esc(p.contact_name) : '') + '</p>'
-      + '<div class="client-hero">' + hero.join('') + '</div>'
-      + (p.results
-          ? '<p class="client-note">These are final results. The credit above is what Green Cross is '
-            + 'requesting against the next order.</p>'
-          : '<p class="client-note">Green Cross is proposing a ' + money(p.spiff_per_budtender)
-            + ' SPIFF per budtender who reaches their individual target. Budtenders who hit earn the '
-            + 'bounty; the program is funded as a credit against our next order.</p>')
-      + (rows
-          ? '<h2>By store</h2><div class="grid-wrap"><table class="grid client-grid"><thead><tr>'
-            + '<th>Store</th><th class="n">Before SPIFF</th><th class="n">Goal</th>'
-            + '</tr></thead><tbody>' + rows + '</tbody></table></div>'
-            + '<p class="client-fine">"Before SPIFF" is each store\'s sell-through in the '
-            + 'comparable period before the program; "Goal" is the target it was set. '
-            + (p.results ? 'Units sold above counts the program period itself, so it will not match these columns.' : '')
-            + '</p>'
-          : '');
+    var head =
+        '<div class="cv-eyebrow">Prepared for ' + esc(p.vendor || '') + '</div>'
+      + '<h1 class="cv-h1">' + esc(p.name) + '</h1>'
+      + '<p class="cv-sub">' + esc(period)
+      +   (p.contact_name ? ' · prepared for ' + esc(p.contact_name) : '')
+      +   ' by Green Cross Cannabis Emporium</p>';
+
+    if (!r) {
+      /* A PROPOSAL, not results. Same shape, but it must never imply anything has happened —
+         so it leads with the ask rather than a return, and every figure is labelled as a plan. */
+      v.innerHTML = head
+        + '<div class="cv-roi"><div class="cv-roi-l">The proposal</div>'
+        +   '<div class="cv-roi-v">' + money(p.spiff_per_budtender) + '</div>'
+        +   '<p class="cv-roi-p">A <b>' + money(p.spiff_per_budtender) + '</b> bounty for each budtender '
+        +     'who reaches their own target, across <b>' + num((p.by_store || []).length) + ' stores</b>. '
+        +     'Budtenders who hit earn it; those who do not cost nothing. Funded as a credit against '
+        +     'our next order.</p></div>'
+        + '<div class="cv-stats">'
+        +   cvStat('Target units', num(p.target_units), 'across the program', '')
+        +   cvStat('Unit lift', '+' + num(p.unit_lift), 'over the prior period', '')
+        +   cvStat('Budtenders', num(p.budtenders), 'each with their own target', '')
+        +   cvStat('At most', money(p.investment), 'only if every one hits', 'is-credit')
+        + '</div>'
+        + storeTable(rows, false)
+        + '<p class="cv-fine">&ldquo;Before SPIFF&rdquo; is each store&rsquo;s sell-through in the '
+        +   'comparable period before the program; &ldquo;Goal&rdquo; is the target it would be set.</p>';
+      return;
+    }
+
+    var credit  = Number(r.investment) || 0;
+    var added   = Number(r.added_revenue) || 0;
+    var net     = added - credit;
+    var sold    = Number(r.units_sold) || 0;
+    var before  = baseTotal;
+    var extra   = before ? sold - before : 0;
+    var growth  = before ? Math.round((extra / before) * 100) : null;
+    var overGoal = tgtTotal ? sold - tgtTotal : null;
+
+    v.innerHTML = head
+      + '<div class="cv-roi"><div class="cv-roi-l">Return on the SPIFF</div>'
+      +   '<div class="cv-roi-v">' + (credit ? Math.round((net / credit) * 100).toLocaleString('en-US') + '%' : '—') + '</div>'
+      /* The same numbers again in a sentence. A percentage on its own is easy to disbelieve
+         and hard to repeat to a colleague; the sentence is what gets forwarded. */
+      +   '<p class="cv-roi-p">A <b>' + money(credit) + '</b> bounty moved <b>' + num(extra)
+      +     ' extra units</b> — about <b>' + money(added) + '</b> of additional sell-through, a net <b>'
+      +     money(net) + '</b> to ' + esc(p.vendor || 'you') + '.'
+      +     (growth == null ? '' : ' Sales ran <b>' + growth + '% above</b> the comparable period before the program')
+      +     (overGoal == null ? '' : (growth == null ? ' Sales' : ' and') + ' cleared the goal by '
+             + num(Math.abs(overGoal)) + ' units')
+      +     '.</p></div>'
+      + '<div class="cv-stats">'
+      +   cvStat('Units sold', num(sold), tgtTotal ? 'goal ' + num(tgtTotal) + ' · ' + (overGoal >= 0 ? '+' : '') + num(overGoal) : '', '')
+      +   cvStat('Growth over prior', growth == null ? '—' : (growth >= 0 ? '+' : '') + growth + '%',
+                 before ? num(before) + ' → ' + num(sold) + ' units' : '', '')
+      +   cvStat('Budtenders who hit', num(r.budtenders_hit), 'of ' + num(btTotal || r.budtenders || 0) + ' · ' + money(r.rate_paid) + ' each', '')
+      +   cvStat('Total credit', money(credit), 'requested against the next order', 'is-credit')
+      + '</div>'
+      + storeTable(rows, true)
+      + '<p class="cv-fine">&ldquo;Before SPIFF&rdquo; is each store&rsquo;s sell-through in the comparable '
+      +   'period before the program. &ldquo;Sold&rdquo; counts the program period itself. Figures come '
+      +   'from Dutchie point-of-sale data.</p>';
   }
 
-  function stat(label, value, tone) {
-    return '<div class="client-stat' + (tone ? ' is-' + tone : '') + '">'
-      + '<span>' + esc(label) + '</span><b>' + value + '</b></div>';
+  function storeTable(rows, withResults) {
+    if (!rows) return '';
+    return '<div class="cv-h2">By store</div><div class="cv-tbl-wrap"><table class="cv-tbl"><thead><tr>'
+      + '<th>Store</th><th class="n">Before SPIFF</th><th class="n">Goal</th>'
+      + (withResults ? '<th class="n">Sold</th><th class="n">Budtenders hit</th>' : '')
+      + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
+
+  function cvStat(label, value, sub, cls) {
+    return '<div class="cv-stat ' + cls + '"><div class="cv-stat-l">' + esc(label) + '</div>'
+      + '<div class="cv-stat-v">' + value + '</div>'
+      + (sub ? '<div class="cv-stat-s">' + esc(sub) + '</div>' : '') + '</div>';
+  }
+
+  /* Dates are TEXT (YYYY-MM-DD). Split, never new Date(str) — that parses as UTC and renders
+     the day before in our timezone. Same rule as the rest of the app. */
+  function prettyDay(s2) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s2 || ''));
+    if (!m) return String(s2 || '');
+    var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return MON[Number(m[2]) - 1] + ' ' + Number(m[3]);
+  }
+
 
   function boot() {
     $('#cvGo').addEventListener('click', function () { open(); });

@@ -79,3 +79,66 @@ body.client { background: var(--gx-bg); }
 
 .client-grid .total td { border-top: 1px solid var(--gx-border-strong, var(--gx-border)); font-weight: 700; }
 .client-fine { font-size: 12px; color: var(--gx-text-mute); line-height: 1.5; margin: 10px 0 0; }
+
+/* ═══════════════════════════════════════════════════ 1i  VENDOR VIEW ══ */
+/* The page the rep opens. It exists to brag: ROI as both % and $ at the top, then the proof
+   broken out by store, then the terms. Light on chrome, heavy on figures. */
+
+.cv-eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: var(--gx-text-mute); }
+.cv-h1 { margin: 8px 0 0; font-family: 'Montserrat', var(--gx-font); font-size: 40px; font-weight: 800; letter-spacing: -1px; line-height: 1.05; }
+.cv-sub { margin: 8px 0 0; font-size: 13px; color: var(--gx-text-dim); }
+
+/* The headline claim, stated once and large. A vendor should not have to compute it. */
+.cv-roi {
+  margin: 26px 0; padding: 24px 26px;
+  border: 1px solid rgba(74,222,128,.35); border-radius: 16px;
+  background: var(--gx-green-soft, rgba(74,222,128,.10));
+}
+.cv-roi-l { font-size: 10.5px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: var(--gx-text-mute); }
+.cv-roi-v {
+  font-family: 'Montserrat', var(--gx-font); font-size: 54px; font-weight: 900;
+  line-height: 1; letter-spacing: -1.5px; margin-top: 8px;
+  color: var(--gx-green-bright); font-variant-numeric: tabular-nums;
+}
+/* The sentence under it carries the SAME numbers in words, because a percentage alone is easy
+   to disbelieve and hard to repeat to a colleague. */
+.cv-roi-p { margin: 14px 0 0; font-size: 15px; line-height: 1.6; color: var(--gx-text-dim); max-width: 640px; text-wrap: pretty; }
+.cv-roi-p b { color: var(--gx-text); }
+
+.cv-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 22px 0; }
+.cv-stat { border: 1px solid var(--gx-border); border-radius: 12px; background: var(--gx-surface); padding: 15px 17px; }
+.cv-stat-l { font-size: 10px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; color: var(--gx-text-mute); }
+.cv-stat-v { font-family: 'Montserrat', var(--gx-font); font-size: 26px; font-weight: 800; line-height: 1.1; margin-top: 5px; font-variant-numeric: tabular-nums; }
+.cv-stat-s { font-size: 11.5px; color: var(--gx-text-mute); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.cv-stat.is-credit { border-color: var(--gx-border-strong); }
+.cv-stat.is-credit .cv-stat-v { color: var(--gx-green-bright); }
+
+.cv-h2 { font-size: 11px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: var(--gx-text-dim); margin: 28px 0 10px; }
+.cv-tbl-wrap { border: 1px solid var(--gx-border); border-radius: 10px; overflow: hidden; background: var(--gx-surface); }
+.cv-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cv-tbl th {
+  text-align: left; padding: 9px 14px; font-size: 10px; font-weight: 700;
+  letter-spacing: 1px; text-transform: uppercase; color: var(--gx-text-mute);
+  background: var(--sp-inset, #0d1211); border-bottom: 1px solid var(--gx-border); white-space: nowrap;
+}
+.cv-tbl td { padding: 9px 14px; border-bottom: 1px solid #1c2320; font-variant-numeric: tabular-nums; }
+.cv-tbl th.n, .cv-tbl td.n { text-align: right; }
+.cv-tbl .strong { font-weight: 700; }
+.cv-tbl tr.total td { background: var(--sp-inset, #0d1211); font-weight: 700; border-top: 1px solid var(--gx-border-strong); border-bottom: 0; }
+.cv-fine { margin: 12px 0 0; font-size: 11.5px; color: var(--gx-text-mute); line-height: 1.55; max-width: 700px; }
+
+/* Printable: a rep forwards this, and it must not arrive as a dark rectangle. */
+@media print {
+  body { background: #fff !important; color: #1a1f1d !important; }
+  .cv-roi { background: #f2faf5 !important; border-color: #b7e3c6 !important; }
+  .cv-roi-v, .cv-stat.is-credit .cv-stat-v { color: #16833f !important; }
+  .cv-stat, .cv-tbl-wrap { background: #fff !important; border-color: #d7dedb !important; }
+  .cv-tbl th { background: #f4f7f5 !important; color: #5a635f !important; }
+  .cv-h1, .cv-stat-v, .cv-roi-p b { color: #1a1f1d !important; }
+  .cv-sub, .cv-fine, .cv-stat-l, .cv-stat-s, .cv-eyebrow, .cv-h2 { color: #5a635f !important; }
+}
+@media (max-width: 760px) {
+  .cv-stats { grid-template-columns: repeat(2, 1fr); }
+  .cv-h1 { font-size: 30px; }
+  .cv-roi-v { font-size: 40px; }
+}

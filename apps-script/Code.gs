@@ -1256,6 +1256,24 @@ function gxSalesByEmployee_(secret, from, to, store, match) {
  * grows — a new column is invisible here until someone deliberately adds it.
  * ==================================================================== */
 
+/* Cached progress rows for one program. Reads the sheet the hourly trigger writes, so callers
+   that only need per-store totals never pay for a live Dutchie pull. */
+function progressRowsFor_(programId) {
+  var sh = progressSheet_();
+  if (sh.getLastRow() < 2) return [];
+  var vals = sh.getRange(2, 1, sh.getLastRow() - 1, PROGRESS_HEADERS.length).getValues();
+  var out = [];
+  vals.forEach(function (v) {
+    var o = {};
+    PROGRESS_HEADERS.forEach(function (h, i) { o[h] = v[i]; });
+    if (String(o.program_id) !== String(programId)) return;
+    o.units = Number(o.units) || 0;
+    o.hit = !!o.hit;
+    out.push(o);
+  });
+  return out;
+}
+
 function clientView_(p) {
   var token = String(p.t || '').trim();
   var pass  = String(p.pass || '');
@@ -1308,8 +1326,27 @@ function clientView_(p) {
   var stores = gxStores_(), nameOf = Object.create(null);
   stores.forEach(function (s) { nameOf[s.store_id] = s.display_name || s.store_id; });
 
+  /* Per-store RESULTS come from the progress cache, which is already refreshed hourly — so the
+     vendor's table can show what each store actually sold without this page triggering six
+     sell-through calls while a rep waits on it. Absent cache simply means no result columns,
+     which is the correct answer for a program that has not run. */
+  var progByStore = Object.create(null);
+  try {
+    var pRows = progressRowsFor_(prog.program_id);
+    pRows.forEach(function (row) {
+      var g = progByStore[row.store_id] || (progByStore[row.store_id] = { sold: 0, hit: 0, budtenders: 0 });
+      g.sold += Number(row.units) || 0;
+      g.budtenders++;
+      if (row.hit) g.hit++;
+    });
+  } catch (e) { /* no cache is not an error here */ }
+
   var byStore = (prog.stores_json || []).map(function (id) {
-    return { store: nameOf[id] || id, baseline: (b.by_store || {})[id] || 0, target: (t.by_store || {})[id] || 0 };
+    var g = progByStore[id] || {};
+    return { store: nameOf[id] || id,
+             baseline: (b.by_store || {})[id] || 0,
+             target: (t.by_store || {})[id] || 0,
+             sold: g.sold || 0, hit: g.hit || 0, budtenders: g.budtenders || 0 };
   });
 
   var bts     = Object.keys(t.per_bt || {}).length ? sumVals_(b.by_store) : 0;
@@ -1333,9 +1370,15 @@ function clientView_(p) {
       revenue_increase: revInc,
       by_store: byStore,
       // Results only once the program has actually closed.
+      budtenders: t.budtenders || bts || 0,
+      investment: rate * (t.budtenders || 0),
       results: a ? {
         units_sold: a.units_sold, budtenders_hit: a.bts_hit,
-        rate_paid: a.spiff_amount || rate, investment: invest
+        rate_paid: a.spiff_amount || rate, investment: invest,
+        /* The vendor's own gain, in dollars, at the cost they charge us. It was computed in
+           the browser before, from figures the page did not all have — so the sentence under
+           the headline could disagree with the table above it. */
+        added_revenue: Math.round((((a.units_sold || 0) - (b.units || 0)) * cost) * 100) / 100
       } : null
     }
   };

@@ -166,10 +166,25 @@
         : 'No target was set for you on this one.';
     }
 
+    var storeName = (d.employee && d.employee.home_store) || '';
+    var cleared = m.hit || (perUnit && units > 0);
+
+    /* The bar carries the TARGET as a tick rather than treating it as the end of the track, so
+       going past it is visible. A fill that stops at 100% tells someone who sold 81 against a
+       target of 74 exactly the same thing as someone who sold 74. */
+    var span = Math.max(units, target) || 1;
+    var fillPct = Math.min(100, (units / span) * 100);
+    var tickPct = target ? Math.min(100, (target / span) * 100) : null;
+
     $('#main').innerHTML =
       '<div class="fl-card">' +
         '<div class="fl-top">' +
-          '<div class="fl-who">' + esc(who) + '</div>' +
+          '<div class="fl-id">' +
+            '<span class="fl-av">' + esc(initials(who)) + '</span>' +
+            '<span><span class="fl-id-n">' + esc(who) + '</span>' +
+              (storeName ? '<span class="fl-id-s">' + esc(prettyStore(storeName)) + '</span>' : '') +
+            '</span>' +
+          '</div>' +
           '<button class="gx-btn fl-out" id="flOut">Sign out</button>' +
         '</div>' +
 
@@ -179,30 +194,105 @@
           '<div class="fl-status">' + status + '</div>' +
         '</div>' +
 
-        '<div class="fl-hero' + (m.hit || (perUnit && units > 0) ? ' is-paid' : '') + '">' +
+        '<div class="fl-hero' + (cleared ? ' is-paid' : '') + '">' +
           // NOT "on track for": that reads as a projection, and on a running program where the
           // target is not met yet it would pair the word "track" with $0 -- which sounds like a
           // verdict rather than a running total. This is simply what is banked today.
-          '<div class="fl-hero-label">' + (d.is_current ? 'Earned so far' : 'You earned') + '</div>' +
-          '<div class="fl-hero-amt">' + headline + '</div>' +
-          '<div class="fl-hero-sub">' + sub + '</div>' +
+          '<div class="fl-earned-l">' + (d.is_current ? 'Earned so far' : 'You earned') + '</div>' +
+          '<div class="fl-earned-v">' + headline + '</div>' +
+          '<div class="fl-earned-s">' + sub + '</div>' +
         '</div>' +
 
         (perUnit ? '' :
-          '<div class="fl-bar" role="img" aria-label="' + units + ' of ' + target + '">' +
-            '<div class="fl-bar-fill' + (m.hit ? ' is-hit' : '') + '" style="width:' + pct + '%"></div>' +
+          '<div class="fl-track' + (m.hit ? ' is-hit' : '') + '" role="img" aria-label="' +
+              units + ' sold of a ' + target + ' target">' +
+            '<div class="fl-track-fill" style="width:' + fillPct.toFixed(1) + '%"></div>' +
+            (tickPct == null ? '' : '<div class="fl-track-tick" style="left:' + tickPct.toFixed(1) + '%"></div>') +
+          '</div>' +
+          '<div class="fl-track-f"><span>' + units + ' sold</span>' +
+            (target
+              ? '<span class="' + (m.hit ? 'cleared' : '') + '">target ' + target +
+                  (m.hit ? ' · cleared' : ' · ' + Math.max(0, target - units) + ' to go') + '</span>'
+              : '<span>no target set</span>') +
           '</div>') +
 
-        '<div class="fl-nums">' +
-          '<div class="fl-num"><span class="fl-num-v">' + units + '</span><span class="fl-num-k">you sold</span></div>' +
-          (perUnit
-            ? '<div class="fl-num"><span class="fl-num-v">' + money(m.rate) + '</span><span class="fl-num-k">per unit</span></div>'
-            : '<div class="fl-num"><span class="fl-num-v">' + (target || '—') + '</span><span class="fl-num-k">your target</span></div>') +
-          '<div class="fl-num"><span class="fl-num-v">' + money(m.payout) + '</span><span class="fl-num-k">' +
-            (d.is_current ? 'so far' : 'earned') + '</span></div>' +
+        '<div class="fl-cells">' +
+          cell(units.toLocaleString(), 'you sold', false) +
+          cell(target ? target.toLocaleString() : '—', 'your target', false) +
+          cell(headline, d.is_current ? 'so far' : 'earned', cleared) +
         '</div>' +
+
+        '<div id="flAlso"></div>' +
+
+        '<p class="fl-foot">Figures come from Dutchie sell-through and settle when the program closes.</p>' +
       '</div>';
+
     $('#flOut').addEventListener('click', signOut);
+    renderAlso(d.others || []);
+  }
+
+  function cell(v, k, paid) {
+    return '<div class="fl-cell' + (paid ? ' is-paid' : '') + '">' +
+      '<div class="fl-cell-v">' + v + '</div><div class="fl-cell-k">' + esc(k) + '</div></div>';
+  }
+
+  /* Two initials. Names arrive as "Zach B" or occasionally one word, which must not produce
+     an empty circle. */
+  function initials(name) {
+    var w = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!w.length) return '?';
+    if (w.length === 1) return w[0].slice(0, 2).toUpperCase();
+    return (w[0][0] + w[w.length - 1][0]).toUpperCase();
+  }
+
+  function prettyStore(slug) {
+    return String(slug || '').split('-').map(function (x) {
+      return x.charAt(0).toUpperCase() + x.slice(1);
+    }).join(' ');
+  }
+
+  /* ALSO RUNNING. A budtender can be earning on more than one SPIFF at once and only ever saw
+     the one ending soonest, so a second program's money was invisible to the person earning
+     it. Each figure is fetched SEPARATELY and after the main card is painted: one sell-through
+     call runs ~9s, and putting three of them in front of the headline number would mean
+     staring at nothing on a phone between customers. */
+  async function renderAlso(others) {
+    var host = document.getElementById('flAlso');
+    if (!host || !others.length) return;
+    host.innerHTML = '<div class="fl-also-h">Also running</div>' +
+      others.map(function (o, i) {
+        var per = String(o.payout_type || 'flat').toLowerCase() === 'per_unit';
+        return '<div class="fl-also" id="flAlso' + i + '"><div class="fl-also-b">' +
+          '<div class="fl-also-n">' + esc(o.name || o.vendor) + '</div>' +
+          '<div class="fl-also-s">' + (per
+            ? money(o.rate) + ' a unit · every unit pays'
+            : money(o.rate) + ' if you hit your target') + '</div></div>' +
+          '<div class="fl-also-v" id="flAlsoV' + i + '">…</div></div>';
+      }).join('');
+
+    for (var i = 0; i < others.length; i++) {
+      /* Sequential, not parallel: these are ~9s server-side each and the engine is one
+         Apps Script instance. Firing them together is how a phone page earns a timeout. */
+      await fillAlso(others[i], i);
+    }
+  }
+
+  async function fillAlso(o, i) {
+    var el = document.getElementById('flAlsoV' + i);
+    if (!el) return;
+    try {
+      var r = await ENG.jsonp('flyer', { token: (session() || {}).token, id: o.program_id },
+                              { timeoutMs: 65000, retries: 1 });
+      if (!r || !r.ok || !r.mine) throw new Error('no figure');
+      var paid = r.mine.payout > 0;
+      el.textContent = money(r.mine.payout);
+      el.className = 'fl-also-v' + (paid ? ' is-paid' : '');
+    } catch (e) {
+      /* A dash, not a zero. "$0" is a claim about what this person has earned; a dash says the
+         figure did not arrive, which is the true statement. */
+      el.textContent = '—';
+      el.title = 'Could not read this one just now';
+    }
   }
 
   function signOut() { clearSession(); renderGate(); }
