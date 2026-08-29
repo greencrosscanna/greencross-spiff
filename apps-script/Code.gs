@@ -822,6 +822,19 @@ function stampOf_(v) {
   return isNaN(d.getTime()) ? s : Utilities.formatDate(d, 'America/Los_Angeles', 'yyyy-MM-dd HH:mm:ss');
 }
 
+/* The `programs` tab has forceTextDates_; this is the same brace for `spiff_progress`, and it was
+   missing. Only pay_period was pinned, so Sheets coerced start_date and end_date to Date objects at
+   write and they left the route as '2026-08-17T00:00:00.000Z' — an ISO timestamp in a field the
+   whole suite treats as 'YYYY-MM-DD' TEXT, one timezone mismatch from shifting a day. Crew survived
+   it only because applySpiffEarnings_ slices to 10 characters defensively. */
+function forceProgressTextDates_(sh) {
+  var rows = Math.max(sh.getMaxRows() - 1, 1);
+  ['pay_period', 'start_date', 'end_date'].forEach(function (h) {
+    var i = PROGRESS_HEADERS.indexOf(h);
+    if (i >= 0) sh.getRange(2, i + 1, rows, 1).setNumberFormat('@');
+  });
+}
+
 function progressSheet_() {
   var ss = dataSheet_().getParent();
   var sh = ss.getSheetByName(PROGRESS_TAB);
@@ -829,6 +842,7 @@ function progressSheet_() {
     sh = ss.insertSheet(PROGRESS_TAB);
     sh.getRange(1, 1, 1, PROGRESS_HEADERS.length).setValues([PROGRESS_HEADERS]).setFontWeight('bold');
     sh.setFrozenRows(1);
+    forceProgressTextDates_(sh);          // pinned before the first write, not after
   }
   return sh;
 }
@@ -890,7 +904,7 @@ function refreshSpiffProgress_(only, onlyStore) {
       if (touched[String(all[i][0]) + '|' + String(all[i][2])]) sh.deleteRow(i + 1);  // bottom-up
     }
     sh.getRange(sh.getLastRow() + 1, 1, written.length, PROGRESS_HEADERS.length).setValues(written);
-    sh.getRange(2, 2, Math.max(1, sh.getLastRow() - 1), 1).setNumberFormat('@');   // pay_period TEXT
+    forceProgressTextDates_(sh);        // pay_period AND the program window stay TEXT
   }
   /* WHY a sweep found nothing, not just that it did. `programs: 0` on its own cannot tell a
      genuinely quiet week from a program sitting in `draft`, or from one whose stores_json is empty
@@ -979,11 +993,14 @@ function spiffProgress_(p) {
     if (wantId && String(o.program_id) !== wantId) return;
     o.units = Number(o.units) || 0; o.target = Number(o.target) || 0;
     o.earned = Number(o.earned) || 0; o.hit = !!o.hit;
-    /* The sheet round-trips this cell as a DATE OBJECT, so it reached consumers as
+    /* The sheet round-trips these cells as DATE OBJECTS, so they reached consumers as
        "Fri Aug 28 2026 06:20:52 GMT-0700" instead of the stamp that was written. Normalised on the
        way out — every reader wants a sortable string, and none of them should have to guess which
-       of the two shapes they got. */
+       of the two shapes they got. forceProgressTextDates_ now stops it at the source; this stays as
+       the brace, because rows written before that fix are still Dates at rest. */
     o.refreshed_at = stampOf_(o.refreshed_at);
+    o.start_date   = textDate_(o.start_date);
+    o.end_date     = textDate_(o.end_date);
     rows.push(o);
     if (o.refreshed_at > newest) newest = o.refreshed_at;
   });
@@ -1324,6 +1341,10 @@ function progressRowsFor_(programId) {
     if (String(o.program_id) !== String(programId)) return;
     o.units = Number(o.units) || 0;
     o.hit = !!o.hit;
+    /* Same normalisation as spiffProgress_ — this reader feeds the vendor view, and a Date here
+       would print as an ISO timestamp on a document that goes to the vendor. */
+    o.start_date = textDate_(o.start_date);
+    o.end_date   = textDate_(o.end_date);
     out.push(o);
   });
   return out;
