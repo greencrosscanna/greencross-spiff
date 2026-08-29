@@ -18,7 +18,13 @@ Four surfaces, one spine:
    cost, investment, ROI and per-store/per-budtender targets recompute instantly. It is a **sales tool**
    as much as a form: Tawny presents it to the vendor to show what changing a variable does.
 2. **Progress** — the budtender matrix (units by budtender by store vs. target), fed straight from
-   Dutchie. Mirrored by the Leaderboard kiosks so staff can see what they have coming.
+   Dutchie. Published as `?action=progress` (token-gated) off the `spiff_progress` cache, which an
+   hourly trigger refreshes. **GX Crew consumes it** — `applySpiffEarnings_` fills the incentive
+   SPIFF column from what SPIFF measured, so Mike reads a figure instead of typing one.
+   *Corrected 2026-08-29: this said "Mirrored by the Leaderboard kiosks so staff can see what they
+   have coming." **Nothing in `greencross-leaderboard` calls the route** — the mirror was aspiration
+   written as fact. It is wanted (SPIFF ticks on kiosk staff cards) and is **Leaderboard-side work**
+   against a route SPIFF already publishes; it needs no code here.*
 3. **Reports** — close-out: vendor PDF saved to Drive, a **drafted** vendor email for a human to send, and
    a gift-card buy list for staff payouts.
 4. **History** — every closed program by pay period, so "what did we run 9 periods ago" and "last time we
