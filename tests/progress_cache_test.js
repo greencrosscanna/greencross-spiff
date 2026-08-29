@@ -58,6 +58,7 @@ function makeSheet(headers) {
       };
     },
     setFrozenRows() {},
+    getMaxRows() { return Math.max(this.rows.length, 1); },
   };
 }
 
@@ -72,12 +73,23 @@ function load() {
     function sellthrough_(p) { return SELL(p); }
     function slug_(s) { return String(s || '').toLowerCase().trim().replace(/\\s+/g, '-'); }
     function nowStamp_() { return '2026-08-27 12:00:00'; }
-    ${grab('progEarned_')} ${grab('stampOf_')} ${grab('refreshSpiffProgress_')}
+    ${grab('progEarned_')} ${grab('stampOf_')} ${grab('textDate_')}
+    ${grab('forceProgressTextDates_')} ${grab('refreshSpiffProgress_')}
     ${grab('spiffProgress_')} ${grab('refreshProgressPlan_')}
-    return { refreshSpiffProgress_, spiffProgress_, progEarned_, stampOf_,
-             refreshProgressPlan_ };`;
+    return { refreshSpiffProgress_, spiffProgress_, progEarned_, stampOf_, textDate_,
+             forceProgressTextDates_ , refreshProgressPlan_ };`;
   const PropertiesService = { getScriptProperties: () => ({ getProperty: () => 'SEKRET' }) };
-  const Utilities = { formatDate: (d) => d.toISOString().slice(0, 19).replace('T', ' ') };
+  /* Honours BOTH arguments on purpose. A mock that ignored the timezone would have passed happily
+     through the very bug this file now guards: formatting a UTC-midnight date in LA time and
+     losing a day. */
+  const Utilities = { formatDate: (d, tz, fmt) => {
+    const p = new Intl.DateTimeFormat('en-CA', { timeZone: tz || 'UTC', hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      .formatToParts(d).reduce((a, x) => (a[x.type] = x.value, a), {});
+    const day = `${p.year}-${p.month}-${p.day}`;
+    return fmt === 'yyyy-MM-dd' ? day : `${day} ${p.hour}:${p.minute}:${p.second}`;
+  } };
   return new Function('SHEET', 'PROGRAMS', 'SELL', 'PropertiesService', 'Utilities', 'Number', src)
     (SHEET, (s) => PROGRAMS(s), (p) => SELL(p), PropertiesService, Utilities, Number);
 }
@@ -214,6 +226,42 @@ M = load();
 const one = M.refreshSpiffProgress_('', 'bend');
 ok('a single-store refresh touches only that store',
    one.rows === 1 && M.spiffProgress_({ secret: 'SEKRET' }).rows.every(r => r.store_id === 'bend'));
+
+/* ── THE PROGRAM WINDOW MUST NOT MOVE ──
+   Sheets coerces a date-only literal like '2026-08-17' into a Date sitting at UTC MIDNIGHT. Read
+   back and formatted in America/Los_Angeles, that is 5pm on the 16th — so the window a vendor is
+   being invoiced against, and that Crew overlaps to decide whose SPIFF counts for a pay period,
+   silently shifts a day. Observed live on 2026-08-29: the route returned 2026-08-16 - 2026-08-29
+   for a program the programs tab dates 2026-08-17 - 2026-08-30.
+
+   The mock's formatDate honours the timezone argument, so this genuinely fails if textDate_ ever
+   goes back to a local zone. */
+SHEET = makeSheet(HEADERS);
+PROGRAMS = () => [Object.assign({}, PROG, { stores_json: [{ store_id: 'bend' }] })];
+SELL = () => ({ ok: true, rows: [{ employee_id: 'a', name: 'A One', units: 6, target: 5, hit: true }] });
+M = load();
+M.refreshSpiffProgress_();
+
+/* Simulate the coercion directly: overwrite the stored window with what Sheets hands back. */
+const sCol = HEADERS.indexOf('start_date'), eCol = HEADERS.indexOf('end_date');
+SHEET.rows[1][sCol] = new Date('2026-08-17T00:00:00.000Z');
+SHEET.rows[1][eCol] = new Date('2026-08-30T00:00:00.000Z');
+const win = M.spiffProgress_({ secret: 'SEKRET' }).rows[0];
+ok('a UTC-midnight start_date does not lose a day', win.start_date === '2026-08-17');
+ok('nor does end_date', win.end_date === '2026-08-30');
+ok('and both are TEXT, not an ISO timestamp',
+   /^\d{4}-\d{2}-\d{2}$/.test(win.start_date) && /^\d{4}-\d{2}-\d{2}$/.test(win.end_date));
+
+/* The belt as well as the braces: the columns are pinned so the coercion stops happening at all. */
+let pinned = [];
+SHEET.getRange = ((orig) => function (r, c, nr, nc) {
+  const g = orig.call(SHEET, r, c, nr, nc);
+  return Object.assign({}, g, { setNumberFormat(f) { pinned.push([c, f]); return this; } });
+})(SHEET.getRange);
+M.forceProgressTextDates_(SHEET);
+ok('pay_period, start_date and end_date are all pinned to TEXT',
+   ['pay_period', 'start_date', 'end_date'].every(h =>
+     pinned.some(x => x[0] === HEADERS.indexOf(h) + 1 && x[1] === '@')));
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nprogress cache: all passed');
 process.exit(fail ? 1 : 0);
