@@ -1861,9 +1861,17 @@ function mmyy_(s) {
 function pad2_(n) { return (n < 10 ? '0' : '') + n; }
 
 /* Belt to forceTextDates_'s braces: any Date that already made it into the sheet (or
-   sneaks in later) reads back as 'YYYY-MM-DD' rather than an ISO timestamp. */
+   sneaks in later) reads back as 'YYYY-MM-DD' rather than an ISO timestamp.
+ *
+ * FORMATTED IN UTC, AND THAT IS THE WHOLE POINT. Every caller here is a DATE-ONLY field, and a
+ * date-only literal that Sheets coerced into a Date sits at UTC MIDNIGHT — the live route was
+ * observed returning exactly '2026-08-17T00:00:00.000Z'. Formatting that in America/Los_Angeles
+ * reads it as 5pm the PREVIOUS day and returns '2026-08-16': the program window silently moves a
+ * day, which is the precise corruption "dates are TEXT" exists to prevent. Verified against the
+ * programs tab, which says 2026-08-17. Same doctrine as addDaysLocal_ below — build and format in
+ * UTC, never via a local constructor. Do not "fix" this to a local timezone. */
 function textDate_(v) {
-  if (v instanceof Date) return Utilities.formatDate(v, 'America/Los_Angeles', 'yyyy-MM-dd');
+  if (v instanceof Date) return Utilities.formatDate(v, 'UTC', 'yyyy-MM-dd');
   return String(v == null ? '' : v).trim();
 }
 
