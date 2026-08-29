@@ -72,11 +72,14 @@ function load() {
     function sellthrough_(p) { return SELL(p); }
     function slug_(s) { return String(s || '').toLowerCase().trim().replace(/\\s+/g, '-'); }
     function nowStamp_() { return '2026-08-27 12:00:00'; }
-    ${grab('progEarned_')} ${grab('refreshSpiffProgress_')} ${grab('spiffProgress_')}
-    return { refreshSpiffProgress_, spiffProgress_, progEarned_ };`;
+    ${grab('progEarned_')} ${grab('stampOf_')} ${grab('refreshSpiffProgress_')}
+    ${grab('spiffProgress_')} ${grab('refreshProgressPlan_')}
+    return { refreshSpiffProgress_, spiffProgress_, progEarned_, stampOf_,
+             refreshProgressPlan_ };`;
   const PropertiesService = { getScriptProperties: () => ({ getProperty: () => 'SEKRET' }) };
-  return new Function('SHEET', 'PROGRAMS', 'SELL', 'PropertiesService', 'Number', src)
-    (SHEET, (s) => PROGRAMS(s), (p) => SELL(p), PropertiesService, Number);
+  const Utilities = { formatDate: (d) => d.toISOString().slice(0, 19).replace('T', ' ') };
+  return new Function('SHEET', 'PROGRAMS', 'SELL', 'PropertiesService', 'Utilities', 'Number', src)
+    (SHEET, (s) => PROGRAMS(s), (p) => SELL(p), PropertiesService, Utilities, Number);
 }
 
 const PROG = { program_id: 'P1', pay_period: '2026-08-17', vendor: 'Wyld', program_name: 'Wyld 10pc',
@@ -178,6 +181,39 @@ const guardSrc = grab('guard_');
 ok('guard_ checks the secret before it asks for a session',
    guardSrc.indexOf('SECRET_ACTIONS.indexOf(action)') >= 0 &&
    guardSrc.indexOf('SECRET_ACTIONS.indexOf(action)') < guardSrc.indexOf('gxAuth_(p.token)'));
+
+/* ── the timestamp is a string, whatever the sheet hands back ──
+   Sheets round-trips that cell as a DATE OBJECT, so it reached consumers as
+   "Fri Aug 28 2026 06:20:52 GMT-0700" instead of the stamp that was written — and readers that sort
+   or compare it would have been comparing two different shapes without noticing. */
+ok('a Date from the sheet becomes a sortable stamp',
+   /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(M.stampOf_(new Date('2026-08-28T13:20:52Z'))));
+ok('a stamp already in shape is left exactly alone',
+   M.stampOf_('2026-08-28 06:20:52') === '2026-08-28 06:20:52');
+ok('junk comes back unchanged rather than as an Invalid Date',
+   M.stampOf_('not a date') === 'not a date' && M.stampOf_('') === '');
+
+/* ── the web refresh PLANS, it does not sweep ──
+   A full sweep is ~9s per store and /exec is killed at 60s: asking for all of them timed out with
+   nothing written and no error to read, which is the worst of both. */
+SHEET = makeSheet(HEADERS);
+PROGRAMS = () => [PROG];
+M = load();
+const plan = M.refreshProgressPlan_();
+ok('the plan lists every program × store pair', plan.plan.length === 2 &&
+   plan.plan.every(x => x.program === 'P1') &&
+   plan.plan.map(x => x.store).sort().join(',') === 'bend,center');
+ok('and it writes nothing', SHEET.getLastRow() === 1);
+ok('it explains why it did not just do it', /60s|six minutes/.test(plan.note));
+ok('it reports every program by status, so an empty plan says WHY',
+   typeof plan.all_programs_by_status === 'object');
+
+/* One store at a time is what the caller loops. */
+SELL = (p) => ({ ok: true, rows: [{ employee_id: 'z', name: 'Z', units: 9, target: 5, hit: true }] });
+M = load();
+const one = M.refreshSpiffProgress_('', 'bend');
+ok('a single-store refresh touches only that store',
+   one.rows === 1 && M.spiffProgress_({ secret: 'SEKRET' }).rows.every(r => r.store_id === 'bend'));
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nprogress cache: all passed');
 process.exit(fail ? 1 : 0);

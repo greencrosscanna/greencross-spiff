@@ -254,9 +254,16 @@ function doGet(e) {
       // The progress cache — the fast read GX Crew's incentive column and Leaderboard's kiosk
       // ticks both use. Secret-gated: a kiosk holds no session and Crew's engine has no browser.
       case 'progress':    out = spiffProgress_(p);                                   break;
+      /* ONE STORE PER CALL. A full sweep is ~9s per store and /exec is killed at 60s — asking for
+         all of them timed out with nothing written and no error to read, which is the worst of both.
+         Called WITHOUT a store this returns the PLAN (every program × store pair) so a caller can
+         loop and watch it fill, exactly as the Progress grid already does. The hourly trigger still
+         does the whole sweep, because a trigger gets six minutes. */
       case 'refreshProgress':
-        out = (String(p.secret || '') === PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP))
-              ? refreshSpiffProgress_(p.program || '') : { ok: false, error: 'Unauthorized' };
+        out = (String(p.secret || '') !== PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP))
+              ? { ok: false, error: 'Unauthorized' }
+              : (p.store ? refreshSpiffProgress_(p.program || '', p.store)
+                         : refreshProgressPlan_(p.program || ''));
         break;
       case 'installProgressTrigger':
         out = (String(p.secret || '') === PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP)
@@ -806,6 +813,15 @@ var PROGRESS_HEADERS = ['program_id', 'pay_period', 'store_id', 'employee_id', '
                         'units', 'target', 'hit', 'earned', 'vendor', 'program_name',
                         'start_date', 'end_date', 'refreshed_at'];
 
+/* A Date from the sheet, or a string already in shape, or junk — always the same sortable stamp. */
+function stampOf_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, 'America/Los_Angeles', 'yyyy-MM-dd HH:mm:ss');
+  var s = String(v == null ? '' : v).trim();
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) return s;
+  var d = new Date(s);
+  return isNaN(d.getTime()) ? s : Utilities.formatDate(d, 'America/Los_Angeles', 'yyyy-MM-dd HH:mm:ss');
+}
+
 function progressSheet_() {
   var ss = dataSheet_().getParent();
   var sh = ss.getSheetByName(PROGRESS_TAB);
@@ -830,7 +846,7 @@ function progEarned_(prog, units, hit) {
  * sweep is ~9s per store per program and /exec dies at 60s, while a trigger gets six minutes.
  * `only` limits it to one program_id, which is what the on-demand refresh uses.
  */
-function refreshSpiffProgress_(only) {
+function refreshSpiffProgress_(only, onlyStore) {
   var programs = listPrograms_('active').filter(function (p) {
     return !only || String(p.program_id) === String(only);
   });
@@ -842,6 +858,7 @@ function refreshSpiffProgress_(only) {
     stores.forEach(function (store) {
       var slug = slug_(store && store.store_id ? store.store_id : store);
       if (!slug) return;
+      if (onlyStore && slug !== slug_(onlyStore)) return;
       var r;
       try { r = sellthrough_({ id: prog.program_id, store: slug }); }
       catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
@@ -905,6 +922,31 @@ function installSpiffProgressTrigger() {
 }
 function refreshSpiffProgressTrigger() { refreshSpiffProgress_(); }
 
+/* What a full refresh would do, without doing any of it. Lets a caller loop store by store and see
+ * progress, instead of firing one request that dies silently at the 60-second ceiling. */
+function refreshProgressPlan_(only) {
+  var programs = listPrograms_('active').filter(function (p) {
+    return !only || String(p.program_id) === String(only);
+  });
+  var plan = [];
+  programs.forEach(function (prog) {
+    (prog.stores_json || []).forEach(function (store) {
+      var slug = slug_(store && store.store_id ? store.store_id : store);
+      if (slug) plan.push({ program: prog.program_id, store: slug });
+    });
+  });
+  var byStatus = Object.create(null);
+  listPrograms_().forEach(function (x) {
+    var k = String(x.status || '(blank)');
+    byStatus[k] = (byStatus[k] || 0) + 1;
+  });
+  return { ok: true, plan: plan, programs: programs.length,
+           all_programs_by_status: byStatus,
+           note: 'nothing swept — call again with &store=<slug> per entry in `plan`. ' +
+                 'A full sweep is ~9s per store and /exec is killed at 60s; the hourly trigger ' +
+                 'does the whole thing because a trigger gets six minutes.' };
+}
+
 /**
  * ?action=progress&secret=…[&pay_period=YYYY-MM-DD][&program=ID]
  *
@@ -937,8 +979,13 @@ function spiffProgress_(p) {
     if (wantId && String(o.program_id) !== wantId) return;
     o.units = Number(o.units) || 0; o.target = Number(o.target) || 0;
     o.earned = Number(o.earned) || 0; o.hit = !!o.hit;
+    /* The sheet round-trips this cell as a DATE OBJECT, so it reached consumers as
+       "Fri Aug 28 2026 06:20:52 GMT-0700" instead of the stamp that was written. Normalised on the
+       way out — every reader wants a sortable string, and none of them should have to guess which
+       of the two shapes they got. */
+    o.refreshed_at = stampOf_(o.refreshed_at);
     rows.push(o);
-    if (String(o.refreshed_at) > newest) newest = String(o.refreshed_at);
+    if (o.refreshed_at > newest) newest = o.refreshed_at;
   });
 
   /* One line per person, summed across programs — what Crew puts in the SPIFF column. Keyed on
