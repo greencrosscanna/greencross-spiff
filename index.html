@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.306"/>
-<link rel="stylesheet" href="spiff.css?v=1.306"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.307"/>
+<link rel="stylesheet" href="spiff.css?v=1.307"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -351,6 +351,17 @@
     'progress', 'refunits', 'sellthrough', 'stores', 'version_history'
   ];
 </script>
-<script src="spiff.js?v=1.306"></script>
+<!-- Shared maintenance gate (core-admin note, 2026-08-28). Does nothing today: it fetches the
+     flag on every load and anything unreadable counts as UP, so a bad minute of GitHub's CDN cannot
+     manufacture an outage. The value is entirely in already being wired when something breaks — the
+     app that skipped this is the one still showing a stack trace to a store.
+     Overlays at z-index 10000; the highest rule in this app is 60, so nothing here fights it. It sits
+     ABOVE the sign-in gate deliberately: being told the app is down should not require signing in.
+     Preview with ?gxmaint=on, bypass with ?gxmaint=off. -->
+<script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-maintenance.js"></script>
+<script>
+  GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
+</script>
+<script src="spiff.js?v=1.307"></script>
 </body>
 </html>

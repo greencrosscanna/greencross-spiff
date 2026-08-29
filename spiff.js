@@ -816,6 +816,28 @@
       name: name,
       role: s.role || '',
       avatar: ava,
+      /* Staff change their own face from the chip (core-admin note, 2026-08-28). Opt-in per app,
+         and the row only renders because this object is here — an Avatar row with no way to save
+         would be the SPIFF gear all over again.
+         No `seed`: the session carries no employee_number, and a name-derived seed is exactly what
+         pinning exists to stop mattering. The stored config's own seed wins regardless, so the only
+         thing this affects is the preview.
+         set_my_avatar takes no ref — the employee is resolved from the session — so this can only
+         ever write the caller's own face, which is why it is safe to offer a viewer. */
+      avatarEdit: {
+        token:  s.token,
+        app:    APP,
+        client: GX,
+        config: s.avatar || null,
+        onSaved: function (cfg) {
+          /* Write it back to the SESSION, not just the tray. Without this the next renderAuthChip
+             — a sign-in state change, a tab switch — repaints from the stale session and the face
+             someone just chose reverts in front of them. */
+          var cur = session();
+          if (cur) { cur.avatar = cfg; setSession(cur); }
+          renderAuthChip();
+        }
+      },
       items: [
         // No action -> a static info row. GX Core status is diagnostic: checked when something looks
         // wrong, not worth a permanent slot in the header.
