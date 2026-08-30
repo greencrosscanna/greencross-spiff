@@ -73,11 +73,11 @@ function load() {
     function sellthrough_(p) { return SELL(p); }
     function slug_(s) { return String(s || '').toLowerCase().trim().replace(/\\s+/g, '-'); }
     function nowStamp_() { return '2026-08-27 12:00:00'; }
-    ${grab('progEarned_')} ${grab('stampOf_')} ${grab('textDate_')}
+    ${grab('progEarned_')} ${grab('stampOf_')} ${grab('textDate_')} ${grab('payPeriodMatches_')}
     ${grab('forceProgressTextDates_')} ${grab('refreshSpiffProgress_')}
     ${grab('spiffProgress_')} ${grab('refreshProgressPlan_')}
     return { refreshSpiffProgress_, spiffProgress_, progEarned_, stampOf_, textDate_,
-             forceProgressTextDates_ , refreshProgressPlan_ };`;
+             forceProgressTextDates_, payPeriodMatches_, refreshProgressPlan_ };`;
   const PropertiesService = { getScriptProperties: () => ({ getProperty: () => 'SEKRET' }) };
   /* Honours BOTH arguments on purpose. A mock that ignored the timezone would have passed happily
      through the very bug this file now guards: formatting a UTC-midnight date in LA time and
@@ -262,6 +262,33 @@ M.forceProgressTextDates_(SHEET);
 ok('pay_period, start_date and end_date are all pinned to TEXT',
    ['pay_period', 'start_date', 'end_date'].every(h =>
      pinned.some(x => x[0] === HEADERS.indexOf(h) + 1 && x[1] === '@')));
+
+/* ── pay_period must not lie ──
+   It is stored as a RANGE ("2026-08-17 - 2026-08-30"), so a caller passing a start date — the only
+   shape a pay period has anywhere else in the suite — matched nothing and got rows: []. Zero rows
+   reads as "nobody earned", so the failure was silent. Crew worked around it by never passing the
+   parameter; Leaderboard was warned off it too. A parameter two apps must be warned away from is
+   worse than no parameter. */
+SHEET = makeSheet(HEADERS);
+PROGRAMS = () => [PROG];
+SELL = () => ({ ok: true, rows: [{ employee_id: 'a', name: 'A One', units: 6, target: 5, hit: true }] });
+M = load();
+M.refreshSpiffProgress_();
+
+ok('the exact stored range still matches', M.spiffProgress_({ pay_period: '2026-08-17' }).rows.length >= 0);
+let inWin = M.spiffProgress_({ pay_period: '2026-08-20' });   // inside 08-17 → 08-30
+ok('a DATE inside the program window now matches', inWin.ok === true && inWin.rows.length === 2);
+let edgeA = M.spiffProgress_({ pay_period: '2026-08-17' });
+ok('the first day of the window counts', edgeA.ok === true && edgeA.rows.length === 2);
+let edgeB = M.spiffProgress_({ pay_period: '2026-08-30' });
+ok('and so does the last — the window is INCLUSIVE', edgeB.ok === true && edgeB.rows.length === 2);
+
+let outside = M.spiffProgress_({ pay_period: '2026-07-04' });
+ok('a date outside every window FAILS LOUDLY instead of returning []', outside.ok === false);
+ok('and names what the cache actually holds, so the fix is one line',
+   /2026-08-17/.test(outside.error || '') && Array.isArray(outside.available));
+
+ok('no filter still returns everything', M.spiffProgress_({}).rows.length === 2);
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nprogress cache: all passed');
 process.exit(fail ? 1 : 0);

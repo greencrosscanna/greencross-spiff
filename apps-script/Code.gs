@@ -972,6 +972,27 @@ function refreshProgressPlan_(only) {
  * shapes: the kiosk wants "this person, this program, 3 of 5", and Crew wants "this person, this
  * pay period, $25" across however many programs were running.
  */
+/* Does this cached row belong to the pay period the caller asked for?
+ *
+ * `pay_period` USED TO BE A LIE. SPIFF stores it as a human-readable RANGE — "2026-08-17 -
+ * 2026-08-30" — so a caller passing a start date, which is the only shape a pay period has in
+ * every other app in the suite, matched nothing and got `rows: []`. Zero rows is indistinguishable
+ * from a fortnight where nobody earned anything, so the failure was SILENT and read as data. GX
+ * Crew hit it and worked around it by not passing the parameter at all; Leaderboard was told the
+ * same thing when it built the kiosk ticks. A parameter two apps have to be warned away from is
+ * worse than no parameter.
+ *
+ * So it now accepts either shape, and the DATE shape is matched against the window rather than the
+ * formatting: a bare YYYY-MM-DD counts when it falls inside the program's start/end. That is the
+ * fact the caller means; the stored string is one way of writing it and can change without
+ * breaking anyone. */
+function payPeriodMatches_(row, want) {
+  if (String(row.pay_period || '').trim() === want) return true;      // exact stored string
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(want)) return false;               // not a date — no other shape
+  var a = textDate_(row.start_date), b = textDate_(row.end_date);
+  return !!(a && b && a <= want && want <= b);                        // inside the program window
+}
+
 function spiffProgress_(p) {
   /* guard_ has already authorised this call — either a valid session token or the deploy
      secret. Re-demanding the secret here would have made the route unreachable from a browser
@@ -989,7 +1010,7 @@ function spiffProgress_(p) {
   vals.forEach(function (v) {
     var o = {};
     PROGRESS_HEADERS.forEach(function (h, i) { o[h] = v[i]; });
-    if (wantPP && String(o.pay_period) !== wantPP) return;
+    if (wantPP && !payPeriodMatches_(o, wantPP)) return;
     if (wantId && String(o.program_id) !== wantId) return;
     o.units = Number(o.units) || 0; o.target = Number(o.target) || 0;
     o.earned = Number(o.earned) || 0; o.hit = !!o.hit;
@@ -1017,6 +1038,22 @@ function spiffProgress_(p) {
     e.programs.push({ program_id: r.program_id, vendor: r.vendor, name: r.program_name,
                       units: r.units, target: r.target, hit: r.hit, earned: r.earned });
   });
+
+  /* SAY SO rather than return an empty set. If the caller filtered and we matched nothing while
+     the cache itself has rows, that is a bad filter, not a quiet fortnight — and the caller cannot
+     tell those apart from `rows: []`. Naming the values that DO exist turns a silent wrong answer
+     into a one-line fix at the call site. */
+  if (wantPP && !rows.length && vals.length) {
+    var have = Object.create(null);
+    vals.forEach(function (v) {
+      var pp = String(v[PROGRESS_HEADERS.indexOf('pay_period')] || '').trim();
+      if (pp) have[pp] = 1;
+    });
+    return { ok: false, error: 'no rows for pay_period "' + wantPP + '". The cache holds: '
+               + (Object.keys(have).join(' | ') || '(none)')
+               + '. Pass one of those, or a YYYY-MM-DD date inside the program window.',
+             pay_period: wantPP, available: Object.keys(have), rows: [], by_employee: [] };
+  }
 
   return { ok: true, pay_period: wantPP || null, rows: rows,
            by_employee: Object.keys(by).map(function (k) { return by[k]; }),
