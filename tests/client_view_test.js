@@ -169,5 +169,24 @@ ok('five of six stores read out of 6', dens.filter(d => d === 6).length === 5);
 ok('and the program total is 37, not the 25 who happened to sell',
    dens.reduce((a,b) => a+b, 0) === 37);
 
+/* ── vs BEFORE SPIFF ──
+   The question the vendor came with is "did this move anything", and vs-goal alone cannot answer
+   it: a store can miss an ambitious goal and still have multiplied its sell-through. BeGoat's bend
+   went 2 -> 18 while finishing exactly level with goal, so the vs-goal column reads +0 and the
+   entire effect of the program at that store is invisible without this one. */
+const lift = (sold, baseline) => sold - baseline;
+const BG2 = [ // baseline, sold, goal
+  ['bend', 2, 18, 18], ['center', 4, 3, 18], ['commercial', 15, 28, 30],
+  ['hillsboro', 1, 3, 18], ['portland-rd', 2, 65, 18], ['river-rd', 3, 5, 18] ];
+const lifts = BG2.map(([, b2, s2]) => lift(s2, b2));
+ok('bend reads +16 against before, where vs-goal reads only +0', lifts[0] === 16);
+ok('a store that went BACKWARDS is shown as negative, not hidden', lifts[1] === -1);
+ok('portland-rd carried the program: +63', lifts[4] === 63);
+ok('the lift total ties to the headline unit lift (122 - 27)',
+   lifts.reduce((a, b) => a + b, 0) === 95);
+ok('and equals soldTotal - baselineTotal, so the row and total cannot disagree',
+   lifts.reduce((a, b) => a + b, 0)
+     === BG2.reduce((n, [, b2, s2]) => n + s2, 0) - BG2.reduce((n, [, b2]) => n + b2, 0));
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nclient view: all passed');
 process.exit(fail ? 1 : 0);

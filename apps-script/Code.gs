@@ -1494,11 +1494,16 @@ function clientView_(p) {
     var took    = g.budtenders || 0;
     var roster  = Math.max(planned, took, g.hit || 0);
 
+    var base = (b.by_store || {})[id] || 0;
     return { store: nameOf[id] || id,
-             baseline: (b.by_store || {})[id] || 0,
+             baseline: base,
              target: tgt,
              sold: sold,
-             /* Signed, and computed HERE so the page and the totals row cannot drift apart. */
+             /* Both comparisons are computed HERE so a row and the totals cannot drift apart.
+                `lift` answers the question the vendor actually came with — did the SPIFF move
+                anything — which "vs goal" alone does not: a store can miss an ambitious goal and
+                still have tripled. BeGoat's bend went 2 to 18 while finishing level with goal. */
+             lift: sold - base,
              delta: sold - tgt,
              hit: g.hit || 0,
              budtenders: roster,
