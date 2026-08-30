@@ -560,6 +560,16 @@ body.is-gated .workspace { display: none !important; }
    recoloured: the colours in this row already mean over/under target, and a third meaning on the
    same channel would misread. */
 .sp-num.is-live { text-decoration: underline dotted var(--gx-border-strong); text-underline-offset: 3px; }
+/* PARTIAL is not the same as provisional. A live figure will change; a partial one is simply too
+   low, because stores that have not been swept contribute nothing. It gets the warning colour the
+   rest of the app uses for "this number cannot be trusted yet", and states its own coverage. */
+.sp-num.is-partial { color: var(--gx-gold); text-decoration-color: var(--gx-gold-line); }
+.sp-partial-flag {
+  margin-left: 6px; font-size: 9.5px; font-weight: 700; letter-spacing: .5px;
+  padding: 1px 5px; border-radius: var(--gx-radius-pill);
+  color: var(--gx-gold); border: 1px solid var(--gx-gold-line);
+  font-variant-numeric: tabular-nums; vertical-align: 1px;
+}
 .sp-row-name { font-size: 13px; font-weight: 600; }
 .sp-row-sub { font-size: 11.5px; color: var(--gx-text-mute); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .sp-row .sp-num { text-align: right; font-size: 12.5px; }

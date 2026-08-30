@@ -637,10 +637,20 @@
                bts: t.budtenders || 0, live: false };
     }
     if (cache) {
+      /* COVERAGE TRAVELS WITH THE FIGURE. The cache is filled one store per call, so it is
+         routinely PARTIAL — on 2026-08-29 it held 1 of 6 stores and 110 units for a program that
+         had actually sold 3,183. The hero has always said "1 of 6 stores — totals below are
+         incomplete"; the row said nothing, so the first cut of this function turned a sixth of a
+         program into a confident total. A partial number presented as a whole one is worse than
+         the 0 it replaced: the 0 at least looked wrong. */
+      var total   = cache.stores || (p.stores_json || []).length || 0;
+      var back    = cache.back || 0;
+      var partial = total > 0 && back < total;
       /* target_json.budtenders is the PLANNED headcount and is often unset on a running program,
          which is the other half of "0 / 0". The cache knows how many actually sold. */
       return { units: cache.units, hit: cache.hit,
-               bts: t.budtenders || cache.bts || 0, live: true };
+               bts: t.budtenders || cache.bts || 0, live: true,
+               partial: partial, back: back, stores: total, at: cache.at || '' };
     }
     if (settled) {
       return { units: a.units_sold || 0, hit: a.bts_hit || 0,
@@ -663,9 +673,17 @@
 
     /* A live figure and a settled one must not be indistinguishable: one can still move, the
        other is what a vendor was invoiced. The cue is deliberately quiet — a tooltip and a
-       hairline — because this column is scanned, not studied. */
-    var liveTip = tot && tot.live
-      ? ' title="Live from the progress cache — actuals are recorded at close-out"' : '';
+       hairline — because this column is scanned, not studied.
+       A PARTIAL figure gets a louder one. It is not merely provisional, it is arithmetically
+       wrong until the rest of the stores land, and it must not be read off the screen. */
+    var liveTip = '';
+    if (tot && tot.partial) {
+      liveTip = ' title="INCOMPLETE — ' + tot.back + ' of ' + tot.stores + ' stores measured'
+              + (tot.at ? ', as of ' + esc(shortTime(tot.at)) : '')
+              + '. The rest have not been swept yet, so this is lower than the real figure."';
+    } else if (tot && tot.live) {
+      liveTip = ' title="Live from the progress cache — actuals are recorded at close-out"';
+    }
     var sold = '&mdash;';
     if (tot) {
       var d = tot.units - tgt;
@@ -688,8 +706,12 @@
       + '</div>'
       + '<div class="sp-row-dots">' + dots + '</div>'
       + '<div class="sp-num">' + money(pay) + '</div>'
-      + '<div class="sp-num' + (tot && tot.live ? ' is-live' : '') + '"' + liveTip + '>' + sold + '</div>'
-      + '<div class="sp-num' + (tot && tot.live ? ' is-live' : '') + '"' + liveTip + '>'
+      + '<div class="sp-num' + (tot && tot.live ? ' is-live' : '')
+      +   (tot && tot.partial ? ' is-partial' : '') + '"' + liveTip + '>'
+      +   sold + (tot && tot.partial ? '<span class="sp-partial-flag">' + tot.back + '/' + tot.stores + '</span>' : '')
+      +   '</div>'
+      + '<div class="sp-num' + (tot && tot.live ? ' is-live' : '')
+      +   (tot && tot.partial ? ' is-partial' : '') + '"' + liveTip + '>'
       +   (tot ? tot.hit + ' / ' + tot.bts : '&mdash;') + '</div>'
       + '<div class="sp-num sp-money ' + (a ? (a.roi >= 0 ? 'is-pos' : 'is-neg') : '') + '">' + roi + '</div>'
       + '<div><span class="sp-chip is-' + esc(p.status) + '">' + esc(p.status) + '</span></div>'

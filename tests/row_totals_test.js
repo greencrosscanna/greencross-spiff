@@ -85,5 +85,27 @@ rowTotals = load({ units: 200, hit: 20, bts: 21 }, CACHE);
 r = rowTotals({ program_id: 'P1', status: 'active', target_json: TARGET, actual_json: null });
 ok('an in-flight pull outranks the hourly cache', r && r.units === 200);
 
+/* ── COVERAGE, the bug the first fix introduced ──
+   The cache fills one store per call. On 2026-08-29 it held ONE of six stores and 110 units for a
+   program that had actually sold 3,183 across all six — and the row rendered that as the total. A
+   sixth of a program shown as the whole thing is worse than the 0 it replaced, because 0 looks
+   wrong and 110 does not. Coverage has to travel with the figure. */
+rowTotals = load(null, { units: 110, hit: 1, bts: 1, back: 1, stores: 6, cached: true, at: '2026-08-29 04:07:42' });
+r = rowTotals({ program_id: 'P1', status: 'active', target_json: TARGET, actual_json: null,
+                stores_json: ['a','b','c','d','e','f'] });
+ok('a 1-of-6-store cache is flagged partial', r && r.partial === true);
+ok('and reports its own coverage so the row can show it', r && r.back === 1 && r.stores === 6);
+ok('and carries the staleness stamp', r && r.at === '2026-08-29 04:07:42');
+
+rowTotals = load(null, { units: 3183, hit: 24, bts: 38, back: 6, stores: 6, cached: true, at: 'x' });
+r = rowTotals({ program_id: 'P1', status: 'active', target_json: TARGET, actual_json: null,
+                stores_json: ['a','b','c','d','e','f'] });
+ok('a complete sweep is NOT flagged partial', r && r.partial === false);
+
+/* A settled figure is never partial — it is not assembled per store. */
+rowTotals = load(null, null);
+r = rowTotals({ program_id: 'P1', status: 'closed', target_json: TARGET, actual_json: ACTUAL });
+ok('a closed program is never marked partial', r && !r.partial);
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nrow totals: all passed');
 process.exit(fail ? 1 : 0);
