@@ -21,6 +21,13 @@ Four surfaces, one spine:
    Dutchie. Published as `?action=progress` (token-gated) off the `spiff_progress` cache, which an
    hourly trigger refreshes. **GX Crew consumes it** — `applySpiffEarnings_` fills the incentive
    SPIFF column from what SPIFF measured, so Mike reads a figure instead of typing one.
+   Every row carries **`status`** (draft | active | closed), and `&status=active` filters to it
+   server-side — which trims `by_employee` totals too, since those are summed from the surviving
+   rows. It is **resolved at read time** from the `programs` tab, never stored on the cached row:
+   the cache is a snapshot and the hourly sweep is active-only, so a stored column would read
+   `active` forever for a programme closed since its last refresh — stale in exactly the case the
+   field exists to catch. Added 2026-08-30 at Leaderboard's ask, after a closed programme drew on
+   23 of 40 kiosk cards because window-overlap was the only inference available.
    *Corrected 2026-08-29: this said "Mirrored by the Leaderboard kiosks so staff can see what they
    have coming." **Nothing in `greencross-leaderboard` calls the route** — the mirror was aspiration
    written as fact. It is wanted (SPIFF ticks on kiosk staff cards) and is **Leaderboard-side work**
