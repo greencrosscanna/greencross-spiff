@@ -344,7 +344,8 @@
       ? '<div class="sp-head"><h2>' + heading + '</h2>'
         + '<span class="sp-head-note">' + note + '</span>'
         + '<a class="sp-head-link" href="#" data-goto="history">see all in History</a></div>'
-        + '<div class="sp-list">' + rest.map(listRow).join('') + '</div>'
+        + '<div class="sp-list' + (canEdit() ? ' can-share' : '') + '">'
+          + rest.map(listRow).join('') + '</div>'
       : (heroes.length ? '' : '<div class="sp-notice">Nothing matches that filter. '
           + closedN + ' closed program' + (closedN === 1 ? '' : 's') + ' in History.</div>');
   }
@@ -649,8 +650,40 @@
       + '<div class="sp-num">' + (a ? (a.bts_hit || 0) + ' / ' + (t.budtenders || 0) : '&mdash;') + '</div>'
       + '<div class="sp-num sp-money ' + (a ? (a.roi >= 0 ? 'is-pos' : 'is-neg') : '') + '">' + roi + '</div>'
       + '<div><span class="sp-chip is-' + esc(p.status) + '">' + esc(p.status) + '</span></div>'
+      + shareCell(p)
       + '</div>';
   }
+
+  /* The vendor link, reachable from the row instead of only from the bottom of the record panel.
+     It was already built — engine route, gate page, mint/revoke — but the only way to reach it was
+     to know it was down there, so in practice nobody did. Sky, 2026-08-29.
+
+     Rendered for editors ONLY, same gate as the record-panel block: minting exposes a program to an
+     outside party. `.sp-list` carries can-share so the column collapses entirely for a viewer
+     rather than leaving them a dead gutter. */
+  function shareCell(p) {
+    if (!canEdit()) return '';
+    var has = !!p.share_token;
+    var noEmail = !String(p.contact_email || '').trim();
+    /* A token on a program with no contact_email is a DEAD LINK: clientView_ matches the rep's own
+       email against contact_email before it looks at the token, so the vendor gets the same generic
+       "does not match" a wrong password gives — no clue that the fault is ours. Say so here rather
+       than let a broken link get emailed. */
+    var title = noEmail ? 'Set a contact email on this program first — without one the link opens nothing'
+              : has     ? 'Copy the vendor link'
+                        : 'Create a vendor link';
+    return '<div class="sp-row-share">'
+      + '<button class="sp-share' + (has ? ' has-link' : '') + (noEmail ? ' is-blocked' : '')
+      +   '" data-share="' + esc(p.program_id) + '" title="' + esc(title) + '"'
+      +   ' aria-label="' + esc(title) + '">' + (has ? ICON_LINK : ICON_SHARE) + '</button>'
+      + '</div>';
+  }
+
+  var ICON_SHARE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/>'
+    + '<path d="M12 15V3"/><path d="M8 7l4-4 4 4"/></svg>';
+  var ICON_LINK  = '<svg viewBox="0 0 24 24" aria-hidden="true">'
+    + '<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/>'
+    + '<path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>';
 
   /* Active programs first — they're the ones you can still act on — then newest to
      oldest. Undated records sort last rather than pretending to be old. */
@@ -733,6 +766,11 @@
       panel.addEventListener('click', function (e) {
         var go = e.target.closest('[data-goto]');
         if (go) { e.preventDefault(); showTab(go.dataset.goto); return; }
+        /* BEFORE the row handler, and it stops there. The button sits inside a row whose own click
+           opens the record, so without this you would copy a link and get the panel over the top
+           of the confirmation you were trying to read. */
+        var sh = e.target.closest('[data-share]');
+        if (sh) { e.preventDefault(); e.stopPropagation(); rowShare(sh); return; }
         var ed = e.target.closest('[data-edit]');
         if (ed) { openRecord(ed.dataset.edit); return; }
         var row = e.target.closest('.sp-row[data-id]');
@@ -740,6 +778,7 @@
       });
       panel.addEventListener('keydown', function (e) {
         if (e.key !== 'Enter' && e.key !== ' ') return;
+        if (e.target.closest('[data-share]')) return;   // the button handles its own activation
         var row = e.target.closest('.sp-row[data-id]');
         if (row) { e.preventDefault(); openRecord(row.dataset.id); }
       });
@@ -1141,6 +1180,73 @@
 
   function clientUrl(tok) {
     return location.origin + location.pathname.replace(/[^/]*$/, '') + 'client.html?t=' + tok;
+  }
+
+  /* Copy that works when execCommand does not. The record panel could lean on a visible <input> to
+     select; a row has none, and a hidden one is not selectable in every browser. */
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; }
+    } catch (e) { /* fall through — a denied permission is not a reason to give up */ }
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  /* Row-level share. Mints on first use and copies every time, so one control does the whole job —
+     there is no second click to hunt for, which was the point of moving this out of the panel.
+     Revoking stays in the record panel: it is destructive and belongs where the program is open in
+     front of you, not one stray click from a list. */
+  async function rowShare(btn) {
+    var id = btn.dataset.share;
+    var p  = (state.programs || []).filter(function (x) { return x.program_id === id; })[0];
+    if (!p) return;
+
+    if (!String(p.contact_email || '').trim()) {
+      /* Refuses rather than minting a link that cannot open. Opens the record on the program so the
+         missing field is in front of them, instead of an error they have to act on from memory. */
+      flashShare(btn, 'Needs a contact email', false);
+      setTimeout(function () { openRecord(id); }, 900);
+      return;
+    }
+
+    btn.disabled = true;
+    try {
+      var tok = p.share_token;
+      if (!tok) {
+        var r = await ENG.jsonp('shareLink', { token: (session() || {}).token, id: p.program_id });
+        if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+        tok = r.token;
+        p.share_token = tok;
+        btn.classList.add('has-link');
+        btn.innerHTML = ICON_LINK;
+      }
+      flashShare(btn, await copyText(clientUrl(tok)) ? 'Link copied' : 'Link ready', true);
+    } catch (err) {
+      console.error('[spiff] share failed:', err);
+      flashShare(btn, 'Failed — try the record panel', false);
+    }
+    btn.disabled = false;
+  }
+
+  /* A row has nowhere to put a message, so the confirmation rides on the button itself and clears
+     itself. Silence after a copy reads as a no-op, and the user clicks again. */
+  function flashShare(btn, msg, good) {
+    var cell = btn.parentNode;
+    var old  = cell.querySelector('.sp-share-msg');
+    if (old) old.remove();
+    var tip = document.createElement('span');
+    tip.className = 'sp-share-msg' + (good ? '' : ' is-bad');
+    tip.textContent = msg;
+    cell.appendChild(tip);
+    setTimeout(function () { if (tip.parentNode) tip.remove(); }, 2600);
   }
 
   async function makeShare(p, btn) {

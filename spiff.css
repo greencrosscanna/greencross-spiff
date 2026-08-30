@@ -571,6 +571,50 @@ body.is-gated .workspace { display: none !important; }
 .sp-row.is-suspect { border-left: 3px solid var(--gx-red); }
 .sp-row.is-flagged { border-left: 3px solid var(--gx-gold); }
 
+/* --- the vendor link, on the row ------------------------------------------ *
+   An eighth column that exists ONLY for editors — a viewer can never mint a link, so they get the
+   seven-column grid unchanged rather than an empty gutter they cannot use. */
+.sp-list.can-share .sp-row {
+  grid-template-columns: minmax(200px, 1.6fr) 90px 80px 110px 90px 110px 90px 34px;
+}
+.sp-row-share { position: relative; display: flex; justify-content: flex-end; }
+.sp-share {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0;
+  background: transparent; border: 1px solid transparent; border-radius: var(--gx-radius-sm);
+  color: var(--gx-text-mute); cursor: pointer;
+  /* Faint until the row is hovered: on a list of 20 programs a column of solid icons competes with
+     the numbers, which are what the list is actually for. */
+  opacity: .35; transition: opacity .12s ease, color .12s ease, border-color .12s ease;
+}
+.sp-share svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2;
+                stroke-linecap: round; stroke-linejoin: round; }
+.sp-row:hover .sp-share, .sp-share:focus-visible { opacity: 1; }
+.sp-share:hover { color: var(--gx-green); border-color: var(--gx-green-dim); background: var(--gx-green-soft); }
+.sp-share:focus-visible { outline: 2px solid var(--gx-green); outline-offset: 1px; }
+.sp-share:disabled { opacity: .5; cursor: default; }
+/* A program that already has a live link stays visible at rest — that a link is OUT THERE is a
+   fact about the program, not a hover affordance. */
+.sp-share.has-link { opacity: .9; color: var(--gx-green); }
+.sp-share.is-blocked { color: var(--gx-gold); }
+
+/* The confirmation. Absolutely positioned so adding it cannot reflow the row under the cursor —
+   and OPAQUE, with a shadow, because it necessarily floats back over the status chip and the ROI
+   figure: there is no free space at the right edge of a full row. The first cut used the same
+   translucent green-soft as the chips and the words underneath read straight through it, which
+   looked like a rendering fault rather than a message. It reads as a toast only if it occludes. */
+.sp-share-msg {
+  position: absolute; right: 34px; top: 50%; transform: translateY(-50%);
+  z-index: 3; white-space: nowrap; pointer-events: none;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .4px;
+  padding: 4px 9px; border-radius: var(--gx-radius-sm);
+  color: var(--gx-green);
+  background: var(--gx-surface-3, var(--gx-surface-2));
+  border: 1px solid var(--gx-green-dim);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, .55);
+}
+.sp-share-msg.is-bad { color: var(--gx-gold); border-color: var(--gx-gold-line); }
+
 .sp-chip {
   font-size: 10px; text-transform: uppercase; letter-spacing: .9px; font-weight: 700;
   padding: 3px 9px; border-radius: var(--gx-radius-pill);
@@ -583,8 +627,10 @@ body.is-gated .workspace { display: none !important; }
   .sp-hero-top { flex-direction: column; gap: 16px; }
   .sp-hero-figs { text-align: left; }
   .sp-stats { grid-template-columns: repeat(2, 1fr); }
-  .sp-row { grid-template-columns: 1fr auto; row-gap: 6px; }
+  .sp-row, .sp-list.can-share .sp-row { grid-template-columns: 1fr auto; row-gap: 6px; }
   .sp-row .sp-num, .sp-row-dots { text-align: left; }
+  /* No hover on touch, so the icon cannot be hover-revealed here. */
+  .sp-share { opacity: 1; }
 }
 
 /* The suspect/rate flag is a bordered chip, not bare text: it has to survive sitting directly
