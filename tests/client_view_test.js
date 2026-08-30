@@ -141,5 +141,33 @@ h = pickHeadline(null, 40, null);
 ok('a program with no credit still leads on growth', h.label === 'Sales growth over the prior period');
 ok('and shows no ROI stat, because there is no ROI', shows(h, null) === false);
 
+/* ── THE BUDTENDER DENOMINATOR IS THE ROSTER, NOT THE PEOPLE WHO TRIED ──
+   It was a count of budtenders appearing in the sell-through, i.e. who sold at least one unit. So
+   a store where only two staff touched the product read "0 of 2" — which FLATTERS it: nobody hit,
+   out of a denominator that had quietly shrunk to the people who tried. Across one BeGoat program
+   the denominators were 6, 2, 5, 3, 7, 2 for stores that all had six budtenders.
+
+   The plan knows the real number: unit goal / per-budtender goal. */
+function roster(target, perBt, sellers, hit) {
+  const planned = perBt > 0 ? Math.round(target / perBt) : 0;
+  return Math.max(planned, sellers, hit);
+}
+ok('a store where only 2 of 6 sold is still out of 6', roster(18, 3, 2, 0) === 6);
+ok('and one where only 3 sold, likewise', roster(18, 3, 3, 0) === 6);
+ok('a bigger goal at the same per-head target is still 6', roster(30, 5, 5, 3) === 6);
+/* Seven people sold at portland-rd and all seven hit. "7 of 6" reads as a broken page. */
+ok('more sellers than planned raises the denominator, never prints 7 of 6',
+   roster(18, 3, 7, 7) === 7);
+ok('and hits alone can raise it, so hit can never exceed the roster',
+   roster(18, 3, 0, 8) === 8);
+ok('with no per-budtender goal it falls back to who took part', roster(18, 0, 4, 2) === 4);
+
+/* The whole BeGoat table: five stores at /6, portland-rd at /7. */
+const BG = [[18,3,6,3],[18,3,2,0],[30,5,5,3],[18,3,3,0],[18,3,7,7],[18,3,2,1]];
+const dens = BG.map(([t2,pb,se,h]) => roster(t2,pb,se,h));
+ok('five of six stores read out of 6', dens.filter(d => d === 6).length === 5);
+ok('and the program total is 37, not the 25 who happened to sell',
+   dens.reduce((a,b) => a+b, 0) === 37);
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nclient view: all passed');
 process.exit(fail ? 1 : 0);

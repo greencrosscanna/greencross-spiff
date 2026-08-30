@@ -1473,13 +1473,37 @@ function clientView_(p) {
     var g = progByStore[id] || {};
     var tgt = (t.by_store || {})[id] || 0;
     var sold = g.sold || 0;
+
+    /* HOW MANY BUDTENDERS THE STORE WAS PLAYING WITH.
+     *
+     * This used to be g.budtenders — a count of people who appear in the sell-through, i.e. who
+     * sold AT LEAST ONE unit. So a store where only two staff ever touched the product read
+     * "0 of 2", which flatters it: nobody hit, out of a denominator that had quietly shrunk to
+     * the people who tried. Stores looked inconsistent for no reason a vendor could see (6, 2, 5,
+     * 3, 7, 2 across one program) and the number understated how many staff the vendor's money
+     * was actually put in front of.
+     *
+     * The PLAN knows the answer: a store's unit goal divided by its per-budtender goal is the
+     * headcount the program was designed around — exactly 6 at every BeGoat store. That is the
+     * denominator the vendor was sold and the one they should be shown.
+     *
+     * Never below the number who actually took part, though: at portland-rd seven people sold and
+     * all seven hit, and "7 of 6" reads as a broken page rather than an overperforming store. */
+    var perBt   = Number((t.per_bt || {})[id]) || 0;
+    var planned = perBt > 0 ? Math.round(tgt / perBt) : 0;
+    var took    = g.budtenders || 0;
+    var roster  = Math.max(planned, took, g.hit || 0);
+
     return { store: nameOf[id] || id,
              baseline: (b.by_store || {})[id] || 0,
              target: tgt,
              sold: sold,
              /* Signed, and computed HERE so the page and the totals row cannot drift apart. */
              delta: sold - tgt,
-             hit: g.hit || 0, budtenders: g.budtenders || 0 };
+             hit: g.hit || 0,
+             budtenders: roster,
+             /* Kept for anyone reconciling later: how many actually sold, before the floor. */
+             sellers: took };
   });
 
   /* TRUE only when the cache actually carried per-store rows for this program. */
