@@ -117,6 +117,8 @@ body.client { background: var(--gx-bg); }
 .cv-roi-p b { color: var(--gx-text); }
 /* vs-goal, per store. Green cleared it, gold missed it — the vendor should be able to see which
    stores carried the program without subtracting six pairs of numbers in their head. */
+/* A stat carrying a negative return. Muted, not alarming — it is disclosure, not a warning. */
+.cv-stat.is-down .cv-stat-v { color: var(--gx-gold, #d4a847); }
 .cv-tbl td.up { color: var(--gx-green, #4ade80); }
 .cv-tbl td.down { color: var(--gx-gold, #d4a847); }
 /* A loss wears the neutral/warning treatment, never the winning green. The figure itself is
@@ -157,6 +159,7 @@ body.client { background: var(--gx-bg); }
   .cv-tbl th { background: #f4f7f5 !important; color: #5a635f !important; }
   .cv-h1, .cv-stat-v, .cv-roi-p b { color: #1a1f1d !important; }
   .cv-sub, .cv-fine, .cv-stat-l, .cv-stat-s, .cv-eyebrow, .cv-h2 { color: #5a635f !important; }
+  .cv-stat.is-down .cv-stat-v { color: #8a6316 !important; }
   .cv-tbl td.up { color: #16833f !important; }
   .cv-tbl td.down { color: #8a6316 !important; }
 }

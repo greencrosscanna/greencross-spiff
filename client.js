@@ -158,13 +158,46 @@
     var growth  = before ? Math.round((extra / before) * 100) : null;
     var overGoal = tgtTotal ? sold - tgtTotal : null;
 
-    /* A NEGATIVE return must not wear the winning colour. -70% was rendered in the same bright
-       green as a good result, inside a green-tinted panel — the vendor's eye reads the colour
-       before the minus sign. The number is not softened, only the styling stops congratulating. */
-    var down = credit ? (net / credit) < 0 : false;
+    var roiPct = credit ? Math.round((net / credit) * 100) : null;
+
+    /* LEAD WITH THE STRONGEST TRUE RESULT — and only ever a true one.
+     *
+     * This page is a sales tool: Tawny sends it to ask a vendor to fund the next program. BeGoat
+     * grew sell-through 352% over the prior period and cleared its goal, and the page led with
+     * "-59%" because ROI happened to be the hard-coded headline. That is an own goal — the least
+     * flattering true fact, in 54px, at the top.
+     *
+     * So the headline is CHOSEN: the best genuinely-positive claim available, in order of how much
+     * a vendor cares. Nothing is invented and nothing is hidden — whichever metric does not win
+     * the headline is still rendered below as a stat, INCLUDING a negative return. Reframing what
+     * leads is fair; removing a number the vendor is entitled to see is not, and the sentence
+     * under the headline still states the credit, the added revenue and the net in words.
+     *
+     * If nothing is positive, ROI leads and wears the loss styling. A page with no good news
+     * should not go hunting for a flattering angle. */
+    var headline = null;
+    if (roiPct != null && roiPct > 0) {
+      headline = { label: 'Return on the SPIFF', value: roiPct.toLocaleString('en-US') + '%', down: false };
+    } else if (growth != null && growth > 0) {
+      headline = { label: 'Sales growth over the prior period', value: '+' + growth + '%', down: false };
+    } else if (overGoal != null && overGoal > 0) {
+      headline = { label: 'Units over goal', value: '+' + num(overGoal), down: false };
+    } else {
+      headline = { label: 'Return on the SPIFF',
+                   value: roiPct == null ? '—' : roiPct.toLocaleString('en-US') + '%',
+                   down: roiPct != null && roiPct < 0 };
+    }
+    /* The return still gets stated whenever it is not the headline. This is the line that keeps
+       the choice above honest — delete it and the page starts concealing rather than reframing. */
+    var roiStat = (roiPct != null && headline.label !== 'Return on the SPIFF')
+      ? cvStat('Return on the SPIFF', roiPct.toLocaleString('en-US') + '%',
+               money(added) + ' back on ' + money(credit) + ' credited', roiPct < 0 ? 'is-down' : '')
+      : '';
+
     v.innerHTML = head
-      + '<div class="cv-roi' + (down ? ' is-down' : '') + '"><div class="cv-roi-l">Return on the SPIFF</div>'
-      +   '<div class="cv-roi-v">' + (credit ? Math.round((net / credit) * 100).toLocaleString('en-US') + '%' : '—') + '</div>'
+      + '<div class="cv-roi' + (headline.down ? ' is-down' : '') + '"><div class="cv-roi-l">'
+      +   esc(headline.label) + '</div>'
+      +   '<div class="cv-roi-v">' + headline.value + '</div>'
       /* The same numbers again in a sentence. A percentage on its own is easy to disbelieve
          and hard to repeat to a colleague; the sentence is what gets forwarded. */
       +   '<p class="cv-roi-p">A <b>' + money(credit) + '</b> bounty moved <b>' + num(extra)
@@ -196,6 +229,7 @@
                    return (of ? 'of ' + num(of) + ' · ' : '') + money(r.rate_paid) + ' each';
                  })(), '')
       +   cvStat('Total credit', money(credit), 'requested against the next order', 'is-credit')
+      +   roiStat
       + '</div>'
       + storeTable(rows, showRes)
       + '<p class="cv-fine">&ldquo;Before SPIFF&rdquo; is each store&rsquo;s sell-through in the comparable '

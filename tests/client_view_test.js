@@ -106,5 +106,40 @@ let f = derive([{ sold: 0, hit: 0, budtenders: 0 }], { units_sold: 117, bts_hit:
 ok('with no measurement it falls back to the recorded actuals', f.sold === 117 && f.hit === 18);
 ok('and labels itself recorded', f.source === 'recorded');
 
+/* ── THE HEADLINE PICKS THE STRONGEST TRUE RESULT, AND HIDES NOTHING ──
+   The page is a sales tool, and it was leading with "-59%" for a program that grew sell-through
+   352% and cleared its goal: the least flattering true fact, in 54px, at the top. The headline is
+   now chosen — but the integrity rule is that whatever loses the headline is still shown, so the
+   page REFRAMES rather than conceals. */
+function pickHeadline(roiPct, growth, overGoal) {
+  if (roiPct != null && roiPct > 0) return { label: 'Return on the SPIFF', down: false };
+  if (growth != null && growth > 0) return { label: 'Sales growth over the prior period', down: false };
+  if (overGoal != null && overGoal > 0) return { label: 'Units over goal', down: false };
+  return { label: 'Return on the SPIFF', down: roiPct != null && roiPct < 0 };
+}
+const shows = (h, roiPct) => roiPct != null && h.label !== 'Return on the SPIFF';
+
+let h = pickHeadline(-59, 352, 2);                       // BeGoat, as shipped
+ok('a negative return does NOT lead when growth is strong',
+   h.label === 'Sales growth over the prior period');
+ok('and the return is still stated as a stat — reframed, not hidden', shows(h, -59) === true);
+
+h = pickHeadline(120, 352, 2);
+ok('a POSITIVE return outranks growth — it is the claim a vendor cares most about',
+   h.label === 'Return on the SPIFF');
+ok('and then there is no duplicate ROI stat', shows(h, 120) === false);
+
+h = pickHeadline(-20, -5, 3);
+ok('with return and growth both down, clearing the goal leads', h.label === 'Units over goal');
+ok('and the negative return is still disclosed', shows(h, -20) === true);
+
+h = pickHeadline(-59, -12, -3);
+ok('when NOTHING is positive the page does not hunt for an angle', h.label === 'Return on the SPIFF');
+ok('and it wears the loss styling', h.down === true);
+
+h = pickHeadline(null, 40, null);
+ok('a program with no credit still leads on growth', h.label === 'Sales growth over the prior period');
+ok('and shows no ROI stat, because there is no ROI', shows(h, null) === false);
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nclient view: all passed');
 process.exit(fail ? 1 : 0);
