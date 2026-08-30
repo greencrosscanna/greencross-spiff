@@ -188,5 +188,37 @@ ok('and equals soldTotal - baselineTotal, so the row and total cannot disagree',
    lifts.reduce((a, b) => a + b, 0)
      === BG2.reduce((n, [, b2, s2]) => n + s2, 0) - BG2.reduce((n, [, b2]) => n + b2, 0));
 
+/* ── FOUR CARDS, AND NEVER A DUPLICATE OF THE HEADLINE ──
+   With growth leading, the strip still carried "Growth over prior +352%" — the same number twice,
+   a card apart, spending one of four slots on nothing new. Each headline makes exactly one card
+   redundant; that one is dropped, so the strip lands on four without truncating anything. */
+function strip(headlineKind, hasRoi) {
+  const all = ['units', 'growth', 'bts', 'credit'].concat(hasRoi ? ['roi'] : []);
+  const redundant = headlineKind === 'goal' ? 'units' : headlineKind;
+  return all.filter(k => k !== redundant).slice(0, 4);
+}
+let st = strip('growth', true);                       // BeGoat, as shipped
+ok('growth leading drops the growth card', !st.includes('growth'));
+ok('and the strip is exactly four cards', st.length === 4);
+ok('and the return is still one of them', st.includes('roi'));
+
+st = strip('roi', true);
+ok('ROI leading drops the ROI card', !st.includes('roi'));
+ok('and growth comes back', st.includes('growth'));
+ok('still four', st.length === 4);
+
+st = strip('goal', true);
+ok('goal leading drops units sold, whose sub-line already says the same', !st.includes('units'));
+ok('still four, and the return survives', st.length === 4 && st.includes('roi'));
+
+/* FOUR IS A CAP, NOT A QUOTA. A program with no credit has no return to show, so growth leading
+   leaves three — and the right answer is three cards that stretch, not a fourth card repeating the
+   headline. The grid is auto-fit for exactly this. */
+st = strip('growth', false);
+ok('with no ROI the strip is three, never padded with the duplicate', st.length === 3);
+ok('and still never repeats the headline', !st.includes('growth'));
+ok('and keeps units sold', st.includes('units'));
+ok('the strip is never more than four', ['roi','growth','goal'].every(k => strip(k, true).length <= 4));
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nclient view: all passed');
 process.exit(fail ? 1 : 0);

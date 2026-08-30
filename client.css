@@ -126,7 +126,10 @@ body.client { background: var(--gx-bg); }
 .cv-roi.is-down { border-color: var(--gx-gold-line, rgba(212,168,71,.35)); background: var(--gx-gold-soft, rgba(212,168,71,.10)); }
 .cv-roi.is-down .cv-roi-v { color: var(--gx-gold, #d4a847); }
 
-.cv-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 22px 0; }
+/* Fills whatever it is given. Four is the cap and the usual case, but a program with no credit
+   has no return to show and lands on three — a fixed repeat(4) left that as a visible hole in the
+   fourth column. auto-fit stretches the cards instead. */
+.cv-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 12px; margin: 22px 0; }
 .cv-stat { border: 1px solid var(--gx-border); border-radius: 12px; background: var(--gx-surface); padding: 15px 17px; }
 .cv-stat-l { font-size: 10px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; color: var(--gx-text-mute); }
 .cv-stat-v { font-family: 'Montserrat', var(--gx-font); font-size: 26px; font-weight: 800; line-height: 1.1; margin-top: 5px; font-variant-numeric: tabular-nums; }

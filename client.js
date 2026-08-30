@@ -94,10 +94,9 @@
       soldTotal += Number(s2.sold) || 0;
       hitTotal  += Number(s2.hit) || 0;
       btTotal   += Number(s2.budtenders) || 0;
-      /* vs goal, per store. The point of the table for a vendor is WHICH stores carried the
+      /* vs BEFORE, per store. The point of the table for a vendor is WHICH stores carried the
          program and which did not — a column of raw units makes them do that subtraction in
          their head, six times, and they will not. */
-      var d = Number(s2.delta) || 0;
       var l = Number(s2.lift) || 0;
       liftTotal += l;
       rows += '<tr><td>' + esc(s2.store) + '</td>'
@@ -106,8 +105,6 @@
         + (showRes ? '<td class="n strong">' + num(s2.sold) + '</td>'
              + '<td class="n ' + (l > 0 ? 'up' : l < 0 ? 'down' : '') + '">'
              + (l > 0 ? '+' : '') + num(l) + '</td>'
-             + '<td class="n ' + (d > 0 ? 'up' : d < 0 ? 'down' : '') + '">'
-             + (d > 0 ? '+' : '') + num(d) + '</td>'
              + '<td class="n">' + num(s2.hit) + ' / ' + num(s2.budtenders) + '</td>' : '')
         + '</tr>';
     });
@@ -118,8 +115,6 @@
         + (showRes ? '<td class="n">' + num(soldTotal) + '</td>'
              + '<td class="n ' + (liftTotal > 0 ? 'up' : liftTotal < 0 ? 'down' : '') + '">'
              + (liftTotal > 0 ? '+' : '') + num(liftTotal) + '</td>'
-             + '<td class="n ' + (soldTotal - tgtTotal > 0 ? 'up' : soldTotal - tgtTotal < 0 ? 'down' : '') + '">'
-             + (soldTotal - tgtTotal > 0 ? '+' : '') + num(soldTotal - tgtTotal) + '</td>'
              + '<td class="n">' + num(hitTotal) + ' / ' + num(btTotal) + '</td>' : '')
         + '</tr>';
     }
@@ -183,22 +178,47 @@
      * should not go hunting for a flattering angle. */
     var headline = null;
     if (roiPct != null && roiPct > 0) {
-      headline = { label: 'Return on the SPIFF', value: roiPct.toLocaleString('en-US') + '%', down: false };
+      headline = { kind: 'roi', label: 'Return on the SPIFF', value: roiPct.toLocaleString('en-US') + '%', down: false };
     } else if (growth != null && growth > 0) {
-      headline = { label: 'Sales growth over the prior period', value: '+' + growth + '%', down: false };
+      headline = { kind: 'growth', label: 'Sales growth over the prior period', value: '+' + growth + '%', down: false };
     } else if (overGoal != null && overGoal > 0) {
-      headline = { label: 'Units over goal', value: '+' + num(overGoal), down: false };
+      headline = { kind: 'goal', label: 'Units over goal', value: '+' + num(overGoal), down: false };
     } else {
-      headline = { label: 'Return on the SPIFF',
+      headline = { kind: 'roi', label: 'Return on the SPIFF',
                    value: roiPct == null ? '—' : roiPct.toLocaleString('en-US') + '%',
                    down: roiPct != null && roiPct < 0 };
     }
-    /* The return still gets stated whenever it is not the headline. This is the line that keeps
-       the choice above honest — delete it and the page starts concealing rather than reframing. */
-    var roiStat = (roiPct != null && headline.label !== 'Return on the SPIFF')
-      ? cvStat('Return on the SPIFF', roiPct.toLocaleString('en-US') + '%',
-               money(added) + ' back on ' + money(credit) + ' credited', roiPct < 0 ? 'is-down' : '')
-      : '';
+    /* FOUR CARDS, AND NEVER THE ONE THE HEADLINE JUST SAID.
+     *
+     * With growth leading, the strip still carried "Growth over prior +352%" — the same figure
+     * twice, a card apart, which spends one of four slots saying nothing new. Each headline has
+     * exactly one stat it makes redundant, so that one is dropped and the strip lands on four
+     * without truncating anything the reader needed:
+     *   roi    → the ROI card
+     *   growth → the growth card
+     *   goal   → the units-sold card, whose sub-line already reads "goal 120 · +2"
+     *
+     * The return is dropped ONLY when it is itself the headline. That is what keeps the choice
+     * above honest: whichever way it goes, the vendor sees the number. */
+    var cards = [
+      { kind: 'units',  html: cvStat('Units sold', num(sold),
+                          tgtTotal ? 'goal ' + num(tgtTotal) + ' · ' + (overGoal >= 0 ? '+' : '') + num(overGoal) : '', '') },
+      { kind: 'growth', html: cvStat('Growth over prior', growth == null ? '—' : (growth >= 0 ? '+' : '') + growth + '%',
+                          before ? num(before) + ' → ' + num(sold) + ' units' : '', '') },
+      { kind: 'bts',    html: cvStat('Budtenders who hit', num(r.budtenders_hit),
+                          (function () {
+                            var of = btTotal || Number(r.budtenders) || Number(p.budtenders) || 0;
+                            return (of ? 'of ' + num(of) + ' · ' : '') + money(r.rate_paid) + ' each';
+                          })(), '') },
+      { kind: 'credit', html: cvStat('Total credit', money(credit), 'requested against the next order', 'is-credit') },
+      { kind: 'roi',    html: roiPct == null ? '' : cvStat('Return on the SPIFF',
+                          roiPct.toLocaleString('en-US') + '%',
+                          money(added) + ' back on ' + money(credit) + ' credited',
+                          roiPct < 0 ? 'is-down' : '') }
+    ];
+    var redundant = headline.kind === 'goal' ? 'units' : headline.kind;   // 'roi' | 'growth' | 'units'
+    var statHtml = cards.filter(function (c) { return c.html && c.kind !== redundant; })
+                        .slice(0, 4).map(function (c) { return c.html; }).join('');
 
     v.innerHTML = head
       + '<div class="cv-roi' + (headline.down ? ' is-down' : '') + '"><div class="cv-roi-l">'
@@ -220,23 +240,7 @@
                 : overGoal < 0 ? ' finished ' + num(Math.abs(overGoal)) + ' units short of the goal'
                 :                ' landed exactly on the goal'))
       +     '.</p></div>'
-      + '<div class="cv-stats">'
-      +   cvStat('Units sold', num(sold), tgtTotal ? 'goal ' + num(tgtTotal) + ' · ' + (overGoal >= 0 ? '+' : '') + num(overGoal) : '', '')
-      +   cvStat('Growth over prior', growth == null ? '—' : (growth >= 0 ? '+' : '') + growth + '%',
-                 before ? num(before) + ' → ' + num(sold) + ' units' : '', '')
-      /* Read the headcount from the payload, not from a table that may have no result columns.
-         btTotal is summed from the per-store rows, which are empty for a closed program — so this
-         said "18 of 0". And when the headcount is genuinely unknown (target_json carries no
-         budtender count on older imported programs) the comparison is DROPPED rather than
-         asserting "of 0", which reads as a program nobody was enrolled in. */
-      +   cvStat('Budtenders who hit', num(r.budtenders_hit),
-                 (function () {
-                   var of = btTotal || Number(r.budtenders) || Number(p.budtenders) || 0;
-                   return (of ? 'of ' + num(of) + ' · ' : '') + money(r.rate_paid) + ' each';
-                 })(), '')
-      +   cvStat('Total credit', money(credit), 'requested against the next order', 'is-credit')
-      +   roiStat
-      + '</div>'
+      + '<div class="cv-stats">' + statHtml + '</div>'
       + storeTable(rows, showRes)
       + '<p class="cv-fine">&ldquo;Before SPIFF&rdquo; is each store&rsquo;s sell-through in the comparable '
       +   'period before the program. &ldquo;Sold&rdquo; counts the program period itself. Figures come '
@@ -259,8 +263,11 @@
     if (!rows) return '';
     return '<div class="cv-h2">By store</div><div class="cv-tbl-wrap"><table class="cv-tbl"><thead><tr>'
       + '<th>Store</th><th class="n">Before SPIFF</th><th class="n">Goal</th>'
+      /* No vs-goal column: Goal and Sold are both here and the headline states the gap, so a third
+         cell restating it cost width the store names needed. vs-before stays — it is the one
+         comparison neither the Goal column nor the headline makes. */
       + (withResults ? '<th class="n">Sold</th><th class="n">vs before</th>'
-                     + '<th class="n">vs goal</th><th class="n">Budtenders hit</th>' : '')
+                     + '<th class="n">Budtenders hit</th>' : '')
       + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
