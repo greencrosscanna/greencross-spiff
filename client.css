@@ -115,6 +115,10 @@ body.client { background: var(--gx-bg); }
    to disbelieve and hard to repeat to a colleague. */
 .cv-roi-p { margin: 14px 0 0; font-size: 15px; line-height: 1.6; color: var(--gx-text-dim); max-width: 640px; text-wrap: pretty; }
 .cv-roi-p b { color: var(--gx-text); }
+/* vs-goal, per store. Green cleared it, gold missed it — the vendor should be able to see which
+   stores carried the program without subtracting six pairs of numbers in their head. */
+.cv-tbl td.up { color: var(--gx-green, #4ade80); }
+.cv-tbl td.down { color: var(--gx-gold, #d4a847); }
 /* A loss wears the neutral/warning treatment, never the winning green. The figure itself is
    unchanged — this only stops the page congratulating the vendor on a negative return. */
 .cv-roi.is-down { border-color: var(--gx-gold-line, rgba(212,168,71,.35)); background: var(--gx-gold-soft, rgba(212,168,71,.10)); }
@@ -153,6 +157,8 @@ body.client { background: var(--gx-bg); }
   .cv-tbl th { background: #f4f7f5 !important; color: #5a635f !important; }
   .cv-h1, .cv-stat-v, .cv-roi-p b { color: #1a1f1d !important; }
   .cv-sub, .cv-fine, .cv-stat-l, .cv-stat-s, .cv-eyebrow, .cv-h2 { color: #5a635f !important; }
+  .cv-tbl td.up { color: #16833f !important; }
+  .cv-tbl td.down { color: #8a6316 !important; }
 }
 @media (max-width: 760px) {
   .cv-stats { grid-template-columns: repeat(2, 1fr); }

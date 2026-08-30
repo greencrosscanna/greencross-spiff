@@ -94,10 +94,16 @@
       soldTotal += Number(s2.sold) || 0;
       hitTotal  += Number(s2.hit) || 0;
       btTotal   += Number(s2.budtenders) || 0;
+      /* vs goal, per store. The point of the table for a vendor is WHICH stores carried the
+         program and which did not — a column of raw units makes them do that subtraction in
+         their head, six times, and they will not. */
+      var d = Number(s2.delta) || 0;
       rows += '<tr><td>' + esc(s2.store) + '</td>'
         + '<td class="n">' + num(s2.baseline) + '</td>'
         + '<td class="n">' + num(s2.target) + '</td>'
         + (showRes ? '<td class="n strong">' + num(s2.sold) + '</td>'
+             + '<td class="n ' + (d > 0 ? 'up' : d < 0 ? 'down' : '') + '">'
+             + (d > 0 ? '+' : '') + num(d) + '</td>'
              + '<td class="n">' + num(s2.hit) + ' / ' + num(s2.budtenders) + '</td>' : '')
         + '</tr>';
     });
@@ -106,6 +112,8 @@
         + '<td class="n">' + num(baseTotal) + '</td>'
         + '<td class="n">' + num(tgtTotal) + '</td>'
         + (showRes ? '<td class="n">' + num(soldTotal) + '</td>'
+             + '<td class="n ' + (soldTotal - tgtTotal > 0 ? 'up' : soldTotal - tgtTotal < 0 ? 'down' : '') + '">'
+             + (soldTotal - tgtTotal > 0 ? '+' : '') + num(soldTotal - tgtTotal) + '</td>'
              + '<td class="n">' + num(hitTotal) + ' / ' + num(btTotal) + '</td>' : '')
         + '</tr>';
     }
@@ -211,7 +219,7 @@
     if (!rows) return '';
     return '<div class="cv-h2">By store</div><div class="cv-tbl-wrap"><table class="cv-tbl"><thead><tr>'
       + '<th>Store</th><th class="n">Before SPIFF</th><th class="n">Goal</th>'
-      + (withResults ? '<th class="n">Sold</th><th class="n">Budtenders hit</th>' : '')
+      + (withResults ? '<th class="n">Sold</th><th class="n">vs goal</th><th class="n">Budtenders hit</th>' : '')
       + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 

@@ -861,7 +861,12 @@ function progEarned_(prog, units, hit) {
  * `only` limits it to one program_id, which is what the on-demand refresh uses.
  */
 function refreshSpiffProgress_(only, onlyStore) {
-  var programs = listPrograms_('active').filter(function (p) {
+  /* The hourly sweep is ACTIVE-only, deliberately — closed programs do not move and re-measuring
+     22 of them every hour is pure cost. But a program named EXPLICITLY is swept whatever its
+     status: a vendor report is sent AFTER close, and the per-store breakdown on it has to come
+     from somewhere. Without this the cache could never hold a closed program, so client.html had
+     no per-store rows and printed 0 for every store under a headline of 117. */
+  var programs = (only ? listPrograms_() : listPrograms_('active')).filter(function (p) {
     return !only || String(p.program_id) === String(only);
   });
   var now = nowStamp_();
@@ -1466,10 +1471,15 @@ function clientView_(p) {
 
   var byStore = (prog.stores_json || []).map(function (id) {
     var g = progByStore[id] || {};
+    var tgt = (t.by_store || {})[id] || 0;
+    var sold = g.sold || 0;
     return { store: nameOf[id] || id,
              baseline: (b.by_store || {})[id] || 0,
-             target: (t.by_store || {})[id] || 0,
-             sold: g.sold || 0, hit: g.hit || 0, budtenders: g.budtenders || 0 };
+             target: tgt,
+             sold: sold,
+             /* Signed, and computed HERE so the page and the totals row cannot drift apart. */
+             delta: sold - tgt,
+             hit: g.hit || 0, budtenders: g.budtenders || 0 };
   });
 
   /* TRUE only when the cache actually carried per-store rows for this program. */
