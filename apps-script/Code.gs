@@ -967,7 +967,7 @@ function refreshProgressPlan_(only) {
 }
 
 /**
- * ?action=progress&secret=…[&pay_period=YYYY-MM-DD][&program=ID]
+ * ?action=progress&secret=…[&pay_period=YYYY-MM-DD][&program=ID][&status=active]
  *
  * The fast read, for GX Crew's incentive column and Leaderboard's kiosk ticks. Deploy-secret
  * gated, like every other machine route in the suite — a kiosk holds no session and Crew's engine
@@ -976,6 +976,13 @@ function refreshProgressPlan_(only) {
  * Returns per-person rows AND a per-employee total, because the two consumers want different
  * shapes: the kiosk wants "this person, this program, 3 of 5", and Crew wants "this person, this
  * pay period, $25" across however many programs were running.
+ *
+ * EVERY ROW CARRIES `status` (draft | active | closed) — and `&status=active` filters to it
+ * server-side, which also trims `by_employee` totals, since those are summed from the rows that
+ * survive. It is the field Leaderboard asked for on 2026-08-30: without it a consumer can only
+ * INFER whether a programme is still running, and window-overlap is the wrong inference — a
+ * closed programme keeps its dates, so BeGoat (closed, dated 08-01→08-31) kept passing and drew
+ * on 23 of 40 kiosk cards, inflating totalEarned with a payout nobody could still bank.
  */
 /* Does this cached row belong to the pay period the caller asked for?
  *
@@ -1005,18 +1012,38 @@ function spiffProgress_(p) {
   var sh = progressSheet_();
   if (sh.getLastRow() < 2) {
     return { ok: true, rows: [], by_employee: [], refreshed_at: '',
+             status: null, orphan_program_ids: [],
              note: 'the progress cache is empty — run refreshSpiffProgress_ or wait for the trigger' };
   }
   var vals = sh.getRange(2, 1, sh.getLastRow() - 1, PROGRESS_HEADERS.length).getValues();
   var wantPP = String(p.pay_period || '').trim();
   var wantId = String(p.program || '').trim();
 
-  var rows = [], newest = '';
+  /* STATUS IS RESOLVED AT READ TIME, and deliberately NOT stored on the cached row. A cached row
+     is a snapshot from the last refresh, and the case that matters is a program CLOSED since then
+     — a stored column would still read 'active' for exactly the rows a consumer needs to drop,
+     and the hourly sweep is active-only, so a closed program is never rewritten to correct it.
+     Joining to `programs` on the way out is the only version of this field that is true.
+     listProgramsCached_ is a 5-minute cache that every write invalidates, so the join costs
+     nothing and can never be behind an edit. */
+  var statusOf = Object.create(null);
+  listProgramsCached_().forEach(function (pr) {
+    statusOf[String(pr.program_id)] = String(pr.status || '').toLowerCase();
+  });
+  var wantStatus = String(p.status || '').trim().toLowerCase();
+
+  var rows = [], newest = '', orphans = Object.create(null);
   vals.forEach(function (v) {
     var o = {};
     PROGRESS_HEADERS.forEach(function (h, i) { o[h] = v[i]; });
     if (wantPP && !payPeriodMatches_(o, wantPP)) return;
     if (wantId && String(o.program_id) !== wantId) return;
+    /* '' means the program row is gone from `programs` — an orphaned cache row. Reported by id in
+       the response rather than dropped quietly: "no rows" and "the programs tab lost a row" need
+       completely different fixes, and a filter is where that difference disappears. */
+    o.status = statusOf[String(o.program_id)] || '';
+    if (!o.status) orphans[String(o.program_id)] = 1;
+    if (wantStatus && o.status !== wantStatus) return;
     o.units = Number(o.units) || 0; o.target = Number(o.target) || 0;
     o.earned = Number(o.earned) || 0; o.hit = !!o.hit;
     /* The sheet round-trips these cells as DATE OBJECTS, so they reached consumers as
@@ -1041,6 +1068,7 @@ function spiffProgress_(p) {
                                     earned: 0, programs: [] });
     e.earned += r.earned;
     e.programs.push({ program_id: r.program_id, vendor: r.vendor, name: r.program_name,
+                      status: r.status,
                       units: r.units, target: r.target, hit: r.hit, earned: r.earned });
   });
 
@@ -1060,9 +1088,24 @@ function spiffProgress_(p) {
              pay_period: wantPP, available: Object.keys(have), rows: [], by_employee: [] };
   }
 
-  return { ok: true, pay_period: wantPP || null, rows: rows,
+  /* Same rule as the pay_period branch above: a filter that matched nothing, against a cache that
+     holds rows, is a bad filter and not a quiet fortnight. Name the statuses that DO exist. */
+  if (wantStatus && !rows.length && vals.length) {
+    var haveSt = Object.create(null);
+    vals.forEach(function (v) {
+      var st = statusOf[String(v[0])] || '(not in programs)';
+      haveSt[st] = 1;
+    });
+    return { ok: false, error: 'no rows with status "' + wantStatus + '". The cache holds: '
+               + Object.keys(haveSt).join(' | ') + '.',
+             status: wantStatus, available_statuses: Object.keys(haveSt),
+             rows: [], by_employee: [] };
+  }
+
+  return { ok: true, pay_period: wantPP || null, status: wantStatus || null, rows: rows,
            by_employee: Object.keys(by).map(function (k) { return by[k]; }),
-           refreshed_at: newest };
+           refreshed_at: newest,
+           orphan_program_ids: Object.keys(orphans) };
 }
 
 /* ---------------------------- PAYOUTS ---------------------------- *

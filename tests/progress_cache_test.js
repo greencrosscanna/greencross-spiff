@@ -70,6 +70,7 @@ function load() {
     var GX_SECRET_PROP = 'GX_DEPLOY_SECRET';
     function progressSheet_() { return SHEET; }
     function listPrograms_(status) { return PROGRAMS(status); }
+    function listProgramsCached_() { return PROGRAMS(); }
     function sellthrough_(p) { return SELL(p); }
     function slug_(s) { return String(s || '').toLowerCase().trim().replace(/\\s+/g, '-'); }
     function nowStamp_() { return '2026-08-27 12:00:00'; }
@@ -95,7 +96,7 @@ function load() {
 }
 
 const PROG = { program_id: 'P1', pay_period: '2026-08-17', vendor: 'Wyld', program_name: 'Wyld 10pc',
-               start_date: '2026-08-17', end_date: '2026-08-30',
+               status: 'active', start_date: '2026-08-17', end_date: '2026-08-30',
                stores_json: [{ store_id: 'bend' }, { store_id: 'center' }],
                payout_json: { type: 'flat', amount: 25 } };
 
@@ -289,6 +290,52 @@ ok('and names what the cache actually holds, so the fix is one line',
    /2026-08-17/.test(outside.error || '') && Array.isArray(outside.available));
 
 ok('no filter still returns everything', M.spiffProgress_({}).rows.length === 2);
+
+/* ── EVERY ROW SAYS WHETHER ITS PROGRAM IS STILL RUNNING ──
+   Leaderboard, 2026-08-30: the payload carried no status, so the kiosk could only INFER one — and
+   the available inference, "does the programme window overlap the pay period", is wrong, because a
+   CLOSED programme keeps its dates. BeGoat (closed, dated 08-01 → 08-31) kept passing and drew on
+   23 of 40 live kiosk cards, inflating totalEarned with a payout nobody could still bank.
+
+   The status is joined from `programs` AT READ TIME, never stored on the cached row. That is the
+   whole point: the cached row is a snapshot from the last refresh, the hourly sweep is active-only,
+   and so a program closed since its last refresh would keep a stored column reading 'active'
+   forever — stale in exactly the case the field exists to catch. This block pins that behaviour by
+   closing the program WITHOUT re-sweeping. */
+SHEET = makeSheet(HEADERS);
+PROGRAMS = () => [PROG];
+SELL = () => ({ ok: true, rows: [{ employee_id: 'a', name: 'A One', units: 6, target: 5, hit: true }] });
+M = load();
+M.refreshSpiffProgress_();
+
+let st = M.spiffProgress_({});
+ok('every row carries its program status', st.rows.length === 2 && st.rows.every(r => r.status === 'active'));
+ok('and by_employee names it too, so a total can be filtered as well as explained',
+   st.by_employee[0].programs.every(x => x.status === 'active'));
+ok('status=active keeps a running program', M.spiffProgress_({ status: 'active' }).rows.length === 2);
+
+/* Close it in `programs` only — the cache is untouched, exactly like BeGoat live. */
+PROGRAMS = () => [Object.assign({}, PROG, { status: 'closed' })];
+let closed = M.spiffProgress_({});
+ok('closing a program is visible on the NEXT read, with no re-sweep',
+   closed.rows.every(r => r.status === 'closed'));
+ok('status=active now drops it — the one-line filter Leaderboard asked for',
+   M.spiffProgress_({ status: 'active' }).ok === false);
+ok('and that empty answer FAILS LOUDLY, naming the statuses the cache does hold',
+   /closed/.test(M.spiffProgress_({ status: 'active' }).error || ''));
+ok('status=closed still returns it — the vendor report is written AFTER close',
+   M.spiffProgress_({ status: 'closed' }).rows.length === 2);
+ok('the filter is echoed back, so a caller can tell a filtered read from a full one',
+   M.spiffProgress_({ status: 'closed' }).status === 'closed' &&
+   M.spiffProgress_({}).status === null);
+
+/* A cache row whose program row is GONE. Reported by id rather than dropped quietly: "no rows" and
+   "the programs tab lost a row" need completely different fixes. */
+PROGRAMS = () => [];
+let orph = M.spiffProgress_({});
+ok('an orphaned cache row reads status "" rather than guessing',
+   orph.rows.every(r => r.status === ''));
+ok('and the orphan is named by program_id', orph.orphan_program_ids.join(',') === 'P1');
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nprogress cache: all passed');
 process.exit(fail ? 1 : 0);
