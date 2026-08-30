@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.309"/>
-<link rel="stylesheet" href="spiff.css?v=1.309"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.310"/>
+<link rel="stylesheet" href="spiff.css?v=1.310"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -43,9 +43,19 @@
        the host-provided parts (brand, clock, user chip) are dropped. Without it SPIFF would lose its
        navigation inside Inventory. -->
   <header class="gx-topnav" data-gx-keep-nested>
-    <div class="gx-topnav-brand">
-      <img class="gx-topnav-logo" src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross">
-      <span class="gx-topnav-sub">SPIFF</span>
+    <!-- Brand lockup: the CROSS MARK, then SPIFF as the word that carries the bar.
+         Sky, 2026-08-29. The shared gx-logo.png is a "GREENCROSS" WORDMARK, so pairing it with a
+         second word left two competing wordmarks and pushed SPIFF down to an 11px grey tag. There
+         is no icon-only asset anywhere in the suite (gx-mark/gx-icon/favicon all 404), so the mark
+         is inline SVG: no asset to host, crisp at any size, and it inherits currentColor so it
+         follows the theme instead of pinning a hex.
+         NOTE: .sp-brand* are SPIFF-LOCAL classes deliberately — this is a divergence from the
+         other five apps and it does not touch the shared .gx-topnav-sub. See spiff.css. -->
+    <div class="gx-topnav-brand sp-brand">
+      <svg class="sp-brand-mark" viewBox="0 0 24 24" role="img" aria-label="Green Cross">
+        <path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z"/>
+      </svg>
+      <span class="sp-brand-name">SPIFF</span>
     </div>
     <nav class="gx-topnav-tabs" id="tabs">
       <button class="gx-topnav-tab is-active" data-tab="programs">Programs</button>
@@ -362,6 +372,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="spiff.js?v=1.309"></script>
+<script src="spiff.js?v=1.310"></script>
 </body>
 </html>

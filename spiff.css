@@ -556,6 +556,10 @@ body.is-gated .workspace { display: none !important; }
 .sp-row:last-child { border-bottom: 0; }
 .sp-row:hover { background: var(--gx-surface-2); }
 .sp-row:focus-visible { outline: 2px solid var(--gx-green); outline-offset: -2px; }
+/* A figure read from the live progress cache rather than recorded actuals. Underlined, not
+   recoloured: the colours in this row already mean over/under target, and a third meaning on the
+   same channel would misread. */
+.sp-num.is-live { text-decoration: underline dotted var(--gx-border-strong); text-underline-offset: 3px; }
 .sp-row-name { font-size: 13px; font-weight: 600; }
 .sp-row-sub { font-size: 11.5px; color: var(--gx-text-mute); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .sp-row .sp-num { text-align: right; font-size: 12.5px; }
@@ -1247,4 +1251,31 @@ body.is-gated .workspace { display: none !important; }
 @media (max-width: 1000px) {
   .sp-hist-stats { grid-template-columns: repeat(2, 1fr); }
   .sp-hist-row { grid-template-columns: 1fr auto; row-gap: 6px; }
+}
+
+/* ── header brand lockup ─────────────────────────────────────────────────────────────────────── *
+ * A DELIBERATE LOCAL DIVERGENCE, and worth reading before copying it into another spoke.
+ *
+ * The suite's shared brand is `gx-logo.png` + `.gx-topnav-sub` — a "GREENCROSS" wordmark followed
+ * by the app name in 11px muted grey. That works where the app name is a quiet qualifier. Here Sky
+ * wanted the mark and then SPIFF (2026-08-29): two wordmarks side by side compete, and the app name
+ * was losing.
+ *
+ * These are SPIFF-OWN classes (`sp-brand*`) rather than an override of `.gx-topnav-sub`, ON PURPOSE.
+ * Overriding the shared class would win locally and silently diverge from the other five apps — the
+ * exact mechanism the shared-brain rules call out. Naming it locally keeps the shared component
+ * untouched, so gx-theme can still change under us, and makes the divergence greppable when someone
+ * decides whether the other apps should follow.
+ *
+ * Only affects the standalone app: nested in Inventory, gx-theme hides .gx-topnav-brand outright. */
+.sp-brand { gap: 9px; }
+.sp-brand-mark {
+  width: 21px; height: 21px; flex-shrink: 0; display: block;
+  fill: var(--gx-green);
+}
+.sp-brand-name {
+  font-size: 15px; font-weight: 800; letter-spacing: 1.4px;
+  color: var(--gx-text); text-transform: uppercase;
+  /* Optical, not arithmetic: the glyphs sit high against the mark's centre without it. */
+  line-height: 1;
 }

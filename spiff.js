@@ -613,10 +613,47 @@
     return m === 'per_unit' ? 'per unit' : (m === 'tiered' ? 'tiered' : 'flat per budtender');
   }
 
+  /* What a LIST ROW should show for sold / budtenders-hit.
+   *
+   * The hero already did this and the row never did: actuals are written at CLOSE-OUT, so a
+   * running program has none, and the row rendered 0 sold and "0 / 0" hit while the hero above it
+   * — reading the same program from the progress cache — showed 117 sold and 18 hit. Two numbers
+   * for one program on one screen, and the smaller one looked like a settled fact.
+   *
+   * Precedence is by STATUS, not by which source happens to be populated:
+   *   • closed  — actual_json WINS. It is the figure that was reconciled and paid; a later cache
+   *               refresh must never appear to restate what a vendor was already invoiced.
+   *   • running — the cache wins. There is nothing settled to contradict, and the live number is
+   *               the entire point of looking.
+   * Falls through either way, so a closed program that predates the cache still shows its
+   * actuals and a running one with a cold cache still shows a dash rather than a confident 0. */
+  function rowTotals(p) {
+    var a = p.actual_json, t = p.target_json || {};
+    var cache = liveTotals(p.program_id) || cachedTotals(p.program_id, (p.stores_json || []).length);
+    var settled = a && a.units_sold != null;
+
+    if (p.status !== 'active' && settled) {
+      return { units: a.units_sold || 0, hit: a.bts_hit || 0,
+               bts: t.budtenders || 0, live: false };
+    }
+    if (cache) {
+      /* target_json.budtenders is the PLANNED headcount and is often unset on a running program,
+         which is the other half of "0 / 0". The cache knows how many actually sold. */
+      return { units: cache.units, hit: cache.hit,
+               bts: t.budtenders || cache.bts || 0, live: true };
+    }
+    if (settled) {
+      return { units: a.units_sold || 0, hit: a.bts_hit || 0,
+               bts: t.budtenders || 0, live: false };
+    }
+    return null;                    // nothing to show — the row renders a dash, not a zero
+  }
+
   function listRow(p) {
     var a = p.actual_json, t = p.target_json || {};
     var pay = (p.payout_json && p.payout_json.amount) || 0;
     var tgt = t.units || 0;
+    var tot = rowTotals(p);
     var dupe = a && a.duplicate_of && a.duplicate_of.length;
     var rate = a && a.rate_changed;
 
@@ -624,10 +661,15 @@
       return '<span class="sp-dot" style="--dot:' + esc(storeColor(sid)) + '" title="' + esc(storeName(sid)) + '"></span>';
     }).join('');
 
+    /* A live figure and a settled one must not be indistinguishable: one can still move, the
+       other is what a vendor was invoiced. The cue is deliberately quiet — a tooltip and a
+       hairline — because this column is scanned, not studied. */
+    var liveTip = tot && tot.live
+      ? ' title="Live from the progress cache — actuals are recorded at close-out"' : '';
     var sold = '&mdash;';
-    if (a) {
-      var d = (a.units_sold || 0) - tgt;
-      sold = (a.units_sold || 0).toLocaleString()
+    if (tot) {
+      var d = tot.units - tgt;
+      sold = tot.units.toLocaleString()
            + (tgt ? '<span class="sp-delta ' + (d > 0 ? 'up' : d < 0 ? 'down' : '') + '">'
                     + (d > 0 ? '+' : '') + d.toLocaleString() + '</span>' : '');
     }
@@ -646,8 +688,9 @@
       + '</div>'
       + '<div class="sp-row-dots">' + dots + '</div>'
       + '<div class="sp-num">' + money(pay) + '</div>'
-      + '<div class="sp-num">' + sold + '</div>'
-      + '<div class="sp-num">' + (a ? (a.bts_hit || 0) + ' / ' + (t.budtenders || 0) : '&mdash;') + '</div>'
+      + '<div class="sp-num' + (tot && tot.live ? ' is-live' : '') + '"' + liveTip + '>' + sold + '</div>'
+      + '<div class="sp-num' + (tot && tot.live ? ' is-live' : '') + '"' + liveTip + '>'
+      +   (tot ? tot.hit + ' / ' + tot.bts : '&mdash;') + '</div>'
       + '<div class="sp-num sp-money ' + (a ? (a.roi >= 0 ? 'is-pos' : 'is-neg') : '') + '">' + roi + '</div>'
       + '<div><span class="sp-chip is-' + esc(p.status) + '">' + esc(p.status) + '</span></div>'
       + shareCell(p)
