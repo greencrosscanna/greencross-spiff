@@ -1489,9 +1489,28 @@ function clientView_(p) {
      `baseline.by_store` — which is baseline UNITS, not people — so a program without an explicit
      budtender count reported its prior-period unit total as a headcount. Better to return 0 and
      let the page omit the comparison than to state a confident wrong number to a vendor. */
-  var bts     = Number(t.budtenders) || 0;
-  var invest  = a ? (a.bts_hit || 0) * (a.spiff_amount || rate) : 0;
-  var revInc  = ((t.units || 0) - (b.units || 0)) * cost;
+  /* ONE SOURCE PER PAGE.
+   *
+   * The headline KPIs used to come from actual_json while the table came from the progress cache,
+   * so a vendor could read "117 units sold" above a table totalling 122 and neither number
+   * explained the other. Sky, 2026-08-29: measured data wins, the historical actuals get
+   * recalibrated separately.
+   *
+   * So when per-store rows exist they drive EVERYTHING — units, hits, headcount and therefore the
+   * credit — and actual_json is only the fallback for a program the cache has never held. The
+   * credit is the number the vendor is invoiced, so it must come from the same measurement as the
+   * table that justifies it: paying 18 hits under a table showing 14 is the version of this bug
+   * that costs someone money. */
+  var measured = hasStoreResults ? byStore.reduce(function (n, x) {
+    n.units += x.sold; n.hit += x.hit; n.bts += x.budtenders; return n;
+  }, { units: 0, hit: 0, bts: 0 }) : null;
+
+  var rate_    = a && a.spiff_amount ? a.spiff_amount : rate;
+  var soldTot  = measured ? measured.units : (a ? (a.units_sold || 0) : 0);
+  var hitTot   = measured ? measured.hit   : (a ? (a.bts_hit || 0) : 0);
+  var bts      = measured ? measured.bts   : (Number(t.budtenders) || 0);
+  var invest   = (a || measured) ? hitTot * rate_ : 0;
+  var revInc   = ((t.units || 0) - (b.units || 0)) * cost;
 
   return {
     ok: true,
@@ -1513,13 +1532,17 @@ function clientView_(p) {
       budtenders: bts,
       has_store_results: hasStoreResults,
       investment: rate * (t.budtenders || 0),
-      results: a ? {
-        units_sold: a.units_sold, budtenders_hit: a.bts_hit, budtenders: bts,
-        rate_paid: a.spiff_amount || rate, investment: invest,
+      results: (a || measured) ? {
+        units_sold: soldTot, budtenders_hit: hitTot, budtenders: bts,
+        rate_paid: rate_, investment: invest,
         /* The vendor's own gain, in dollars, at the cost they charge us. It was computed in
            the browser before, from figures the page did not all have — so the sentence under
-           the headline could disagree with the table above it. */
-        added_revenue: Math.round((((a.units_sold || 0) - (b.units || 0)) * cost) * 100) / 100
+           the headline could disagree with the table above it. Derived from the SAME sold total
+           as the table, for the same reason. */
+        added_revenue: Math.round(((soldTot - (b.units || 0)) * cost) * 100) / 100,
+        /* Which measurement the reader is looking at. Nothing renders it today; it is here so a
+           later reconciliation can tell a measured page from a seeded one without guessing. */
+        source: measured ? 'measured' : 'recorded'
       } : null
     }
   };
