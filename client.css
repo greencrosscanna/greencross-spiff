@@ -5,10 +5,21 @@
 body.client { background: var(--gx-bg); }
 
 .client-top {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 11px;
   padding: 16px 24px;
   border-bottom: 1px solid var(--gx-border);
   background: var(--gx-surface);
+}
+/* Taller than the app bar's 22px: this page is a vendor's first impression of us, not a tool bar
+   someone works in all day, and it has the room. */
+.client-logo { height: 26px; width: auto; display: block; flex-shrink: 0; }
+/* Set against the logo rather than under it — the logo already reads "GREENCROSS", so the app name
+   is the second half of one lockup, not a subtitle. Divider keeps them from reading as one word. */
+.client-app {
+  font-family: 'Montserrat', var(--gx-font), sans-serif;
+  font-size: 15px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
+  color: var(--gx-text); line-height: 1;
+  padding-left: 11px; border-left: 1px solid var(--gx-border-strong);
 }
 
 .client-main { max-width: 780px; margin: 0 auto; padding: 40px 24px 60px; }
