@@ -20,7 +20,12 @@
   function $(s) { return document.querySelector(s); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
-  function money(n) { return '$' + (Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }); }
+  /* The sign goes BEFORE the dollar sign. Number#toLocaleString puts it after, so a net loss
+     printed as "$-315" on a page that goes to a vendor. */
+  function money(n) {
+    var v = Number(n) || 0;
+    return (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
+  }
   function num(n) { return (Number(n) || 0).toLocaleString(); }
 
   function token() {
@@ -76,6 +81,12 @@
     /* Per-store rows carry the RESULT when there is one, and only the plan when there is not.
        A results page whose table still shows targets invites the reader to check the sum
        against the headline and find it does not tie. */
+    /* A closed program has no rows in the progress cache — it is only ever swept while ACTIVE —
+       so the per-store Sold/Hit columns had nothing behind them and printed 0 for every store,
+       under a headline of 117 units sold. Show the columns only when there is something real to
+       put in them; the totals are still stated above, and a missing breakdown is a far smaller
+       problem than a breakdown that contradicts it. */
+    var showRes = !!(r && p.has_store_results);
     var rows = '', baseTotal = 0, tgtTotal = 0, soldTotal = 0, hitTotal = 0, btTotal = 0;
     (p.by_store || []).forEach(function (s2) {
       baseTotal += Number(s2.baseline) || 0;
@@ -86,7 +97,7 @@
       rows += '<tr><td>' + esc(s2.store) + '</td>'
         + '<td class="n">' + num(s2.baseline) + '</td>'
         + '<td class="n">' + num(s2.target) + '</td>'
-        + (r ? '<td class="n strong">' + num(s2.sold) + '</td>'
+        + (showRes ? '<td class="n strong">' + num(s2.sold) + '</td>'
              + '<td class="n">' + num(s2.hit) + ' / ' + num(s2.budtenders) + '</td>' : '')
         + '</tr>';
     });
@@ -94,7 +105,7 @@
       rows += '<tr class="total"><td>Total</td>'
         + '<td class="n">' + num(baseTotal) + '</td>'
         + '<td class="n">' + num(tgtTotal) + '</td>'
-        + (r ? '<td class="n">' + num(soldTotal) + '</td>'
+        + (showRes ? '<td class="n">' + num(soldTotal) + '</td>'
              + '<td class="n">' + num(hitTotal) + ' / ' + num(btTotal) + '</td>' : '')
         + '</tr>';
     }
@@ -139,8 +150,12 @@
     var growth  = before ? Math.round((extra / before) * 100) : null;
     var overGoal = tgtTotal ? sold - tgtTotal : null;
 
+    /* A NEGATIVE return must not wear the winning colour. -70% was rendered in the same bright
+       green as a good result, inside a green-tinted panel — the vendor's eye reads the colour
+       before the minus sign. The number is not softened, only the styling stops congratulating. */
+    var down = credit ? (net / credit) < 0 : false;
     v.innerHTML = head
-      + '<div class="cv-roi"><div class="cv-roi-l">Return on the SPIFF</div>'
+      + '<div class="cv-roi' + (down ? ' is-down' : '') + '"><div class="cv-roi-l">Return on the SPIFF</div>'
       +   '<div class="cv-roi-v">' + (credit ? Math.round((net / credit) * 100).toLocaleString('en-US') + '%' : '—') + '</div>'
       /* The same numbers again in a sentence. A percentage on its own is easy to disbelieve
          and hard to repeat to a colleague; the sentence is what gets forwarded. */
@@ -148,17 +163,33 @@
       +     ' extra units</b> — about <b>' + money(added) + '</b> of additional sell-through, a net <b>'
       +     money(net) + '</b> to ' + esc(p.vendor || 'you') + '.'
       +     (growth == null ? '' : ' Sales ran <b>' + growth + '% above</b> the comparable period before the program')
-      +     (overGoal == null ? '' : (growth == null ? ' Sales' : ' and') + ' cleared the goal by '
-             + num(Math.abs(overGoal)) + ' units')
+      /* SIGN-BLIND, AND IT SAID THE OPPOSITE OF THE TRUTH. overGoal is sold - target, so BeGoat's
+         117 against a 120 goal gave -3 — and Math.abs turned that into "cleared the goal by 3
+         units" on a page sent to the vendor. A program that MISSED its goal was telling the vendor
+         it beat it. The wording now follows the sign, and a dead-on result reads as neither. */
+      +     (overGoal == null ? ''
+             : (growth == null ? ' Sales' : ' and')
+               + (overGoal > 0 ? ' cleared the goal by ' + num(overGoal) + ' units'
+                : overGoal < 0 ? ' finished ' + num(Math.abs(overGoal)) + ' units short of the goal'
+                :                ' landed exactly on the goal'))
       +     '.</p></div>'
       + '<div class="cv-stats">'
       +   cvStat('Units sold', num(sold), tgtTotal ? 'goal ' + num(tgtTotal) + ' · ' + (overGoal >= 0 ? '+' : '') + num(overGoal) : '', '')
       +   cvStat('Growth over prior', growth == null ? '—' : (growth >= 0 ? '+' : '') + growth + '%',
                  before ? num(before) + ' → ' + num(sold) + ' units' : '', '')
-      +   cvStat('Budtenders who hit', num(r.budtenders_hit), 'of ' + num(btTotal || r.budtenders || 0) + ' · ' + money(r.rate_paid) + ' each', '')
+      /* Read the headcount from the payload, not from a table that may have no result columns.
+         btTotal is summed from the per-store rows, which are empty for a closed program — so this
+         said "18 of 0". And when the headcount is genuinely unknown (target_json carries no
+         budtender count on older imported programs) the comparison is DROPPED rather than
+         asserting "of 0", which reads as a program nobody was enrolled in. */
+      +   cvStat('Budtenders who hit', num(r.budtenders_hit),
+                 (function () {
+                   var of = btTotal || Number(r.budtenders) || Number(p.budtenders) || 0;
+                   return (of ? 'of ' + num(of) + ' · ' : '') + money(r.rate_paid) + ' each';
+                 })(), '')
       +   cvStat('Total credit', money(credit), 'requested against the next order', 'is-credit')
       + '</div>'
-      + storeTable(rows, true)
+      + storeTable(rows, showRes)
       + '<p class="cv-fine">&ldquo;Before SPIFF&rdquo; is each store&rsquo;s sell-through in the comparable '
       +   'period before the program. &ldquo;Sold&rdquo; counts the program period itself. Figures come '
       +   'from Dutchie point-of-sale data.</p>';

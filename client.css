@@ -115,6 +115,10 @@ body.client { background: var(--gx-bg); }
    to disbelieve and hard to repeat to a colleague. */
 .cv-roi-p { margin: 14px 0 0; font-size: 15px; line-height: 1.6; color: var(--gx-text-dim); max-width: 640px; text-wrap: pretty; }
 .cv-roi-p b { color: var(--gx-text); }
+/* A loss wears the neutral/warning treatment, never the winning green. The figure itself is
+   unchanged — this only stops the page congratulating the vendor on a negative return. */
+.cv-roi.is-down { border-color: var(--gx-gold-line, rgba(212,168,71,.35)); background: var(--gx-gold-soft, rgba(212,168,71,.10)); }
+.cv-roi.is-down .cv-roi-v { color: var(--gx-gold, #d4a847); }
 
 .cv-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 22px 0; }
 .cv-stat { border: 1px solid var(--gx-border); border-radius: 12px; background: var(--gx-surface); padding: 15px 17px; }
@@ -143,6 +147,8 @@ body.client { background: var(--gx-bg); }
   body { background: #fff !important; color: #1a1f1d !important; }
   .cv-roi { background: #f2faf5 !important; border-color: #b7e3c6 !important; }
   .cv-roi-v, .cv-stat.is-credit .cv-stat-v { color: #16833f !important; }
+  .cv-roi.is-down { background: #fdf7ec !important; border-color: #e3d2b0 !important; }
+  .cv-roi.is-down .cv-roi-v { color: #8a6316 !important; }
   .cv-stat, .cv-tbl-wrap { background: #fff !important; border-color: #d7dedb !important; }
   .cv-tbl th { background: #f4f7f5 !important; color: #5a635f !important; }
   .cv-h1, .cv-stat-v, .cv-roi-p b { color: #1a1f1d !important; }

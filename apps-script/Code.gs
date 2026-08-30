@@ -1441,8 +1441,18 @@ function clientView_(p) {
 
   /* Per-store RESULTS come from the progress cache, which is already refreshed hourly — so the
      vendor's table can show what each store actually sold without this page triggering six
-     sell-through calls while a rep waits on it. Absent cache simply means no result columns,
-     which is the correct answer for a program that has not run. */
+     sell-through calls while a rep waits on it.
+   *
+   * "Absent cache means no result columns" was the intent and NOT what happened. The cache is only
+   * ever swept for ACTIVE programs (refreshSpiffProgress_ reads listPrograms_('active')), so a
+   * CLOSED one — which is exactly what a vendor is sent — has no rows in it, and byStore emitted
+   * sold:0 for every store. The vendor then saw a table totalling 0 units directly beneath a
+   * headline of 117. Reported by Sky 2026-08-29 on the BeGoat page.
+   *
+   * There is no per-store settled figure to fall back on: actual_json records program TOTALS only.
+   * So the honest answer is to say we do not have the breakdown, not to print zeros — hence the
+   * flag below, which the page uses to drop the columns entirely rather than fill them with a
+   * number that is wrong. */
   var progByStore = Object.create(null);
   try {
     var pRows = progressRowsFor_(prog.program_id);
@@ -1462,7 +1472,14 @@ function clientView_(p) {
              sold: g.sold || 0, hit: g.hit || 0, budtenders: g.budtenders || 0 };
   });
 
-  var bts     = Object.keys(t.per_bt || {}).length ? sumVals_(b.by_store) : 0;
+  /* TRUE only when the cache actually carried per-store rows for this program. */
+  var hasStoreResults = Object.keys(progByStore).length > 0;
+
+  /* The planned headcount, and ONLY if we genuinely know it. The previous fallback summed
+     `baseline.by_store` — which is baseline UNITS, not people — so a program without an explicit
+     budtender count reported its prior-period unit total as a headcount. Better to return 0 and
+     let the page omit the comparison than to state a confident wrong number to a vendor. */
+  var bts     = Number(t.budtenders) || 0;
   var invest  = a ? (a.bts_hit || 0) * (a.spiff_amount || rate) : 0;
   var revInc  = ((t.units || 0) - (b.units || 0)) * cost;
 
@@ -1483,10 +1500,11 @@ function clientView_(p) {
       revenue_increase: revInc,
       by_store: byStore,
       // Results only once the program has actually closed.
-      budtenders: t.budtenders || bts || 0,
+      budtenders: bts,
+      has_store_results: hasStoreResults,
       investment: rate * (t.budtenders || 0),
       results: a ? {
-        units_sold: a.units_sold, budtenders_hit: a.bts_hit,
+        units_sold: a.units_sold, budtenders_hit: a.bts_hit, budtenders: bts,
         rate_paid: a.spiff_amount || rate, investment: invest,
         /* The vendor's own gain, in dollars, at the cost they charge us. It was computed in
            the browser before, from figures the page did not all have — so the sentence under
