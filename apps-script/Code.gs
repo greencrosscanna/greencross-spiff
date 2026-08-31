@@ -1176,6 +1176,63 @@ function computePayouts_(rows, targets, payout) {
 
 var GX_SECRET_PROP = 'GX_DEPLOY_SECRET';   // set in Script Properties; never in this repo
 
+/* ─── One entry per PERSON, out of a sales_by_employee payload ────────────────────────────
+ *
+ * KEYED ON THE DUTCHIE ID, name only as a fallback. Name was the key until 2026-08-30
+ * purely because GX Core's employees tab was empty; it is not any more, and a name is not
+ * an identity — two budtenders can share one, and one budtender can be spelled two ways.
+ * On a shared name the old key silently summed two people into a single row and paid the
+ * SPIFF once; on a re-spelling it split one person in two and paid neither, because each
+ * half fell short of the target.
+ *
+ * Read the id off `dutchie_employee_id`, NOT `employee_id`. GX Core v248 named the ids for
+ * what they are and marked `employee_id` a DEPRECATED ALIAS of the Dutchie id — which is
+ * what it always silently was. The fallback keeps us working against a Core older than
+ * v248, where the alias is all that ships.
+ *
+ * Our OWN field stays `employee_id`: it is SPIFF's column name in `spiff_progress` and in
+ * the `progress` payload GX Crew reads, so renaming it would break a live cross-app
+ * consumer to cosmetically match an upstream name.
+ *
+ * TWO PASSES, and the first one is the whole point. Keying straight off the id would drop
+ * every seller Core has no id for into one shared bucket — so the fallback is the NAME, not
+ * ''. But a person can also arrive as a mix: one row carrying an id, another (a re-spelling,
+ * a missing id) without. Pass 1 learns name -> id from whichever rows do carry one, so those
+ * unidentified rows join their identified twin instead of splitting off. Without it, moving
+ * the key from name to id would have FIXED the shared-name merge and simultaneously
+ * introduced a new split — a net wash on a live payout number.
+ *
+ * Object.create(null) throughout: `name` is Dutchie's completedByUser, i.e. data we do not
+ * control. On a plain object a budtender named "constructor" or "valueOf" would find the
+ * INHERITED member truthy, skip the initialiser, and start adding units onto a function.
+ * Absurd as a name, but it is the same class pricecards hit and the fix is free.
+ */
+function aggregateSellers_(rows, store) {
+  var idByName = Object.create(null);
+  (rows || []).forEach(function (row) {
+    var nk = userKey_(row.employee_name);
+    var id = String(row.dutchie_employee_id || row.employee_id || '').trim();
+    if (nk && id && !idByName[nk]) idByName[nk] = id;
+  });
+
+  var people = Object.create(null);
+  (rows || []).forEach(function (row) {
+    var name = String(row.employee_name || '').trim();
+    if (!name) return;
+    var nk = userKey_(name);
+    var id = String(row.dutchie_employee_id || row.employee_id || '').trim() || idByName[nk] || '';
+    /* Prefixed so an id can never collide with a name that happens to be all digits. */
+    var key = id ? ('id:' + id) : ('name:' + nk);
+    var e = people[key] || (people[key] = {
+      name: name, employee_id: id, store_id: store, units: 0, revenue: 0
+    });
+    e.units   += Number(row.units) || 0;
+    e.revenue += Number(row.revenue) || 0;
+  });
+
+  return Object.keys(people).map(function (k) { return people[k]; });
+}
+
 function sellthrough_(p) {
   var res = getProgram_(p.id);
   if (!res.ok) return res;
@@ -1201,31 +1258,7 @@ function sellthrough_(p) {
   var perBt = Number((t.per_bt || {})[store]) || 0;
   var rate  = (prog.payout_json || {}).amount || 0;
 
-  /* Object.create(null): `name` is Dutchie's completedByUser, i.e. data we do not control.
-     On a plain object a budtender named "constructor" or "valueOf" would find the INHERITED
-     member truthy, skip the initialiser, and start adding units onto a function. Absurd as a
-     name, but it is the same class pricecards hit and the fix is free. */
-  var people = Object.create(null);
-  (r.rows || []).forEach(function (row) {
-    var name = String(row.employee_name || '').trim();
-    if (!name) return;
-    /* Read the id off `dutchie_employee_id`, NOT `employee_id`. GX Core v248 named the ids
-       for what they are and marked `employee_id` a DEPRECATED ALIAS of the Dutchie id --
-       which is what it always silently was, so the two carry identical values today and
-       this is not a behaviour change. The fallback keeps us working against a Core older
-       than v248 (the alias is all those return). Our OWN field stays `employee_id`: it is
-       SPIFF's column name in `spiff_progress` and in the `progress` payload Crew reads,
-       so renaming it here would break a live cross-app consumer to cosmetically match an
-       upstream name. Where the value comes from is the part that had to change. */
-    var e = people[name] || (people[name] = {
-      name: name, employee_id: row.dutchie_employee_id || row.employee_id || '',
-      store_id: store, units: 0, revenue: 0
-    });
-    e.units   += Number(row.units) || 0;
-    e.revenue += Number(row.revenue) || 0;
-  });
-
-  var list = Object.keys(people).map(function (k) { return people[k]; });
+  var list = aggregateSellers_(r.rows, store);
 
   // No per-budtender target recorded? Split the store's target across whoever sold,
   // rather than marking everyone as having hit.
