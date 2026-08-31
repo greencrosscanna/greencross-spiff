@@ -241,6 +241,8 @@
      four stat tiles, a hero, three rows -- so nothing shifts when the data lands. */
   function renderProgramsSkeleton() {
     var stats = $('#progStats'), run = $('#progRunning'), closed = $('#progClosed');
+    var drafts = $('#progDrafts');
+    if (drafts) drafts.innerHTML = '';
     if (stats) stats.innerHTML = Array(4).join(',').split(',').map(function () {
       return '<div class="sp-stat"><div class="sp-skel" style="height:23px;width:60%"></div>'
            + '<div class="sp-skel sp-skel-line" style="width:80%;margin-top:8px"></div></div>';
@@ -280,11 +282,13 @@
   function renderPrograms() {
     var empty = $('#programsEmpty');
     var stats = $('#progStats'), run = $('#progRunning'), closed = $('#progClosed');
+    var draftsEl = $('#progDrafts');
     if (!stats) return;
 
     if (!state.programs.length) {
       empty.hidden = false;
       stats.innerHTML = ''; run.innerHTML = ''; closed.innerHTML = '';
+      if (draftsEl) draftsEl.innerHTML = '';
       return;
     }
     empty.hidden = true;
@@ -321,33 +325,55 @@
     var heroes = running.filter(progMatches);
     run.innerHTML = heroes.map(heroCard).join('');
 
-    /* ---- everything else, dense.
-       Under the default "Active" scope this is a TAIL, not the filtered list: the running
-       program is the answer to "how are we doing", and the last few closed ones are the
-       context for it. Filtering them out entirely (which "Active" literally means) would
-       leave the screen looking like the app has one program in it. Pick any other scope and
-       this becomes the real filtered list. */
-    var TAIL = 3;
+    /* ---- everything else, dense, and under the default "Active" scope split in two.
+       Three sections is the shape of the page Sky asked for: the running program is the
+       answer to "how are we doing", the DRAFTS are the ones still being set up (the only
+       other thing you can act on), and the last few closed ones are the context. Filtering
+       them out entirely (which "Active" literally means) would leave the screen looking like
+       the app has one program in it.
+
+       Drafts used to be folded into this same tail under a "Closed" heading, where they both
+       sat under the wrong word AND could push real closed programs out of the top three.
+       Pick any other scope and the bottom section becomes the real filtered list, as before. */
+    var TAIL = 4;
     var tail = progFilter.scope === 'active';
+    var drafts = tail
+      ? sortPrograms(all.filter(function (p) {
+          return p.status === 'draft' && progMatchesExceptScope(p);
+        }))
+      : [];
     var rest = tail
       ? sortPrograms(all.filter(function (p) {
-          return p.status !== 'active' && progMatchesExceptScope(p);
+          return p.status === 'closed' && progMatchesExceptScope(p);
         })).slice(0, TAIL)
       : visible.filter(function (p) { return p.status !== 'active'; });
 
+    if (draftsEl) draftsEl.innerHTML = drafts.length
+      ? listSection('Drafts', drafts.length + ' program' + (drafts.length === 1 ? '' : 's'), drafts, '')
+      : '';
+
     var heading = tail ? 'Closed' : (progFilter.scope === 'all' ? 'All programs' : cap(progFilter.scope));
     var note = tail
-      ? closedN + ' program' + (closedN === 1 ? '' : 's')
+      ? 'last ' + rest.length + ' of ' + closedN
       : rest.length + ' program' + (rest.length === 1 ? '' : 's');
 
     closed.innerHTML = rest.length
-      ? '<div class="sp-head"><h2>' + heading + '</h2>'
-        + '<span class="sp-head-note">' + note + '</span>'
-        + '<a class="sp-head-link" href="#" data-goto="history">see all in History</a></div>'
-        + '<div class="sp-list' + (canEdit() ? ' can-share' : '') + '">'
-          + rest.map(listRow).join('') + '</div>'
-      : (heroes.length ? '' : '<div class="sp-notice">Nothing matches that filter. '
+      ? listSection(heading, note, rest, 'see all in History')
+      : (heroes.length || drafts.length ? '' : '<div class="sp-notice">Nothing matches that filter. '
           + closedN + ' closed program' + (closedN === 1 ? '' : 's') + ' in History.</div>');
+  }
+
+  /* One headed block of rows. Shared so the Drafts and Closed sections cannot drift apart --
+     they are the same object in two states, and a row that looks different in one of them is
+     a row you have to re-learn. `link` empty means no History link, which is right for drafts:
+     History is closed programs only. */
+  function listSection(heading, note, rows, link) {
+    return '<div class="sp-head"><h2>' + esc(heading) + '</h2>'
+      + '<span class="sp-head-note">' + esc(note) + '</span>'
+      + (link ? '<a class="sp-head-link" href="#" data-goto="history">' + esc(link) + '</a>' : '')
+      + '</div>'
+      + '<div class="sp-list' + (canEdit() ? ' can-share' : '') + '">'
+      + rows.map(listRow).join('') + '</div>';
   }
 
   function newProgram() {
