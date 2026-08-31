@@ -2371,6 +2371,60 @@ function conformProduct_(pr) {
   };
 }
 
+/* ─── Live inventory for one store, THROUGH GX Core ──────────────────────────────────────────────
+ *
+ * Replaced GXCore.dutchieInventory() on 2026-08-31. That library call could never have worked, and
+ * had not: PropertiesService.getScriptProperties() scopes to the CALLING project, so the library
+ * looked for DUTCHIE_STORE_KEYS_JSON in THIS project, which has never held one. Every call threw,
+ * the throw went into `errs`, and nobody read `errs` — so the vendor Calculator has been building
+ * its catalog from nothing since the day it was wired up. GX Core's own gx_core.gs:187 documents
+ * the same constraint (it hardcodes a spreadsheet id because openById is caller-independent and
+ * getScriptProperties is not); GX_DUTCHIE_CACHE_SCOPE.md asserted the opposite and was wrong.
+ *
+ * The web route executes AS GX Core, so it reads Core's properties — the thing a library call
+ * cannot do. This app therefore holds no Dutchie credential, and never needs one.
+ *
+ * Takes a GX Core store_id. GX Core resolves the Dutchie label itself, so the two-spelling split
+ * that caused the August incident cannot reach this app at all.
+ * ------------------------------------------------------------------------------------------------ */
+function dutchieInventoryViaGXCore_(storeId) {
+  var secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET');
+  if (!secret) throw new Error('GX_DEPLOY_SECRET is not set on this script — cannot reach GX Core');
+
+  // fields= trims the payload to what conformProduct_ actually reads. An inventory pull is thousands
+  // of rows per store and this adds a hop, so moving sixty columns to use eleven is worth avoiding.
+  var url = GXCORE_URL + '?action=dutchie_inventory'
+          + '&store=' + encodeURIComponent(storeId)
+          + '&secret=' + encodeURIComponent(secret)
+          // EXACTLY what conformProduct_ reads, fallbacks included — it accepts either spelling of
+          // three of these, and dropping the fallback is how a vendor rename empties the catalog
+          // silently. Keep this list and that function in step; nothing else may be trimmed away.
+          + '&fields=' + encodeURIComponent([
+              'productName', 'name',                       // n
+              'brandName', 'brand',                        // b
+              'masterCategory', 'category',                // c
+              'size', 'unitWeight',                        // s
+              'pricingTierName',                           // t
+              'unitCost',                                  // cost
+              'recUnitPrice', 'unitPrice', 'medUnitPrice', // price / medPrice
+              'quantityAvailable'                          // qty
+            ].join(','));
+
+  var lastErr = '';
+  for (var i = 0; i < 5; i++) {
+    var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    var data = null;
+    try { data = JSON.parse(resp.getContentText()); } catch (e) { lastErr = 'unparseable body'; }
+    if (data && data.ok === true && Array.isArray(data.rows)) return data.rows;
+    // A refusal is final. Retrying a bad secret or an unknown store burns the budget and buries
+    // the message that would have explained it.
+    if (data && data.ok === false) throw new Error(data.error || 'dutchie_inventory refused');
+    lastErr = lastErr || 'no rows in response';
+    Utilities.sleep(400);   // the /exec second hop 404s on ~6% of rapid calls
+  }
+  throw new Error('GX Core dutchie_inventory unreachable after 5 tries — ' + lastErr);
+}
+
 /* The catalog, deduped across stores. A product carried at five stores is ONE row here —
    the Calculator asks "which product", not "which product at which store". */
 function buildCatalog_() {
@@ -2379,11 +2433,11 @@ function buildCatalog_() {
 
   var by = Object.create(null), errs = [], seen = 0;
   stores.forEach(function (s) {
-    var dn = String(s.dutchie_name || '').trim();
-    if (!dn) return;
+    var id = String(s.store_id || '').trim();
+    if (!id) return;
     var rows;
-    try { rows = GXCore.dutchieInventory(dn) || []; }
-    catch (e) { errs.push(String(s.store_id) + ': ' + (e && e.message || e)); return; }
+    try { rows = dutchieInventoryViaGXCore_(id); }
+    catch (e) { errs.push(id + ': ' + (e && e.message || e)); return; }
     rows.forEach(function (pr) {
       var x = conformProduct_(pr);
       if (!x) return;
@@ -2431,6 +2485,18 @@ function buildCatalog_() {
   var brands = Object.create(null);
   list.forEach(function (x) { if (x.b) brands[x.b] = (brands[x.b] || 0) + 1; });
   var brandList = Object.keys(brands).sort().map(function (b) { return { name: b, count: brands[b] }; });
+
+  /* AN EMPTY CATALOG WITH ERRORS IS A FAILURE, NOT AN EMPTY CATALOG.
+     This returned ok:true with zero products and a populated `errors` for as long as
+     GXCore.dutchieInventory has existed — which was always, because that library call could never
+     read GX Core's properties. The Calculator rendered "no products" and looked merely quiet. A
+     partial failure stays ok:true (four stores of six is still a usable catalog, and the errors
+     ride along); every store failing is reported as what it is. */
+  if (!list.length && errs.length) {
+    return { ok: false, error: 'no products from any store — ' + errs.length + ' of '
+             + stores.length + ' failed', errors: errs, stores_read: stores.length,
+             rows_seen: seen, built_at: nowStamp_() };
+  }
 
   return { ok: true, products: list, brands: brandList,
            stores_read: stores.length, rows_seen: seen, errors: errs, built_at: nowStamp_() };
