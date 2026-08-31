@@ -98,6 +98,25 @@ Google's consent HTML instead of JSON until the owner has authorized.
 
 ## The rules that matter
 
+- **Status follows the dates, on its own** (Sky, 2026-08-31). The hourly engine trigger rolls each
+  program before it sweeps: a **draft goes ACTIVE on its start date** with no human step, and an
+  **active program CLOSES** once its end date has passed (inclusive — a program ending the 30th is
+  still running on the 30th). Sky chose full auto-activation deliberately; nothing pays out on a
+  clock, since the vendor report is still Tawny's click, so an early start costs a screen showing a
+  program a day sooner, not money moving.
+
+  Two things it deliberately will **not** do, and both are load-bearing. **Closed is terminal** — a
+  typo'd `end_date` must never reopen a program whose actuals may already be on a vendor report.
+  And a **draft whose window passed entirely is left alone** and reported as `stale`, because
+  "drafted and never run" is a different fact from "ran and finished" and only a human knows which.
+  Rows with no window are skipped.
+
+  This matters beyond the landing page: `?action=progress&status=active` is resolved from this
+  field, and **GX Crew's incentive column and the Leaderboard kiosk cards both read that route** —
+  a program left active past its end date keeps drawing on kiosk cards, which is the exact failure
+  `status` was added to catch. Preview a roll with `?action=rollStatuses&dry=1` (deploy-secret
+  gated, writes nothing); drop `dry` to run it. Rules are pinned by `tests/status_roll_test.js`.
+
 - **Payout model.** Most programs are **flat**: a fixed dollar bounty to each budtender who hits their
   individual target (`SPIFF $25 × 17 BTs = $425`). But **`per_unit` is real and implemented** — Hapy
   Kitchen (2.16–3.1.26) paid "$1 for every unit sold", with "Unit Based"/"You Decide" where the goals
@@ -231,5 +250,4 @@ Project Settings whenever.
 **Close the loop when you're done:** When a dispatched or `/gxwhatsnext`-started task's goals look met —
 the moment you'd naturally say "that should do it" — proactively tell Sky and **offer to ship/close it
 out; don't wait to be asked.** Shipping (spoke apps: open/return the PR → `dev_update … status=in_review`;
-on merge → `dev_ship`) auto-completes the Asana to-do and clears it from the Command Center. Find the job
-via `dev_queue` (filtered to this app) if you need its id.
+on merge → `dev_ship`) auto-completes the Asana to-do and clears it from the Command Center. Find the job via `dev_queue` (filtered to this app) when you need its id for the `curl` — but **refer to it by its `title`, never its id**. `job_mtg9vyxs_ewd9` means nothing to Sky; every job carries the to-do text in the same response the id came from, so say that instead, summarised if it's long ("the employee email column"). Same for `bug_…` and note ids.

@@ -187,7 +187,7 @@ var GATED_WRITES = [];
    that stay secret-only both COST something: refreshProgress walks every store's date windows
    (~57s measured) and installProgressTrigger changes the schedule. A deploy secret still opens
    all three; see guard_. */
-var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger'];
+var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -257,6 +257,14 @@ function doGet(e) {
               ? { ok: false, error: 'Unauthorized' }
               : (p.store ? refreshSpiffProgress_(p.program || '', p.store)
                          : refreshProgressPlan_(p.program || ''));
+        break;
+      /* Manual run of the same roll the hourly trigger does. Secret-gated because it WRITES, and
+         `dry=1` reports what it would change without touching a row -- the safe way to see what a
+         date correction is about to do. */
+      case 'rollStatuses':
+        out = (String(p.secret || '') !== PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP))
+              ? { ok: false, error: 'Unauthorized' }
+              : rollProgramStatuses_({ dryRun: String(p.dry || '') === '1' });
         break;
       case 'installProgressTrigger':
         out = (String(p.secret || '') === PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP)
@@ -872,6 +880,84 @@ function refreshSpiffProgress_(only, onlyStore) {
            swept: seen, all_programs_by_status: byStatus };
 }
 
+/* ===================== SCHEDULED STATUS ROLL =====================
+ * A program's status was a thing somebody had to remember to change. Nothing moved a draft to
+ * active on its start date and nothing closed a program when its window ran out, so the landing
+ * page showed a hero reading "day 14 of 14 - ended" on a programme still filed as ACTIVE, and the
+ * hourly sweep kept re-measuring it because the sweep is active-only.
+ *
+ * That status is not cosmetic. `?action=progress&status=active` is resolved from it, and GX Crew's
+ * incentive column and the Leaderboard kiosk cards both read that route -- so a programme left
+ * active past its end date keeps drawing on kiosk cards, which is the exact failure the `status`
+ * field was added to catch in the first place.
+ *
+ * Sky, 2026-08-31: a draft DOES go active on its scheduled start date -- no human step. Nothing
+ * pays out automatically (a vendor report is still Tawny's click), so the risk of an early start
+ * is a screen showing a programme a day sooner, not money moving.
+ *
+ * THREE RULES, and the two omissions are the point:
+ *   draft  + window has started  -> active
+ *   active + window has ended    -> closed
+ *   CLOSED IS TERMINAL. Never reopened by a date. A closed programme has recorded actuals and may
+ *     already be on a vendor report; a fat-fingered end_date must not un-send that.
+ *   A DRAFT WHOSE WINDOW HAS ENTIRELY PASSED IS LEFT ALONE, and reported as `stale`. Closing it
+ *     would file a programme in History as though it ran, with no actuals, when the likelier truth
+ *     is that it was drafted and never started. That is a judgement call for a human.
+ *
+ * Rows with no start/end date are skipped -- there is no schedule to act on.
+ * Writes only the status and updated_at cells: `edited_by` records the HUMAN who last corrected a
+ * row, and a clock tick is not an edit by that person.
+ */
+function rollProgramStatuses_(opts) {
+  opts = opts || {};
+  var dryRun = !!opts.dryRun;
+  var sh = dataSheet_();
+  if (sh.getLastRow() < 2) return { ok: true, dry_run: dryRun, scanned: 0, changed: [], stale: [], skipped: [] };
+
+  var idCol = PROGRAM_HEADERS.indexOf('program_id');
+  var stCol = PROGRAM_HEADERS.indexOf('status');
+  var sdCol = PROGRAM_HEADERS.indexOf('start_date');
+  var edCol = PROGRAM_HEADERS.indexOf('end_date');
+  var upCol = PROGRAM_HEADERS.indexOf('updated_at');
+
+  var rows = sh.getRange(2, 1, sh.getLastRow() - 1, PROGRAM_HEADERS.length).getValues();
+  var day = today_(), now = nowStamp_();
+  var changed = [], stale = [], skipped = [];
+
+  for (var i = 0; i < rows.length; i++) {
+    var id = String(rows[i][idCol] || '');
+    if (!id) continue;
+    var was = String(rows[i][stCol] || '').trim().toLowerCase();
+    if (was !== 'draft' && was !== 'active') continue;          // closed, or a status we don't own
+
+    /* textDate_ because the sheet can hand back a Date despite forceTextDates_ -- an older row
+       written before that brace existed is still in there. */
+    var sd = textDate_(rows[i][sdCol]), ed = textDate_(rows[i][edCol]);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(sd) || !/^\d{4}-\d{2}-\d{2}$/.test(ed)) {
+      skipped.push({ program_id: id, status: was, why: 'no window' });
+      continue;
+    }
+
+    var want = '';
+    /* STRING comparison on YYYY-MM-DD, deliberately: it sorts identically to the dates and never
+       constructs a Date, so there is no UTC-vs-Los-Angeles midnight to get wrong. The end date is
+       INCLUSIVE -- a program ending the 30th is still running ON the 30th. */
+    if (was === 'draft'  && day >= sd && day <= ed) want = 'active';
+    else if (was === 'draft' && day > ed)           { stale.push({ program_id: id, window: sd + ' -> ' + ed }); continue; }
+    else if (was === 'active' && day > ed)          want = 'closed';
+    if (!want) continue;
+
+    changed.push({ program_id: id, from: was, to: want, window: sd + ' -> ' + ed });
+    if (dryRun) continue;
+    sh.getRange(i + 2, stCol + 1).setValue(want);
+    sh.getRange(i + 2, upCol + 1).setValue(now);
+  }
+
+  if (changed.length && !dryRun) invalidatePrograms_();
+  return { ok: true, dry_run: dryRun, today: day, scanned: rows.length,
+           changed: changed, stale: stale, skipped: skipped };
+}
+
 /** Installed once; hourly is well inside Dutchie's freshness and nowhere near the quota. */
 function installSpiffProgressTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
@@ -880,7 +966,14 @@ function installSpiffProgressTrigger() {
   ScriptApp.newTrigger('refreshSpiffProgressTrigger').timeBased().everyHours(1).create();
   return { ok: true, installed: 'refreshSpiffProgress hourly' };
 }
-function refreshSpiffProgressTrigger() { refreshSpiffProgress_(); }
+/* Roll FIRST, then sweep. The sweep is active-only, so a program that starts today has to be
+   flipped before the same run measures it -- otherwise its first hour of sales lands an hour late,
+   and a program that ended yesterday gets measured one more time for nothing. */
+function refreshSpiffProgressTrigger() {
+  try { rollProgramStatuses_(); }
+  catch (e) { console.warn('[spiff] status roll failed: ' + ((e && e.message) || e)); }
+  refreshSpiffProgress_();
+}
 
 /* What a full refresh would do, without doing any of it. Lets a caller loop store by store and see
  * progress, instead of firing one request that dies silently at the 60-second ceiling. */
