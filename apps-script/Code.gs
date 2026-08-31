@@ -2439,16 +2439,53 @@ function buildCatalog_() {
 function catalog_(p) {
   var cat = null;
   if (String(p && p.refresh) !== '1') cat = catalogGet_();
-  var cached = !!cat;
+  /* AN EMPTY CATALOGUE IN THE CACHE IS A MISS, NOT A CATALOGUE. The guard below stops a failed
+     build from being cached going forward, but a cache poisoned before it existed would still
+     be served for the rest of its six hours -- which is exactly what happened here: forcing a
+     refresh during the 401 wrote a zero-product catalogue at 14:10 that would have emptied the
+     vendor picker until 20:10. Refusing to serve it costs one rebuild attempt; serving it costs
+     an afternoon of a picker with nothing in it and no reason given. */
+  if (cat && !(cat.products || []).length) cat = null;
+  var cached = !!cat, stale = false;
   if (!cat) {
-    cat = buildCatalog_();
-    if (!cat.ok) return cat;
-    catalogPut_(cat);
+    var built = buildCatalog_();
+    if (!built.ok) return built;
+    /* A BUILD THAT READ NOTHING MUST NOT BECOME THE CATALOG. buildCatalog_ reports a store
+       that would not answer in `errors` and carries on, so a chain-wide Dutchie outage
+       produces a perfectly well-formed catalogue of zero products -- ok:true, and cached for
+       six hours over the good one that was there. That is how a refresh during an outage
+       empties the vendor picker until long after the outage is over.
+       Verified live 2026-08-31: forcing refresh=1 while Dutchie was 401ing on all six stores
+       replaced an 8,480-row catalogue with an empty one.
+       Every store failing is the only case treated this way. A partial read still caches --
+       it is a real catalogue, just short a store, and refusing it would leave the picker
+       empty over one store's outage. */
+    if (!built.rows_seen && (built.errors || []).length) {
+      /* Same emptiness test as above, and it has to be repeated here: falling back to the
+         cache without it hands back the very zero-product catalogue the guard just rejected,
+         relabelled `stale` — which is how this fix failed its own first live check. */
+      var keep = catalogGet_();          // the refresh=1 path above deliberately skipped this
+      if (keep && !(keep.products || []).length) keep = null;
+      if (!keep) {
+        return { ok: false, error: 'no products could be read from any store \u2014 '
+                 + (built.errors || [])[0], errors: built.errors,
+                 stores_read: built.stores_read, rows_seen: 0 };
+      }
+      cat = keep; cached = true; stale = true;
+      cat.errors = built.errors;
+    } else {
+      cat = built;
+      catalogPut_(cat);
+    }
   }
 
   var brand = String((p && p.brand) || '').trim().toLowerCase();
   var out = {
     ok: true, cached: cached, built_at: cat.built_at,
+    /* `stale` means: this is the last catalogue that read cleanly, and the rebuild that would
+       have replaced it could not reach a single store. The products are real but may be out
+       of date, and the caller should say which. */
+    stale: stale,
     stores_read: cat.stores_read, rows_seen: cat.rows_seen, errors: cat.errors,
     brands: cat.brands
   };
@@ -2518,6 +2555,23 @@ function refUnits_(p) {
 
   var units = Number((r.totals || {}).units) || 0;
   var revenue = Number((r.totals || {}).revenue) || 0;
+  var errs = r.errors || [];
+
+  /* AN ERROR IS NOT A ZERO, and this is the one place the difference is knowable.
+     gxSalesByEmployee_ reports a store that would not answer in `errors` and still returns
+     totals of 0 -- so with Dutchie refusing every store (HTTP 401 across all six, seen live
+     2026-08-31) this route was replying ok:true, reference:0. The Calculator has no way to
+     tell that apart from "this product sold nothing", so it seeded every store at 0, called
+     the pull a success, and captioned it "0 in 28d / 2" as though it were measured. Every
+     figure below is arithmetic on that number.
+     A genuine zero -- the product really did not sell -- has NO errors beside it, and still
+     comes back as a zero. It is only the silent kind that is refused. Reported by Sky
+     2026-08-31 as "when i select a product it's coming up as 0s for last month". */
+  if (errs.length && !units) {
+    return { ok: false, store: store, from: from, to: to, days: days, errors: errs,
+             error: 'no sell-through for ' + store + ' \u2014 ' + errs[0] };
+  }
+
   return {
     ok: true, store: store, from: from, to: to, days: days,
     units: Math.round(units * 1000) / 1000,
@@ -2529,7 +2583,9 @@ function refUnits_(p) {
     reference: Math.round(units / REF_DIVISOR),
     divisor: REF_DIVISOR,
     sellers: (r.rows || []).length,
-    errors: r.errors || []
+    /* Kept even on the success path: a pull where SOME stores answered is a real figure
+       measured over an incomplete chain, and the caller has to be able to say so. */
+    errors: errs
   };
 }
 

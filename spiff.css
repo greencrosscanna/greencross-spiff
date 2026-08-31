@@ -1114,6 +1114,12 @@ body.is-gated .workspace { display: none !important; }
   font-size: 11px; color: var(--gx-text-mute);
 }
 .sp-waiting .sp-live-dot { background: var(--gx-gold); animation: gxskel 1.2s ease-in-out infinite; }
+/* The same line carries the failure, because "what is being waited on" and "what never came"
+   belong in one place. Gold, not red: nothing is broken in the data, a source did not answer. */
+.sp-waiting.is-err {
+  color: var(--gx-gold); font-weight: 600;
+  max-width: 62ch; line-height: 1.35; white-space: normal;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .is-awaiting::after { animation: none; }

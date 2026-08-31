@@ -1684,6 +1684,11 @@
   function refPending() {
     return calc.stores.filter(function (st) { return st.refState === 'loading'; }).length;
   }
+  /* Counted separately from pending, because a store that ANSWERED WITH A REFUSAL is not slow,
+     it is missing -- and six of them is not six retries to click, it is one outage to name. */
+  function refFailed() {
+    return calc.stores.filter(function (st) { return st.refState === 'error'; }).length;
+  }
 
   function recalc(changedIds) {
     var m = calcModel();
@@ -1920,11 +1925,28 @@
       var el = $(sel);
       if (el) el.classList.toggle('is-awaiting', pending > 0);
     });
+    /* THE PULL FAILING IS A HEADLINE, NOT A TOOLTIP. Each cell has said "couldn't pull —
+       retry" with the reason on hover since the reference pull was built, which is right for
+       one store having a bad minute. When EVERY store refuses -- Dutchie 401ing chain-wide,
+       2026-08-31 -- six identical retry links read as six flaky calls rather than one thing
+       being down, and the reason stays hidden behind a hover nobody performs. */
+    var failed = refFailed();
     var waitEl = $('#calcWaiting');
     if (waitEl) {
-      waitEl.hidden = !pending;
-      if (pending) waitEl.innerHTML = '<span class="sp-live-dot"></span>pulling last month&rsquo;s sales &mdash; '
-        + pending + ' of ' + calc.stores.length + ' store' + (calc.stores.length === 1 ? '' : 's') + ' to go';
+      var allOut = !pending && calc.stores.length > 0 && failed === calc.stores.length;
+      waitEl.hidden = !pending && !failed;
+      waitEl.classList.toggle('is-err', !pending && failed > 0);
+      if (pending) {
+        waitEl.innerHTML = '<span class="sp-live-dot"></span>pulling last month&rsquo;s sales &mdash; '
+          + pending + ' of ' + calc.stores.length + ' store' + (calc.stores.length === 1 ? '' : 's') + ' to go';
+      } else if (failed) {
+        var why = (calc.stores.filter(function (st) { return st.refState === 'error'; })[0] || {}).refErr || '';
+        waitEl.innerHTML = allOut
+          ? 'last month&rsquo;s sales could not be read for ANY store &mdash; every figure below is '
+            + 'waiting on that, not measuring zero. ' + esc(why)
+          : failed + ' of ' + calc.stores.length + ' stores did not answer &mdash; the totals below '
+            + 'are short those stores. ' + esc(why);
+      }
     }
 
     var hint = $('#cPayoutHint');
@@ -2315,7 +2337,11 @@
               + '<div class="sp-pick-1"><span class="sp-pick-name">' + esc(b.name) + '</span></div></div>'
               + '<span class="sp-pick-cost">' + b.count + '</span></div>';
           }).join('')
-        : '<div class="sp-pick-empty">No vendor in stock matches that.</div>';
+        : '<div class="sp-pick-empty">' + (pick.catErr
+            ? esc(pick.catErr)
+            : 'No vendor in stock matches that.') + '</div>';
+      if (pick.stale) vMenu.innerHTML += '<div class="sp-pick-empty">Dutchie is not answering &mdash; '
+        + 'this is the last product list that read cleanly, so stock and cost may be out of date.</div>';
     }
 
     function renderProducts(q) {
@@ -2484,7 +2510,15 @@
          expired — and a timeout here reads to the user as "this vendor has no products". */
       var r = await ENG.jsonp('catalog', { token: (session() || {}).token }, { timeoutMs: 40000, retries: 1 });
       if (r && r.ok) pick.brands = r.brands || [];
-    } catch (e) { console.error('[spiff] catalog brands failed:', e); }
+      /* `stale` means the engine kept the last catalogue that read cleanly because the rebuild
+         reached no store at all. The list is real but may be out of date, and a vendor picker
+         that is quietly out of date is worse than one that says so. */
+      pick.stale  = !!(r && r.stale);
+      pick.catErr = (r && !r.ok) ? (r.error || 'the product list could not be read') : '';
+    } catch (e) {
+      pick.catErr = 'the product list could not be read';
+      console.error('[spiff] catalog brands failed:', e);
+    }
     return pick.brands;
   }
 
