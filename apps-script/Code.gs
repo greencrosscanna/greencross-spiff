@@ -1890,6 +1890,17 @@ function diag_() {
   // scope — drive.file would silently only cover our own files.
   try { d.reportFolder = DriveApp.getFolderById(REPORT_FOLDER_ID).getName(); }
   catch (e) { d.reportFolder = 'ERR ' + (e && e.message || e); }
+  /* Does the clock actually run? The status roll and the progress sweep both ride ONE hourly
+     trigger, and whether it is installed was answerable only from the script editor -- so a trigger
+     deleted by hand looked exactly like a program that simply had not moved yet. Reported as a
+     verdict rather than a handler list: this route is ANYONE_ANONYMOUS. */
+  try {
+    var installed = ScriptApp.getProjectTriggers().some(function (t) {
+      return t.getHandlerFunction() === 'refreshSpiffProgressTrigger';
+    });
+    d.hourlyTrigger = installed ? 'installed'
+      : 'MISSING - statuses will not roll and progress will not refresh';
+  } catch (e) { d.hourlyTrigger = 'ERR ' + ((e && e.message) || e); }
   return d;
 }
 
