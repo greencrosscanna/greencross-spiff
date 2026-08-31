@@ -1596,21 +1596,52 @@
     var cost      = Number(calc.cost) || 0;
     var ratio     = baseUnits ? target / baseUnits : 0;
 
+    /* THE PER-BUDTENDER GOAL IS THE PRIMITIVE, NOT THE STORE TOTAL. A budtender is told one
+       whole number; nobody is asked to sell 8.83 units. So the store's goal is that number
+       times its headcount, and the chain's ask is the sum of the stores'.
+       Deriving it the other way round -- store total first, per-BT by division -- is what put
+       "goal 53 · 6 BTs · 9 each" on a row in front of a vendor: three numbers that do not
+       multiply, because 53/6 rounds up to 9 and 9x6 is 54. Reported by Sky 2026-08-31.
+       `ratio` still comes from the TYPED target: that is the key the ask is split by. What
+       comes back out is what the split actually adds up to. */
+    var plan = on.map(function (st) {
+      var b = Number(st.baseline) || 0;
+      var n = Number(st.bts) || 0;
+      var want = b * ratio;
+      var perBt = n ? Math.round(want / n) : 0;
+      return {
+        store_id: st.store_id, name: st.name, base: b, n: n,
+        perBt:  n ? perBt : null,
+        /* No budtenders at a store is not a goal of zero -- the store still has to sell it.
+           Fall back to its unrounded share so the chain total does not silently lose it. */
+        goal:   n ? perBt * n : Math.round(want),
+        perNow: n ? Math.round(b / n) : null
+      };
+    });
+    var goalUnits = plan.reduce(function (t, r) { return t + r.goal; }, 0);
+
     var baseRev   = baseUnits * cost;
-    var targetRev = target * cost;
+    /* Everything downstream prices goalUnits, never the typed target: the money argued in
+       front of a vendor has to be the money for the goal we are actually going to set. */
+    var targetRev = goalUnits * cost;
     var revInc    = targetRev - baseRev;
     /* What the vendor funds AT MOST. Flat pays a bounty per budtender who hits; per_unit pays
        on every unit sold, so its ceiling scales with the target instead of the headcount. */
     var invest    = calc.model === 'per_unit'
-      ? (Number(calc.spiff) || 0) * target
+      ? (Number(calc.spiff) || 0) * goalUnits
       : (Number(calc.spiff) || 0) * bts;
 
     return {
       on: on, baseUnits: baseUnits, bts: bts, ratio: ratio,
+      plan: plan, goalUnits: goalUnits, typed: target,
       baseRev: baseRev, targetRev: targetRev,
-      unitInc: target - baseUnits,
+      unitInc: goalUnits - baseUnits,
       revInc: revInc,
-      growth: baseUnits ? (target - baseUnits) / baseUnits : 0,
+      growth: baseUnits ? (goalUnits - baseUnits) / baseUnits : 0,
+      /* The growth the CONTROLS echo, which is the typed one. Feeding them the reconciled
+         figure instead would nudge the thumb a point on every release -- a control moving
+         itself after the drag ended, and the number Tawny set quietly rewritten. */
+      typedGrowth: baseUnits ? (target - baseUnits) / baseUnits : 0,
       invest: invest,
       roi: revInc - invest,
       roiPct: invest ? (revInc - invest) / invest : 0
@@ -1626,7 +1657,7 @@
     var bts = m.bts;
     if (!bts || !m.baseUnits) return [];
     var perBtRef  = m.baseUnits / bts;
-    var perBtGoal = (Number(calc.target) || 0) / bts;
+    var perBtGoal = m.goalUnits / bts;
     var cost = Number(calc.cost) || 0;
     var steps = [bts, Math.round(bts * .75), Math.round(bts * .5), Math.round(bts * .2), 0];
     var seen = {};
@@ -1673,7 +1704,7 @@
         cstat('You fund, at most', hasAsk ? money(m.invest) : '—',
               !hasAsk ? 'set a product and a target first'
                 : calc.model === 'per_unit'
-                  ? money(calc.spiff) + ' on each of ' + (Number(calc.target) || 0).toLocaleString() + ' units'
+                  ? money(calc.spiff) + ' on each of ' + m.goalUnits.toLocaleString() + ' units'
                   : 'only if all ' + m.bts + ' reach their target', '')
       + cstat('Your revenue increase', hasAsk ? money(m.revInc) : '—',
               hasAsk ? money(m.baseRev) + ' → ' + money(m.targetRev) : 'needs last month and a target', '')
@@ -1699,7 +1730,7 @@
     if (base && add && range) {
       var span = m.baseUnits * (1 + GOAL_MAX / 100);
       var basePct = span ? (m.baseUnits / span) * 100 : 0;
-      var tgtPct  = span ? Math.max(0, Math.min(100, ((Number(calc.target) || 0) / span) * 100)) : 0;
+      var tgtPct  = span ? Math.max(0, Math.min(100, (m.typed / span) * 100)) : 0;
       base.style.width = basePct.toFixed(2) + '%';
       add.style.left   = basePct.toFixed(2) + '%';
       add.style.width  = Math.max(0, tgtPct - basePct).toFixed(2) + '%';
@@ -1725,8 +1756,8 @@
          in nor a thumb mid-drag is overwritten: correcting a control while someone is using it
          is worse than letting it lag by a keystroke. */
       var gEl = $('#cGrowth');
-      if (gEl && document.activeElement !== gEl) gEl.value = live ? Math.round(m.growth * 100) : 0;
-      if (!draggingGoal) range.value = Math.max(0, Math.min(GOAL_MAX, Math.round(m.growth * 100)));
+      if (gEl && document.activeElement !== gEl) gEl.value = live ? Math.round(m.typedGrowth * 100) : 0;
+      if (!draggingGoal) range.value = Math.max(0, Math.min(GOAL_MAX, Math.round(m.typedGrowth * 100)));
       /* Three states, not two. `live` folds "no base" together with "still loading", and using
          it for the caption told someone who had just picked a product to go and pick one. */
       /* A target BELOW last month is a real state and it is said out loud, not clamped away.
@@ -1739,7 +1770,16 @@
          second test this fired the gold warning the instant a product was pulled, telling Tawny
          her ask was 1,000 units short of a number she had not chosen yet. */
       var below = m.baseUnits > 0 && (Number(calc.target) || 0) > 0 && m.unitInc < 0;
-      foot.innerHTML = '<span>' + m.baseUnits.toLocaleString() + ' sold last month</span>'
+      /* WHERE THE TWO NUMBERS ARE RECONCILED. The field above holds what Tawny asked for;
+         the table below totals what whole budtender goals actually come to. They differ by a
+         few units whenever the split does not divide evenly, and every figure on the screen
+         prices the second one -- so it is said here, once, rather than left as two totals a
+         vendor can spot and nobody can explain. */
+      var drift = m.baseUnits > 0 && m.typed > 0 && m.goalUnits !== m.typed
+        ? '<span>goal lands at ' + m.goalUnits.toLocaleString() + ' &mdash; whole budtender goals, '
+          + (m.goalUnits > m.typed ? '+' : '&minus;') + Math.abs(m.goalUnits - m.typed) + '</span>'
+        : '';
+      foot.innerHTML = '<span>' + m.baseUnits.toLocaleString() + ' sold last month</span>' + drift
         + (pending
             ? '<span>waiting on Dutchie&hellip;</span>'
             : below
@@ -1810,12 +1850,12 @@
     /* ---- the merged per-store table */
     var tbl = $('#calcTable');
     if (tbl) {
-      var body = m.on.map(function (st, i) {
-        var base = Number(st.baseline) || 0;
-        var n    = Number(st.bts) || 0;
-        var goal = Math.round(base * m.ratio);
-        var perNow  = n ? Math.round(base / n) : null;
-        var perGoal = n ? Math.round(goal / n) : null;
+      var body = m.plan.map(function (row, i) {
+        var st = m.on[i];
+        var base = row.base, n = row.n;
+        var goal = row.goal;
+        var perNow  = row.perNow;
+        var perGoal = row.perBt;
         /* The number a budtender is actually told: how many MORE than usual, each. "Sell 74"
            means nothing without knowing they already sell 53; "sell 21 more" is the ask. */
         var perLift = (perNow == null || perGoal == null) ? null : perGoal - perNow;
@@ -1864,7 +1904,7 @@
         + '<tr class="sp-total"><td>Total · ' + m.on.length + ' store' + (m.on.length === 1 ? '' : 's')
         +   ', ' + m.bts + ' budtender' + (m.bts === 1 ? '' : 's') + '</td>'
         +   '<td class="num">' + m.baseUnits.toLocaleString() + '</td>'
-        +   '<td class="num goal">' + (Number(calc.target) || 0).toLocaleString() + '</td>'
+        +   '<td class="num goal">' + m.goalUnits.toLocaleString() + '</td>'
         +   '<td class="num">' + m.bts + '</td><td></td><td></td>'
         +   '<td class="num' + (m.unitInc > 0 ? ' goal' : '') + '">'
         +     (m.bts ? (m.unitInc > 0 ? '+' : '') + Math.round(m.unitInc / m.bts).toLocaleString() : '—') + '</td>'
@@ -2622,22 +2662,21 @@
     wrap.setAttribute('role', 'dialog');
     wrap.setAttribute('aria-label', 'SPIFF proposal');
 
-    var perBt = m.bts ? Math.round(calc.target / m.bts) : 0;
     var ask = calc.model === 'per_unit'
       ? 'a <b>' + money(calc.spiff) + '</b> bounty on every unit a budtender sells'
       : 'a <b>' + money(calc.spiff) + '</b> bounty per budtender who reaches their own target';
 
-    var cards = m.on.map(function (st) {
-      var base = Number(st.baseline) || 0;
-      var n    = Number(st.bts) || 0;
-      var goal = Math.round(base * m.ratio);
+    var cards = m.plan.map(function (st) {
+      var base = st.base;
+      var n    = st.n;
+      var goal = st.goal;
       var add  = goal - base;
       var span = goal || 1;
       var havePct = Math.max(0, Math.min(100, (base / span) * 100));
       return '<div class="sp-pstore" style="--dot:' + esc(storeColor(st.store_id)) + '">'
         + '<div class="sp-pstore-h"><span class="sp-dot"></span>' + esc(st.name) + '</div>'
         + '<div class="sp-pstore-n"><span class="sp-pstore-v">' + goal.toLocaleString() + '</span>'
-        +   '<span class="sp-pstore-u">units' + (n ? ' · ' + Math.round(goal / n) + ' each' : '') + '</span></div>'
+        +   '<span class="sp-pstore-u">units' + (n ? ' · ' + st.perBt + ' each' : '') + '</span></div>'
         + '<div class="sp-pstore-bar">'
         +   '<div class="sp-pstore-have" style="width:' + havePct.toFixed(1) + '%"></div>'
         +   (add > 0 ? '<div class="sp-pstore-add" style="left:' + havePct.toFixed(1) + '%"></div>' : '')
@@ -2650,7 +2689,7 @@
 
     var fundSub = pbig('You fund', money(m.invest),
       calc.model === 'per_unit'
-        ? (Number(calc.target) || 0).toLocaleString() + ' units × ' + money(calc.spiff)
+        ? m.goalUnits.toLocaleString() + ' units × ' + money(calc.spiff)
         : m.bts + ' budtenders × ' + money(calc.spiff), '');
     var revSub = pbig('Your revenue moves', '+' + money(m.revInc),
       money(m.baseRev) + ' → ' + money(m.targetRev), '');
@@ -2669,7 +2708,7 @@
       +   '<div>'
       +     (calc.vendor ? '<div class="sp-pitch-vendor">' + esc(calc.vendor) + '</div>' : '')
       +     '<h1 class="sp-pitch-h1">' + esc(calc.name || 'SPIFF proposal') + ' &mdash; '
-      +       m.bts + ' budtenders, ' + (Number(calc.target) || 0).toLocaleString() + ' units</h1>'
+      +       m.bts + ' budtenders, ' + m.goalUnits.toLocaleString() + ' units</h1>'
       +     '<p class="sp-pitch-lede">Green Cross is asking for ' + ask
       +       ' across ' + m.on.length + ' store' + (m.on.length === 1 ? '' : 's')
       +       ', funded as a credit against the next order.</p>'
@@ -2737,7 +2776,7 @@
     $('#cTarget').value = calc.target;
     $$('#cModel button').forEach(function (x) { x.classList.toggle('is-on', x.dataset.model === calc.model); });
     var m = calcModel();
-    $('#cGrowth').value = m.baseUnits ? Math.round(m.growth * 100) : 0;
+    $('#cGrowth').value = m.baseUnits ? Math.round(m.typedGrowth * 100) : 0;
     recalc();
   }
 
@@ -2748,9 +2787,14 @@
 
     var byStore = Object.create(null), perBt = Object.create(null);
     var baseByStore = Object.create(null), basePerBt = Object.create(null);
-    m.on.forEach(function (s) {
-      byStore[s.store_id] = Math.round((Number(s.baseline) || 0) * m.ratio);
-      perBt[s.store_id]   = s.bts ? Math.round(Math.round(s.baseline / s.bts) * m.ratio) : 0;
+    /* SAVED FROM THE PLAN, so the record holds exactly what was on the screen. These two
+       lines used to run their own arithmetic -- per_bt as round(round(base/bts) x ratio),
+       against a table that showed round(round(base x ratio)/bts) -- two formulas for one
+       number. per_bt is the threshold Progress judges a budtender against and pays on, so a
+       program could be sold at one goal and settled at another. */
+    m.plan.forEach(function (s) {
+      byStore[s.store_id] = s.goal;
+      perBt[s.store_id]   = s.perBt || 0;
       /* The per-store LAST-MONTH split is saved too. It is what openInCalculator reads back,
          so without it a second trip through Edit parameters would open on zeroed references
          and recompute a different target than the one the vendor agreed to. */
@@ -2776,7 +2820,7 @@
               match_json:  matchOf(calc.product),
               stores_json: m.on.map(function (x) { return x.store_id; }),
               baseline_json: { units: m.baseUnits, revenue: m.baseRev, by_store: baseByStore, per_bt: basePerBt },
-              target_json: { units: Number(calc.target) || 0, revenue: m.targetRev,
+              target_json: { units: m.goalUnits, revenue: m.targetRev,
                              budtenders: m.bts, by_store: byStore, per_bt: perBt }
             })
           })
@@ -2795,7 +2839,7 @@
           baseline_json: { units: m.baseUnits, revenue: m.baseRev, by_store: baseByStore, per_bt: basePerBt },
           /* budtenders is what Programs divides the payout by; without it the hero showed
              "of 0 hit" and an earned-so-far of $0 on a program that was paying out. */
-          target_json:   { units: Number(calc.target) || 0, revenue: m.targetRev,
+          target_json:   { units: m.goalUnits, revenue: m.targetRev,
                            budtenders: m.bts, by_store: byStore, per_bt: perBt }
         })
       });

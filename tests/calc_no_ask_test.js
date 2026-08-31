@@ -47,11 +47,14 @@ ok('a product pulled with no target yet gives growth of exactly −1', noAsk.gro
 ok('  …which is the −100% — the model is right, the RENDER must gate it', Math.round(noAsk.growth * 100) === -100);
 ok('  …and a unit lift of −1,000', noAsk.unitInc === -1000);
 
+/* The figures below are the RECONCILED ask, not the typed one — 1,300 across 6 budtenders is
+   217 each, and 217 x 6 is 1,302. See tests/calc_rounding_test.js for why that is the goal. */
 const asked = model(1000, 1300);
-ok('a real ask still computes: +300 units, 30% growth', asked.unitInc === 300 && Math.round(asked.growth * 100) === 30);
+ok('a real ask still computes: +302 units, 30% growth',
+   asked.unitInc === 302 && Math.round(asked.growth * 100) === 30);
 
 const below = model(1000, 800);
-ok('a target genuinely BELOW last month is still negative, not clamped', below.unitInc === -200);
+ok('a target genuinely BELOW last month is still negative, not clamped', below.unitInc === -202);
 
 /* ── 2. the guards that keep it off the screen ────────────────────────────────────────────────── */
 const recalc = grab('recalc');
