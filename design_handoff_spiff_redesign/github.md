@@ -4,7 +4,7 @@ branch: main
 Also read for reference (visual language, shared theme, store registry):
 - greencrosscanna/greencross-gx-theme — gx-theme.css tokens, gx-stores.js
 - greencrosscanna/greencross-crew — index.html (polish reference)
-- greencrosscanna/greencross-command-center — gx_core.gs (store registry + colours)
+- greencrosscanna/greencross-command-center — gx_core.gs (store registry + colors)
 
 ## Last sync
 date: 2026-08-28T00:51:46Z
@@ -30,4 +30,4 @@ date: 2026-08-28T00:51:46Z
 | 1g Record modal | spiff.js renderRecord/field/makeShare, spiff.css .modal-*/.notice/.fld |
 | 1h My SPIFF flyer | flyer.html, flyer.js renderFlyer, flyer.css .fl-* |
 | 1i Vendor client view | client.html, client.js render/stat, client.css .client-* |
-| Shared chrome | gx-theme.css .gx-topnav/.gx-btn/.gx-input; store colours from gx_core.gs GX_STORE_SEED |
+| Shared chrome | gx-theme.css .gx-topnav/.gx-btn/.gx-input; store colors from gx_core.gs GX_STORE_SEED |
