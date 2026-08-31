@@ -410,7 +410,7 @@ function parseCalcTab_(sheet, stores) {
 
 /* ==================== DERIVED WARNING FLAGS ====================
  * `duplicate_of` and `rate_changed` are COMPUTED ON EVERY READ and never stored. That is the whole
- * point of this block, so read the next paragraph before "optimising" it into a column.
+ * point of this block, so read the next paragraph before "optimizing" it into a column.
  *
  * They used to be written onto the record by the Calculator importer. When the importers were cut
  * (2026-08-30) the code that computed them went with them -- but the values stayed in `actual_json`
@@ -739,7 +739,7 @@ function createProgram_(p) {
 }
 
 /* Validate a GX Core session token and resolve this user's role on `spiff`.
-   Memoised for the life of ONE execution: guard_ now validates before the switch, and the
+   Memoized for the life of ONE execution: guard_ now validates before the switch, and the
    write functions still check their own role afterwards, so without this every write would
    pay two ~1s round trips to Core to ask the same question twice.
 
@@ -758,7 +758,7 @@ function gxAuth_(token) {
     _authMemo[token] = parsed;
     return parsed;
   } catch (e) {
-    /* Deliberately NOT memoised: a transient Core hiccup must not pin this execution into a
+    /* Deliberately NOT memoized: a transient Core hiccup must not pin this execution into a
        failure it would recover from on the next call. */
     return { ok: false, error: 'Could not reach GX Core to verify your session' };
   }
@@ -949,25 +949,25 @@ function refreshSpiffProgress_(only, onlyStore) {
 /* ===================== SCHEDULED STATUS ROLL =====================
  * A program's status was a thing somebody had to remember to change. Nothing moved a draft to
  * active on its start date and nothing closed a program when its window ran out, so the landing
- * page showed a hero reading "day 14 of 14 - ended" on a programme still filed as ACTIVE, and the
+ * page showed a hero reading "day 14 of 14 - ended" on a program still filed as ACTIVE, and the
  * hourly sweep kept re-measuring it because the sweep is active-only.
  *
  * That status is not cosmetic. `?action=progress&status=active` is resolved from it, and GX Crew's
- * incentive column and the Leaderboard kiosk cards both read that route -- so a programme left
+ * incentive column and the Leaderboard kiosk cards both read that route -- so a program left
  * active past its end date keeps drawing on kiosk cards, which is the exact failure the `status`
  * field was added to catch in the first place.
  *
  * Sky, 2026-08-31: a draft DOES go active on its scheduled start date -- no human step. Nothing
  * pays out automatically (a vendor report is still Tawny's click), so the risk of an early start
- * is a screen showing a programme a day sooner, not money moving.
+ * is a screen showing a program a day sooner, not money moving.
  *
  * THREE RULES, and the two omissions are the point:
  *   draft  + window has started  -> active
  *   active + window has ended    -> closed
- *   CLOSED IS TERMINAL. Never reopened by a date. A closed programme has recorded actuals and may
+ *   CLOSED IS TERMINAL. Never reopened by a date. A closed program has recorded actuals and may
  *     already be on a vendor report; a fat-fingered end_date must not un-send that.
  *   A DRAFT WHOSE WINDOW HAS ENTIRELY PASSED IS LEFT ALONE, and reported as `stale`. Closing it
- *     would file a programme in History as though it ran, with no actuals, when the likelier truth
+ *     would file a program in History as though it ran, with no actuals, when the likelier truth
  *     is that it was drafted and never started. That is a judgement call for a human.
  *
  * Rows with no start/end date are skipped -- there is no schedule to act on.
@@ -1106,7 +1106,7 @@ function payPeriodMatches_(row, want) {
 }
 
 function spiffProgress_(p) {
-  /* guard_ has already authorised this call — either a valid session token or the deploy
+  /* guard_ has already authorized this call — either a valid session token or the deploy
      secret. Re-demanding the secret here would have made the route unreachable from a browser
      no matter what the router allowed. */
   var sh = progressSheet_();
@@ -1147,7 +1147,7 @@ function spiffProgress_(p) {
     o.units = Number(o.units) || 0; o.target = Number(o.target) || 0;
     o.earned = Number(o.earned) || 0; o.hit = !!o.hit;
     /* The sheet round-trips these cells as DATE OBJECTS, so they reached consumers as
-       "Fri Aug 28 2026 06:20:52 GMT-0700" instead of the stamp that was written. Normalised on the
+       "Fri Aug 28 2026 06:20:52 GMT-0700" instead of the stamp that was written. Normalized on the
        way out — every reader wants a sortable string, and none of them should have to guess which
        of the two shapes they got. forceProgressTextDates_ now stops it at the source; this stays as
        the brace, because rows written before that fix are still Dates at rest. */
@@ -1483,7 +1483,7 @@ function flyer_(p) {
   var st = sellthrough_({ id: prog.program_id, store: store });
   if (!st.ok) return { ok: false, error: st.error || 'Could not read sell-through' };
 
-  /* Prefer the dutchie id: it is the join Crew reweighted their duplicate scorer to favour
+  /* Prefer the dutchie id: it is the join Crew reweighted their duplicate scorer to favor
      precisely because a name can be spelled two ways or belong to two people. Name is the
      fallback, and only when the id gives nothing. */
   var mine = null, wantId = String(emp.dutchie_employee_id || ''), wantName = userKey_(emp.full_name);
@@ -1572,7 +1572,7 @@ function progressRowsFor_(programId) {
     if (String(o.program_id) !== String(programId)) return;
     o.units = Number(o.units) || 0;
     o.hit = !!o.hit;
-    /* Same normalisation as spiffProgress_ — this reader feeds the vendor view, and a Date here
+    /* Same normalization as spiffProgress_ — this reader feeds the vendor view, and a Date here
        would print as an ISO timestamp on a document that goes to the vendor. */
     o.start_date = textDate_(o.start_date);
     o.end_date   = textDate_(o.end_date);
@@ -2007,7 +2007,7 @@ function diag_() {
  * `clasp update-deployment`, so check ?action=libversion, never the manifest.
  */
 function reportBug_(p) {
-  var auth = gxAuth_(p.token);   // memoised per execution — guard_ already paid for this call
+  var auth = gxAuth_(p.token);   // memoized per execution — guard_ already paid for this call
   if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in',
                          code: auth.code || 'auth_required', needsAuth: true };
 
@@ -2439,10 +2439,10 @@ function buildCatalog_() {
 function catalog_(p) {
   var cat = null;
   if (String(p && p.refresh) !== '1') cat = catalogGet_();
-  /* AN EMPTY CATALOGUE IN THE CACHE IS A MISS, NOT A CATALOGUE. The guard below stops a failed
+  /* AN EMPTY CATALOG IN THE CACHE IS A MISS, NOT A CATALOG. The guard below stops a failed
      build from being cached going forward, but a cache poisoned before it existed would still
      be served for the rest of its six hours -- which is exactly what happened here: forcing a
-     refresh during the 401 wrote a zero-product catalogue at 14:10 that would have emptied the
+     refresh during the 401 wrote a zero-product catalog at 14:10 that would have emptied the
      vendor picker until 20:10. Refusing to serve it costs one rebuild attempt; serving it costs
      an afternoon of a picker with nothing in it and no reason given. */
   if (cat && !(cat.products || []).length) cat = null;
@@ -2452,17 +2452,17 @@ function catalog_(p) {
     if (!built.ok) return built;
     /* A BUILD THAT READ NOTHING MUST NOT BECOME THE CATALOG. buildCatalog_ reports a store
        that would not answer in `errors` and carries on, so a chain-wide Dutchie outage
-       produces a perfectly well-formed catalogue of zero products -- ok:true, and cached for
+       produces a perfectly well-formed catalog of zero products -- ok:true, and cached for
        six hours over the good one that was there. That is how a refresh during an outage
        empties the vendor picker until long after the outage is over.
        Verified live 2026-08-31: forcing refresh=1 while Dutchie was 401ing on all six stores
-       replaced an 8,480-row catalogue with an empty one.
+       replaced an 8,480-row catalog with an empty one.
        Every store failing is the only case treated this way. A partial read still caches --
-       it is a real catalogue, just short a store, and refusing it would leave the picker
+       it is a real catalog, just short a store, and refusing it would leave the picker
        empty over one store's outage. */
     if (!built.rows_seen && (built.errors || []).length) {
       /* Same emptiness test as above, and it has to be repeated here: falling back to the
-         cache without it hands back the very zero-product catalogue the guard just rejected,
+         cache without it hands back the very zero-product catalog the guard just rejected,
          relabelled `stale` — which is how this fix failed its own first live check. */
       var keep = catalogGet_();          // the refresh=1 path above deliberately skipped this
       if (keep && !(keep.products || []).length) keep = null;
@@ -2482,7 +2482,7 @@ function catalog_(p) {
   var brand = String((p && p.brand) || '').trim().toLowerCase();
   var out = {
     ok: true, cached: cached, built_at: cat.built_at,
-    /* `stale` means: this is the last catalogue that read cleanly, and the rebuild that would
+    /* `stale` means: this is the last catalog that read cleanly, and the rebuild that would
        have replaced it could not reach a single store. The products are real but may be out
        of date, and the caller should say which. */
     stale: stale,
