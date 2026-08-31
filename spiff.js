@@ -174,8 +174,8 @@
 
   /* state.stores is the registry GX Core just handed us, so it is preferred over GXStores --
      GXStores.load() is fired off at boot and may not have answered yet, and a store rendering
-     grey for the first second reads as a broken colour rather than a slow one. GXStores stays
-     as the fallback so a store missing from this app's payload still gets its suite colour. */
+     gray for the first second reads as a broken color rather than a slow one. GXStores stays
+     as the fallback so a store missing from this app's payload still gets its suite color. */
   function storeRow(id) {
     var k = String(id || '').toLowerCase();
     for (var i = 0; i < state.stores.length; i++) {
@@ -197,7 +197,7 @@
   }
 
   /* Store pills come from the GX Core registry, so a store added in Command Center shows up
-     here on the next load with its own colour. The count is programs touching that store. */
+     here on the next load with its own color. The count is programs touching that store. */
   function renderStorePills() {
     var host = $('#progStores');
     if (!host) return;
@@ -302,7 +302,7 @@
       return a && ((a.duplicate_of && a.duplicate_of.length) || a.rate_changed);
     }).length;
 
-    /* ---- stat strip. Only figures carrying a judgement take a colour. */
+    /* ---- stat strip. Only figures carrying a judgement take a color. */
     var atStake = running.reduce(function (n, p) {
       var pay = (p.payout_json && p.payout_json.amount) || 0;
       return n + pay * ((p.target_json && p.target_json.budtenders) || 0);
@@ -626,9 +626,9 @@
     return prettyDay(p.start_date) + ' → ' + (p.end_date ? prettyDay(p.end_date) : '?');
   }
   /* per_unit is REAL and shipped (Hapy Kitchen paid $1/unit) — do not assume flat. */
-  /* FLAT IS THE DEFAULT, and anything unrecognised resolves to it. `tiered` is schema'd but
-     unimplemented, and a blank or unknown payout_type must not leave the Calculator modelling
-     a mode the engine will not honour. */
+  /* FLAT IS THE DEFAULT, and anything unrecognized resolves to it. `tiered` is schema'd but
+     unimplemented, and a blank or unknown payout_type must not leave the Calculator modeling
+     a mode the engine will not honor. */
   function normalModel(v) {
     var m = String(v || '').toLowerCase();
     return m === 'per_unit' ? 'per_unit' : 'flat';
@@ -1027,7 +1027,7 @@
      live programs carry non-ISO dates (two blank, one "8/17/26" whose end date is the corrupt
      "8/3026"), so opening those records and pressing Save would have wiped the window a
      closed program was paid against.
-     Normalises what can be normalised; returns null for what cannot, so the caller can show
+     Normalizes what can be normalized; returns null for what cannot, so the caller can show
      the raw value rather than pretend there is none. */
   function toISODate(v) {
     var raw = String(v == null ? '' : v).trim();
@@ -1191,7 +1191,7 @@
       +   recField('ROI % (decimal)', 'actual_json.roi_pct', a.roi_pct, 'number')
       + '</div>';
 
-    /* Vendor still autocompletes here — it is identity, not modelling, and a program filed
+    /* Vendor still autocompletes here — it is identity, not modeling, and a program filed
        under a brand we do not carry is a data problem this screen owns. */
     recPicker = mountPicker({
       vendor: '#rVendor', vendorMenu: '#rVendorMenu'
@@ -1570,7 +1570,7 @@
   var calc = {
     name: '', vendor: '', cost: 10, spiff: 25, target: 0,
     model: 'flat',   // 'flat' | 'per_unit' — per_unit is real; see payoutLabel/CLAUDE.md
-    editingId: null, // set when the Calculator is updating an EXISTING program, not modelling a new one
+    editingId: null, // set when the Calculator is updating an EXISTING program, not modeling a new one
     window: null,    // that program's dates, carried for display only — the record owns them
     product: null,   // {label, brand, filter_text, products[], skus, qty} — the SPIFF's subject
     refRun: null,    // identity of the in-flight reference pull, so a stale one can be dropped
@@ -1651,7 +1651,7 @@
   /* "It scales with success" — the panel the Calculator never had.
      ASSUMPTION, stated because it is not derivable from the sheet: a budtender who hits
      contributes their full goal, one who misses contributes their reference. That is the only
-     reading that invents no behaviour -- any smoother curve would be a number we made up and
+     reading that invents no behavior -- any smoother curve would be a number we made up and
      then showed to a vendor. Everything else here follows from it arithmetically. */
   function scaleRows(m) {
     var bts = m.bts;
@@ -2510,7 +2510,7 @@
          expired — and a timeout here reads to the user as "this vendor has no products". */
       var r = await ENG.jsonp('catalog', { token: (session() || {}).token }, { timeoutMs: 40000, retries: 1 });
       if (r && r.ok) pick.brands = r.brands || [];
-      /* `stale` means the engine kept the last catalogue that read cleanly because the rebuild
+      /* `stale` means the engine kept the last catalog that read cleanly because the rebuild
          reached no store at all. The list is real but may be out of date, and a vendor picker
          that is quietly out of date is worse than one that says so. */
       pick.stale  = !!(r && r.stale);
@@ -2555,7 +2555,7 @@
     if (!w.length) return String(name || '');
     /* Walk in from the RIGHT past potency and ratio tokens. Taking the last word outright
        turned "Pineapple Gummy 1:1 THC/CBD" into the group "THC/CBD" — a heading no one would
-       recognise, sitting where "Gummy" belongs. Anything carrying a digit, colon, slash,
+       recognize, sitting where "Gummy" belongs. Anything carrying a digit, colon, slash,
        percent or a bare mg is a spec, not the product noun. */
     var i = w.length - 1;
     while (i > 0 && /[\d:%\/]|^mg$/i.test(w[i])) i--;
@@ -3600,11 +3600,11 @@
   }
 
   /* ------------------------------------------------------------------ boot */
-  /* Chrome is not session state: start the clock and load store colours at boot so the header is
+  /* Chrome is not session state: start the clock and load store colors at boot so the header is
      never showing placeholder dashes, signed in or out. */
   function startChrome() {
     if (window.GXTopNav) GXTopNav.startClock();
-    if (window.GXStores) GXStores.load(GXCORE).catch(function () { /* colours are a nicety */ });
+    if (window.GXStores) GXStores.load(GXCORE).catch(function () { /* colors are a nicety */ });
   }
 
   /* Full-page sign-in gate. SPIFF holds compensation data, and it is heading INSIDE Inventory the way
@@ -3740,7 +3740,7 @@
     renderGate();
   }
 
-  /* Inheriting the host's token is AUTHENTICATION and never becomes AUTHORISATION: it proves who
+  /* Inheriting the host's token is AUTHENTICATION and never becomes AUTHORIZATION: it proves who
      the user is, not that they hold SPIFF. Inventory now gates the tab on the grant, so a
      no-grant user reaching us is rare -- revoked mid-session, or a host that nests without
      gating -- and this is the belt to that braces.
@@ -3852,7 +3852,7 @@
        Each of these answers in 2-3s on its own, but they ran nose-to-tail — and worse, they ran
        BEHIND loadShared, which hits GX Core. When Core's stores call goes quiet, GXClient makes
        five attempts at an 8s timeout: forty seconds of nothing, with programs and the progress
-       cache queued up behind a call whose only job is store names and colours.
+       cache queued up behind a call whose only job is store names and colors.
 
        The old note here said sequential was deliberate, because two GXClients in one tick had
        once collided on a shared callback name. That was fixed: gx-client mints
@@ -3871,7 +3871,7 @@
     var cacheP    = loadProgressCache();
 
     Promise.all([sharedP, programsP, cacheP]).then(function () {
-      /* Re-render once everything is in: programs may have painted before store colours
+      /* Re-render once everything is in: programs may have painted before store colors
          arrived, and the hero needs both to be complete. */
       renderPrograms();
       initBugReport();

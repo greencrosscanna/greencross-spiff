@@ -93,7 +93,7 @@
   </div>
 
   <div class="sp-subnav" id="subnavCalculator" hidden>
-    <span class="sp-subnav-label">Modelling</span>
+    <span class="sp-subnav-label">Modeling</span>
     <select class="sp-in" id="calcLoad" style="max-width:240px" title="Model from a past program">
       <option value="">Start from scratch&hellip;</option>
     </select>
@@ -314,7 +314,7 @@
           kiosk downloaded a dev-only script it can never use.
        2. A RELATIVE src cannot resolve on a GAS-served page -- HtmlService sandboxes the document to a
           different origin -- so on that path the guard was silently ABSENT rather than inert. Nothing
-          signalled it, which is worse than the 404.
+          signaled it, which is worse than the 404.
 
      Loading it only on localhost fixes both: production never makes the request at all, and the URL is
      absolute so it resolves from any origin, GAS included. Nothing to commit per repo, which also

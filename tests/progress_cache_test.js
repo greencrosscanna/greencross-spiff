@@ -152,11 +152,11 @@ ok('flat pays nothing to somebody who missed',
 
 /* ── the gate ── */
 /* spiffProgress_ no longer re-checks the secret itself: `progress` is a token-gated READ so a
-   signed-in browser can render the landing page, and guard_ has already authorised the call by
+   signed-in browser can render the landing page, and guard_ has already authorized the call by
    the time the handler runs. Re-demanding the secret here made the route unreachable from a
    browser whatever the router allowed. The gate is still asserted — below, on guard_ — because
    that is where it actually lives now. */
-ok('the handler no longer re-gates what guard_ already authorised',
+ok('the handler no longer re-gates what guard_ already authorized',
    M.spiffProgress_({}).ok === true);
 ok('filtering by pay period works, since Crew asks for one',
    M.spiffProgress_({ secret: 'SEKRET', pay_period: '2026-08-17' }).rows.length === 3 &&
@@ -293,14 +293,14 @@ ok('no filter still returns everything', M.spiffProgress_({}).rows.length === 2)
 
 /* ── EVERY ROW SAYS WHETHER ITS PROGRAM IS STILL RUNNING ──
    Leaderboard, 2026-08-30: the payload carried no status, so the kiosk could only INFER one — and
-   the available inference, "does the programme window overlap the pay period", is wrong, because a
-   CLOSED programme keeps its dates. BeGoat (closed, dated 08-01 → 08-31) kept passing and drew on
+   the available inference, "does the program window overlap the pay period", is wrong, because a
+   CLOSED program keeps its dates. BeGoat (closed, dated 08-01 → 08-31) kept passing and drew on
    23 of 40 live kiosk cards, inflating totalEarned with a payout nobody could still bank.
 
    The status is joined from `programs` AT READ TIME, never stored on the cached row. That is the
    whole point: the cached row is a snapshot from the last refresh, the hourly sweep is active-only,
    and so a program closed since its last refresh would keep a stored column reading 'active'
-   forever — stale in exactly the case the field exists to catch. This block pins that behaviour by
+   forever — stale in exactly the case the field exists to catch. This block pins that behavior by
    closing the program WITHOUT re-sweeping. */
 SHEET = makeSheet(HEADERS);
 PROGRAMS = () => [PROG];

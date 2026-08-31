@@ -130,7 +130,7 @@
 
     if (!r) {
       /* A PROPOSAL, not results. Same shape, but it must never imply anything has happened —
-         so it leads with the ask rather than a return, and every figure is labelled as a plan. */
+         so it leads with the ask rather than a return, and every figure is labeled as a plan. */
       v.innerHTML = head
         + '<div class="cv-roi"><div class="cv-roi-l">The proposal</div>'
         +   '<div class="cv-roi-v">' + money(p.spiff_per_budtender) + '</div>'

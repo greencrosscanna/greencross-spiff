@@ -9,7 +9,7 @@
 /* ══════════════════════════════════════════════════════════════════════════
    REDESIGN FOUNDATION  (design_handoff_spiff_redesign)
    The shared vocabulary the nine surfaces are built from. Everything here is
-   gx-theme's palette; the handoff invented no new colour. Where a value below
+   gx-theme's palette; the handoff invented no new color. Where a value below
    is a raw hex it is because gx-theme has no token for it yet — those are the
    FOUR below and nothing else. If gx-theme ever gains them, delete these and
    point at the real tokens; do not let the list grow.

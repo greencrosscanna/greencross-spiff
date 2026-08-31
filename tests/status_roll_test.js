@@ -5,14 +5,14 @@
  *
  * WHY
  * Nothing used to move a program between draft, active and closed — a human did it, or it never
- * happened. The visible symptom was a hero card reading "day 14 of 14 · ended" over a programme
+ * happened. The visible symptom was a hero card reading "day 14 of 14 · ended" over a program
  * still filed ACTIVE. The invisible one is worse: `?action=progress&status=active` is resolved from
  * this field, and GX Crew's incentive column and the Leaderboard kiosk cards both read that route,
- * so a programme left active past its end date keeps drawing on kiosk cards it should have stopped
+ * so a program left active past its end date keeps drawing on kiosk cards it should have stopped
  * appearing on.
  *
  * The two NON-transitions are the ones worth a test. Closed is terminal — a typo'd end_date must
- * never reopen a programme whose actuals are already on a vendor report. And a draft whose window
+ * never reopen a program whose actuals are already on a vendor report. And a draft whose window
  * has entirely passed is left alone rather than filed as closed, because "drafted and never run" is
  * not the same fact as "ran and finished", and only a human knows which it was.
  */

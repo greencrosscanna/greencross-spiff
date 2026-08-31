@@ -404,7 +404,7 @@ body.is-gated .workspace { display: none !important; }
 .sp-rule { width: 1px; height: 22px; background: var(--gx-border); flex: none; }
 
 .sp-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-/* The dot colour is the store's, from the GX Core registry — never hardcoded here.
+/* The dot color is the store's, from the GX Core registry — never hardcoded here.
    `--dot` is set per-pill from GXStores.color() so a new store inherits automatically. */
 .sp-pill {
   display: inline-flex; align-items: center; gap: 6px;
@@ -431,8 +431,8 @@ body.is-gated .workspace { display: none !important; }
 }
 .sp-stat-v { font-size: 23px; font-weight: 700; letter-spacing: -.4px; color: var(--gx-text); }
 .sp-stat-l { font-size: 11px; color: var(--gx-text-mute); margin-top: 2px; letter-spacing: .3px; }
-/* A figure only takes a colour when it carries a JUDGEMENT. Neutral counts stay plain —
-   colouring everything is how a dashboard stops meaning anything. */
+/* A figure only takes a color when it carries a JUDGEMENT. Neutral counts stay plain —
+   coloring everything is how a dashboard stops meaning anything. */
 .sp-stat.is-pos  .sp-stat-v { color: var(--gx-green); }
 .sp-stat.is-neg  .sp-stat-v { color: var(--gx-red); }
 .sp-stat.is-warn .sp-stat-v { color: var(--gx-gold); }
@@ -475,7 +475,7 @@ body.is-gated .workspace { display: none !important; }
 
 /* ------------------------------------------------------------- severity block */
 /* Severity is a 3px LEFT BORDER on an otherwise normal card, plus a micro-label in the
-   same colour. Never a filled background — a filled red card reads as "broken app". */
+   same color. Never a filled background — a filled red card reads as "broken app". */
 .sp-notice {
   border: 1px solid var(--gx-border); border-left: 3px solid var(--gx-border-strong);
   border-radius: var(--gx-radius-lg); background: var(--gx-surface);
@@ -560,11 +560,11 @@ body.is-gated .workspace { display: none !important; }
 .sp-row:hover { background: var(--gx-surface-2); }
 .sp-row:focus-visible { outline: 2px solid var(--gx-green); outline-offset: -2px; }
 /* A figure read from the live progress cache rather than recorded actuals. Underlined, not
-   recoloured: the colours in this row already mean over/under target, and a third meaning on the
+   recolored: the colors in this row already mean over/under target, and a third meaning on the
    same channel would misread. */
 .sp-num.is-live { text-decoration: underline dotted var(--gx-border-strong); text-underline-offset: 3px; }
 /* PARTIAL is not the same as provisional. A live figure will change; a partial one is simply too
-   low, because stores that have not been swept contribute nothing. It gets the warning colour the
+   low, because stores that have not been swept contribute nothing. It gets the warning color the
    rest of the app uses for "this number cannot be trusted yet", and states its own coverage. */
 .sp-num.is-partial { color: var(--gx-gold); text-decoration-color: var(--gx-gold-line); }
 .sp-partial-flag {
@@ -651,7 +651,7 @@ body.is-gated .workspace { display: none !important; }
 }
 
 /* The suspect/rate flag is a bordered chip, not bare text: it has to survive sitting directly
-   under the program name without reading as part of it. Colour matches the row's left border. */
+   under the program name without reading as part of it. Color matches the row's left border. */
 .sp-flag {
   display: inline-block; margin-top: 6px;
   font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
@@ -686,7 +686,7 @@ body.is-gated .workspace { display: none !important; }
 .sp-h4-row .sp-h4 { margin: 0; }
 .sp-h4-note { font-size: 11px; color: var(--gx-text-mute); }
 
-/* Field cards: a labelled well per input. Only program identity gets this treatment —
+/* Field cards: a labeled well per input. Only program identity gets this treatment —
    the per-store numbers are a table, because they are compared down a column. */
 .sp-flds { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .sp-fld {
@@ -831,7 +831,7 @@ body.is-gated .workspace { display: none !important; }
 .sp-pstore-n { display: flex; align-items: baseline; gap: 12px; margin-top: 12px; }
 .sp-pstore-v { font-family: var(--sp-display); font-size: 40px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
 .sp-pstore-u { font-size: 14px; color: var(--gx-text-mute); font-variant-numeric: tabular-nums; }
-/* The bar SPLITS at today's number: the store's own colour for what it already sells, the
+/* The bar SPLITS at today's number: the store's own color for what it already sells, the
    green glow for the increase being asked for. One picture of "you keep this, we add that". */
 .sp-pstore-bar { position: relative; height: 10px; border-radius: 6px; background: var(--gx-surface-3); margin-top: 18px; }
 .sp-pstore-have { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px 0 0 6px; background: var(--dot); opacity: .55; }
@@ -853,7 +853,7 @@ body.is-gated .workspace { display: none !important; }
 }
 
 /* ══════════════════════════════════════════════════════════ 1d  PROGRESS ══ */
-/* The reference screen for LOADING BEHAVIOUR. Stores pull in parallel and each card owns
+/* The reference screen for LOADING BEHAVIOR. Stores pull in parallel and each card owns
    its own state, so one slow or broken store never blanks the other five. */
 
 .sp-pg-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
@@ -878,8 +878,8 @@ body.is-gated .workspace { display: none !important; }
 .sp-pgcard-state { margin-left: auto; font-size: 11px; color: var(--gx-text-mute); letter-spacing: .5px; text-transform: uppercase; }
 .sp-pgcard-state.is-bad { color: var(--gx-red); }
 
-/* The fill carries the STORE's colour, not a generic green — six cards side by side are
-   only tellable apart at a glance by colour. A store at or past its goal switches to the
+/* The fill carries the STORE's color, not a generic green — six cards side by side are
+   only tellable apart at a glance by color. A store at or past its goal switches to the
    pace gradient plus the glow, which is the one state worth interrupting for. */
 .sp-pgbar { height: 5px; border-radius: var(--gx-radius-pill); background: var(--gx-surface-3); margin-top: 11px; overflow: hidden; position: relative; }
 .sp-pgbar > i { display: block; height: 100%; border-radius: var(--gx-radius-pill); background: var(--dot, var(--gx-green)); }
@@ -977,7 +977,7 @@ body.is-gated .workspace { display: none !important; }
 .sp-pick-spacer { width: 19px; flex: none; }
 .sp-pick-empty { padding: 12px; font-size: 12px; color: var(--gx-text-mute); }
 
-/* The chosen product, shown as a chip so the Calculator always says what it is modelling. */
+/* The chosen product, shown as a chip so the Calculator always says what it is modeling. */
 .sp-chosen {
   display: flex; align-items: center; gap: 10px; margin-top: 8px;
   background: var(--sp-inset); border: 1px solid var(--gx-border);
@@ -1127,7 +1127,7 @@ body.is-gated .workspace { display: none !important; }
 
 /* Past the goal. Brighter and steadier than "ahead of pace" — the same treatment Sales and
    Leaderboard give a cleared target, so the meaning carries across apps without relearning. */
-/* Goal met colours the FILL green; the glow is still only the over-pace segment, handled by
+/* Goal met colors the FILL green; the glow is still only the over-pace segment, handled by
    .is-over above. Glowing the whole bar was the bug — it lit the part of the run that was
    merely on plan as though all of it were overachievement. */
 .sp-bar.is-met > .sp-bar-fill {

@@ -74,7 +74,7 @@ let pass = 0, fail = 0;
 const ok = (cond, label) => { if (cond) { pass++; console.log('  PASS  ' + label); } else { fail++; console.log('  FAIL  ' + label); } };
 const eq = (a, b, label) => ok(JSON.stringify(a) === JSON.stringify(b), label + (JSON.stringify(a) === JSON.stringify(b) ? '' : `  (got ${JSON.stringify(a)}, want ${JSON.stringify(b)})`));
 
-// gxAuth_ memoises per token, so every case uses a fresh one — otherwise a later test reads an
+// gxAuth_ memoizes per token, so every case uses a fresh one — otherwise a later test reads an
 // earlier test's cached auth and passes for the wrong reason.
 let n = 0;
 const tok = () => 'tok' + (++n);

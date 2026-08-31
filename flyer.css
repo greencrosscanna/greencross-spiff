@@ -1,8 +1,8 @@
 /* NOTE: this file used --gx-panel / --gx-line / --gx-bg-soft, none of which exist in
    gx-theme.css. Every one silently fell through to its literal fallback, so the budtender
-   page rendered on off-palette colours (#121815 against the real #121715, #223029 against
+   page rendered on off-palette colors (#121815 against the real #121715, #223029 against
    #232a27) -- close enough that nobody spotted it, wrong enough that this page never matched
-   the other five apps. Fixed 2026-08-28 to the real tokens. If you add a colour here, check
+   the other five apps. Fixed 2026-08-28 to the real tokens. If you add a color here, check
    the token EXISTS: an undefined var() fails to its fallback without warning. */
 /* GX SPIFF — employee flyer.
    Phone-first on purpose: a budtender checks this on the floor between customers, not at a desk.
@@ -131,7 +131,7 @@ body.flyer {
 
 /* ═══════════════════════════════════════════════════════ 1h  MY SPIFF ══ */
 /* The budtender phone view. One question — what have I got coming — answered by the largest
-   thing on the screen. Optimised for a glance on the floor: nothing tappable under 44px. */
+   thing on the screen. Optimized for a glance on the floor: nothing tappable under 44px. */
 
 .fl-id { display: flex; align-items: center; gap: 11px; }
 .fl-av {

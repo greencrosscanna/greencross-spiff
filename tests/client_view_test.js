@@ -66,7 +66,7 @@ ok('and never prints "of 0"', !/of 0/.test(btSub(0, 0, 0, 25)));
 ok('a known headcount still shows it', btSub(0, 0, 36, 25) === 'of 36 · $25 each');
 ok('per-store totals win when present', btSub(38, 0, 36, 25) === 'of 38 · $25 each');
 
-/* ── a negative return must not wear the winning colour ── */
+/* ── a negative return must not wear the winning color ── */
 const down = (net, credit) => credit ? (net / credit) < 0 : false;
 ok('a loss flags the panel as down', down(-315, 450) === true);
 ok('a gain does not', down(90, 450) === false);
@@ -99,7 +99,7 @@ ok('budtenders hit comes from the same measurement', d.hit === 14 && d.bts === 2
 /* The credit is what the vendor is INVOICED. Billing 18 hits under a table showing 14 is the
    version of this bug that costs someone money. */
 ok('the credit is derived from the measured hits, not the recorded ones', d.credit === 350);
-ok('and is labelled as measured', d.source === 'measured');
+ok('and is labeled as measured', d.source === 'measured');
 
 /* No per-store rows at all — fall back, and say so. */
 let f = derive([{ sold: 0, hit: 0, budtenders: 0 }], { units_sold: 117, bts_hit: 18 }, 25);
