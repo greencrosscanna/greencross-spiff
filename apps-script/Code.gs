@@ -1165,9 +1165,13 @@ function computePayouts_(rows, targets, payout) {
  * the store API keys live in one place. It is secret-gated, so only the engine can call
  * it; the browser never sees the secret.
  *
- * Attribution is by NAME (Dutchie's completedByUser), because GX Core's employees tab is
- * empty and Leaderboard's incentive inputs key on name too. When the roster is seeded,
- * employee_id becomes the sturdier join — the rows already carry it.
+ * Attribution is by NAME (Dutchie's completedByUser). That was forced when GX Core's
+ * employees tab was empty; it is no longer empty (76 rows as of 2026-08-30), so the
+ * sturdier id join this comment promised is now POSSIBLE but is deliberately NOT taken:
+ * switching the aggregation key from name to id would silently collapse every seller
+ * Core has no roster row for into one bucket keyed ''. The rows carry the id either way
+ * — see the boundary below, which reads it off `dutchie_employee_id` — so moving the key
+ * is a separate, testable change, not a side effect of the v248 re-pin.
  * ==================================================================== */
 
 var GX_SECRET_PROP = 'GX_DEPLOY_SECRET';   // set in Script Properties; never in this repo
@@ -1205,8 +1209,17 @@ function sellthrough_(p) {
   (r.rows || []).forEach(function (row) {
     var name = String(row.employee_name || '').trim();
     if (!name) return;
+    /* Read the id off `dutchie_employee_id`, NOT `employee_id`. GX Core v248 named the ids
+       for what they are and marked `employee_id` a DEPRECATED ALIAS of the Dutchie id --
+       which is what it always silently was, so the two carry identical values today and
+       this is not a behaviour change. The fallback keeps us working against a Core older
+       than v248 (the alias is all those return). Our OWN field stays `employee_id`: it is
+       SPIFF's column name in `spiff_progress` and in the `progress` payload Crew reads,
+       so renaming it here would break a live cross-app consumer to cosmetically match an
+       upstream name. Where the value comes from is the part that had to change. */
     var e = people[name] || (people[name] = {
-      name: name, employee_id: row.employee_id || '', store_id: store, units: 0, revenue: 0
+      name: name, employee_id: row.dutchie_employee_id || row.employee_id || '',
+      store_id: store, units: 0, revenue: 0
     });
     e.units   += Number(row.units) || 0;
     e.revenue += Number(row.revenue) || 0;
