@@ -270,6 +270,20 @@ function doGet(e) {
                && String(p.confirm || '') === 'yes')
               ? installSpiffProgressTrigger() : { ok: false, error: 'Unauthorized or missing confirm=yes' };
         break;
+      /* ONE-TIME SEED, deploy-secret only. Delete with SEED_LEGACY_MAP when the Drive
+         connection is cut. seedDocs is importDocs without the session requirement (this runs
+         from the CLI, which holds no browser session) and defaults to a DRY RUN: it reports
+         what it would write and writes nothing unless confirm=yes. */
+      case 'seedDocs':
+        out = (String(p.secret || '') !== PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP))
+              ? { ok: false, error: 'Unauthorized' }
+              : seedDocs_(p);
+        break;
+      case 'seedCleanup':
+        out = (String(p.secret || '') !== PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP))
+              ? { ok: false, error: 'Unauthorized' }
+              : seedCleanup_(p);
+        break;
       case 'payouts':     out = notImplemented_('payouts');                         break;
       case 'history':     out = { ok: true, programs: listPrograms_('closed') };    break;
       case 'flyer':       out = flyer_(p);                                          break;
@@ -980,8 +994,8 @@ function refreshProgressPlan_(only) {
  * EVERY ROW CARRIES `status` (draft | active | closed) — and `&status=active` filters to it
  * server-side, which also trims `by_employee` totals, since those are summed from the rows that
  * survive. It is the field Leaderboard asked for on 2026-08-30: without it a consumer can only
- * INFER whether a programme is still running, and window-overlap is the wrong inference — a
- * closed programme keeps its dates, so BeGoat (closed, dated 08-01→08-31) kept passing and drew
+ * INFER whether a program is still running, and window-overlap is the wrong inference — a
+ * closed program keeps its dates, so BeGoat (closed, dated 08-01→08-31) kept passing and drew
  * on 23 of 40 kiosk cards, inflating totalEarned with a payout nobody could still bank.
  */
 /* Does this cached row belong to the pay period the caller asked for?
@@ -2199,12 +2213,12 @@ function docsIndex_(rebuild) {
  *
  *   3.16.26-3.29-26     a '-' where the last '.' belongs
  *   3.16.26-3.29-.26    the same, plus a stray '.'
- *   8.31.26-9.1326      a missing '.' entirely  (the CURRENT Mule programme)
+ *   8.31.26-9.1326      a missing '.' entirely  (the CURRENT Mule program)
  *
  * So the separator INSIDE a date is [.-]+, not '.'. That is unambiguous even though '-' also
  * separates the two dates: each date is exactly three numbers, so the engine can only read
  * '3.29-26' one way. What stays strict is the SHAPE — three numbers per date, two dates —
- * and the anchor, so a stray number in a programme title cannot be mistaken for a window.
+ * and the anchor, so a stray number in a program title cannot be mistaken for a window.
  *
  * A missing separator (9.1326) is genuinely unrecoverable from the filename, because 9.1326
  * could be the 13th or the 1st. That one is rescued from the document BODY instead — see
@@ -2228,7 +2242,7 @@ function dateRange_(s, anchored) {
   return { start: start, end: end, index: m.index };
 }
 
-/* Split "Bend - Kaprikorn Spiff" into a store and a programme, when the head names a store
+/* Split "Bend - Kaprikorn Spiff" into a store and a program, when the head names a store
    we recognise. Shared by both the filename and the body-fallback paths. */
 function splitStoreHead_(head, stores) {
   var store = '', program = String(head).replace(/[\s-]+$/, '').trim();
@@ -2256,7 +2270,7 @@ function parseDocName_(name, stores) {
 
 /* LAST RESORT, when the filename's window is unreadable. The body states the period and the
    location in its own right, so a filename typo need not cost the whole document — the Mule
-   programme's body reads 8.31.26-9.13.26 where its filename reads 9.1326.
+   program's body reads 8.31.26-9.13.26 where its filename reads 9.1326.
  *
  * The body is not preferred over the filename, only consulted when the filename fails: the
  * two disagree in the other direction too (the River Hellavated doc carries the SAME typo in
@@ -2374,7 +2388,7 @@ function parseDocGoals_(text, doc, stores) {
 
 function parseSpifDoc_(file, stores) {
   /* Read the body BEFORE giving up on the name: a filename whose window is mistyped is still
-     a real programme, and the body states the period in its own right. Costs nothing extra —
+     a real program, and the body states the period in its own right. Costs nothing extra —
      every doc that parses reads its body on the next line anyway. */
   var text = docText_(file.id);
   if (!text) return null;
@@ -2478,8 +2492,145 @@ function importDocs_(p) {
   };
 }
 
+/* The seed's own entry point. Same chunking as importDocs_ (Drive reads are slow and /exec
+   dies near 60s), but secret-gated instead of session-gated, and dry by default so the plan
+   can be read before anything is written. */
+function seedDocs_(p) {
+  var write  = String(p.confirm || '') === 'yes';
+  var index  = docsIndex_(String(p.rebuild) === '1');
+  var start  = Number(p.start) || 0;
+  var count  = Math.min(Number(p.count) || 12, 25);
+  var slice  = index.slice(start, start + count);
+  var stores = gxStores_();
+
+  var parsed = [], skipped = [];
+  slice.forEach(function (f) {
+    var d = null;
+    try { d = parseSpifDoc_(f, stores); } catch (e) { skipped.push({ name: f.name, why: String(e.message || e) }); return; }
+    if (!d) { skipped.push({ name: f.name, why: 'could not read name or body' }); return; }
+    parsed.push(d);
+  });
+
+  var saved = write ? mergeDocsIntoPrograms_(parsed, 'seed') : planDocsMerge_(parsed);
+
+  return {
+    ok: true, dry_run: !write, total: index.length, start: start, processed: slice.length,
+    next: (start + count < index.length) ? start + count : null,
+    parsed: parsed.length, saved: saved, skipped: skipped
+  };
+}
+
+/* What mergeDocsIntoPrograms_ WOULD do, without touching the sheet. Reports the legacy row
+   each program would inherit from, so the mapping can be checked before the write. */
+function planDocsMerge_(docs) {
+  var groups = Object.create(null);
+  docs.forEach(function (d) { (groups[d.key] = groups[d.key] || []).push(d); });
+  return Object.keys(groups).map(function (key) {
+    var list = groups[key], first = list[0];
+    var stores = Object.create(null);
+    list.forEach(function (d) { Object.keys(d.goals.by_store).forEach(function (x) { stores[x] = 1; }); });
+    var legacyId = SEED_LEGACY_MAP[key] || '';
+    var own = getProgram_(key), legacy = legacyId ? getProgram_(legacyId) : { ok: false };
+    return {
+      program_id: key, name: first.program, start: first.start, end: first.end,
+      status: first.bucket === 'current' ? 'draft' : 'closed',
+      stores: Object.keys(stores), docs: list.length,
+      exists_already: !!own.ok,
+      inherits_from: (!own.ok && legacy.ok) ? legacyId : '',
+      inherits_actuals: (!own.ok && legacy.ok && !!legacy.program.actual_json)
+    };
+  });
+}
+
 /* Per-store docs of one program merge into a single record. Docs win on dates and goals;
    anything the Calculator knew that a doc doesn't mention (cost, baseline) is kept. */
+/* ══ ONE-TIME SEED SCAFFOLDING ═══════════════════════════════════════════════════════════
+ * DELETE this block and the seedDocs / seedCleanup routes when the Drive connection is cut.
+ * CLAUDE.md is explicit that the docs are a one-time seed and never a sync; this is the
+ * machinery for that single run, not a feature.
+ *
+ * THE PROBLEM IT SOLVES. The Calculator-era rows and the doc-derived programs are the SAME
+ * programs under different ids and different windows. The Calculator inferred a window from
+ * a sheet tab named MMYY, so `national-0825` reads 2025-08-01..08-31 where its doc says
+ * 08-18..08-31. Keying the import off the doc id therefore matches nothing, creates a second
+ * row, and strands the Calculator`s cost_json / baseline_json / actual_json -- the only record
+ * of what a program actually RETURNED -- on the row with the wrong window. Import without
+ * this map and History ends up 46 rows: every vendor twice, goals on one, results on the other.
+ *
+ * WHY IT IS WRITTEN OUT AND NOT COMPUTED. Vendor + window overlap cannot separate the two March
+ * Hellavated programs (the Calculator stored both as the same calendar month) or the two Mule
+ * rows (one carries no window at all). A one-time irreversible merge is the wrong place for a
+ * heuristic, so every pair below was confirmed against program_name AND target units:
+ *   hellavated-0326    "Hellavated Joints"           198 == doc "Hellavated Joint Spiff"      198
+ *   hellavated-2-0326  "Hellavated Carts & Dispos"   780 ~= doc "Hellavated Cart & Dispo Spiff" 762
+ *   mule-extracts-1025 "Mule Extracts Dank Tanks 2g"    == doc "Mule Extracts 2g Dank Tanks"
+ *   mule-extracts      "Mule Extracts" (no window)      == doc "Mule Extracts Glass Cart Spiff"
+ *
+ * DELIBERATELY NOT MAPPED:
+ *   green-cross-2025-08-11-2025-08-17    a real program (confirmed by Sky) the Calculator
+ *                                        never held -- it imports fresh from its doc.
+ *   mule-extracts-2026-08-31-2026-09-13  starts 2026-08-31; has never run.
+ *   wyld-0626                            a Calculator program with NO doc. Left exactly as
+ *                                        it is -- the docs are not a superset.
+ *   green-cross-test-202608              Sky`s own test row. Not ours to touch.
+ * ═══════════════════════════════════════════════════════════════════════════════════════ */
+var SEED_LEGACY_MAP = {
+  'national-cannabis-co-2025-08-18-2025-08-31': 'national-0825',
+  'meraki-gardens-2025-09-01-2025-09-14':       'meraki-0925',
+  'gron-2025-09-15-2025-09-28':                 'gron-0925',
+  'verdant-leaf-2025-09-29-2025-10-12':         'verdant-leaf-1025',
+  'killa-beez-2025-10-13-2025-10-26':           'killa-beez-1025',
+  'mule-extracts-2025-10-27-2025-11-09':        'mule-extracts-1025',
+  'national-cannabis-co-2025-11-10-2025-11-23': 'national-1125',
+  'kaprikorn-2025-11-24-2025-12-07':            'kaprikorn-1125',
+  'meraki-gardens-2025-12-08-2025-12-21':       'meraki-1225',
+  'magic-number-2026-01-05-2026-01-18':         'magic-number-0126',
+  'mule-extracts-2026-01-19-2026-02-01':        'mule-extracts',
+  'freshy-2026-02-02-2026-02-15':               'freshy-0226',
+  'hapy-kitchen-2026-02-16-2026-03-01':         'hapy-kitchen',
+  'hellavated-2026-03-02-2026-03-15':           'hellavated-0326',
+  'hellavated-2026-03-16-2026-03-29':           'hellavated-2-0326',
+  'portland-heights-2026-03-30-2026-04-12':     'portland-heights-0326',
+  'kaprikorn-2026-04-13-2026-04-26':            'kaprikorn-0426',
+  'freshy-2026-06-08-2026-06-21':               'freshy-0626',
+  'buddies-2026-06-22-2026-07-19':              'buddies-0626-0726',
+  'begoat-2026-07-20-2026-08-03':               'begoat-0826',
+  'drops-2026-08-03-2026-08-18':                'drops-0826'
+};
+
+/* Remove a program row outright. Only the seed cleanup uses this -- nothing in the app
+   deletes a program, and nothing should: History is the point of the app. */
+function deleteProgram_(id) {
+  var sh = dataSheet_(), last = sh.getLastRow();
+  if (last < 2) return false;
+  var rows  = sh.getRange(2, 1, last - 1, PROGRAM_HEADERS.length).getValues();
+  var idCol = PROGRAM_HEADERS.indexOf('program_id');
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][idCol]) !== String(id)) continue;
+    sh.deleteRow(i + 2);
+    invalidatePrograms_();
+    return true;
+  }
+  return false;
+}
+
+/* Delete the Calculator rows the seed has superseded. Refuses to touch one whose doc-derived
+   replacement is not actually present, so a half-finished seed cannot lose the only copy. */
+function seedCleanup_(p) {
+  var doIt = String(p.confirm || '') === 'yes';
+  var plan = [];
+  Object.keys(SEED_LEGACY_MAP).forEach(function (docKey) {
+    var legacyId = SEED_LEGACY_MAP[docKey];
+    var replacement = getProgram_(docKey);
+    var legacy = getProgram_(legacyId);
+    if (!legacy.ok) { plan.push({ legacy: legacyId, action: 'already gone' }); return; }
+    if (!replacement.ok) { plan.push({ legacy: legacyId, action: 'KEPT — ' + docKey + ' not imported yet' }); return; }
+    plan.push({ legacy: legacyId, action: doIt ? (deleteProgram_(legacyId) ? 'deleted' : 'not found') : 'would delete',
+                superseded_by: docKey });
+  });
+  return { ok: true, confirmed: doIt, plan: plan };
+}
+
 function mergeDocsIntoPrograms_(docs, user) {
   var groups = Object.create(null);   // keyed off doc filenames — external, so no prototype
   docs.forEach(function (d) { (groups[d.key] = groups[d.key] || []).push(d); });
@@ -2495,10 +2646,25 @@ function mergeDocsIntoPrograms_(docs, user) {
       docIds.push(d.doc_id); docNames.push(d.doc_name);
     });
 
+    /* SEED: when this doc program has no row yet, inherit the Calculator row it replaces,
+       so cost_json / baseline_json / actual_json survive the move onto the correct window.
+       program_id is overwritten with the doc key just below, so the old row is superseded
+       rather than edited in place -- seedCleanup_ removes it once the new one exists. */
     var existing = getProgram_(key);
+    if (!existing.ok && SEED_LEGACY_MAP[key]) existing = getProgram_(SEED_LEGACY_MAP[key]);
     var prog = existing.ok ? existing.program : {
       program_id: key, payout_type: 'flat', cost_json: {}, baseline_json: {}, actual_json: null
     };
+
+    /* ACCUMULATE, never replace. The doc index is sorted by FILENAME, so "Bend - <program>"
+       sorts next to every other Bend doc rather than next to its own program's other five
+       stores -- one program's six store-docs land in six different chunks. Replacing
+       by_store per chunk therefore left each per-store program holding whichever single
+       store happened to be processed last. Merging makes the chunk boundary invisible, which
+       is the only way a chunked import of per-store docs can be correct. */
+    var prevTarget = prog.target_json || {};
+    by_store = Object.assign({}, prevTarget.by_store || {}, by_store);
+    per_bt   = Object.assign({}, prevTarget.per_bt   || {}, per_bt);
 
     var totalUnits = 0;
     Object.keys(by_store).forEach(function (s) { totalUnits += Number(by_store[s]) || 0; });
@@ -2510,7 +2676,12 @@ function mergeDocsIntoPrograms_(docs, user) {
     prog.start_date   = first.start;
     prog.end_date     = first.end;
     prog.pay_period   = first.payout_date || prog.pay_period || '';
-    prog.status       = first.bucket === 'current' ? 'active' : 'closed';
+    /* DRAFT, not active. A doc in the Current folder is a program Tawny has written up,
+       not one anyone has checked -- and `active` is read straight through to GX Crew's SPIFF
+       column and the Leaderboard kiosks by ?action=progress&status=active. Importing the Mule
+       program as active would have put it on staff cards the morning it started, before a
+       human had looked at a single goal. Flipping draft -> active stays a deliberate click. */
+    prog.status       = first.bucket === 'current' ? 'draft' : 'closed';
     prog.payout_type  = first.payout_type || 'flat';
     prog.payout_json  = first.payout_type === 'per_unit'
       ? first.payout_json

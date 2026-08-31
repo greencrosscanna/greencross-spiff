@@ -198,6 +198,24 @@ dance other spokes use — commit and push straight to `main`, verify on Pages, 
 this the moment Tawny is actually using it; from then on it ships like every other spoke (PR → Sky
 merges). Still `./deploy.sh` after each ship so `version_history` stays honest.
 
+**The SPIF-doc seed HAS BEEN RUN — 2026-08-30. Do not run it again.** All 113 docs in Current +
+Archived were imported into `programs` as 23 records with their REAL windows, and the 21
+Calculator-era rows they replaced were merged in (cost / baseline / actuals carried forward) and
+then deleted. The datastore now holds 25 rows: those 23, plus `wyld-0626` (a Calculator program
+with no doc — the docs are *not* a superset) and `green-cross-test-202608` (Sky's test row).
+
+The scaffolding for that run is `SEED_LEGACY_MAP`, `seedDocs_`, `planDocsMerge_`, `seedCleanup_`,
+`deleteProgram_` and the `seedDocs` / `seedCleanup` routes. **Delete all of it when the Drive
+connection is cut** — it exists for one execution that has already happened. Re-running `seedDocs`
+would not duplicate (it is keyed on the doc id and accumulates), but `SEED_LEGACY_MAP` now points
+at rows that no longer exist, so it would silently stop carrying anything forward.
+
+Two things the seed could not supply, both known and neither a bug:
+`green-cross-2025-08-11-2025-08-17` is a real program (confirmed by Sky) that the Calculator never
+held, so it has goals but **no `actual_json`** — no units sold, no ROI. `hapy-kitchen` states
+"Unit Based" / "You Decide" where goals go, so its targets are the Calculator's; its `per_unit`
+$1/unit payout came off the doc correctly.
+
 **The Sheets are a one-time seed, not a sync.** The point is to leave the Calculator and SPIFF_Sales
 Report behind entirely — this app becomes the system of record. `importCalc` exists to seed history
 once; don't build features that assume re-importing. (Hand-corrected rows are stamped `edited_by` and

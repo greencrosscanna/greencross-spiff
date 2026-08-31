@@ -1,21 +1,21 @@
 #!/usr/bin/env node
-/* ─── Reading a programme window out of a hand-typed date range ───────────────────────────────────
+/* ─── Reading a program window out of a hand-typed date range ───────────────────────────────────
  *
  *   RUN:  node tests/doc_window_test.js
  *
  * WHY
  * Tawny's SPIF docs are the source of truth for two things the Calculator never recorded: the exact
- * programme window, and the real per-budtender goal. The window comes out of the FILENAME, typed by
+ * program window, and the real per-budtender goal. The window comes out of the FILENAME, typed by
  * hand 113 times. Three carry a slip, and the old parser — which demanded a literal '.' between
  * every part of a date — dropped all three:
  *
  *   3.16.26-3.29-26     River  Hellavated Cart & Dispo
  *   3.16.26-3.29-.26    South  Hellavated Cart & Dispo
- *   8.31.26-9.1326      the CURRENT Mule Extracts programme
+ *   8.31.26-9.1326      the CURRENT Mule Extracts program
  *
  * The cost was not "three files". Two of them were the River and Commercial halves of ONE live
- * programme, so hellavated-2026-03-16 imported with four of six stores and looked complete — no
- * error, just two stores that never had a goal. The third is the programme starting tomorrow.
+ * program, so hellavated-2026-03-16 imported with four of six stores and looked complete — no
+ * error, just two stores that never had a goal. The third is the program starting tomorrow.
  *
  * The two failure modes are genuinely different and only one is recoverable from the filename:
  *   a WRONG separator (3.29-26) is unambiguous — a date is three numbers, so it can be read.
@@ -67,7 +67,7 @@ const name = (n) => api.parseDocName_(n, STORES);
 let d = name('Bend - Kaprikorn Spiff - 4.13.26-4.26.26.docx');
 ok('a clean per-store filename still parses', d && d.start === '2026-04-13' && d.end === '2026-04-26');
 ok('...and splits off the store', d && d.store === 'bend');
-ok('...leaving the programme title', d && d.program === 'Kaprikorn Spiff');
+ok('...leaving the program title', d && d.program === 'Kaprikorn Spiff');
 
 d = name('Copy of South - Meraki Gardens Vibes 40pks - 12.8.25 - 12.21.25.docx');
 ok('"Copy of" is stripped', d && d.program === 'Meraki Gardens Vibes 40pks');
