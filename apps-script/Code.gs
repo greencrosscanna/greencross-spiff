@@ -408,23 +408,83 @@ function parseCalcTab_(sheet, stores) {
   };
 }
 
-/* Duplicating a vendor tab copies its hard-typed ROI cells while the formula cells
-   recalculate, so a stale panel looks plausible on its own. Two programs reporting the
-   same units sold, budtenders hit AND investment is not a coincidence — mark both so a
-   stale panel can't be mistaken for a real result. */
-function flagDuplicateActuals_(programs) {
+/* ==================== DERIVED WARNING FLAGS ====================
+ * `duplicate_of` and `rate_changed` are COMPUTED ON EVERY READ and never stored. That is the whole
+ * point of this block, so read the next paragraph before "optimising" it into a column.
+ *
+ * They used to be written onto the record by the Calculator importer. When the importers were cut
+ * (2026-08-30) the code that computed them went with them -- but the values stayed in `actual_json`
+ * on the sheet. So the red "actuals match X -- verify" banner became a frozen sentence: correcting
+ * the numbers by hand, or pulling live actuals from Dutchie, left the warning sitting there
+ * claiming a match that no longer existed, and there was no way to clear it short of hand-editing
+ * the spreadsheet. Sky asked how to clear one on 2026-08-31; the honest answer was "you can't".
+ *
+ * A warning nobody can clear is a warning everybody learns to ignore, which costs more than not
+ * having it. Deriving it at read time means the banner is true whenever it is on screen, and fixing
+ * the numbers clears it on BOTH records at once -- a stored flag could only ever clear the one you
+ * edited, leaving its partner still pointing at a program that no longer matches.
+ *
+ * Same reasoning as `status` on the progress rows: resolved at read, never stored, because a
+ * snapshot of a comparison goes stale the moment either side of the comparison moves.
+ *
+ * The corollary is in programToRow_: these keys are STRIPPED before a record is written back, or a
+ * routine edit would quietly re-persist the derived answer and we would be back where we started.
+ */
+var DERIVED_ACTUALS = ['duplicate_of', 'rate_changed'];
+
+/* A copy of actual_json fit to store: whatever a reader computed is removed again. */
+function stripDerivedActuals_(a) {
+  if (!a) return a;
+  var out = {}, k;
+  for (k in a) if (Object.prototype.hasOwnProperty.call(a, k) && DERIVED_ACTUALS.indexOf(k) < 0) out[k] = a[k];
+  return out;
+}
+
+/* Duplicating a vendor tab copies its hard-typed ROI cells while the formula cells recalculate, so
+   a stale panel looks plausible on its own. Two programs reporting the same units sold, budtenders
+   hit AND investment is not a coincidence -- mark both, so a stale panel can't be mistaken for a
+   real result.
+
+   Pass the FULL set. Flagging within a filtered subset (History's closed-only read, say) would
+   compare a program against some of its siblings and not others, and the same record would carry a
+   different warning depending on which screen you opened it from. */
+function annotateActuals_(programs) {
   var seen = Object.create(null);   // keyed by joined actuals; null-proto so no key can inherit
+
+  function keyOf(a) {
+    /* An all-zero or all-blank actuals block is not evidence of a copy -- it is a program nobody
+       has settled yet. Keying on it would flag every unsettled record against every other one,
+       which is noise wearing the costume of a warning. */
+    var u = Number(a.units_sold) || 0, h = Number(a.bts_hit) || 0, i = Number(a.investment) || 0;
+    if (!u && !h && !i) return '';
+    return [a.units_sold, a.bts_hit, a.investment].join('|');
+  }
+
   programs.forEach(function (p) {
     if (!p.actual_json) return;
-    var a = p.actual_json;
-    var key = [a.units_sold, a.bts_hit, a.investment].join('|');
-    (seen[key] = seen[key] || []).push(p);
+    var k = keyOf(p.actual_json);
+    if (!k) return;
+    (seen[k] = seen[k] || []).push(p);
   });
+
   programs.forEach(function (p) {
-    if (!p.actual_json) return;
     var a = p.actual_json;
-    var group = seen[[a.units_sold, a.bts_hit, a.investment].join('|')] || [];
-    a.duplicate_of = group.filter(function (q) { return q !== p; }).map(function (q) { return q.title; });
+    if (!a) return;
+
+    /* Assigned unconditionally, so a value left in the sheet by the old importer is overwritten by
+       today's answer rather than merged with it. */
+    var k = keyOf(a);
+    a.duplicate_of = !k ? [] : (seen[k] || [])
+      .filter(function (q) { return q !== p; })
+      .map(function (q) { return q.title || q.program_name || q.program_id; });
+
+    /* Modelled rate vs the rate actually settled. Only a real disagreement counts: a program with
+       no modelled payout (Hapy Kitchen states "You Decide" where the rate goes) has nothing to
+       differ FROM, and calling that a changed rate would flag the schema, not a mistake. */
+    var pay = (p.payout_json || {}).amount;
+    var act = a.spiff_amount;
+    a.rate_changed = pay != null && pay !== '' && act != null && act !== ''
+                     && Number(act) !== Number(pay);
   });
 }
 
@@ -565,13 +625,16 @@ function listPrograms_(status) {
   var sh = dataSheet_();
   if (sh.getLastRow() < 2) return [];
   var rows = sh.getRange(2, 1, sh.getLastRow() - 1, PROGRAM_HEADERS.length).getValues();
-  var out = [];
+  var all = [];
   for (var i = 0; i < rows.length; i++) {
     if (!rows[i][0]) continue;
-    var p = rowToProgram_(rows[i]);
-    if (!status || p.status === status) out.push(p);
+    all.push(rowToProgram_(rows[i]));
   }
-  return out;
+  /* Annotate BEFORE filtering: the duplicate check compares a program against every other program,
+     so narrowing to one status first would let History and Programs disagree about the same row. */
+  annotateActuals_(all);
+  if (!status) return all;
+  return all.filter(function (p) { return p.status === status; });
 }
 
 function getProgram_(id) {
@@ -714,7 +777,10 @@ function programToRow_(p, audit) {
     JSON.stringify(p.payout_json   || {}),
     JSON.stringify(p.baseline_json || {}),
     JSON.stringify(p.target_json   || {}),
-    p.actual_json ? JSON.stringify(p.actual_json) : '',
+    /* Derived flags are stripped here, not at the call site. Every write funnels through this
+       function, and a rule enforced in one place cannot be forgotten by the next writer -- which is
+       exactly how these ended up stored in the first place. */
+    p.actual_json ? JSON.stringify(stripDerivedActuals_(p.actual_json)) : '',
     p.source || '', nowStamp_(), by, at, p.share_token || '',
     p.contact_name || '', p.contact_email || '', JSON.stringify(p.doc_json || {})
   ];

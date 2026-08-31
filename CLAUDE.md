@@ -98,6 +98,16 @@ Google's consent HTML instead of JSON until the owner has authorized.
 
 ## The rules that matter
 
+- **The record warnings are DERIVED, never stored** (2026-08-31). `duplicate_of` (the red "actuals
+  match X — verify") and `rate_changed` (the amber "rate $25 → $50") are recomputed on every read in
+  `annotateActuals_`, and **stripped before any write** in `programToRow_`. Don't re-add them as
+  columns. They were stored once, written by the Calculator importer; when the importers were cut
+  the computing code went with them and the stored values stayed, so the banner froze — correcting
+  the numbers or pulling live actuals left it claiming a match that no longer existed, and Sky
+  found there was no way to clear one. Derived means fixing the numbers clears it on **both**
+  records at once, which a stored flag could never do: it can only clear the row you edited, leaving
+  its partner still pointing at a program that no longer matches.
+
 - **Status follows the dates, on its own** (Sky, 2026-08-31). The hourly engine trigger rolls each
   program before it sweeps: a **draft goes ACTIVE on its start date** with no human step, and an
   **active program CLOSES** once its end date has passed (inclusive — a program ending the 30th is
