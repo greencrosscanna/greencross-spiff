@@ -2193,26 +2193,86 @@ function docsIndex_(rebuild) {
   return list;
 }
 
+/* ─── The program window, out of a hand-typed date range ──────────────────────────────────
+ * These ranges are typed by a person, in a filename, 112 times. Three of them carry a slip,
+ * and the parser used to require a literal '.' between every part:
+ *
+ *   3.16.26-3.29-26     a '-' where the last '.' belongs
+ *   3.16.26-3.29-.26    the same, plus a stray '.'
+ *   8.31.26-9.1326      a missing '.' entirely  (the CURRENT Mule programme)
+ *
+ * So the separator INSIDE a date is [.-]+, not '.'. That is unambiguous even though '-' also
+ * separates the two dates: each date is exactly three numbers, so the engine can only read
+ * '3.29-26' one way. What stays strict is the SHAPE — three numbers per date, two dates —
+ * and the anchor, so a stray number in a programme title cannot be mistaken for a window.
+ *
+ * A missing separator (9.1326) is genuinely unrecoverable from the filename, because 9.1326
+ * could be the 13th or the 1st. That one is rescued from the document BODY instead — see
+ * parseDocFallback_. Not guessed. */
+var DOC_DATE_  = '(\\d{1,2})[.\\-]+(\\d{1,2})[.\\-]+(\\d{2})';
+var DOC_RANGE_ = DOC_DATE_ + '\\s*[-\u2013\u2014]\\s*[.\\-]*' + DOC_DATE_;
+
+function ymdParts_(mo, d, y) {
+  mo = Number(mo); d = Number(d); y = Number(y);
+  if (!(mo >= 1 && mo <= 12) || !(d >= 1 && d <= 31)) return '';
+  return (2000 + y) + '-' + pad2_(mo) + '-' + pad2_(d);
+}
+
+/* anchored: only a range at the very END counts (filenames). Unanchored for a body line,
+   where "SPIF Period: 8.31.26-9.13.26 Location: All Locations" has text after it. */
+function dateRange_(s, anchored) {
+  var m = String(s).match(new RegExp(DOC_RANGE_ + (anchored ? '\\s*$' : '')));
+  if (!m) return null;
+  var start = ymdParts_(m[1], m[2], m[3]), end = ymdParts_(m[4], m[5], m[6]);
+  if (!start || !end) return null;
+  return { start: start, end: end, index: m.index };
+}
+
+/* Split "Bend - Kaprikorn Spiff" into a store and a programme, when the head names a store
+   we recognise. Shared by both the filename and the body-fallback paths. */
+function splitStoreHead_(head, stores) {
+  var store = '', program = String(head).replace(/[\s-]+$/, '').trim();
+  var dash = program.indexOf(' - ');
+  if (dash > 0) {
+    var maybe = matchStore_(program.slice(0, dash), stores);
+    if (maybe) { store = maybe; program = program.slice(dash + 3).trim(); }
+  }
+  return { store: store, program: program };
+}
+
+function docBaseName_(name) {
+  return String(name).replace(/\.(docx?|pdf)$/i, '').replace(/^Copy of\s+/i, '').trim();
+}
+
 /* "Bend - Kaprikorn Spiff - 4.13.26-4.26.26.docx"
    -> { store:'bend', program:'Kaprikorn Spiff', start:'2026-04-13', end:'2026-04-26' } */
 function parseDocName_(name, stores) {
-  var n = String(name).replace(/\.(docx?|pdf)$/i, '').replace(/^Copy of\s+/i, '').trim();
+  var n = docBaseName_(name);
+  var r = dateRange_(n, true);
+  if (!r) return null;
+  var head = splitStoreHead_(n.slice(0, r.index), stores);
+  return { store: head.store, program: head.program, start: r.start, end: r.end };
+}
 
-  var m = n.match(/(\d{1,2}\.\d{1,2}\.\d{2})\s*-\s*\.?(\d{1,2}\.\d{1,2}\.\d{2})\s*$/);
-  if (!m) return null;
-  var start = mdy_(m[1]), end = mdy_(m[2]);
-  if (!start || !end) return null;
+/* LAST RESORT, when the filename's window is unreadable. The body states the period and the
+   location in its own right, so a filename typo need not cost the whole document — the Mule
+   programme's body reads 8.31.26-9.13.26 where its filename reads 9.1326.
+ *
+ * The body is not preferred over the filename, only consulted when the filename fails: the
+ * two disagree in the other direction too (the River Hellavated doc carries the SAME typo in
+ * its body), and quietly switching sources would move which one wins for all 113 docs. */
+function parseDocFallback_(name, text, stores) {
+  var r = dateRange_(afterLabel_(text, 'SPIF Period'), false);
+  if (!r) return null;
 
-  var head = n.slice(0, m.index).replace(/[\s-]+$/, '').trim();
+  // Strip the trailing (unreadable) date blob off the filename to leave the title.
+  var n = docBaseName_(name).replace(/[\s\-]*[\d.\-]+\s*$/, '');
+  var head = splitStoreHead_(n, stores);
 
-  // A leading "Store - " prefix, when it names a store we know.
-  var store = '', program = head;
-  var dash = head.indexOf(' - ');
-  if (dash > 0) {
-    var maybe = matchStore_(head.slice(0, dash), stores);
-    if (maybe) { store = maybe; program = head.slice(dash + 3).trim(); }
-  }
-  return { store: store, program: program, start: start, end: end };
+  /* The body names the location too. "All Locations" matches no store and correctly leaves
+     this blank, which is what routes it to the all-locations goals table. */
+  var store = head.store || (matchStore_(afterLabel_(text, 'Location'), stores) || '');
+  return { store: store, program: head.program, start: r.start, end: r.end };
 }
 
 // "4.13.26" -> "2026-04-13"  (TEXT, never a Date object)
@@ -2313,11 +2373,14 @@ function parseDocGoals_(text, doc, stores) {
 }
 
 function parseSpifDoc_(file, stores) {
-  var doc = parseDocName_(file.name, stores);
-  if (!doc) return null;
-
+  /* Read the body BEFORE giving up on the name: a filename whose window is mistyped is still
+     a real programme, and the body states the period in its own right. Costs nothing extra —
+     every doc that parses reads its body on the next line anyway. */
   var text = docText_(file.id);
   if (!text) return null;
+
+  var doc = parseDocName_(file.name, stores) || parseDocFallback_(file.name, text, stores);
+  if (!doc) return null;
 
   var goals = parseDocGoals_(text, doc, stores);
   var products = {
