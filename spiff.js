@@ -1680,8 +1680,14 @@
       + cstat('Your return', hasAsk && m.invest ? pctWhole(m.roiPct) : '—',
               hasAsk ? money(m.roi) + ' net of the bounty' : 'once there is an ask to price',
               !hasAsk ? '' : m.roi < 0 ? 'is-neg' : 'is-hero')
-      + cstat('Unit lift', hasBase ? (m.unitInc > 0 ? '+' : '') + m.unitInc.toLocaleString() : '—',
-              hasBase ? pct(m.growth) + ' over last month' : 'pick a product to pull last month', '');
+      /* Unit lift needs an ASK, not just a base — the same rule as the three cards beside it,
+         which it was left out of. A product pulled with no target yet leaves the model's target
+         at 0, so this card read −100.0% over last month under a headline of −1,000: the app
+         telling a vendor their product had stopped selling outright, when in fact nothing had
+         been asked for yet. Zero is not a target, and an em dash says "not yet". */
+      + cstat('Unit lift', hasAsk ? (m.unitInc > 0 ? '+' : '') + m.unitInc.toLocaleString() : '—',
+              hasAsk ? pct(m.growth) + ' over last month'
+                : hasBase ? 'set a target to see the lift' : 'pick a product to pull last month', '');
 
     /* ---- the goal bar, which is also the goal CONTROL.
        The track is a units axis: 0 .. lastMonth × (1 + GOAL_MAX). That makes the dark segment
@@ -1729,7 +1735,10 @@
          (min is 0), so the first drag silently "fixes" it to 0% — which is how a program gets
          re-pitched at a number nobody decided on. Naming it is the difference between Tawny
          choosing a new target and the app choosing one for her. */
-      var below = m.baseUnits > 0 && m.unitInc < 0;
+      /* And a target of ZERO is not a target below last month — it is no target. Without the
+         second test this fired the gold warning the instant a product was pulled, telling Tawny
+         her ask was 1,000 units short of a number she had not chosen yet. */
+      var below = m.baseUnits > 0 && (Number(calc.target) || 0) > 0 && m.unitInc < 0;
       foot.innerHTML = '<span>' + m.baseUnits.toLocaleString() + ' sold last month</span>'
         + (pending
             ? '<span>waiting on Dutchie&hellip;</span>'
