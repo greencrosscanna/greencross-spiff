@@ -198,28 +198,35 @@ dance other spokes use — commit and push straight to `main`, verify on Pages, 
 this the moment Tawny is actually using it; from then on it ships like every other spoke (PR → Sky
 merges). Still `./deploy.sh` after each ship so `version_history` stays honest.
 
-**The SPIF-doc seed HAS BEEN RUN — 2026-08-30. Do not run it again.** All 113 docs in Current +
-Archived were imported into `programs` as 23 records with their REAL windows, and the 21
-Calculator-era rows they replaced were merged in (cost / baseline / actuals carried forward) and
-then deleted. The datastore now holds 25 rows: those 23, plus `wyld-0626` (a Calculator program
-with no doc — the docs are *not* a superset) and `green-cross-test-202608` (Sky's test row).
+**The Drive importers are GONE — cut 2026-08-30. This app is the system of record.** There is no
+longer any code that reads the Calculator sheet or Tawny's SPIF docs; the `importCalc`,
+`previewCalc`, `importDocs`, `previewDocs`, `seedDocs` and `seedCleanup` routes, the
+"Import from Calculator sheet" button, and the whole `.docx` parser were removed together the day
+the seed finished.
 
-The scaffolding for that run is `SEED_LEGACY_MAP`, `seedDocs_`, `planDocsMerge_`, `seedCleanup_`,
-`deleteProgram_` and the `seedDocs` / `seedCleanup` routes. **Delete all of it when the Drive
-connection is cut** — it exists for one execution that has already happened. Re-running `seedDocs`
-would not duplicate (it is keyed on the doc id and accumulates), but `SEED_LEGACY_MAP` now points
-at rows that no longer exist, so it would silently stop carrying anything forward.
+**What the seed did, once.** All 113 SPIF docs became 23 `programs` rows carrying their REAL
+windows and real per-budtender goals. The 21 Calculator-era rows they replaced had their cost,
+baseline and reconciled actuals merged forward onto the corrected window and were then deleted.
+`programs` ended at **25 rows**: those 23, plus `wyld-0626` (a Calculator program with no doc — the
+docs were never a superset) and `green-cross-test-202608` (Sky's test row).
 
-Two things the seed could not supply, both known and neither a bug:
-`green-cross-2025-08-11-2025-08-17` is a real program (confirmed by Sky) that the Calculator never
-held, so it has goals but **no `actual_json`** — no units sold, no ROI. `hapy-kitchen` states
-"Unit Based" / "You Decide" where goals go, so its targets are the Calculator's; its `per_unit`
-$1/unit payout came off the doc correctly.
+Two gaps it could not fill, both known and neither a bug: `green-cross-2025-08-11-2025-08-17` is a
+real program Sky confirmed, but the Calculator never held it, so it has goals and **no
+`actual_json`** — no units sold, no ROI, and that is the one row worth filling by hand.
+`hapy-kitchen` states "Unit Based" / "You Decide" where goals go, so it kept the Calculator's
+targets; its `per_unit` $1/unit payout came off the doc correctly.
 
-**The Sheets are a one-time seed, not a sync.** The point is to leave the Calculator and SPIFF_Sales
-Report behind entirely — this app becomes the system of record. `importCalc` exists to seed history
-once; don't build features that assume re-importing. (Hand-corrected rows are stamped `edited_by` and
-skipped by the importer purely as a guardrail against a stray re-run.)
+**Do not rebuild an importer.** Every Calculator-era row is gone, so re-running one would not top
+History up — it would add a second, worse copy beside the good one, keyed differently and windowed
+by calendar month. The last revision that still had all the machinery is commit `db7a4c5`
+(`git show db7a4c5:apps-script/Code.gs`, shipped as v1.322) — seed map included.
+
+*Three of Tawny's filenames carry date typos (`Mule … 9.1326`, and both the River and South
+Hellavated docs, where River's typo is in the body too). The parser read them anyway before it was
+removed, so nothing was lost — noted only so a future reader doesn't go hunting for missing docs.*
+
+**Leftover:** the `SPIF_DOC_INDEX` script property is now orphaned. Harmless, deletable from
+Project Settings whenever.
 
 **Close the loop when you're done:** When a dispatched or `/gxwhatsnext`-started task's goals look met —
 the moment you'd naturally say "that should do it" — proactively tell Sky and **offer to ship/close it

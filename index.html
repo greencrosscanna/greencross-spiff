@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.322"/>
-<link rel="stylesheet" href="spiff.css?v=1.322"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.323"/>
+<link rel="stylesheet" href="spiff.css?v=1.323"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -139,8 +139,8 @@
       <div id="progClosed"></div>
       <div class="empty" id="programsEmpty" hidden>
         <p>No programs yet.</p>
-        <p class="dim">Seed from the <b>Green Cross SPIFF Calculator</b> sheet (19 vendor tabs) or start one from scratch.</p>
-        <button class="gx-btn" id="btnImportCalc">Import from Calculator sheet</button>
+        <p class="dim">Start one from scratch — this app is the system of record, and the
+           Calculator sheet and SPIF-doc importers were retired once History was seeded.</p>
       </div>
       <div id="programsList" hidden></div>
     </section>
@@ -345,7 +345,7 @@
   // Dev guard: non-mutating actions. Anything NOT listed is blocked when this page is served
   // from localhost, until writes are armed (banner button / ?arm=1 / GXDev.arm()). Inert in
   // production. Add new READS here; leave writes off the list.
-  // Guarded writes: buildReport, bugreport, createProgram, editProgram, importCalc, shareLink
+  // Guarded writes: buildReport, bugreport, createProgram, editProgram, shareLink
   window.GX_DEV_READS = [
     'catalog', 'clientView', 'config', 'emailDraft', 'login', 'productStats', 'programs',
     'progress', 'refunits', 'sellthrough', 'stores', 'version_history'
@@ -362,6 +362,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="spiff.js?v=1.322"></script>
+<script src="spiff.js?v=1.323"></script>
 </body>
 </html>

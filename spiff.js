@@ -765,31 +765,7 @@
     });
   }
 
-  async function importCalculator(btn) {
-    var label = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = 'Importing…';
-    try {
-      var r = await ENG.jsonp('importCalc', { token: (session() || {}).token });
-      if (!r || !r.ok) throw new Error((r && r.error) || 'import failed');
-      await loadPrograms();
-      if (r.skipped && r.skipped.length) {
-        console.info('[spiff] skipped tabs:', r.skipped);
-      }
-    } catch (err) {
-      console.error('[spiff] import failed:', err);
-      btn.textContent = 'Import failed — see console';
-      setTimeout(function () { btn.textContent = label; btn.disabled = false; }, 4000);
-      return;
-    }
-    btn.textContent = label;
-    btn.disabled = false;
-  }
-
   function wirePrograms() {
-    var b = $('#btnImportCalc');
-    if (b) b.addEventListener('click', function () { importCalculator(b); });
-
     /* "+ New program" was inert: the button has been in the markup since Programs was built
        and NO handler was ever attached to it (`git log -S btnNewProgram -- spiff.js` finds
        nothing). Creating a program only ever happened through the Calculator's "Save as

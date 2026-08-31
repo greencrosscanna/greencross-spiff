@@ -70,8 +70,6 @@ var GXCORE_URL = 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZ
 var REPORT_FOLDER_ID = '1c8Yj23OkEusskHylLKYzHsqPYIgAHP1t';
 
 // Seed sources — the two sheets this app replaces.
-var CALCULATOR_SHEET_ID   = '1ZtgWU9e5Dq3OPZlrf_cihbIMQnZfYaf7R5JfD0u8SHY';
-var SALES_REPORT_SHEET_ID = '1aYWKC5QTkgIK3I8DSMZR6o2yHRO8vGZiQUBcvshfNn8';
 
 var PROGRAMS_TAB = 'programs';
 var PROGRAM_HEADERS = [
@@ -169,8 +167,11 @@ function libVersion_() {
 var PUBLIC_ACTIONS = ['ping', 'diag', 'libversion', 'clientView', 'flyer'];
 
 /* Actions that additionally need an editor role. The rest of the write surface checks its own
-   role after this, because each has its own message about what the role cannot do. */
-var GATED_WRITES = ['importCalc'];
+   role after this, because each has its own message about what the role cannot do.
+   EMPTY since 2026-08-30: its only member was `importCalc`, and the Calculator-sheet import was
+   removed with the rest of the seed machinery. The gate stays because the next editor-only write
+   will want it, and re-deriving it from the auth flow is harder than leaving one empty list. */
+var GATED_WRITES = [];
 
 /* Returns null when the call may proceed, or the response to send when it may not. Forwards
    GX Core's stable `code` untouched so the browser can tell "no grant" from "expired". */
@@ -228,10 +229,6 @@ function doGet(e) {
       case 'libversion': out = libVersion_();                                        break;
       case 'programs':    out = { ok: true, programs: listProgramsCached_() };      break;
       case 'program':     out = getProgram_(p.id);                                  break;
-      case 'previewCalc': out = importCalculator_({ save: false });                 break;
-      // Writes ride on GET because the browser calls this cross-origin via JSONP —
-      // Apps Script serves no CORS headers for POST. Same pattern GX Core uses.
-      case 'importCalc':  out = importCalculator_({ save: true });                  break;
       /* Bug reports ride GET for the same reason. Signed in but NOT in GATED_WRITES —
          a viewer must be able to report. Files under app=spiff / tab=spiff; see reportBug_. */
       case 'bugreport':   out = reportBug_(p);                                      break;
@@ -244,10 +241,6 @@ function doGet(e) {
       case 'giftCards':   out = giftCardList_(p);                                   break;
       case 'clientView':  out = clientView_(p);                                     break;
       case 'shareLink':   out = shareLink_(p);                                      break;
-      case 'importDocs':  out = importDocs_(p);                                     break;
-      // Parse-only, no writes — lets the parser be verified against the real docs
-      // without a session. Reads no more than `programs` already exposes.
-      case 'previewDocs': out = previewDocs_(p);                                    break;
       case 'sellthrough': out = sellthrough_(p);                                    break;
       case 'catalog':     out = catalog_(p);                                        break;
       case 'refunits':    out = refUnits_(p);                                       break;
@@ -269,20 +262,6 @@ function doGet(e) {
         out = (String(p.secret || '') === PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP)
                && String(p.confirm || '') === 'yes')
               ? installSpiffProgressTrigger() : { ok: false, error: 'Unauthorized or missing confirm=yes' };
-        break;
-      /* ONE-TIME SEED, deploy-secret only. Delete with SEED_LEGACY_MAP when the Drive
-         connection is cut. seedDocs is importDocs without the session requirement (this runs
-         from the CLI, which holds no browser session) and defaults to a DRY RUN: it reports
-         what it would write and writes nothing unless confirm=yes. */
-      case 'seedDocs':
-        out = (String(p.secret || '') !== PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP))
-              ? { ok: false, error: 'Unauthorized' }
-              : seedDocs_(p);
-        break;
-      case 'seedCleanup':
-        out = (String(p.secret || '') !== PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP))
-              ? { ok: false, error: 'Unauthorized' }
-              : seedCleanup_(p);
         break;
       case 'payouts':     out = notImplemented_('payouts');                         break;
       case 'history':     out = { ok: true, programs: listPrograms_('closed') };    break;
@@ -313,7 +292,6 @@ function doPost(e) {
       return reply_({ ok: false, error: 'Your role (' + auth.role + ') cannot write SPIFF records' }, null);
     }
     switch (body.action) {
-      case 'importCalc':    out = importCalculator_({ save: true });  break;
       case 'saveProgram':   out = saveProgram_(body.program);         break;
       case 'editProgram':   out = editProgram_(body);                 break;
       case 'closeProgram':  out = notImplemented_('closeProgram');    break;
@@ -328,57 +306,6 @@ function doPost(e) {
   return reply_(out, null);
 }
 
-/* ========================= CALCULATOR IMPORT ========================
- * "Use google sheet as framework" — the 19 vendor tabs of the SPIFF
- * Calculator become program definitions.
- *
- * Parsing is by LABEL, not by cell address. The tabs drift: some carry
- * extra columns, multi-SKU programs add "Combined WS Cost" / "Average
- * Cost" rows, and one is spelled "Combioned Cost of all products". A
- * positional parser would silently mis-read those; a label scan doesn't.
- *
- * Each tab has two regions:
- *   • left  — the PLAN  (what we modelled with the vendor)
- *   • right — "SPIFF ROI", the ACTUALS (what the program did)
- * They share label names ('SPIFF', 'Investment', 'Unit Increase'), so
- * reads are scoped to a column window split at the 'SPIFF ROI' header.
- * ==================================================================== */
-
-function importCalculator_(opts) {
-  opts = opts || {};
-  var ss      = SpreadsheetApp.openById(CALCULATOR_SHEET_ID);
-  var stores  = gxStores_();
-  var sheets  = ss.getSheets();
-  var out = [], skipped = [];
-
-  for (var i = 0; i < sheets.length; i++) {
-    var parsed;
-    try {
-      parsed = parseCalcTab_(sheets[i], stores);
-    } catch (err) {
-      skipped.push({ tab: sheets[i].getName(), why: String(err && err.message || err) });
-      continue;
-    }
-    if (!parsed) { skipped.push({ tab: sheets[i].getName(), why: 'no SPIFF amount found — not a program tab' }); continue; }
-    out.push(parsed);
-  }
-
-  flagDuplicateActuals_(out);
-
-  var preserved = [];
-  if (opts.save) out.forEach(function (p) {
-    var r = saveProgram_(p, { fromImport: true });
-    if (r.preserved) preserved.push({ title: p.title, edited_by: r.edited_by });
-  });
-
-  return {
-    ok: true, imported: out.length, saved: !!opts.save, skipped: skipped,
-    preserved: preserved,   // hand-corrected rows the import deliberately left alone
-    suspect: out.filter(function (p) { return p.actual_json && p.actual_json.duplicate_of.length; })
-                .map(function (p) { return { title: p.title, shares_with: p.actual_json.duplicate_of }; }),
-    programs: out
-  };
-}
 
 function parseCalcTab_(sheet, stores) {
   var grid = sheet.getDataRange().getValues();
@@ -2157,560 +2084,38 @@ function authorize() {
   var report = { app: APP, ts: nowStamp_() };
   try { report.reportFolder = DriveApp.getFolderById(REPORT_FOLDER_ID).getName(); }
   catch (e) { report.reportFolder = 'ERR ' + e.message; }
-  try { report.calculator = SpreadsheetApp.openById(CALCULATOR_SHEET_ID).getName(); }
-  catch (e) { report.calculator = 'ERR ' + e.message; }
   try { report.stores = gxStores_().length + ' stores'; }
   catch (e) { report.stores = 'ERR ' + e.message; }
   Logger.log('Authorized. ' + JSON.stringify(report));
   return report;
 }
 
-/* ======================= SPIF DOCUMENTS (SOURCE OF TRUTH) ======================
- * Tawny's SPIF program docs in Drive — the staff-facing announcement for each program.
- * These are AUTHORITATIVE over the Calculator import, because they carry the two things
- * the Calculator never recorded:
+/* ═══ THE DRIVE IMPORTERS ARE GONE — cut 2026-08-30 ═══════════════════════════════════════
+ * This app is now the system of record. Both external readers lived here and were removed
+ * together the day the seed finished:
  *
- *   1. EXACT DATES. The filename ends "- 7.20.26-8.3.26". The Calculator only had a
- *      MMYY tab name, so program windows were previously inferred as calendar months —
- *      wrong enough that BeGOAT's live pull missed a third of its units.
- *   2. THE REAL INDIVIDUAL GOAL. Docs state store goal AND per-budtender goal, instead
- *      of us dividing a store target by whoever happened to sell.
+ *   the SPIF-doc importer   read Tawny's .docx program docs out of two Drive folders
+ *                           (Current + Archived) and parsed the window from the filename.
+ *   the Calculator importer read the "Green Cross SPIFF Calculator" spreadsheet's vendor tabs.
  *
- * Two layouts, both handled:
- *   • per-store  — "Location: Bend",  goals as Storewide Goal / Individual Target
- *   • all-stores — "Location: All Locations", one goals row per location
- * Per-store docs for the same program+period merge into ONE program record.
- * ============================================================================== */
-
-var SPIF_CURRENT_FOLDER  = '1oqbOo0caiYRQtN7WEQCZCO4bkK6FPW7b';
-var SPIF_ARCHIVE_FOLDER  = '1eXnl2CCYgRbWqfP_Kgy5F_WzSxM1Tayo';
-var DOCS_INDEX_PROP      = 'SPIF_DOC_INDEX';
-
-/* Build the file list once and stash it, so a chunked import has a stable cursor —
-   Drive iterators cannot be resumed across executions. */
-function docsIndex_(rebuild) {
-  var props = PropertiesService.getScriptProperties();
-  if (!rebuild) {
-    var cached = props.getProperty(DOCS_INDEX_PROP);
-    if (cached) { try { return JSON.parse(cached); } catch (e) {} }
-  }
-  var list = [];
-  [[SPIF_CURRENT_FOLDER, 'current'], [SPIF_ARCHIVE_FOLDER, 'archive']].forEach(function (pair) {
-    var it = DriveApp.getFolderById(pair[0]).getFiles();
-    while (it.hasNext()) {
-      var f = it.next();
-      list.push({ id: f.getId(), name: f.getName(), bucket: pair[1] });
-    }
-  });
-  list.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
-  props.setProperty(DOCS_INDEX_PROP, JSON.stringify(list));
-  return list;
-}
-
-/* ─── The program window, out of a hand-typed date range ──────────────────────────────────
- * These ranges are typed by a person, in a filename, 112 times. Three of them carry a slip,
- * and the parser used to require a literal '.' between every part:
+ * WHAT THE SEED DID, once, on 2026-08-30. All 113 docs became 23 `programs` rows carrying
+ * their REAL windows and real per-budtender goals. The 21 Calculator-era rows they replaced
+ * had their cost / baseline / actuals merged forward onto the corrected window and were then
+ * deleted. `programs` ended at 25 rows: those 23, plus `wyld-0626` (a Calculator program with
+ * no doc — the docs were never a superset) and Sky`s `green-cross-test-202608`.
  *
- *   3.16.26-3.29-26     a '-' where the last '.' belongs
- *   3.16.26-3.29-.26    the same, plus a stray '.'
- *   8.31.26-9.1326      a missing '.' entirely  (the CURRENT Mule program)
+ * WHY THE CODE IS NOT KEPT "just in case". The Calculator inferred each window from a tab
+ * named MMYY, so its rows read 2025-08-01..08-31 where the doc says 08-18..08-31 — wrong
+ * enough that BeGOAT`s live pull once missed a third of its units. Every one of those rows is
+ * now gone, which means re-running either importer would not top up History, it would ADD a
+ * second, worse copy of it beside the good one. A dormant button that silently undoes a
+ * finished migration is a worse thing to leave behind than a gap in the git history.
  *
- * So the separator INSIDE a date is [.-]+, not '.'. That is unambiguous even though '-' also
- * separates the two dates: each date is exactly three numbers, so the engine can only read
- * '3.29-26' one way. What stays strict is the SHAPE — three numbers per date, two dates —
- * and the anchor, so a stray number in a program title cannot be mistaken for a window.
- *
- * A missing separator (9.1326) is genuinely unrecoverable from the filename, because 9.1326
- * could be the 13th or the 1st. That one is rescued from the document BODY instead — see
- * parseDocFallback_. Not guessed. */
-var DOC_DATE_  = '(\\d{1,2})[.\\-]+(\\d{1,2})[.\\-]+(\\d{2})';
-var DOC_RANGE_ = DOC_DATE_ + '\\s*[-\u2013\u2014]\\s*[.\\-]*' + DOC_DATE_;
-
-function ymdParts_(mo, d, y) {
-  mo = Number(mo); d = Number(d); y = Number(y);
-  if (!(mo >= 1 && mo <= 12) || !(d >= 1 && d <= 31)) return '';
-  return (2000 + y) + '-' + pad2_(mo) + '-' + pad2_(d);
-}
-
-/* anchored: only a range at the very END counts (filenames). Unanchored for a body line,
-   where "SPIF Period: 8.31.26-9.13.26 Location: All Locations" has text after it. */
-function dateRange_(s, anchored) {
-  var m = String(s).match(new RegExp(DOC_RANGE_ + (anchored ? '\\s*$' : '')));
-  if (!m) return null;
-  var start = ymdParts_(m[1], m[2], m[3]), end = ymdParts_(m[4], m[5], m[6]);
-  if (!start || !end) return null;
-  return { start: start, end: end, index: m.index };
-}
-
-/* Split "Bend - Kaprikorn Spiff" into a store and a program, when the head names a store
-   we recognise. Shared by both the filename and the body-fallback paths. */
-function splitStoreHead_(head, stores) {
-  var store = '', program = String(head).replace(/[\s-]+$/, '').trim();
-  var dash = program.indexOf(' - ');
-  if (dash > 0) {
-    var maybe = matchStore_(program.slice(0, dash), stores);
-    if (maybe) { store = maybe; program = program.slice(dash + 3).trim(); }
-  }
-  return { store: store, program: program };
-}
-
-function docBaseName_(name) {
-  return String(name).replace(/\.(docx?|pdf)$/i, '').replace(/^Copy of\s+/i, '').trim();
-}
-
-/* "Bend - Kaprikorn Spiff - 4.13.26-4.26.26.docx"
-   -> { store:'bend', program:'Kaprikorn Spiff', start:'2026-04-13', end:'2026-04-26' } */
-function parseDocName_(name, stores) {
-  var n = docBaseName_(name);
-  var r = dateRange_(n, true);
-  if (!r) return null;
-  var head = splitStoreHead_(n.slice(0, r.index), stores);
-  return { store: head.store, program: head.program, start: r.start, end: r.end };
-}
-
-/* LAST RESORT, when the filename's window is unreadable. The body states the period and the
-   location in its own right, so a filename typo need not cost the whole document — the Mule
-   program's body reads 8.31.26-9.13.26 where its filename reads 9.1326.
- *
- * The body is not preferred over the filename, only consulted when the filename fails: the
- * two disagree in the other direction too (the River Hellavated doc carries the SAME typo in
- * its body), and quietly switching sources would move which one wins for all 113 docs. */
-function parseDocFallback_(name, text, stores) {
-  var r = dateRange_(afterLabel_(text, 'SPIF Period'), false);
-  if (!r) return null;
-
-  // Strip the trailing (unreadable) date blob off the filename to leave the title.
-  var n = docBaseName_(name).replace(/[\s\-]*[\d.\-]+\s*$/, '');
-  var head = splitStoreHead_(n, stores);
-
-  /* The body names the location too. "All Locations" matches no store and correctly leaves
-     this blank, which is what routes it to the all-locations goals table. */
-  var store = head.store || (matchStore_(afterLabel_(text, 'Location'), stores) || '');
-  return { store: store, program: head.program, start: r.start, end: r.end };
-}
-
-// "4.13.26" -> "2026-04-13"  (TEXT, never a Date object)
-function mdy_(s) {
-  var p = String(s).split('.');
-  if (p.length !== 3) return '';
-  var mo = Number(p[0]), d = Number(p[1]), y = Number(p[2]);
-  if (!(mo >= 1 && mo <= 12) || !(d >= 1 && d <= 31)) return '';
-  return (2000 + y) + '-' + pad2_(mo) + '-' + pad2_(d);
-}
-
-/* These are real .docx files, not Google Docs — Tawny writes them in Word and they were
-   never converted. DocumentApp cannot open one, and reading the blob as a string just
-   returns zip bytes. Converting via Drive would cost a copy + export + delete per file
-   (three API calls x 112 docs); unzipping in place costs one read.
-
-   A .docx IS a zip, and word/document.xml holds the content. Table cells and paragraphs
-   are turned back into pipes and newlines so the same parser handles both these and the
-   Google-Doc export format. */
-function docText_(id) {
-  var file = DriveApp.getFileById(id);
-  var type = file.getMimeType();
-
-  if (type === MimeType.GOOGLE_DOCS) {
-    try { return DocumentApp.openById(id).getBody().getText(); } catch (e) { return ''; }
-  }
-  return docxText_(file);
-}
-
-function docxText_(file) {
-  try {
-    var blob = file.getBlob().setContentType('application/zip');
-    var parts = Utilities.unzip(blob);
-    for (var i = 0; i < parts.length; i++) {
-      if (parts[i].getName() !== 'word/document.xml') continue;
-      var xml = parts[i].getDataAsString();
-      return xml
-        .replace(/<w:tab[^>]*\/>/g, ' ')
-        .replace(/<\/w:tc>/g, ' | ')      // cell boundary -> the pipe the parser expects
-        .replace(/<\/w:tr>/g, '\n')
-        .replace(/<\/w:p>/g, '\n')
-        .replace(/<[^>]+>/g, '')          // drop every remaining tag
-        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
-        .replace(/[ \t]+/g, ' ')
-        // Each cell carries its own paragraph, so a row arrives as
-        //   "Storewide Goal\n | Total units...\n | 48\n | "
-        // Pull the pipes back onto one line or no row ever forms.
-        .replace(/\n\s*\|/g, ' |')
-        .replace(/\n{3,}/g, '\n\n');
-    }
-    return '';
-  } catch (e) {
-    return '';
-  }
-}
-
-function afterLabel_(text, label) {
-  var re = new RegExp('\\b' + label + '\\s*:\\s*([^\\n|]*)', 'i');
-  var m = text.match(re);
-  return m ? m[1].trim() : '';
-}
-
-/* Pull the goals out of either layout. Returns { by_store:{}, per_bt:{}, location } */
-function parseDocGoals_(text, doc, stores) {
-  var out = { by_store: {}, per_bt: {} };
-  var lines = text.split('\n');
-
-  // all-locations: "Bend | 330 | 55"
-  for (var i = 0; i < lines.length; i++) {
-    var cells = lines[i].split('|').map(function (c) { return c.trim(); }).filter(function (c) { return c !== ''; });
-    if (cells.length < 3) continue;
-    var sid = matchStore_(cells[0], stores);
-    if (!sid) continue;
-    var storeGoal = num_(cells[1]), indGoal = num_(cells[2]);
-    if (!storeGoal && !indGoal) continue;
-    out.by_store[sid] = storeGoal;
-    out.per_bt[sid]   = indGoal;
-  }
-  if (Object.keys(out.by_store).length) return out;
-
-  // per-store: "Storewide Goal | … | 84" and "Individual Target | … | 14"
-  var storeGoal = 0, indGoal = 0;
-  lines.forEach(function (ln) {
-    var cells = ln.split('|').map(function (c) { return c.trim(); });
-    var joined = cells.join(' ').toLowerCase();
-    var last = num_(cells[cells.length - 2] || cells[cells.length - 1]);
-    if (/storewide goal/.test(joined) && last) storeGoal = last;
-    if (/individual target/.test(joined) && last) indGoal = last;
-  });
-  if (!indGoal) indGoal = num_(afterLabel_(text, 'Sales Requirement'));
-
-  if (doc.store && (storeGoal || indGoal)) {
-    out.by_store[doc.store] = storeGoal;
-    out.per_bt[doc.store]   = indGoal;
-  }
-  return out;
-}
-
-function parseSpifDoc_(file, stores) {
-  /* Read the body BEFORE giving up on the name: a filename whose window is mistyped is still
-     a real program, and the body states the period in its own right. Costs nothing extra —
-     every doc that parses reads its body on the next line anyway. */
-  var text = docText_(file.id);
-  if (!text) return null;
-
-  var doc = parseDocName_(file.name, stores) || parseDocFallback_(file.name, text, stores);
-  if (!doc) return null;
-
-  var goals = parseDocGoals_(text, doc, stores);
-  var products = {
-    name:     afterLabel_(text, 'Product Name'),
-    category: afterLabel_(text, 'Category'),
-    sku:      afterLabel_(text, 'SKU')
-  };
-  // The eligible-products row is one table line; split it back apart.
-  var prodLine = (text.split('\n').filter(function (l) { return /Product Name:/i.test(l); })[0] || '');
-  if (prodLine.indexOf('|') >= 0) {
-    prodLine.split('|').forEach(function (cell) {
-      var c = cell.trim();
-      if (/^Product Name:/i.test(c)) products.name     = c.replace(/^Product Name:\s*/i, '').trim();
-      if (/^Category:/i.test(c))     products.category = c.replace(/^Category:\s*/i, '').trim();
-      if (/^SKU:/i.test(c))          products.sku      = c.replace(/^SKU:\s*/i, '').trim();
-    });
-  }
-
-  var reward = afterLabel_(text, 'Reward');
-  var payout = (text.match(/gift cards on\s+(\d{1,2}\.\d{1,2}\.\d{2})/i) || [])[1] || '';
-
-  // Not every program is a flat bounty. "Reward: $1 for every unit sold" is a real
-  // per-unit program (Hapy Kitchen, Feb 2026) — the Calculator flattened it, which is
-  // why the imported history looked uniformly flat. Read the payout model off the doc.
-  var perUnit = reward.match(/\$\s*(\d+(?:\.\d+)?)\s*(?:for|per)\s+(?:every\s+)?unit/i);
-  var payoutType = perUnit ? 'per_unit' : 'flat';
-  var payoutJson = perUnit ? { per_unit: Number(perUnit[1]) } : { amount: num_(reward) };
-
-  var vendorName = afterLabel_(text, 'Vendor Name');
-
-  return {
-    key: slug_((vendorName || doc.program) + '-' + doc.start + '-' + doc.end),
-    program: doc.program,
-    store: doc.store,
-    start: doc.start,
-    end: doc.end,
-    bucket: file.bucket,
-    vendor: afterLabel_(text, 'Vendor Name'),
-    notes: afterLabel_(text, 'Vendor Notes'),
-    products: products,
-    reward: reward,
-    reward_amount: num_(reward),
-    payout_type: payoutType,
-    payout_json: payoutJson,
-    payout_date: payout ? mdy_(payout) : '',
-    goals: goals,
-    doc_id: file.id,
-    doc_name: file.name
-  };
-}
-
-function previewDocs_(p) {
-  var index  = docsIndex_(String(p.rebuild) === '1');
-  var start  = Number(p.start) || 0;
-  var count  = Math.min(Number(p.count) || 8, 20);
-  var stores = gxStores_();
-  var out = [], skipped = [];
-  index.slice(start, start + count).forEach(function (f) {
-    var d = null;
-    try { d = parseSpifDoc_(f, stores); } catch (e) { skipped.push({ name: f.name, why: String(e.message || e) }); return; }
-    if (!d) { skipped.push({ name: f.name, why: 'unparsed' }); return; }
-    if (String(p.raw) === '1') d.raw_text = docText_(f.id).slice(0, 2500);
-    out.push(d);
-  });
-  return { ok: true, total: index.length, start: start, docs: out, skipped: skipped };
-}
-
-/* Chunked because Drive reads are slow and /exec dies near 60s. The client walks the
-   cursor; each call reports exactly where it got to. */
-function importDocs_(p) {
-  var auth = gxAuth_(p.token);
-  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
-  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) return { ok: false, error: 'Your role cannot import' };
-
-  var index  = docsIndex_(String(p.rebuild) === '1');
-  var start  = Number(p.start) || 0;
-  var count  = Math.min(Number(p.count) || 12, 25);
-  var slice  = index.slice(start, start + count);
-  var stores = gxStores_();
-
-  var parsed = [], skipped = [];
-  slice.forEach(function (f) {
-    var d = null;
-    try { d = parseSpifDoc_(f, stores); } catch (e) { skipped.push({ name: f.name, why: String(e.message || e) }); return; }
-    if (!d) { skipped.push({ name: f.name, why: 'could not read name or body' }); return; }
-    parsed.push(d);
-  });
-
-  var saved = mergeDocsIntoPrograms_(parsed, auth.user);
-
-  return {
-    ok: true, total: index.length, start: start, processed: slice.length,
-    next: (start + count < index.length) ? start + count : null,
-    parsed: parsed.length, saved: saved, skipped: skipped
-  };
-}
-
-/* The seed's own entry point. Same chunking as importDocs_ (Drive reads are slow and /exec
-   dies near 60s), but secret-gated instead of session-gated, and dry by default so the plan
-   can be read before anything is written. */
-function seedDocs_(p) {
-  var write  = String(p.confirm || '') === 'yes';
-  var index  = docsIndex_(String(p.rebuild) === '1');
-  var start  = Number(p.start) || 0;
-  var count  = Math.min(Number(p.count) || 12, 25);
-  var slice  = index.slice(start, start + count);
-  var stores = gxStores_();
-
-  var parsed = [], skipped = [];
-  slice.forEach(function (f) {
-    var d = null;
-    try { d = parseSpifDoc_(f, stores); } catch (e) { skipped.push({ name: f.name, why: String(e.message || e) }); return; }
-    if (!d) { skipped.push({ name: f.name, why: 'could not read name or body' }); return; }
-    parsed.push(d);
-  });
-
-  var saved = write ? mergeDocsIntoPrograms_(parsed, 'seed') : planDocsMerge_(parsed);
-
-  return {
-    ok: true, dry_run: !write, total: index.length, start: start, processed: slice.length,
-    next: (start + count < index.length) ? start + count : null,
-    parsed: parsed.length, saved: saved, skipped: skipped
-  };
-}
-
-/* What mergeDocsIntoPrograms_ WOULD do, without touching the sheet. Reports the legacy row
-   each program would inherit from, so the mapping can be checked before the write. */
-function planDocsMerge_(docs) {
-  var groups = Object.create(null);
-  docs.forEach(function (d) { (groups[d.key] = groups[d.key] || []).push(d); });
-  return Object.keys(groups).map(function (key) {
-    var list = groups[key], first = list[0];
-    var stores = Object.create(null);
-    list.forEach(function (d) { Object.keys(d.goals.by_store).forEach(function (x) { stores[x] = 1; }); });
-    var legacyId = SEED_LEGACY_MAP[key] || '';
-    var own = getProgram_(key), legacy = legacyId ? getProgram_(legacyId) : { ok: false };
-    return {
-      program_id: key, name: first.program, start: first.start, end: first.end,
-      status: first.bucket === 'current' ? 'draft' : 'closed',
-      stores: Object.keys(stores), docs: list.length,
-      exists_already: !!own.ok,
-      inherits_from: (!own.ok && legacy.ok) ? legacyId : '',
-      inherits_actuals: (!own.ok && legacy.ok && !!legacy.program.actual_json)
-    };
-  });
-}
-
-/* Per-store docs of one program merge into a single record. Docs win on dates and goals;
-   anything the Calculator knew that a doc doesn't mention (cost, baseline) is kept. */
-/* ══ ONE-TIME SEED SCAFFOLDING ═══════════════════════════════════════════════════════════
- * DELETE this block and the seedDocs / seedCleanup routes when the Drive connection is cut.
- * CLAUDE.md is explicit that the docs are a one-time seed and never a sync; this is the
- * machinery for that single run, not a feature.
- *
- * THE PROBLEM IT SOLVES. The Calculator-era rows and the doc-derived programs are the SAME
- * programs under different ids and different windows. The Calculator inferred a window from
- * a sheet tab named MMYY, so `national-0825` reads 2025-08-01..08-31 where its doc says
- * 08-18..08-31. Keying the import off the doc id therefore matches nothing, creates a second
- * row, and strands the Calculator`s cost_json / baseline_json / actual_json -- the only record
- * of what a program actually RETURNED -- on the row with the wrong window. Import without
- * this map and History ends up 46 rows: every vendor twice, goals on one, results on the other.
- *
- * WHY IT IS WRITTEN OUT AND NOT COMPUTED. Vendor + window overlap cannot separate the two March
- * Hellavated programs (the Calculator stored both as the same calendar month) or the two Mule
- * rows (one carries no window at all). A one-time irreversible merge is the wrong place for a
- * heuristic, so every pair below was confirmed against program_name AND target units:
- *   hellavated-0326    "Hellavated Joints"           198 == doc "Hellavated Joint Spiff"      198
- *   hellavated-2-0326  "Hellavated Carts & Dispos"   780 ~= doc "Hellavated Cart & Dispo Spiff" 762
- *   mule-extracts-1025 "Mule Extracts Dank Tanks 2g"    == doc "Mule Extracts 2g Dank Tanks"
- *   mule-extracts      "Mule Extracts" (no window)      == doc "Mule Extracts Glass Cart Spiff"
- *
- * DELIBERATELY NOT MAPPED:
- *   green-cross-2025-08-11-2025-08-17    a real program (confirmed by Sky) the Calculator
- *                                        never held -- it imports fresh from its doc.
- *   mule-extracts-2026-08-31-2026-09-13  starts 2026-08-31; has never run.
- *   wyld-0626                            a Calculator program with NO doc. Left exactly as
- *                                        it is -- the docs are not a superset.
- *   green-cross-test-202608              Sky`s own test row. Not ours to touch.
+ * If it ever has to come back: `git show db7a4c5:apps-script/Code.gs` (shipped as v1.322) is the last revision
+ * that had all of it, seed map included, and CLAUDE.md records what the seed could not
+ * supply (green-cross-2025-08-11 has no actuals; hapy-kitchen kept the Calculator`s targets).
  * ═══════════════════════════════════════════════════════════════════════════════════════ */
-var SEED_LEGACY_MAP = {
-  'national-cannabis-co-2025-08-18-2025-08-31': 'national-0825',
-  'meraki-gardens-2025-09-01-2025-09-14':       'meraki-0925',
-  'gron-2025-09-15-2025-09-28':                 'gron-0925',
-  'verdant-leaf-2025-09-29-2025-10-12':         'verdant-leaf-1025',
-  'killa-beez-2025-10-13-2025-10-26':           'killa-beez-1025',
-  'mule-extracts-2025-10-27-2025-11-09':        'mule-extracts-1025',
-  'national-cannabis-co-2025-11-10-2025-11-23': 'national-1125',
-  'kaprikorn-2025-11-24-2025-12-07':            'kaprikorn-1125',
-  'meraki-gardens-2025-12-08-2025-12-21':       'meraki-1225',
-  'magic-number-2026-01-05-2026-01-18':         'magic-number-0126',
-  'mule-extracts-2026-01-19-2026-02-01':        'mule-extracts',
-  'freshy-2026-02-02-2026-02-15':               'freshy-0226',
-  'hapy-kitchen-2026-02-16-2026-03-01':         'hapy-kitchen',
-  'hellavated-2026-03-02-2026-03-15':           'hellavated-0326',
-  'hellavated-2026-03-16-2026-03-29':           'hellavated-2-0326',
-  'portland-heights-2026-03-30-2026-04-12':     'portland-heights-0326',
-  'kaprikorn-2026-04-13-2026-04-26':            'kaprikorn-0426',
-  'freshy-2026-06-08-2026-06-21':               'freshy-0626',
-  'buddies-2026-06-22-2026-07-19':              'buddies-0626-0726',
-  'begoat-2026-07-20-2026-08-03':               'begoat-0826',
-  'drops-2026-08-03-2026-08-18':                'drops-0826'
-};
 
-/* Remove a program row outright. Only the seed cleanup uses this -- nothing in the app
-   deletes a program, and nothing should: History is the point of the app. */
-function deleteProgram_(id) {
-  var sh = dataSheet_(), last = sh.getLastRow();
-  if (last < 2) return false;
-  var rows  = sh.getRange(2, 1, last - 1, PROGRAM_HEADERS.length).getValues();
-  var idCol = PROGRAM_HEADERS.indexOf('program_id');
-  for (var i = 0; i < rows.length; i++) {
-    if (String(rows[i][idCol]) !== String(id)) continue;
-    sh.deleteRow(i + 2);
-    invalidatePrograms_();
-    return true;
-  }
-  return false;
-}
-
-/* Delete the Calculator rows the seed has superseded. Refuses to touch one whose doc-derived
-   replacement is not actually present, so a half-finished seed cannot lose the only copy. */
-function seedCleanup_(p) {
-  var doIt = String(p.confirm || '') === 'yes';
-  var plan = [];
-  Object.keys(SEED_LEGACY_MAP).forEach(function (docKey) {
-    var legacyId = SEED_LEGACY_MAP[docKey];
-    var replacement = getProgram_(docKey);
-    var legacy = getProgram_(legacyId);
-    if (!legacy.ok) { plan.push({ legacy: legacyId, action: 'already gone' }); return; }
-    if (!replacement.ok) { plan.push({ legacy: legacyId, action: 'KEPT — ' + docKey + ' not imported yet' }); return; }
-    plan.push({ legacy: legacyId, action: doIt ? (deleteProgram_(legacyId) ? 'deleted' : 'not found') : 'would delete',
-                superseded_by: docKey });
-  });
-  return { ok: true, confirmed: doIt, plan: plan };
-}
-
-function mergeDocsIntoPrograms_(docs, user) {
-  var groups = Object.create(null);   // keyed off doc filenames — external, so no prototype
-  docs.forEach(function (d) { (groups[d.key] = groups[d.key] || []).push(d); });
-
-  var out = [];
-  Object.keys(groups).forEach(function (key) {
-    var list = groups[key], first = list[0];
-
-    var by_store = Object.create(null), per_bt = Object.create(null), docIds = [], docNames = [];
-    list.forEach(function (d) {
-      Object.keys(d.goals.by_store).forEach(function (s) { by_store[s] = d.goals.by_store[s]; });
-      Object.keys(d.goals.per_bt).forEach(function (s) { per_bt[s] = d.goals.per_bt[s]; });
-      docIds.push(d.doc_id); docNames.push(d.doc_name);
-    });
-
-    /* SEED: when this doc program has no row yet, inherit the Calculator row it replaces,
-       so cost_json / baseline_json / actual_json survive the move onto the correct window.
-       program_id is overwritten with the doc key just below, so the old row is superseded
-       rather than edited in place -- seedCleanup_ removes it once the new one exists. */
-    var existing = getProgram_(key);
-    if (!existing.ok && SEED_LEGACY_MAP[key]) existing = getProgram_(SEED_LEGACY_MAP[key]);
-    var prog = existing.ok ? existing.program : {
-      program_id: key, payout_type: 'flat', cost_json: {}, baseline_json: {}, actual_json: null
-    };
-
-    /* ACCUMULATE, never replace. The doc index is sorted by FILENAME, so "Bend - <program>"
-       sorts next to every other Bend doc rather than next to its own program's other five
-       stores -- one program's six store-docs land in six different chunks. Replacing
-       by_store per chunk therefore left each per-store program holding whichever single
-       store happened to be processed last. Merging makes the chunk boundary invisible, which
-       is the only way a chunked import of per-store docs can be correct. */
-    var prevTarget = prog.target_json || {};
-    by_store = Object.assign({}, prevTarget.by_store || {}, by_store);
-    per_bt   = Object.assign({}, prevTarget.per_bt   || {}, per_bt);
-
-    var totalUnits = 0;
-    Object.keys(by_store).forEach(function (s) { totalUnits += Number(by_store[s]) || 0; });
-
-    prog.program_id   = key;
-    prog.program_name = first.program;
-    prog.title        = first.program;
-    prog.vendor       = first.vendor || prog.vendor || '';
-    prog.start_date   = first.start;
-    prog.end_date     = first.end;
-    prog.pay_period   = first.payout_date || prog.pay_period || '';
-    /* DRAFT, not active. A doc in the Current folder is a program Tawny has written up,
-       not one anyone has checked -- and `active` is read straight through to GX Crew's SPIFF
-       column and the Leaderboard kiosks by ?action=progress&status=active. Importing the Mule
-       program as active would have put it on staff cards the morning it started, before a
-       human had looked at a single goal. Flipping draft -> active stays a deliberate click. */
-    prog.status       = first.bucket === 'current' ? 'draft' : 'closed';
-    prog.payout_type  = first.payout_type || 'flat';
-    prog.payout_json  = first.payout_type === 'per_unit'
-      ? first.payout_json
-      : { amount: first.reward_amount || (prog.payout_json || {}).amount || 0 };
-    prog.target_json  = Object.assign({}, prog.target_json || {}, {
-      units: totalUnits || (prog.target_json || {}).units || 0,
-      by_store: by_store, per_bt: per_bt
-    });
-    prog.stores_json  = Object.keys(by_store);
-    prog.match_json   = {
-      brand: first.vendor || '',
-      category: (first.products.category || '').replace(/^All Categories$/i, ''),
-      filter_text: '',
-      products: (first.products.name && !/^All Products$/i.test(first.products.name))
-        ? first.products.name.split(/,\s*/).slice(0, 4) : []
-    };
-    prog.doc_json = {
-      notes: first.notes, reward: first.reward, sku: first.products.sku,
-      product_name: first.products.name, category: first.products.category,
-      doc_ids: docIds, doc_names: docNames, location_docs: list.length
-    };
-    prog.source = 'spif-doc:' + first.doc_name;
-
-    saveProgram_(prog, { editedBy: user });
-    out.push({ program_id: key, name: first.program, start: first.start, end: first.end,
-               stores: prog.stores_json.length, docs: list.length });
-  });
-  return out;
-}
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * PRODUCT CATALOG — the featured product a program is actually about.
