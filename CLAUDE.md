@@ -152,6 +152,28 @@ enforces the same rule server-side — that one is the real gate, since any curl
 single-sourced from the `?v=` cache-buster on the `spiff.js` tag in `index.html`. Bump that number and
 run `./deploy.sh` after each ship, so releases show up in `version_history`.
 
+**"Each ship" includes a BACKEND-ONLY ship** — an engine change, a GXCore re-pin, anything that never
+touches `index.html`. *Decided 2026-08-30 by Sky, after this drifted for ten commits.* The `?v=` is the
+**app's release number** that happens to be stored in a cache-buster, not a statement about the
+frontend; the line above already says one number covers the whole app. `deploy.sh` extracts it from
+`HEAD:index.html`, so a backend ship with no bump gives it nothing new to find, it records nothing, and
+**it says nothing while doing so** — there is no error, because from its side there is no new release.
+
+That is how `app_versions` came to claim spiff's latest release was `v1.319 / 117a459` while the live
+engine ran ten commits later, including the `status` field on progress rows that GX Crew and
+Leaderboard consume. Nothing was broken; the log was just quietly wrong about what was live, in the
+one place you would go to check.
+
+So: **bump `?v=` and run `./deploy.sh` even when no frontend file changed.** The whole cost is a no-op
+re-fetch of `spiff.js` on the next load. Pass `GX_NOTES="…"` — for a backend ship the version number is
+all a reader gets otherwise, and most rows in the log already have empty notes.
+
+Note the two axes do not line up and are not meant to: `version_history` tracks the **app** version
+(`v1.320`), while the engine has its own **clasp deployment** version (`@71`), visible from
+`clasp list-deployments` and via `./gxpins.sh` for the library pin. Recording the app version is what
+ties a `git_sha` to what is live; the clasp number is not expressible in the `vMAJOR.BBB` format
+`gxRecordVersion` enforces, so don't try to file it as one.
+
 `deploy.sh` reads MAJOR.BBB correctly as of gx-theme's 2026-08-23 fix — run it normally. It briefly
 could not: the old extractor stopped at the dot and filed `?v=1.28` as **`v1`**, silently, with a success
 line, so v1.28 was recorded by hand. That workaround is retired.
