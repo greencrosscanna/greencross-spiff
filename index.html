@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.335"/>
-<link rel="stylesheet" href="spiff.css?v=1.335"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.336"/>
+<link rel="stylesheet" href="spiff.css?v=1.336"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -264,6 +264,26 @@
         your number instead. Goals divide by that store&rsquo;s own budtender count, which is why the count is
         editable here rather than assumed even, and <b>BT unit increase</b> is the ask each budtender actually
         hears. A new store joins by appearing in the GX Core registry &mdash; the table grows with it.</p>
+
+      <!-- ---- THE RECORD, ON THE SAME SCREEN AS THE MODEL ----
+           Everything the Calculator has no view of: status, the pay-period window, the vendor
+           contact, what actually sold, and the vendor link. Rendered by the SAME function that
+           fills the record modal, into a different host — two copies of this form would be two
+           answers to "what is this program", and the weaker one wins whenever it is the one
+           somebody happens to open.
+           Only ONE of the two hosts is mounted at a time; see syncRecordMount. -->
+      <div id="calcRecordWrap" hidden>
+        <div class="sp-h4-row">
+          <h4 class="sp-h4">This program</h4>
+          <span class="sp-h4-note">identity, dates, contact and actuals &mdash; saved separately from the model above</span>
+        </div>
+        <div id="calcRecordBody"></div>
+        <div class="sp-rec-foot">
+          <span class="modal-msg" id="calcRecordMsg"></span>
+          <button class="gx-btn gx-btn-green" id="calcRecordSave" hidden>Save program details</button>
+          <button class="gx-btn" id="calcRecordSignIn" hidden>Sign in to edit</button>
+        </div>
+      </div>
     </section>
 
     <!-- ============ PROGRESS ============ -->
@@ -371,6 +391,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="spiff.js?v=1.335"></script>
+<script src="spiff.js?v=1.336"></script>
 </body>
 </html>

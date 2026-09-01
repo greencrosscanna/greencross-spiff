@@ -383,6 +383,7 @@
     if (calcPicker) { calcPicker.setChosen(null); calcPicker.setVendorSilently(''); }
     renderCalcEditing();
     applyCalcLock();
+    syncRecordMount();
     showTab('calculator');
     recalc();
     $('#cName').focus();
@@ -853,8 +854,15 @@
     $('#recordCancel').addEventListener('click', closeRecord);
     $('#recordBack').addEventListener('click', function (e) { if (e.target.id === 'recordBack') closeRecord(); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeRecord(); });
-    $('#recordSignIn').addEventListener('click', renderSignIn);
-    $('#recordSave').addEventListener('click', saveRecord);
+    /* BOTH hosts' buttons, wired once at startup by their literal ids — recCtx says where the
+       form is mounted RIGHT NOW, which at wiring time is always the modal, so routing this
+       through it would leave the inline Save dead. Same handlers either way: they read whichever
+       host is mounted, so there is one save path rather than two that can drift. */
+    [REC_MODAL, REC_INLINE].forEach(function (ctx) {
+      var save = $(ctx.save), signIn = $(ctx.signIn);
+      if (save)   save.addEventListener('click', saveRecord);
+      if (signIn) signIn.addEventListener('click', renderSignIn);
+    });
   }
 
   /* ------------------------------------------------------------- the record */
@@ -978,20 +986,70 @@
       $('#recordSub').textContent = 'SPIFF records are edited by Tawny and Sky.';
       // The record modal's Close button is redundant beside the corner x on the sign-in view.
       var closeBtn = $('#recordCancel'); if (closeBtn) closeBtn.hidden = true;
-      $('#recordMsg').textContent = '';
+      $(recCtx.msg).textContent = '';
       $('#recordBack').hidden = false;
       renderSignIn();
     });
+  }
+
+  /* ── ONE RECORD EDITOR, TWO PLACES IT CAN LIVE ────────────────────────────────────────────
+     The record form is rendered by a single function into whichever host is mounted: the modal,
+     or the section under the Calculator. Deliberately not two renderers — this screen already
+     paid for that once, when the record panel carried a flatter copy of the plan and the two
+     disagreed about what a program was.
+
+     ONLY ONE HOST IS MOUNTED AT A TIME. The form creates ids (#rPPFrom, #rActuals, #btnShare)
+     and the collector reads them back by id, so a second live copy would have the collector
+     reading one form and the user typing into the other. syncRecordMount is the only thing that
+     decides which is up. */
+  var REC_MODAL  = { body: '#recordBody',     msg: '#recordMsg',
+                     save: '#recordSave',     signIn: '#recordSignIn',     inline: false };
+  var REC_INLINE = { body: '#calcRecordBody', msg: '#calcRecordMsg',
+                     save: '#calcRecordSave', signIn: '#calcRecordSignIn', inline: true };
+  var recCtx = REC_MODAL;
+
+  function modalIsOpen() {
+    var back = $('#recordBack');
+    return !!(back && !back.hidden);
+  }
+
+  /* Mount the inline record under the Calculator when it is editing a real program and the modal
+     is not up; unmount it otherwise. Called after anything that changes either condition. */
+  function syncRecordMount() {
+    var wrap = $('#calcRecordWrap'), body = $(REC_INLINE.body);
+    if (!wrap || !body) return;
+    var p = calc.editingId
+      ? (state.programs || []).filter(function (x) { return x.program_id === calc.editingId; })[0]
+      : null;
+    if (modalIsOpen() || !p) {
+      /* Emptied, not just hidden — a hidden copy still answers $('#rPPFrom') and would silently
+         become the one the collector reads. */
+      body.innerHTML = '';
+      wrap.hidden = true;
+      if (recCtx === REC_INLINE) recCtx = REC_MODAL;
+      return;
+    }
+    recCtx = REC_INLINE;
+    state.record = p;
+    wrap.hidden = false;
+    renderRecord(p);
   }
 
   function openRecord(id) {
     var p = state.programs.filter(function (x) { return x.program_id === id; })[0];
     if (!p) return;
     var closeBtn = $('#recordCancel'); if (closeBtn) closeBtn.hidden = false;   // hidden by the sign-in view
+    /* Take the mount away from the inline copy BEFORE rendering, or both forms answer the same
+       id lookups and the collector reads whichever the DOM happens to hand it first. */
+    recCtx = REC_MODAL;
+    var inlineBody = $(REC_INLINE.body);
+    if (inlineBody) inlineBody.innerHTML = '';
+    var inlineWrap = $('#calcRecordWrap');
+    if (inlineWrap) inlineWrap.hidden = true;
     state.record = p;
     $('#recordTitle').textContent = p.program_name || p.title;
     $('#recordSub').textContent = p.vendor + ' · tab "' + p.title + '"' + (p.source ? ' · ' + p.source : '');
-    $('#recordMsg').textContent = '';
+    $(recCtx.msg).textContent = '';
     renderRecord(p);
     $('#recordBack').hidden = false;
   }
@@ -999,6 +1057,8 @@
   function closeRecord() {
     $('#recordBack').hidden = true;
     state.record = null;
+    /* Hand the mount back to the Calculator if it is still editing something. */
+    syncRecordMount();
   }
 
   function field(label, key, value, type) {
@@ -1132,14 +1192,20 @@
         + 'set by pay period. Picking periods below will replace these dates.</div>';
     }
 
-    $('#recordBody').innerHTML = warn
+    $(recCtx.body).innerHTML = warn
       + '<h4 class="sp-h4">The program</h4>'
       + '<div class="sp-flds">'
-      +   recField('Program name', 'program_name', p.program_name, 'text', 'is-wide')
-      +   '<div class="sp-fld sp-pick"><span>Vendor</span>'
-      +     '<div class="sp-pick-input"><input id="rVendor" autocomplete="off" placeholder="Start typing a brand…"'
-      +       (canEdit() ? '' : ' readonly') + ' role="combobox" aria-expanded="false" aria-controls="rVendorMenu"></div>'
-      +     '<div class="sp-pick-menu" id="rVendorMenu" role="listbox" hidden></div></div>'
+      /* NAME AND VENDOR ARE THE CALCULATOR'S INLINE. It has its own boxes for both, directly
+         above this form — and both halves save `program_name` and `vendor`, so rendering a
+         second pair here would put two inputs for one column on one screen. Whichever the user
+         did not touch would quietly overwrite the one they did, depending on which Save they
+         pressed. In the modal they stay, because there the Calculator is nowhere in sight. */
+      +   (recCtx.inline ? '' :
+            recField('Program name', 'program_name', p.program_name, 'text', 'is-wide')
+          + '<div class="sp-fld sp-pick"><span>Vendor</span>'
+          +   '<div class="sp-pick-input"><input id="rVendor" autocomplete="off" placeholder="Start typing a brand…"'
+          +     (canEdit() ? '' : ' readonly') + ' role="combobox" aria-expanded="false" aria-controls="rVendorMenu"></div>'
+          +   '<div class="sp-pick-menu" id="rVendorMenu" role="listbox" hidden></div></div>')
       +   selField('Status', 'status', p.status, [
             { v: 'draft', l: 'Draft — not started' },
             { v: 'active', l: 'Active — running now' },
@@ -1160,30 +1226,35 @@
       +   roDateField('End date', 'end_date', p.end_date)
       + '</div>'
 
-      /* THE PLAN IS READ-ONLY HERE, and that is the point of the split. Everything below was
+      /* THE PLAN. Inline, this whole block is dropped — the Calculator's own controls are the
+         live version of it, sitting directly above, and restating the same six figures under a
+         heading that says "modelled in the Calculator" would be the screen talking about itself.
+         In the modal it stays, because there the model is nowhere in sight.
+         IT IS READ-ONLY EITHER WAY, and that is the point of the split. Everything below was
          a flatter, worse copy of the Calculator: one target box against its per-store table,
          one cost box against a picker that sources cost from Dutchie, no reference pull, no
          scales panel. Two editors for one set of numbers means two answers to "what is this
          program", and the weaker one wins whenever it is the one someone happens to open.
          So this states the plan and hands off; identity, dates, contact and actuals — the
          things the Calculator has no view of — stay editable right here. */
-      + '<div class="sp-h4-row"><h4 class="sp-h4">The plan</h4>'
-      +   '<span class="sp-h4-note">modelled in the Calculator</span>'
-      +   (canEdit()
-            ? '<button type="button" class="gx-btn" id="rEditParams" style="margin-left:auto">Edit parameters &rarr;</button>'
-            : '')
-      + '</div>'
-      + '<div class="sp-plan">'
-      +   planCell('Featured product', p.match_json && (p.match_json.filter_text || (p.match_json.products || []).join(', '))
-                   ? ((p.match_json.brand ? p.match_json.brand + ' · ' : '')
-                      + (p.match_json.filter_text || (p.match_json.products || []).join(', ')))
-                   : '— not set —')
-      +   planCell('Payout', money((p.payout_json || {}).amount) + ' ' + payoutLabel(p))
-      +   planCell('Cost per unit', money((p.cost_json || {}).per_unit))
-      +   planCell('Target units', ((p.target_json || {}).units || 0).toLocaleString())
-      +   planCell('Last month units', ((p.baseline_json || {}).units || 0).toLocaleString())
-      +   planCell('Budtenders', (p.target_json || {}).budtenders || '—')
-      + '</div>'
+      + (recCtx.inline ? '' :
+        + '<div class="sp-h4-row"><h4 class="sp-h4">The plan</h4>'
+        +   '<span class="sp-h4-note">modelled in the Calculator</span>'
+        +   (canEdit()
+              ? '<button type="button" class="gx-btn" id="rEditParams" style="margin-left:auto">Edit parameters &rarr;</button>'
+              : '')
+        + '</div>'
+        + '<div class="sp-plan">'
+        +   planCell('Featured product', p.match_json && (p.match_json.filter_text || (p.match_json.products || []).join(', '))
+                     ? ((p.match_json.brand ? p.match_json.brand + ' · ' : '')
+                        + (p.match_json.filter_text || (p.match_json.products || []).join(', ')))
+                     : '— not set —')
+        +   planCell('Payout', money((p.payout_json || {}).amount) + ' ' + payoutLabel(p))
+        +   planCell('Cost per unit', money((p.cost_json || {}).per_unit))
+        +   planCell('Target units', ((p.target_json || {}).units || 0).toLocaleString())
+        +   planCell('Last month units', ((p.baseline_json || {}).units || 0).toLocaleString())
+        +   planCell('Budtenders', (p.target_json || {}).budtenders || '—')
+        + '</div>')
 
       + '<h4 class="sp-h4">Contact</h4>'
       + '<div class="sp-flds">'
@@ -1204,19 +1275,20 @@
       +   recField('ROI % (decimal)', 'actual_json.roi_pct', a.roi_pct, 'number')
       + '</div>';
 
-    /* Vendor still autocompletes here — it is identity, not modeling, and a program filed
-       under a brand we do not carry is a data problem this screen owns. */
-    recPicker = mountPicker({
+    /* Vendor autocompletes in the MODAL mount — it is identity, not modeling, and a program
+       filed under a brand we do not carry is a data problem that screen owns. Inline there is no
+       #rVendor to bind: the Calculator's own vendor picker is the one on screen.
+       Showing the current vendor matters as much as the autocomplete. Without it the field reads
+       as a blank waiting for input, which invites retyping a value that is already correct — and
+       a vendor typed slightly differently is a program that no longer groups with its history. */
+    recPicker = recCtx.inline ? null : mountPicker({
       vendor: '#rVendor', vendorMenu: '#rVendorMenu'
     });
-    /* Show the vendor this program is already filed under. Without this the field reads as a
-       blank waiting for input, which invites retyping a value that is already correct — and a
-       vendor typed slightly differently is a program that no longer groups with its own history. */
     if (recPicker) recPicker.setVendorSilently(p.vendor || '');
 
     /* The saved match travels in a hidden field so collectPatch picks it up with everything
        else, instead of needing its own save path that could disagree about what changed. */
-    $('#recordBody').insertAdjacentHTML('beforeend',
+    $(recCtx.body).insertAdjacentHTML('beforeend',
       '<input type="hidden" data-key="match_json" value="' + esc(JSON.stringify(p.match_json || {})) + '">');
 
     /* The two period selects drive the dates, and keep themselves in order: picking a LAST
@@ -1230,8 +1302,8 @@
       var a = Number(ppFrom.value), b = Number(ppTo.value);
       if (b < a) { if (moved === 'from') { ppTo.value = String(a); b = a; }
                    else { ppFrom.value = String(b); a = b; } }
-      $('#recordBody [data-key="start_date"]').value = periodByIndex(a).start;
-      $('#recordBody [data-key="end_date"]').value   = periodByIndex(b).end;
+      $(recCtx.body + ' [data-key="start_date"]').value = periodByIndex(a).start;
+      $(recCtx.body + ' [data-key="end_date"]').value   = periodByIndex(b).end;
     }
     if (ppFrom) ppFrom.addEventListener('change', function () { syncPeriodDates('from'); });
     if (ppTo)   ppTo.addEventListener('change', function () { syncPeriodDates('to'); });
@@ -1245,7 +1317,7 @@
     // Minting a vendor link exposes this program to an outside party, so it sits behind
     // the same role gate as editing and says plainly what it does.
     if (canEdit()) {
-      $('#recordBody').insertAdjacentHTML('beforeend',
+      $(recCtx.body).insertAdjacentHTML('beforeend',
         '<h4>Vendor link</h4>'
         + '<p class="hint">A read-only page showing only this program. To open it they enter '
         + '<b>their own email</b> and the shared password — so set the contact email above first, '
@@ -1260,9 +1332,9 @@
     }
 
     var s = session();
-    $('#recordSave').hidden   = !canEdit();
-    $('#recordSignIn').hidden = canEdit();
-    $('#recordMsg').textContent = s
+    $(recCtx.save).hidden   = !canEdit();
+    $(recCtx.signIn).hidden = canEdit();
+    $(recCtx.msg).textContent = s
       ? 'Signed in as ' + s.user + (canEdit() ? ' (' + s.role + ')' : ' — role ' + s.role + ' cannot edit')
       : 'Read-only. Sign in to correct this record.';
   }
@@ -1396,15 +1468,15 @@
   async function doSignIn() {
     var user = $('#siUser').value.trim();
     var pass = $('#siPass').value;
-    if (!user || !pass) { $('#recordMsg').textContent = 'Enter your user and password.'; return; }
-    $('#recordMsg').textContent = 'Signing in…';
+    if (!user || !pass) { $(recCtx.msg).textContent = 'Enter your user and password.'; return; }
+    $(recCtx.msg).textContent = 'Signing in…';
     try {
       var r = await GX.jsonp('login', { user: user, pass: pass, app: APP });
       // Same `code` contract as the full-page gate, but NOT the same treatment: this modal is
       // reached from an app the user is already reading, so a full-page takeover would be a
       // worse answer than a plain sentence. Say the true thing and leave them where they are.
       if (r && r.code === 'no_access') {
-        $('#recordMsg').textContent = 'Your account does not have access to SPIFF. Ask Sky to grant it.';
+        $(recCtx.msg).textContent = 'Your account does not have access to SPIFF. Ask Sky to grant it.';
         return;
       }
       if (!r || !r.ok) throw new Error((r && r.error) || 'Sign-in failed');
@@ -1412,12 +1484,12 @@
       // roster avatar. The chip showed the slug and bare initials because neither was stored.
       setSession({ user: r.user, name: r.displayName || r.user, avatar: r.avatarConfig || null,
                    role: r.role, token: r.token, expiresAt: r.expiresAt });
-      $('#recordMsg').textContent = '';
+      $(recCtx.msg).textContent = '';
       renderAuthChip();
       if (state.record) renderRecord(state.record);
       else { closeRecord(); if (state.tab === 'reports') renderReport(); }
     } catch (err) {
-      $('#recordMsg').textContent = String(err.message || err);
+      $(recCtx.msg).textContent = String(err.message || err);
     }
   }
 
@@ -1425,7 +1497,7 @@
   // the rest of the record.
   function collectPatch(p) {
     var patch = Object.create(null), nested = Object.create(null);
-    $$('#recordBody [data-key]').forEach(function (el) {
+    $$(recCtx.body + ' [data-key]').forEach(function (el) {
       var key = el.dataset.key, raw = el.value.trim();
       var val = el.type === 'number' ? (raw === '' ? null : Number(raw)) : raw;
       var parts = key.split('.');
@@ -1476,8 +1548,8 @@
      reads them before they are committed. */
   async function pullActuals(p, btn) {
     var stores = p.stores_json || [];
-    var from = ($('#recordBody [data-key="start_date"]') || {}).value || p.start_date;
-    var to   = ($('#recordBody [data-key="end_date"]')   || {}).value || p.end_date;
+    var from = ($(recCtx.body + ' [data-key="start_date"]') || {}).value || p.start_date;
+    var to   = ($(recCtx.body + ' [data-key="end_date"]')   || {}).value || p.end_date;
     var note = $('#rActualsNote');
     if (!from || !to) { note.textContent = 'set a start and end date first'; return; }
     if (!stores.length) { note.textContent = 'this program has no stores'; return; }
@@ -1508,9 +1580,9 @@
       return;
     }
 
-    var rate   = Number(($('#recordBody [data-key="payout_json.amount"]') || {}).value) || 0;
-    var cost   = Number(($('#recordBody [data-key="cost_json.per_unit"]') || {}).value) || 0;
-    var base   = Number(($('#recordBody [data-key="baseline_json.units"]') || {}).value) || 0;
+    var rate   = Number(($(recCtx.body + ' [data-key="payout_json.amount"]') || {}).value) || 0;
+    var cost   = Number(($(recCtx.body + ' [data-key="cost_json.per_unit"]') || {}).value) || 0;
+    var base   = Number(($(recCtx.body + ' [data-key="baseline_json.units"]') || {}).value) || 0;
     var invest = rate * hit;                        // paid only on budtenders who actually hit
     var roi    = (units - base) * cost - invest;    // same identity the Calculator models on
 
@@ -1533,7 +1605,7 @@
   }
 
   function setRecField(key, v) {
-    var el = $('#recordBody [data-key="' + key + '"]');
+    var el = $(recCtx.body + ' [data-key="' + key + '"]');
     if (!el) return;
     el.value = v;
     el.classList.remove('sp-changed');
@@ -1545,9 +1617,9 @@
     var p = state.record;
     if (!p) return;
     var patch = collectPatch(p);
-    if (!Object.keys(patch).length) { $('#recordMsg').textContent = 'Nothing changed.'; return; }
+    if (!Object.keys(patch).length) { $(recCtx.msg).textContent = 'Nothing changed.'; return; }
 
-    $('#recordMsg').textContent = 'Saving…';
+    $(recCtx.msg).textContent = 'Saving…';
     try {
       var r = await ENG.jsonp('editProgram', {
         token: (session() || {}).token, id: p.program_id, patch: JSON.stringify(patch)
@@ -1556,17 +1628,20 @@
         if (r && r.needsAuth) { clearSession(); renderSignIn(); }
         throw new Error((r && r.error) || 'Save failed');
       }
-      $('#recordMsg').textContent = 'Saved (' + (r.changed || []).join(', ') + ')';
+      $(recCtx.msg).textContent = 'Saved (' + (r.changed || []).join(', ') + ')';
       await loadPrograms();
       renderPrograms();
       renderHistory();
       /* Close on success, per Sky. The modal staying open after a save invites a second press
          of a button that now has nothing to do, and leaves the list underneath looking stale
          even though it has already been refreshed. Brief pause so the confirmation is readable
-         rather than a flash. */
-      setTimeout(closeRecord, 550);
+         rather than a flash.
+         Inline there is nothing to close — the form IS the screen — so it re-renders against the
+         saved program instead, which is what clears the warnings the save just resolved. */
+      if (recCtx.inline) setTimeout(syncRecordMount, 550);
+      else               setTimeout(closeRecord, 550);
     } catch (err) {
-      $('#recordMsg').textContent = String(err.message || err);
+      $(recCtx.msg).textContent = String(err.message || err);
     }
   }
 
@@ -2716,7 +2791,7 @@
     var merged = Object.assign({}, p, patch);
     if (Object.keys(patch).length) {
       /* Say it plainly rather than silently binding unsaved values into the model. */
-      $('#recordMsg').textContent = 'Carrying your unsaved changes to the Calculator.';
+      $(recCtx.msg).textContent = 'Carrying your unsaved changes to the Calculator.';
     }
 
     calc.editingId = p.program_id;
@@ -2767,11 +2842,12 @@
       calcPicker.setChosen(calc.product);
     }
     calc.locked = String(merged.status || '').toLowerCase() === 'closed';
-    closeRecord();
+    closeRecord();                     // also hands the record mount to the inline host
     showTab('calculator');
     recalc(PULSE_ALL);
     renderCalcEditing();
     applyCalcLock();
+    syncRecordMount();
   }
 
   /* The Calculator has to say WHICH program it is editing, or "Save as program" silently forks
@@ -2796,6 +2872,7 @@
       calc.editingId = null; calc.window = null; calc.locked = false;
       renderCalcEditing();
       applyCalcLock();
+      syncRecordMount();               // nothing is being edited — take the section away
     });
     var un = $('#calcUnlock');
     if (un) un.addEventListener('click', function () {
@@ -2990,6 +3067,7 @@
     recalc();
     renderCalcEditing();
     applyCalcLock();
+    syncRecordMount();
   }
 
   /* The nine model fields, built once. Create sends all of them because there is nothing to
