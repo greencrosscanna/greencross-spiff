@@ -127,6 +127,31 @@ Google's consent HTML instead of JSON until the owner has authorized.
   `status` was added to catch. Preview a roll with `?action=rollStatuses&dry=1` (deploy-secret
   gated, writes nothing); drop `dry` to run it. Rules are pinned by `tests/status_roll_test.js`.
 
+- **A program's window is whole pay periods** (Sky, 2026-08-31). The record panel picks a FIRST
+  and a LAST pay period; start/end dates are derived from that and shown read-only. Two selects,
+  not one, because a program can run longer than a fortnight — Buddies ran 2026-06-22 → 2026-07-19,
+  two whole periods. **Three live records are off the grid and must stay there**: that Buddies row,
+  `green-cross-2025-08-11-2025-08-17` (seven days) and the `wyld-0626` draft (a calendar month).
+  Two are CLOSED and were reported to the vendor against the dates they hold, so the panel warns
+  and keeps them rather than snapping them onto the grid. `periodSpanOf()` is the test for "is this
+  window a run of whole periods"; it refuses the half-open cases, which is how a closed program's
+  window would otherwise gain a fortnight. Pinned by `tests/window_and_goal_test.js`.
+
+- **The per-budtender goal is pinnable per store**, and an empty pin is not a zero. The Calculator
+  splits the typed target by last month's volume; typing over one store's number pins it and leaves
+  the others tracking the target. Clearing the box means *back to the split* — running it through
+  `Number(x) || 0` like the other cells would turn a cleared field into a store told to sell
+  nothing, which the chain total absorbs silently. A typed `0` IS honored: sitting a store out is a
+  real choice.
+
+- **An orphaned progress row is never payable** (2026-08-31). A cached `spiff_progress` row whose
+  `program_id` is gone from `programs` is counted in `orphan_rows` and named in
+  `orphan_program_ids`, and kept out of both `rows` and `by_employee`. It cost real money once: 25
+  BeGOAT rows keyed to the pre-seed `begoat-0826` carried $350 of `earned`, and since Crew reads
+  this route unfiltered, fourteen people showed as owed $25 for a fortnight already paid. The
+  converse is guarded too — an **empty** programs tab makes every row look orphaned, so that
+  refuses rather than answering with silence shaped like zero.
+
 - **Payout model.** Most programs are **flat**: a fixed dollar bounty to each budtender who hits their
   individual target (`SPIFF $25 × 17 BTs = $425`). But **`per_unit` is real and implemented** — Hapy
   Kitchen (2.16–3.1.26) paid "$1 for every unit sold", with "Unit Based"/"You Decide" where the goals
