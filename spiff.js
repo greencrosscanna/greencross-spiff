@@ -124,6 +124,11 @@
       : { maximumFractionDigits: 0 };
     return (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString('en-US', opts);
   }
+  /* Whole dollars, for a headline figure. The net-return tile sums ROI across every program and
+     landed on things like "-$1,284.53" — three characters of precision nobody reads on a KPI card,
+     on a number that is a sum of estimates anyway. Rounds, never truncates, so the tile and a
+     detailed view of the same figure cannot disagree by a dollar in opposite directions. */
+  function money0(n) { return money(Math.round(Number(n) || 0)); }
   // The sheet stores ROI % as a fraction (0.3588 = 35.88%).
   function pct(n) { return ((Number(n) || 0) * 100).toFixed(1) + '%'; }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -170,7 +175,7 @@
   /* ---------------------------------------------------------- programs (1a) */
   /* Filter state for the sub-nav. Kept OUT of state.programs so filtering never mutates
      the loaded set -- "Active" showing nothing must still leave History able to see 21. */
-  var progFilter = { q: '', scope: 'active', store: '' };
+  var progFilter = { q: '', scope: 'active' };
 
   /* state.stores is the registry GX Core just handed us, so it is preferred over GXStores --
      GXStores.load() is fired off at boot and may not have answered yet, and a store rendering
@@ -196,30 +201,11 @@
     catch (e) { return id; }
   }
 
-  /* Store pills come from the GX Core registry, so a store added in Command Center shows up
-     here on the next load with its own color. The count is programs touching that store. */
-  function renderStorePills() {
-    var host = $('#progStores');
-    if (!host) return;
-    var tally = {};
-    state.programs.forEach(function (p) {
-      (p.stores_json || []).forEach(function (sid) { tally[sid] = (tally[sid] || 0) + 1; });
-    });
-    host.innerHTML = state.stores.map(function (st) {
-      var id = st.store_id, n = tally[id] || 0;
-      return '<button type="button" class="sp-pill' + (progFilter.store === id ? ' is-on' : '')
-        + '" data-store="' + esc(id) + '" style="--dot:' + esc(st.color || '#5e6864') + '">'
-        + '<span class="sp-dot"></span>' + esc(st.display_name || id)
-        + '<span class="sp-pill-n">' + n + '</span></button>';
-    }).join('');
-  }
-
   function cap(x) { return x.charAt(0).toUpperCase() + x.slice(1); }
 
   /* Search and store still narrow the closed tail — only the STATUS scope is ignored for it.
      Typing a vendor and still seeing unrelated closed programs would read as a broken search. */
   function progMatchesExceptScope(p) {
-    if (progFilter.store && (p.stores_json || []).indexOf(progFilter.store) < 0) return false;
     if (progFilter.q) {
       var hay = ((p.program_name || '') + ' ' + (p.vendor || '') + ' ' + (p.title || '')).toLowerCase();
       if (hay.indexOf(progFilter.q) < 0) return false;
@@ -229,7 +215,6 @@
 
   function progMatches(p) {
     if (progFilter.scope !== 'all' && p.status !== progFilter.scope) return false;
-    if (progFilter.store && (p.stores_json || []).indexOf(progFilter.store) < 0) return false;
     if (progFilter.q) {
       var hay = ((p.program_name || '') + ' ' + (p.vendor || '') + ' ' + (p.title || '')).toLowerCase();
       if (hay.indexOf(progFilter.q) < 0) return false;
@@ -292,7 +277,6 @@
       return;
     }
     empty.hidden = true;
-    renderStorePills();
 
     var all      = state.programs;
     var visible  = sortPrograms(all.filter(progMatches));
@@ -313,7 +297,7 @@
     stats.innerHTML =
         statTile(running.length, 'running now', '')
       + statTile(money(atStake), 'at stake for budtenders', '')
-      + statTile((netReturn >= 0 ? '+' : '') + money(netReturn), 'net return, ' + all.length + ' programs',
+      + statTile((netReturn >= 0 ? '+' : '') + money0(netReturn), 'net return, ' + all.length + ' programs',
                  netReturn >= 0 ? 'is-pos' : 'is-neg')
       + statTile(needCheck, 'records need checking', needCheck ? 'is-warn' : '');
 
@@ -625,6 +609,15 @@
     if (!p.start_date) return 'no period';
     return prettyDay(p.start_date) + ' → ' + (p.end_date ? prettyDay(p.end_date) : '?');
   }
+  /* The same range, but carrying the YEAR — for lists that mix them. prettyRange is used where
+     the surrounding card already establishes when the program ran; a flat dropdown of 26
+     programs spanning 2025 and 2026 does not, and "Meraki Gardens · Sep 1 → Sep 14" appears
+     twice in it with nothing to tell the two apart. */
+  function prettyRangeY(p) {
+    if (!p.start_date) return 'no dates';
+    var y = String(p.end_date || p.start_date).slice(0, 4);
+    return prettyDay(p.start_date) + ' → ' + (p.end_date ? prettyDay(p.end_date) : '?') + ', ' + y;
+  }
   /* per_unit is REAL and shipped (Hapy Kitchen paid $1/unit) — do not assume flat. */
   /* FLAT IS THE DEFAULT, and anything unrecognized resolves to it. `tiered` is schema'd but
      unimplemented, and a blank or unknown payout_type must not leave the Calculator modeling
@@ -814,16 +807,6 @@
       if (!btn) return;
       progFilter.scope = btn.dataset.scope;
       $$('#progScope button').forEach(function (x) { x.classList.toggle('is-on', x === btn); });
-      renderPrograms();
-    });
-
-    /* Store pills toggle: clicking the active one clears the filter rather than leaving
-       you stuck on one store with no visible way back. */
-    var pills = $('#progStores');
-    if (pills) pills.addEventListener('click', function (e) {
-      var btn = e.target.closest('button[data-store]');
-      if (!btn) return;
-      progFilter.store = (progFilter.store === btn.dataset.store) ? '' : btn.dataset.store;
       renderPrograms();
     });
 
@@ -1045,17 +1028,20 @@
     return null;                       // unparseable — "8/3026" lands here
   }
 
-  /* A date field that keeps a bad value visible instead of eating it. */
-  function dateField(label, key, value) {
+  /* A date the app DERIVES rather than accepts. Still carries data-key, so collectPatch saves it
+     with everything else and there is no second save path to disagree with the first. `readonly`
+     rather than `disabled` on purpose: a disabled input is skipped by the collector, which would
+     mean picking a pay period changed what the screen showed and nothing that was stored. */
+  function roDateField(label, key, value) {
     var iso = toISODate(value);
-    if (iso === null) {
-      return '<label class="sp-fld"><span>' + esc(label) + '</span>'
-        + '<input class="sp-in" data-key="' + esc(key) + '" type="text" value="' + esc(value) + '"'
-        + (canEdit() ? '' : ' readonly') + '>'
-        + '<span class="sp-cost-warn">Not a date this app can read &mdash; retype it as '
-        + 'YYYY-MM-DD.</span></label>';
-    }
-    return recField(label, key, iso, 'date');
+    return '<label class="sp-fld"><span>' + esc(label) + '</span>'
+      + '<input class="sp-in is-derived" data-key="' + esc(key) + '" type="date" value="'
+      + esc(iso === null ? '' : iso) + '" readonly tabindex="-1">'
+      + (iso === null
+          ? '<span class="sp-cost-warn">Stored as &ldquo;' + esc(value) + '&rdquo;, which is not a '
+            + 'date this app can read. Pick a pay period above to replace it.</span>'
+          : '')
+      + '</label>';
   }
 
   function planCell(label, value) {
@@ -1107,21 +1093,41 @@
         + '. Re-importing the Calculator will not overwrite this record.</div>';
     }
 
+    /* ── WHEN IT RUNS: PAY PERIODS, NOT FREE DATES ──
+       Sky, 2026-08-31: "remove custom dates option, only allow PPs". A SPIFF is settled against
+       payroll, so a window that ends mid-period is a program whose payout lands in a fortnight
+       nobody can reconcile it to. The dates are now DERIVED from the periods picked and shown
+       read-only, rather than typed beside a dropdown that also filled them — two controls for
+       one fact, where the looser one silently won.
+       TWO selects, not one, because a program may run longer than a fortnight: Buddies ran
+       2026-06-22 → 2026-07-19, which is two whole periods. One select could only have expressed
+       that by rounding it down to fourteen days. */
     var pps = payPeriodOptions(p.pay_period_start || p.start_date);
     var ppNow = periodIndexOf(today());
-    var ppOpts = [{ v: '', l: 'Custom dates…' }].concat(pps.map(function (x) {
-      var rel = x.index === ppNow ? ' · current' : (x.index > ppNow ? ' · upcoming' : '');
-      return { v: x.start, l: periodLabel(x) + rel };
-    }));
+    var span = periodSpanOf(p.start_date, p.end_date);
+    var offGrid = !!(p.start_date && p.end_date && !span);
 
-    /* The pay period a program's dates already fall in, so the dropdown opens on the right row
-       instead of "Custom dates…" for every historical record. Only claims a match when the
-       dates line up EXACTLY — a program that ran Aug 16→31 is not the Aug 17→30 period, and
-       quietly snapping it to one would move a closed program's window. */
-    var ppSel = '';
-    if (p.start_date && p.end_date) {
-      var cand = periodByIndex(periodIndexOf(p.start_date));
-      if (cand.start === p.start_date && cand.end === p.end_date) ppSel = cand.start;
+    function ppOptsFor(selIdx) {
+      var out = pps.map(function (x) {
+        var rel = x.index === ppNow ? ' · current' : (x.index > ppNow ? ' · upcoming' : '');
+        return { v: String(x.index), l: periodLabel(x) + rel };
+      });
+      /* A record already off the grid keeps its own dates. Offering only grid rows would make
+         the first touch of this control rewrite a closed program's window. */
+      if (offGrid) out.unshift({ v: '', l: 'Keep the dates below (does not match a pay period)' });
+      if (selIdx !== null && !out.some(function (o) { return o.v === String(selIdx); })) {
+        out.push({ v: String(selIdx), l: periodLabel(periodByIndex(selIdx)) });
+      }
+      return out;
+    }
+    var fromSel = span ? String(span.from) : (offGrid ? '' : String(ppNow));
+    var toSel   = span ? String(span.to)   : (offGrid ? '' : String(ppNow));
+
+    if (offGrid) {
+      warn += '<div class="sp-notice is-warn"><span class="sp-notice-l">Window is not a pay period</span>'
+        + 'This program runs ' + esc(prettyDay(p.start_date)) + ' → ' + esc(prettyDay(p.end_date))
+        + ', which does not line up with payroll. It is kept exactly as it is — new programs are '
+        + 'set by pay period. Picking periods below will replace these dates.</div>';
     }
 
     $('#recordBody').innerHTML = warn
@@ -1141,10 +1147,15 @@
 
       + '<h4 class="sp-h4">When it runs</h4>'
       + '<div class="sp-flds">'
-      +   selField('Pay period', '', ppSel, ppOpts).replace('data-key=""', 'id="rPayPeriod"')
-      +   '<span class="sp-fld-note">Choosing a period fills the dates below. They stay editable — not every program lines up with payroll.</span>'
-      +   dateField('Start date', 'start_date', p.start_date)
-      +   dateField('End date', 'end_date', p.end_date)
+      +   selField('First pay period', '', fromSel, ppOptsFor(span ? span.from : null))
+            .replace('data-key=""', 'id="rPPFrom"')
+      +   selField('Last pay period', '', toSel, ppOptsFor(span ? span.to : null))
+            .replace('data-key=""', 'id="rPPTo"')
+      +   '<span class="sp-fld-note">Pick the same period twice for a normal two-week program. '
+      +     'The dates below follow from this — a SPIFF is settled against payroll, so its window '
+      +     'is whole pay periods.</span>'
+      +   roDateField('Start date', 'start_date', p.start_date)
+      +   roDateField('End date', 'end_date', p.end_date)
       + '</div>'
 
       /* THE PLAN IS READ-ONLY HERE, and that is the point of the split. Everything below was
@@ -1206,13 +1217,22 @@
     $('#recordBody').insertAdjacentHTML('beforeend',
       '<input type="hidden" data-key="match_json" value="' + esc(JSON.stringify(p.match_json || {})) + '">');
 
-    var ppSelEl = $('#rPayPeriod');
-    if (ppSelEl) ppSelEl.addEventListener('change', function () {
-      if (!ppSelEl.value) return;                     // "Custom dates…" leaves them alone
-      var per = periodByIndex(periodIndexOf(ppSelEl.value));
-      $('#recordBody [data-key="start_date"]').value = per.start;
-      $('#recordBody [data-key="end_date"]').value = per.end;
-    });
+    /* The two period selects drive the dates, and keep themselves in order: picking a LAST
+       period before the first would describe a window that ends before it begins, and the
+       engine would happily store it. Whichever one the user just moved is the one respected;
+       the other follows. */
+    var ppFrom = $('#rPPFrom'), ppTo = $('#rPPTo');
+    function syncPeriodDates(moved) {
+      if (!ppFrom || !ppTo) return;
+      if (ppFrom.value === '' || ppTo.value === '') return;   // "keep the dates" on a legacy row
+      var a = Number(ppFrom.value), b = Number(ppTo.value);
+      if (b < a) { if (moved === 'from') { ppTo.value = String(a); b = a; }
+                   else { ppFrom.value = String(b); a = b; } }
+      $('#recordBody [data-key="start_date"]').value = periodByIndex(a).start;
+      $('#recordBody [data-key="end_date"]').value   = periodByIndex(b).end;
+    }
+    if (ppFrom) ppFrom.addEventListener('change', function () { syncPeriodDates('from'); });
+    if (ppTo)   ppTo.addEventListener('change', function () { syncPeriodDates('to'); });
 
     var pull = $('#rPullActuals');
     if (pull) pull.addEventListener('click', function () { pullActuals(p, pull); });
@@ -1418,8 +1438,8 @@
         if (JSON.stringify(parsed) !== JSON.stringify(p.match_json || {})) patch.match_json = parsed;
         return;
       }
-      /* Never turn a date that HAD a value into an empty one. dateField now keeps unreadable
-         dates visible, so a blank here means the browser refused the value — not that anyone
+      /* Never turn a date that HAD a value into an empty one. The dates are derived from the
+         pay-period selects now, so a blank here means one of them was never resolved — not that anyone
          chose to clear it, and the difference is a closed program's payout window. */
       if ((key === 'start_date' || key === 'end_date') && raw === '' && p[key]) return;
       if (parts.length === 1) {
@@ -1583,7 +1603,9 @@
   function calcInit() {
     if (calc.stores.length || !state.stores.length) return;
     calc.stores = state.stores.map(function (s) {
-      return { store_id: s.store_id, name: s.display_name || s.store_id, baseline: 0, bts: 6 };
+      /* perBtSet null = this store tracks the typed target. A number pins it — see calcModel. */
+      return { store_id: s.store_id, name: s.display_name || s.store_id, baseline: 0, bts: 6,
+               perBtSet: null };
     });
     recalc();
   }
@@ -1608,10 +1630,20 @@
       var b = Number(st.baseline) || 0;
       var n = Number(st.bts) || 0;
       var want = b * ratio;
-      var perBt = n ? Math.round(want / n) : 0;
+      /* THE PER-BT GOAL IS OVERRIDABLE, per store (Sky, 2026-08-31: "so Tawny can fine tune as
+         needed, ie tune down commercial and tune up another store"). The split by last month's
+         volume is a starting point, not an answer — a store mid-remodel, or one that just took
+         on three new budtenders, gets a number its people can actually reach, and the chain
+         total follows from the stores rather than the other way round.
+         null means "no override": the store tracks the typed target like it always did, so
+         moving the target still moves every store that has not been pinned. */
+      var over = st.perBtSet;
+      var pinned = over != null && over !== '';
+      var perBt = pinned ? Math.max(0, Math.round(Number(over) || 0)) : (n ? Math.round(want / n) : 0);
       return {
         store_id: st.store_id, name: st.name, base: b, n: n,
         perBt:  n ? perBt : null,
+        pinned: pinned && n > 0,
         /* No budtenders at a store is not a goal of zero -- the store still has to sell it.
            Fall back to its unrounded share so the chain total does not silently lose it. */
         goal:   n ? perBt * n : Math.round(want),
@@ -1871,7 +1903,16 @@
           + '<td class="num strong">' + goal.toLocaleString() + '</td>'
           + '<td class="num"><input class="sp-in sp-num-in narrow" type="number" min="0" data-i="' + i + '" data-f="bts" value="' + n + '" aria-label="Budtenders, ' + esc(st.name) + '"></td>'
           + '<td class="num dim">' + (perNow == null ? '—' : perNow.toLocaleString()) + '</td>'
-          + '<td class="num strong">' + (perGoal == null ? '—' : perGoal.toLocaleString()) + '</td>'
+          + '<td class="num">' + (perGoal == null ? '—'
+              : '<span class="sp-pin-cell' + (row.pinned ? ' is-pinned' : '') + '">'
+                + '<input class="sp-in sp-num-in narrow" type="number" min="0" data-i="' + i + '"'
+                +   ' data-f="perBtSet" value="' + perGoal + '"'
+                +   ' aria-label="Per-budtender goal, ' + esc(st.name) + '">'
+                + (row.pinned
+                    ? '<button type="button" class="sp-pin-x" data-unpin="' + i + '"'
+                      + ' title="Back to the split by last month">&#10005;</button>'
+                    : '')
+              + '</span>') + '</td>'
           + '<td class="num' + (perLift > 0 ? ' pos' : ' dim') + '">'
           +   (perLift == null ? '—' : (perLift > 0 ? '+' : '') + perLift.toLocaleString()) + '</td>'
           + '<td class="num dim">' + money(goal * (Number(calc.cost) || 0)) + '</td>'
@@ -1903,7 +1944,8 @@
       tbl.innerHTML =
         '<table class="sp-tbl"><thead><tr><th>Store</th><th class="num">Last month</th>'
         + '<th class="num">Goal</th><th class="num">BTs</th><th class="num">per BT now</th>'
-        + '<th class="num">per BT goal</th><th class="num">BT unit increase</th>'
+        + '<th class="num" title="Editable — type a number to pin this store\u2019s goal">per BT goal</th>'
+        + '<th class="num">BT unit increase</th>'
         + '<th class="num">Goal value</th></tr></thead><tbody>'
         + body
         + '<tr class="sp-total"><td>Total · ' + m.on.length + ' store' + (m.on.length === 1 ? '' : 's')
@@ -2142,7 +2184,14 @@
       if (i == null) return;
       var st = calc.stores[i];
       if (!st) return;
-      st[el.dataset.f] = Number(el.value) || 0;
+      /* An EMPTY per-BT goal means "go back to the split", not "a goal of zero". Running it
+         through `Number(x) || 0` like the other fields would turn clearing the box into a
+         store told to sell nothing, which the total would then quietly absorb. */
+      if (el.dataset.f === 'perBtSet') {
+        st.perBtSet = el.value.trim() === '' ? null : Math.max(0, Number(el.value) || 0);
+      } else {
+        st[el.dataset.f] = Number(el.value) || 0;
+      }
       /* Editing a reference moves the total, so the growth echo has to follow it — the
          target is the number being held fixed here, not the percentage. */
       if (el.dataset.f === 'baseline') {
@@ -2159,7 +2208,12 @@
 
     if (tbl) tbl.addEventListener('click', function (e) {
       var r = e.target.closest('[data-refretry]');
-      if (r) pullReferenceFor(Number(r.dataset.refretry));
+      if (r) { pullReferenceFor(Number(r.dataset.refretry)); return; }
+      var u = e.target.closest('[data-unpin]');
+      if (u) {
+        var st = calc.stores[Number(u.dataset.unpin)];
+        if (st) { st.perBtSet = null; recalc(PULSE_ALL); }
+      }
     });
 
     calcPicker = mountPicker({
@@ -2259,6 +2313,22 @@
   }
   function periodLabel(pp) {
     return prettyDay(pp.start) + ' → ' + prettyDay(pp.end);
+  }
+
+  /* Which whole pay periods a stored window spans, or null when it does not sit on the grid at
+     all. Programs are picked as periods now (Sky, 2026-08-31: "remove custom dates option, only
+     allow PPs"), but three live records predate that rule and MUST NOT be snapped onto it:
+     `buddies-2026-06-22-2026-07-19` runs two whole periods, `green-cross-2025-08-11-2025-08-17`
+     is a seven-day program, and the `wyld-0626` draft is a calendar month. Two of those are
+     CLOSED and were reported to the vendor against the dates they hold; moving the window to
+     make a dropdown tidy would change what a settled program says it measured. */
+  function periodSpanOf(startYmd, endYmd) {
+    if (!startYmd || !endYmd) return null;
+    var a = periodByIndex(periodIndexOf(startYmd));
+    if (a.start !== startYmd) return null;               // does not begin on a period boundary
+    var b = periodByIndex(periodIndexOf(endYmd));
+    if (b.end !== endYmd) return null;                   // does not end on one either
+    return { from: a.index, to: b.index };
   }
 
   /* Past periods for the archive, plus a bounded run of future ones so a program can be set up
@@ -2638,10 +2708,15 @@
     calc.stores = reg.map(function (st) {
       var b = (base.by_store || {})[st.store_id];
       var perBt = (base.per_bt || {})[st.store_id];
+      /* The SAVED per-BT goal comes back as a pin. Re-deriving it from the target would quietly
+         discard whatever tuning was done last time — the store rows would look right and be
+         different numbers from the ones the vendor was shown. */
+      var tgtPerBt = ((merged.target_json || {}).per_bt || {})[st.store_id];
       return {
         store_id: st.store_id, name: st.display_name || st.store_id,
         baseline: b || 0,
-        bts: perBt ? Math.max(1, Math.round((b || 0) / perBt)) : 6
+        bts: perBt ? Math.max(1, Math.round((b || 0) / perBt)) : 6,
+        perBtSet: tgtPerBt ? Number(tgtPerBt) : null
       };
     });
 
@@ -2799,10 +2874,12 @@
     calc.stores = state.stores.map(function (s) {
       var b = (base.by_store || {})[s.store_id];
       var perBt = (base.per_bt || {})[s.store_id];
+      var tgtPerBt = (tgt.per_bt || {})[s.store_id];
       return {
         store_id: s.store_id, name: s.display_name || s.store_id,
         baseline: b || 0,
-        bts: perBt ? Math.max(1, Math.round((b || 0) / perBt)) : 6
+        bts: perBt ? Math.max(1, Math.round((b || 0) / perBt)) : 6,
+        perBtSet: tgtPerBt ? Number(tgtPerBt) : null
       };
     });
     $('#cName').value = calc.name; $('#cVendor').value = calc.vendor;
@@ -3322,7 +3399,9 @@
 
   function wireProgress() {
     $('#pgProgram').addEventListener('change', loadProgress);
-    $('#pgRefresh').addEventListener('click', loadProgress);
+    /* Refresh means REFRESH: it goes past the cache, or the one control that exists to get newer
+       numbers would hand back the same ones it just showed. */
+    $('#pgRefresh').addEventListener('click', function () { loadProgress({ force: true }); });
     /* Retry is delegated: the card it lives on is replaced on every repaint. Retrying ONE
        store re-pulls only that store — re-running the whole grid to fix one card would
        throw away five good results and cost another full round of Dutchie calls. */
@@ -3336,8 +3415,13 @@
     var sel = $('#pgProgram');
     if (!sel) return;
     var list = sortPrograms(state.programs);
+    /* The date range rides along with the name. Programs repeat — Meraki Gardens, Mule and
+       Hellavated each ran more than once — so the name alone made the picker a guess about
+       which one you were opening, and Progress is exactly the screen where the window IS the
+       question being asked. */
     sel.innerHTML = list.map(function (p) {
-      return '<option value="' + esc(p.program_id) + '">' + esc(p.program_name || p.title) + '</option>';
+      return '<option value="' + esc(p.program_id) + '">'
+        + esc(p.program_name || p.title) + ' · ' + esc(prettyRangeY(p)) + '</option>';
     }).join('');
     /* Default to the RUNNING program, not whatever sorts first. sortPrograms already puts
        active ahead of draft and closed, but being explicit keeps this true if that order ever
@@ -3410,7 +3494,52 @@
   /* Kept so Refresh and a per-store Retry can re-enter without re-picking the program. */
   var pgRun = null;
 
-  async function loadProgress() {
+  /* ── A CLOSED PROGRAM'S NUMBERS CANNOT CHANGE, SO STOP RE-BUYING THEM ──
+     Sky, 2026-08-31: "it would be smart to cache the previous program progress data for quicker
+     load times, it's not a lot of data to save." Opening a past program costs six stores' worth of
+     Dutchie windows — measured 9s for a quiet store and 49s for a busy one — to arrive at figures
+     that have not moved since the day it closed.
+
+     ONLY CLOSED PROGRAMS ARE CACHED, and that is the whole safety argument. A draft or an active
+     one is a live measurement whose value IS its freshness; serving yesterday's ticks for a running
+     SPIFF is the same class of error as the kiosk drawing on a closed one.
+
+     DELIBERATELY BROWSER-LOCAL, not written back to the shared `spiff_progress` cache. That cache
+     is what GX Crew pays people from and what the Leaderboard kiosks draw, and the only way for a
+     browser to fill it would be a route that accepts client-supplied earnings — a page could then
+     post any number it liked into a payroll screen. The engine already refreshes a named closed
+     program server-side when a vendor report needs one (refreshSpiffProgress_ takes `only`
+     whatever the status); this is a convenience in front of that, not a replacement for it. */
+  var PG_CACHE_KEY = 'gx.spiff.progress.v1';
+  var PG_CACHE_MAX = 12;                  // a dozen programs of six store rows — kilobytes
+
+  function pgCacheRead(id) {
+    try {
+      var all = JSON.parse(localStorage.getItem(PG_CACHE_KEY) || '{}');
+      var hit = all[id];
+      /* Tied to the WINDOW as well as the id. A program whose dates were corrected is a different
+         measurement, and silently serving the old one under the new window is precisely the kind
+         of wrong-but-plausible number this app exists to stop. */
+      return hit && hit.v === 1 ? hit : null;
+    } catch (e) { return null; }          // private mode, cleared storage, quota — all mean "no cache"
+  }
+
+  function pgCacheWrite(prog, results) {
+    try {
+      var all = JSON.parse(localStorage.getItem(PG_CACHE_KEY) || '{}');
+      all[prog.program_id] = { v: 1, at: new Date().toISOString(),
+                               from: prog.start_date, to: prog.end_date, results: results };
+      var keys = Object.keys(all);
+      if (keys.length > PG_CACHE_MAX) {
+        keys.sort(function (a, b) { return String(all[a].at) < String(all[b].at) ? -1 : 1; })
+            .slice(0, keys.length - PG_CACHE_MAX)
+            .forEach(function (k) { delete all[k]; });
+      }
+      localStorage.setItem(PG_CACHE_KEY, JSON.stringify(all));
+    } catch (e) { /* a cache that cannot be written is not an error worth showing anybody */ }
+  }
+
+  async function loadProgress(opts) {
     var id = $('#pgProgram').value;
     if (!id) return;
     var prog = state.programs.filter(function (x) { return x.program_id === id; })[0];
@@ -3424,6 +3553,20 @@
 
     var stores  = prog.stores_json || [];
     var windows = dateWindows(prog.start_date, prog.end_date, PROGRESS_WINDOW_DAYS);
+    var force   = !!(opts && opts.force);
+
+    /* A closed program we have already measured, on the same window, renders straight away. */
+    var cached = (!force && prog.status === 'closed') ? pgCacheRead(id) : null;
+    if (cached && cached.from === prog.start_date && cached.to === prog.end_date
+        && stores.every(function (st) { return cached.results[st]; })) {
+      pgRun = { prog: prog, id: id, windows: windows, stores: stores,
+                results: cached.results, failed: Object.create(null),
+                pulling: Object.create(null), done: true, cachedAt: cached.at };
+      renderPgLive(prog, windows, stores);
+      paintProgress();
+      return;
+    }
+
     pgRun = { prog: prog, id: id, windows: windows, stores: stores,
               results: Object.create(null), failed: Object.create(null), pulling: Object.create(null) };
     stores.forEach(function (st) { pgRun.pulling[st] = 1; });
@@ -3434,6 +3577,14 @@
     await Promise.all(stores.map(function (st) { return pullOneStore(st); }));
     pgRun.done = true;
     paintProgress();
+
+    /* Saved only when the program is closed AND every store came back. A part-failed pull cached
+       would freeze one store's error into the record of a program that is finished — and the
+       missing store would look like a store that sold nothing. */
+    if (prog.status === 'closed' && !Object.keys(pgRun.failed).length
+        && stores.every(function (st) { return pgRun.results[st]; })) {
+      pgCacheWrite(prog, pgRun.results);
+    }
   }
 
   /* One store's pull, isolated. Its own catch means a store that fails takes its own card
@@ -3503,11 +3654,19 @@
       + pgStat(money(btsAll * rate), 'if everyone lands it', null, '');
 
     var missing = stores.length - back;
+    /* SAY WHEN THE NUMBERS ARE REMEMBERED RATHER THAN MEASURED. A cached figure and a live one
+       look identical on screen, and "is this current?" is the first question anyone asks of a
+       progress grid — so the answer is on it, next to the control that re-pulls. */
+    var cachedNote = pgRun && pgRun.cachedAt
+      ? ' · <b>saved figures</b> from ' + esc(String(pgRun.cachedAt).slice(0, 10))
+        + ' — this program is closed, so they cannot have moved. Refresh re-pulls from Dutchie.'
+      : '';
     $('#pgNote').innerHTML = esc(prettyDay(prog.start_date)) + ' → ' + esc(prettyDay(prog.end_date))
       + ' · green means that person has already earned the bounty.'
       + (missing > 0
           ? ' Totals cover the ' + back + ' store' + (back === 1 ? '' : 's') + ' that ' + (back === 1 ? 'has' : 'have') + ' come back.'
-          : '');
+          : '')
+      + cachedNote;
 
     $('#pgBody').innerHTML = '<div class="sp-pg-grid">' + stores.map(pgCard).join('') + '</div>';
 

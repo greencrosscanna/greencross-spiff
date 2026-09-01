@@ -1127,22 +1127,42 @@ function spiffProgress_(p) {
      listProgramsCached_ is a 5-minute cache that every write invalidates, so the join costs
      nothing and can never be behind an edit. */
   var statusOf = Object.create(null);
-  listProgramsCached_().forEach(function (pr) {
+  var known = listProgramsCached_();
+  known.forEach(function (pr) {
     statusOf[String(pr.program_id)] = String(pr.status || '').toLowerCase();
   });
+  /* An EMPTY programs list would make every cached row look orphaned, and the orphan rule below
+     drops what it cannot vouch for — so a momentary failure to read `programs` would return
+     "nobody earned anything" to Crew and the kiosks. Refuse instead. A source that could not be
+     read is not a measurement of zero. */
+  if (!known.length) {
+    return { ok: false, error: 'could not read the programs tab, so no cached row can be vouched '
+               + 'for. This is a failure to read, NOT a fortnight where nobody earned anything.',
+             rows: [], by_employee: [] };
+  }
   var wantStatus = String(p.status || '').trim().toLowerCase();
 
-  var rows = [], newest = '', orphans = Object.create(null);
+  var rows = [], newest = '', orphans = Object.create(null), orphanRows = 0;
   vals.forEach(function (v) {
     var o = {};
     PROGRESS_HEADERS.forEach(function (h, i) { o[h] = v[i]; });
     if (wantPP && !payPeriodMatches_(o, wantPP)) return;
     if (wantId && String(o.program_id) !== wantId) return;
-    /* '' means the program row is gone from `programs` — an orphaned cache row. Reported by id in
-       the response rather than dropped quietly: "no rows" and "the programs tab lost a row" need
-       completely different fixes, and a filter is where that difference disappears. */
+    /* '' means the program row is gone from `programs` — an orphaned cache row. Named by id in
+       the response, never counted in it: "no rows" and "the programs tab lost a row" need
+       completely different fixes, and a filter is where that difference disappears.
+       WHY THEY ARE NOT SERVED (2026-08-31). They used to be, and 25 rows of BeGOAT — a program
+       that closed on 2026-08-02, was reported to the vendor and paid — sat in the cache under
+       `begoat-0826` after the SPIF-doc seed re-keyed it to begoat-2026-07-20-2026-08-03. They
+       carried $350 of `earned` between them, and `by_employee` summed it, so any consumer reading
+       this route without a filter saw fourteen people owed $25 for a fortnight already settled.
+       GX Crew reads it exactly that way: the pay_period parameter was unusable when Crew built
+       against it, so Crew passes nothing and takes the whole payload.
+       An orphan's `earned` was computed from a payout that no longer exists in the system of
+       record; it cannot be authoritative about money. So it is counted in `orphan_rows`, its id
+       is named in `orphan_program_ids`, and it stays out of both `rows` and `by_employee`. */
     o.status = statusOf[String(o.program_id)] || '';
-    if (!o.status) orphans[String(o.program_id)] = 1;
+    if (!o.status) { orphans[String(o.program_id)] = 1; orphanRows++; return; }
     if (wantStatus && o.status !== wantStatus) return;
     o.units = Number(o.units) || 0; o.target = Number(o.target) || 0;
     o.earned = Number(o.earned) || 0; o.hit = !!o.hit;
@@ -1205,7 +1225,7 @@ function spiffProgress_(p) {
   return { ok: true, pay_period: wantPP || null, status: wantStatus || null, rows: rows,
            by_employee: Object.keys(by).map(function (k) { return by[k]; }),
            refreshed_at: newest,
-           orphan_program_ids: Object.keys(orphans) };
+           orphan_program_ids: Object.keys(orphans), orphan_rows: orphanRows };
 }
 
 /* ---------------------------- PAYOUTS ---------------------------- *

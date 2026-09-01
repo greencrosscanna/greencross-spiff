@@ -707,7 +707,39 @@ body.is-gated .workspace { display: none !important; }
 }
 .sp-fld input:focus, .sp-in:focus { border-color: var(--gx-green); }
 .sp-fld .sp-hint { font-size: 10.5px; color: var(--gx-text-mute); }
+/* A value the app WORKED OUT, not one you type. The program window is derived from the pay
+   periods picked above it, so it has to read as an answer rather than as an empty box somebody
+   forgot to fill — a plain readonly input is visually identical to an editable one and invites a
+   click that does nothing. */
+.sp-in.is-derived {
+  background: var(--sp-inset); color: var(--gx-text-mute);
+  border-style: dashed; cursor: default;
+}
+.sp-in.is-derived:focus { border-color: var(--gx-border); }
 .sp-num-in { font-variant-numeric: tabular-nums; text-align: right; }
+
+/* A per-BT goal that has been PINNED by hand, rather than split from the typed target. It has to
+   look different from the derived ones or the table reads as eight identical boxes, and moving
+   the target silently leaves the pinned stores behind with nothing on screen saying why. */
+/* A field that belongs to the one above it — cost per unit under the product it prices. Indented
+   and rule-marked so it reads as part of that block rather than as the next question down. */
+.sp-subfld {
+  display: block; margin-top: 10px; padding-left: 10px;
+  border-left: 2px solid var(--gx-border);
+}
+.sp-subfld > span:first-child {
+  display: block; margin-bottom: 4px; font-size: 10.5px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--gx-text-mute);
+}
+.sp-subfld .sp-prefixed { max-width: 150px; }
+
+.sp-pin-cell { display: inline-flex; align-items: center; gap: 4px; justify-content: flex-end; }
+.sp-pin-cell.is-pinned input { border-color: var(--gx-green); font-weight: 700; }
+.sp-pin-x {
+  background: none; border: 0; padding: 0 2px; cursor: pointer; line-height: 1;
+  color: var(--gx-text-mute); font-size: 11px;
+}
+.sp-pin-x:hover { color: var(--gx-text); }
 
 /* The payout model is a VISIBLE control. per_unit is real and implemented in the engine —
    Hapy Kitchen paid $1/unit — and the Calculator had no way to express it, which is why

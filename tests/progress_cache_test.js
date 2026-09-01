@@ -329,13 +329,35 @@ ok('the filter is echoed back, so a caller can tell a filtered read from a full 
    M.spiffProgress_({ status: 'closed' }).status === 'closed' &&
    M.spiffProgress_({}).status === null);
 
-/* A cache row whose program row is GONE. Reported by id rather than dropped quietly: "no rows" and
-   "the programs tab lost a row" need completely different fixes. */
-PROGRAMS = () => [];
+/* ── A CACHE ROW WHOSE PROGRAM IS GONE IS NOT A PAYABLE ROW ──
+   Named by id, never counted. Live on 2026-08-31: 25 rows of BeGOAT sat under `begoat-0826` after
+   the SPIF-doc seed re-keyed that program to begoat-2026-07-20-2026-08-03. The program had closed
+   on 08-02, gone to the vendor and been paid — but the rows still carried $350 of `earned` between
+   them and by_employee summed it, so an unfiltered read showed fourteen people owed $25 for a
+   fortnight already settled. GX Crew reads it exactly that way: pay_period was unusable when Crew
+   built against this route, so Crew passes nothing and takes the whole payload.
+   An orphan's `earned` came from a payout that no longer exists in the system of record. It cannot
+   be authoritative about money, so it is counted and named, not served. */
+PROGRAMS = () => [{ program_id: 'OTHER', status: 'active' }];   // programs tab readable, P1 not in it
 let orph = M.spiffProgress_({});
-ok('an orphaned cache row reads status "" rather than guessing',
-   orph.rows.every(r => r.status === ''));
-ok('and the orphan is named by program_id', orph.orphan_program_ids.join(',') === 'P1');
+ok('an orphaned cache row is not served as a row', orph.rows.length === 0);
+ok('and its earnings never reach by_employee, which is what Crew pays from',
+   orph.by_employee.length === 0);
+ok('the orphan is named by program_id', orph.orphan_program_ids.join(',') === 'P1');
+ok('and counted, so "no rows" is distinguishable from "rows I refused to vouch for"',
+   orph.orphan_rows === 2);
+
+/* ── BUT AN UNREADABLE PROGRAMS TAB IS NOT A FORTNIGHT WHERE NOBODY EARNED ──
+   The rule above drops what it cannot vouch for, so an EMPTY programs list would drop everything
+   and answer Crew and the kiosks with silence shaped exactly like zero. A source that could not be
+   read is not a measurement of zero: refuse instead. */
+PROGRAMS = () => [];
+let blind = M.spiffProgress_({});
+ok('an empty programs tab REFUSES rather than returning zero earnings', blind.ok === false);
+ok('and says so in words a reader can act on',
+   /not a fortnight|failure to read/i.test(blind.error || ''));
+ok('a genuine program still reads normally once the tab is back',
+   (PROGRAMS = () => [PROG], M.spiffProgress_({}).rows.length === 2));
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nprogress cache: all passed');
 process.exit(fail ? 1 : 0);
