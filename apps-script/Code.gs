@@ -2001,14 +2001,20 @@ function diag_() {
  * about the form lives in this repo, deliberately: six hand-rolled copies of one bug form is
  * exactly what that shared file was written to end.
  *
- * BUCKETING — app 'inventory', tab 'spiff', and BOTH ARE HARDCODED HERE.
- * SPIFF is an Inventory SUB-APP (same as Price Cards), so its bugs belong in Inventory's stream
- * with `spiff` as the tab discriminator — NOT under an `app=spiff` bucket, which is the notes key,
- * not the bug tab. Nothing is lost by that: GX Core's GX_TAB_OWNER maps 'inventory:spiff' → the
- * spiff chat, so the 🐞 brain note still lands in THIS app's inbox while the bug itself files where
- * Inventory triage looks. They are hardcoded rather than read off `p` because bucketing is a fact
- * about what this app IS; a browser must not be able to file into another app's stream, and a
- * caller that forgot the parameter would silently land in the wrong one.
+ * BUCKETING — app 'spiff', tab 'spiff', and BOTH ARE HARDCODED HERE.
+ *
+ * This paragraph used to argue the opposite: that as an Inventory sub-app, SPIFF's bugs belonged in
+ * Inventory's stream under app='inventory'. That was corrected in the CODE on 2026-08-27 and the
+ * reasoning is at the call site below — getBugs filters strictly on `b.app`, so app=spiff returned
+ * zero forever while the linked note still reached this chat. The comment was left describing the
+ * old arrangement, directly above the line doing the new one, until 2026-09-01.
+ *
+ * Price Cards files under its own key too, so both sub-apps are consistent. Sub-app is a fact about
+ * the PRODUCT; the bug board is a fact about who triages it, and those are different questions.
+ *
+ * Hardcoded rather than read off `p` because bucketing is a fact about what this app IS: a browser
+ * must not be able to file into another app's stream, and a caller that forgot the parameter would
+ * silently land in the wrong one.
  *
  * `p.tab` from the client is therefore IGNORED for routing. Which SPIFF panel the reporter was on
  * rides in the context snapshot as `panel` — sending 'history' or 'calculator' up as `tab` would
