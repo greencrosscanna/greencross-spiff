@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.337"/>
-<link rel="stylesheet" href="spiff.css?v=1.337"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.338"/>
+<link rel="stylesheet" href="spiff.css?v=1.338"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -307,25 +307,33 @@
 
   </main>
 
-  <!-- ============ RECORD MODAL ============ -->
-  <!-- The historical record. Read-only for everyone; editable only for a signed-in
-       admin (the engine re-checks the role on every write). -->
-  <div class="modal-back" id="recordBack" hidden>
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="recordTitle">
+  <!-- ============ SIGN-IN ============ -->
+  <!-- All that is left of the old record modal. The record itself moved onto the Calculator in
+       v1.336-v1.337; this stayed because signing in genuinely wants a focused overlay with a
+       title and a backdrop, which a section inside a tab cannot be. Static markup rather than a
+       form painted by JS: it is one shape, it never varies, and there was nothing to rebuild. -->
+  <div class="modal-back" id="signInBack" hidden>
+    <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="signInTitle">
       <header class="modal-head">
         <div>
-          <h3 id="recordTitle"></h3>
-          <p class="modal-sub" id="recordSub"></p>
+          <h3 id="signInTitle">Sign in</h3>
+          <p class="modal-sub">SPIFF records are edited by Tawny and Sky.</p>
         </div>
-        <button class="gx-btn" id="recordClose" aria-label="Close">&times;</button>
+        <button class="gx-btn" id="signInClose" aria-label="Close">&times;</button>
       </header>
-      <div class="modal-body" id="recordBody"></div>
+      <div class="modal-body">
+        <div class="signin">
+          <label class="gx-login-field"><span>User</span>
+            <input class="gx-input" id="siUser" autocomplete="username"></label>
+          <label class="gx-login-field"><span>Password</span>
+            <input class="gx-input" id="siPass" type="password" autocomplete="current-password"></label>
+        </div>
+      </div>
       <footer class="modal-foot">
-        <span class="modal-msg" id="recordMsg"></span>
+        <span class="modal-msg" id="siMsg"></span>
         <span class="modal-foot-actions">
-          <button class="gx-btn" id="recordCancel">Close</button>
-          <button class="gx-btn gx-btn-green" id="recordSave" hidden>Save changes</button>
-          <button class="gx-btn" id="recordSignIn" hidden>Sign in to edit</button>
+          <button class="gx-btn" id="siCancel">Cancel</button>
+          <button class="gx-btn gx-btn-green" id="siGo">Sign in</button>
         </span>
       </footer>
     </div>
@@ -391,6 +399,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="spiff.js?v=1.337"></script>
+<script src="spiff.js?v=1.338"></script>
 </body>
 </html>

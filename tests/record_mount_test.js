@@ -1,24 +1,22 @@
 #!/usr/bin/env node
-/* ─── One record editor, two places it can live ───────────────────────────────────────────────────
+/* ─── The record lives on the Calculator, and nowhere else ────────────────────────────────────────
  *
  *   RUN:  node tests/record_mount_test.js
  *
  * WHY
- * Step 3 puts the record fields — status, the pay-period window, contact, actuals, the vendor link
- * — on the Calculator screen, without deleting the modal that still holds them. That is two hosts
- * for one form, and there are exactly two ways to build it:
+ * A program used to be two screens: the Calculator modelled it, a modal held its identity, dates,
+ * contact, actuals and vendor link, and a button hopped between them. v1.336 rendered the record
+ * under the Calculator as well; v1.337 pointed every entry there; v1.338 deleted the modal.
  *
- *   Two renderers. This screen has already paid for that once: the record panel used to carry its
- *   own flatter copy of the plan, and "two editors for one set of numbers means two answers to
- *   what this program is, and the weaker one wins whenever it is the one somebody opens."
+ * The failure this file exists to prevent is the one the move could quietly reintroduce: A SECOND
+ * COPY OF THE FORM. The record is read back by id — the collector, the save and the actuals pull
+ * all query it by selector — so two copies means the save reads one form while somebody types into
+ * the other, and a HIDDEN copy is just as dangerous, because it still answers a lookup.
  *
- *   One renderer, two hosts. Which is what this is — and its own failure mode is DUPLICATE IDS.
- *   The form creates ids (#rPPFrom, #rActuals, #btnShare) and the collector reads them back by id,
- *   so two live copies means the collector reads one form while the user types into the other. A
- *   hidden copy is just as dangerous as a visible one: it still answers a document-wide lookup.
- *
- * So the rule this file exists to hold: exactly one host is mounted, and the unmounted one is
- * EMPTIED, not hidden.
+ * This screen has already paid for the two-copies mistake once, in the other direction: the record
+ * panel used to carry its own flatter version of the plan, and "two editors for one set of numbers
+ * means two answers to what this program is, and the weaker one wins whenever it is the one
+ * somebody happens to open."
  */
 'use strict';
 const fs = require('fs');
@@ -28,6 +26,7 @@ const ok = (l, c) => c ? console.log('  ✓ ' + l) : (fail++, console.log('  ✗
 
 const js   = fs.readFileSync(__dirname + '/../spiff.js', 'utf8');
 const html = fs.readFileSync(__dirname + '/../index.html', 'utf8');
+const css  = fs.readFileSync(__dirname + '/../spiff.css', 'utf8');
 function grab(name) {
   const i = js.search(new RegExp('\\n\\s*(?:async\\s+)?function ' + name + '\\s*\\('));
   if (i < 0) throw new Error('missing ' + name);
@@ -38,130 +37,91 @@ function grab(name) {
   throw new Error('unbalanced ' + name);
 }
 
-/* ── the two hosts exist and are distinct ── */
-const MODAL  = new Function('return ' + (js.match(/var REC_MODAL\s*=\s*(\{[\s\S]*?\});/) || [])[1])();
-const INLINE = new Function('return ' + (js.match(/var REC_INLINE\s*=\s*(\{[\s\S]*?\});/) || [])[1])();
+/* ── THE MODAL IS GONE, ALL OF IT ── */
+['recordBack', 'recordBody', 'recordSave', 'recordSignIn', 'recordMsg',
+ 'recordTitle', 'recordSub', 'recordClose', 'recordCancel'].forEach(id => {
+  ok('no #' + id + ' left in the markup', html.indexOf('id="' + id + '"') < 0);
+  ok('  …and nothing in the code reaches for it', js.indexOf("'#" + id + "'") < 0);
+});
+['openRecord', 'closeRecord', 'renderSignIn', 'modalIsOpen', 'planCell'].forEach(fn => {
+  ok(fn + ' is gone', js.indexOf('function ' + fn + '(') < 0 && js.indexOf(fn + '(') < 0);
+});
+ok('the two-host context is gone with it',
+   js.indexOf('REC_MODAL') < 0 && js.indexOf('REC_INLINE') < 0 && js.indexOf('recCtx') < 0);
+/* The record's vendor autocomplete only existed because the modal had no Calculator in sight. */
+ok('the record’s second vendor picker is gone', js.indexOf('recPicker') < 0);
+/* Matched as an id, not a substring — `renderVendors` contains the letters and is the
+   Calculator's own picker, which is very much still here. */
+ok('  …and so is its input',
+   html.indexOf('id="rVendor"') < 0 && js.indexOf("'#rVendor'") < 0 && js.indexOf('rVendorMenu') < 0);
+ok('the "Edit parameters →" hop is gone — it pointed at the screen it now lives on',
+   js.indexOf('rEditParams') < 0);
 
+/* ── ONE HOST ── */
+const REC = new Function('return ' + (js.match(/var REC\s*=\s*(\{[\s\S]*?\});/) || [])[1])();
 ['body', 'msg', 'save', 'signIn'].forEach(k => {
-  ok('the two hosts have different ' + k, MODAL[k] !== INLINE[k]);
-  ok('  modal ' + k + ' exists in the page', html.indexOf('id="' + MODAL[k].slice(1) + '"') >= 0);
-  ok('  inline ' + k + ' exists in the page', html.indexOf('id="' + INLINE[k].slice(1) + '"') >= 0);
+  ok('REC.' + k + ' points at an element that exists',
+     html.indexOf('id="' + REC[k].slice(1) + '"') >= 0);
 });
-ok('only the inline one is flagged inline', INLINE.inline === true && MODAL.inline === false);
+ok('there is still exactly one renderRecord', (js.match(/function renderRecord\s*\(/g) || []).length === 1);
+ok('and one collectPatch',  (js.match(/function collectPatch\s*\(/g) || []).length === 1);
+ok('and one saveRecord',    (js.match(/async function saveRecord\s*\(/g) || []).length === 1);
 
-/* ── ONE renderer, not two ── */
-ok('there is exactly one renderRecord', (js.match(/function renderRecord\s*\(/g) || []).length === 1);
-ok('and exactly one collectPatch', (js.match(/function collectPatch\s*\(/g) || []).length === 1);
-ok('and exactly one saveRecord', (js.match(/async function saveRecord\s*\(/g) || []).length === 1);
-
-/* ── the form is read through the MOUNTED host, never a hardcoded one ── */
-const readers = ['collectPatch', 'saveRecord', 'pullActuals', 'renderRecord'];
-readers.forEach(fn => {
-  const src = grab(fn);
-  ok(fn + ' reads the mounted host, not #recordBody',
-     !/\$\$?\('#recordBody/.test(src));
-});
-/* renderSignIn is the exception and must STAY modal — it paints the modal's own title and
-   backdrop, which the Calculator has no equivalent of. */
-const signIn = grab('renderSignIn');
-ok('renderSignIn deliberately stays on the modal', /\$\('#recordBody'\)/.test(signIn));
-
-/* ── EXACTLY ONE MOUNT ── */
 const sync = grab('syncRecordMount');
-ok('the unmounted host is EMPTIED, not merely hidden', /body\.innerHTML = ''/.test(sync));
-ok('  …and hidden as well, so it takes no space', /wrap\.hidden = true/.test(sync));
-ok('the modal being open always wins the mount', /modalIsOpen\(\)/.test(sync));
-ok('nothing mounts inline unless a real program is being edited',
+ok('an unmounted record is EMPTIED, not merely hidden', /body\.innerHTML = ''/.test(sync));
+ok('  …and hidden too, so it takes no space', /wrap\.hidden = true/.test(sync));
+ok('nothing mounts unless a real program is being edited',
    /calc\.editingId/.test(sync) && /state\.programs/.test(sync));
-ok('and the context falls back to the modal when the inline one goes away',
-   /recCtx = REC_MODAL/.test(sync));
+ok('  …and state.record is cleared when nothing is', /state\.record = null/.test(sync));
 
-const open = grab('openRecord');
-ok('opening the modal clears the inline copy BEFORE rendering',
-   open.indexOf("inlineBody.innerHTML = ''") >= 0 &&
-   open.indexOf("inlineBody.innerHTML = ''") < open.indexOf('renderRecord(p)'));
-ok('  …and claims the context', /recCtx = REC_MODAL/.test(open));
-
-const close = grab('closeRecord');
-ok('closing the modal hands the mount back', /syncRecordMount\(\)/.test(close));
-
-/* ── the inline mount does not restate the model sitting above it ── */
+/* ── the record does not restate the model sitting above it ── */
 const render = grab('renderRecord');
-ok('the read-only plan block is dropped inline, where the live model is right above it',
-   /recCtx\.inline \? '' :/.test(render));
-ok('  …which also removes the "Edit parameters" hop from the screen it hops to',
-   render.indexOf('rEditParams') > render.indexOf("recCtx.inline ? '' :"));
+ok('no Program name field — the Calculator owns it', render.indexOf("'program_name'") < 0);
+ok('no vendor field either', render.indexOf('rVendorMenu') < 0);
+ok('but Status IS here, because the Calculator has no view of it', /selField\('Status'/.test(render));
+ok('and so is the pay-period window', /First pay period/.test(render));
+ok('and the contact, the actuals and the vendor link',
+   /contact_email/.test(render) && /rPullActuals/.test(render) && /btnShare/.test(render));
 
-/* ── NO TWO INPUTS FOR ONE COLUMN ──
-   The Calculator has its own Program name and Vendor boxes. Both halves of the screen save
-   `program_name` and `vendor`, so a second pair inside the inline record form would mean two
-   inputs for one column on one screen — and whichever one the user did NOT touch would quietly
-   overwrite the one they did, depending on which Save they pressed. */
-ok('the inline form does not restate Program name',
-   /recCtx\.inline \? '' :\s*\n\s*recField\('Program name'/.test(render));
-ok('  …nor the vendor picker', render.indexOf('rVendor') > render.indexOf("recCtx.inline ? '' :"));
-ok('  …but Status IS still there, because the Calculator has no view of it',
-   /selField\('Status'/.test(render) &&
-   render.indexOf("selField('Status'") > render.indexOf('rVendorMenu'));
-ok('and the vendor autocomplete is only mounted where its input exists',
-   /recPicker = recCtx\.inline \? null : mountPicker/.test(render));
-
-/* ── saving ── */
-const save = grab('saveRecord');
-ok('an inline save re-renders instead of closing a modal that is not there',
-   /if \(recCtx\.inline\) setTimeout\(syncRecordMount, 550\)/.test(save));
-ok('  …and the modal still closes', /else\s+setTimeout\(closeRecord, 550\)/.test(save));
-
-/* Both Save buttons must be wired at startup. Routing this through recCtx would wire only the
-   modal, because that is what recCtx is at wiring time — and the inline button would be dead. */
-ok('both hosts’ buttons are wired by literal id, not through the live context',
-   /\[REC_MODAL, REC_INLINE\]\.forEach/.test(js));
-
-/* ══════════════ STEP 4: EVERY WAY IN LANDS ON THE CALCULATOR ══════════════
- * Seven entry points used to open the modal: the programs-panel rows and their Edit buttons, the
- * keyboard activation of those rows, the same two for the programs table, the History rows, and
- * the share button's "needs a contact email" bounce. All seven go through openProgram now, which
- * lands on the Calculator with the record mounted underneath.
- *
- * The modal is NOT deleted. It is still what renderSignIn paints into, because signing in wants a
- * focused overlay with a title and a backdrop and the Calculator has no equivalent of that. What
- * it is no longer is the place a program is edited from.
- */
-ok('openProgram exists and is the single way in',
+/* ── EVERY WAY IN LANDS ON THE CALCULATOR ── */
+ok('openProgram is the single way in',
    (js.match(/function openProgram\s*\(/g) || []).length === 1);
 ok('  …and it hands off to the Calculator', /openInCalculator\(p\)/.test(grab('openProgram')));
+ok('all seven entry points call it', (js.match(/openProgram\(/g) || []).length === 8);
 
-/* Nothing may call openRecord any more. Counting the definition, one occurrence is correct;
-   two means an entry point was missed and that row still opens a modal nobody expects. */
-ok('NOTHING calls openRecord any more', (js.match(/openRecord\(/g) || []).length === 1);
-ok('  …and the one occurrence is its own definition',
-   /function openRecord\(/.test(js.match(/.*openRecord\(.*/)[0]));
-/* All seven repointed. A lower count means one was dropped rather than moved — and a row that
-   silently does nothing is worse than one that opens the old modal. */
-ok('all seven entry points call openProgram',
-   (js.match(/openProgram\(/g) || []).length === 8);   // 7 call sites + the definition
-
-/* ── CARRYING UNSAVED EDITS IS NOW DANGEROUS, AND GUARDED ──
-   openInCalculator used to collect the mounted form unconditionally, which was safe when the only
-   way here was the "Edit parameters" button on that very program's modal. Now every list row lands
-   here, and the mounted form is usually the LAST program opened — so collecting it would paste one
-   program's contact email, actuals and dates onto a different program, labelled as unsaved changes
-   nobody made. */
+/* Unsaved edits are carried forward ONLY from a form showing the same program. Every list row
+   lands here now, and the mounted form is usually the LAST program opened — collecting that would
+   paste one program's contact email, actuals and dates onto another as edits nobody made. */
 const openCalc = grab('openInCalculator');
-ok('unsaved edits are only carried from a form showing THE SAME program',
+ok('unsaved edits only carry from a form showing THE SAME program',
    /state\.record && state\.record\.program_id === p\.program_id/.test(openCalc));
-ok('  …and otherwise it starts from an empty patch',
+ok('  …otherwise it starts from an empty patch',
    /showing \? collectPatch\(p\) : Object\.create\(null\)/.test(openCalc));
 
-/* ── SIGN-IN STILL WORKS, AND RETURNS YOU SOMEWHERE COHERENT ──
-   renderSignIn paints into the modal whatever host the record is mounted in. Re-rendering the
-   record on success — what it used to do — would leave the sign-in form sitting on screen in the
-   modal with the record repainted behind it. */
-const signInDone = js.slice(js.indexOf('renderAuthChip();'));
-ok('a successful sign-in closes the modal rather than repainting behind it',
-   /renderAuthChip\(\);[\s\S]{0,700}closeRecord\(\)/.test(signInDone));
-ok('  …and repaints the lists, because the role just changed',
-   /renderAuthChip\(\);[\s\S]{0,900}renderPrograms\(\)/.test(signInDone));
+/* ── SIGN-IN: the one thing the overlay was still better at ── */
+ok('the sign-in dialog exists in the markup', html.indexOf('id="signInBack"') >= 0);
+ok('  …with static fields rather than a form painted by JS',
+   html.indexOf('id="siUser"') >= 0 && html.indexOf('id="siPass"') >= 0 &&
+   js.indexOf("id=\"siUser\"") < 0);
+ok('  …and its own message line, separate from the record’s',
+   html.indexOf('id="siMsg"') >= 0 && grab('doSignIn').indexOf("$('#siMsg')") >= 0);
+ok('openSignIn / closeSignIn replace the modal pair',
+   /function openSignIn\(/.test(js) && /function closeSignIn\(/.test(js));
+ok('closing clears the password rather than leaving it in the DOM',
+   /p\.value = ''/.test(grab('closeSignIn')));
+ok('a successful sign-in closes the dialog and repaints the record',
+   /closeSignIn\(\);\s*\n\s*syncRecordMount\(\);/.test(grab('doSignIn')));
+ok('signing OUT re-renders the record read-only rather than dropping it',
+   /clearSession\(\);[\s\S]{0,300}syncRecordMount\(\)/.test(js));
+ok('a rejected write reopens the dialog', /needsAuth[^\n]*openSignIn\(\)/.test(js));
+ok('the dialog is sized for a two-field form, not the record it replaced',
+   /\.modal-sm\s*\{/.test(css) && html.indexOf('modal modal-sm') >= 0);
+
+/* ── the record's styles moved with it ── */
+ok('the record styles are rehomed, not left scoped to a modal body that no longer holds them',
+   /#calcRecordBody \.sp-flds/.test(css) && css.indexOf('.modal-body .sp-flds') < 0);
+ok('the read-only plan summary’s styles went with the block',
+   css.indexOf('.sp-plan-c') < 0 && css.indexOf('.sp-plan-v') < 0);
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nrecord mount: all passed');
 process.exit(fail ? 1 : 0);

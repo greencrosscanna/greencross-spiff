@@ -850,19 +850,22 @@
       });
     }
 
-    $('#recordClose').addEventListener('click', closeRecord);
-    $('#recordCancel').addEventListener('click', closeRecord);
-    $('#recordBack').addEventListener('click', function (e) { if (e.target.id === 'recordBack') closeRecord(); });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeRecord(); });
-    /* BOTH hosts' buttons, wired once at startup by their literal ids — recCtx says where the
-       form is mounted RIGHT NOW, which at wiring time is always the modal, so routing this
-       through it would leave the inline Save dead. Same handlers either way: they read whichever
-       host is mounted, so there is one save path rather than two that can drift. */
-    [REC_MODAL, REC_INLINE].forEach(function (ctx) {
-      var save = $(ctx.save), signIn = $(ctx.signIn);
-      if (save)   save.addEventListener('click', saveRecord);
-      if (signIn) signIn.addEventListener('click', renderSignIn);
+    /* The sign-in dialog: corner x, Cancel, a click on the backdrop, and Escape. */
+    $('#signInClose').addEventListener('click', closeSignIn);
+    $('#siCancel').addEventListener('click', closeSignIn);
+    $('#signInBack').addEventListener('click', function (e) {
+      if (e.target.id === 'signInBack') closeSignIn();
     });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeSignIn();
+    });
+    $('#siGo').addEventListener('click', doSignIn);
+    $('#siPass').addEventListener('keydown', function (e) { if (e.key === 'Enter') doSignIn(); });
+
+    /* The record's own two buttons, on the Calculator. */
+    var recSave = $(REC.save), recIn = $(REC.signIn);
+    if (recSave) recSave.addEventListener('click', saveRecord);
+    if (recIn)   recIn.addEventListener('click', openSignIn);
   }
 
   /* ------------------------------------------------------------- the record */
@@ -978,58 +981,41 @@
       if (session()) {
         clearSession();
         renderAuthChip();
-        if (state.record) renderRecord(state.record);
+        /* Signing OUT re-renders the record where it stands — the fields go read-only rather
+           than disappearing, which is the whole point of a record anyone can read. */
+        syncRecordMount();
         return;
       }
-      state.record = null;
-      $('#recordTitle').textContent = 'Sign in';
-      $('#recordSub').textContent = 'SPIFF records are edited by Tawny and Sky.';
-      // The record modal's Close button is redundant beside the corner x on the sign-in view.
-      var closeBtn = $('#recordCancel'); if (closeBtn) closeBtn.hidden = true;
-      $(recCtx.msg).textContent = '';
-      $('#recordBack').hidden = false;
-      renderSignIn();
+      openSignIn();
     });
   }
 
-  /* ── ONE RECORD EDITOR, TWO PLACES IT CAN LIVE ────────────────────────────────────────────
-     The record form is rendered by a single function into whichever host is mounted: the modal,
-     or the section under the Calculator. Deliberately not two renderers — this screen already
-     paid for that once, when the record panel carried a flatter copy of the plan and the two
-     disagreed about what a program was.
+  /* ── THE RECORD LIVES ON THE CALCULATOR ───────────────────────────────────────────────────
+     One host, as of v1.338. Between v1.336 and v1.337 there were two — the modal and this — and
+     the code carried a context object so a single renderer could paint into either. That
+     scaffolding did its job: it is what kept one renderRecord, one collectPatch and one saveRecord
+     through the move, instead of the second copy this screen has been bitten by before. It has
+     been taken down with the modal it existed to support.
+     Named constants rather than inlined strings, because the collector, the save and the actuals
+     pull all read this form back by selector — four literals to keep in step is how they drift. */
+  var REC = { body:   '#calcRecordBody', msg:    '#calcRecordMsg',
+              save:   '#calcRecordSave', signIn: '#calcRecordSignIn' };
 
-     ONLY ONE HOST IS MOUNTED AT A TIME. The form creates ids (#rPPFrom, #rActuals, #btnShare)
-     and the collector reads them back by id, so a second live copy would have the collector
-     reading one form and the user typing into the other. syncRecordMount is the only thing that
-     decides which is up. */
-  var REC_MODAL  = { body: '#recordBody',     msg: '#recordMsg',
-                     save: '#recordSave',     signIn: '#recordSignIn',     inline: false };
-  var REC_INLINE = { body: '#calcRecordBody', msg: '#calcRecordMsg',
-                     save: '#calcRecordSave', signIn: '#calcRecordSignIn', inline: true };
-  var recCtx = REC_MODAL;
-
-  function modalIsOpen() {
-    var back = $('#recordBack');
-    return !!(back && !back.hidden);
-  }
-
-  /* Mount the inline record under the Calculator when it is editing a real program and the modal
-     is not up; unmount it otherwise. Called after anything that changes either condition. */
+  /* Show the record under the Calculator while it is editing a real program; take it away
+     otherwise. EMPTIED, not hidden — the form is read back by id, and a hidden copy still answers
+     a lookup, which is how a stale form silently becomes the one being saved. */
   function syncRecordMount() {
-    var wrap = $('#calcRecordWrap'), body = $(REC_INLINE.body);
+    var wrap = $('#calcRecordWrap'), body = $(REC.body);
     if (!wrap || !body) return;
     var p = calc.editingId
       ? (state.programs || []).filter(function (x) { return x.program_id === calc.editingId; })[0]
       : null;
-    if (modalIsOpen() || !p) {
-      /* Emptied, not just hidden — a hidden copy still answers $('#rPPFrom') and would silently
-         become the one the collector reads. */
+    if (!p) {
       body.innerHTML = '';
       wrap.hidden = true;
-      if (recCtx === REC_INLINE) recCtx = REC_MODAL;
+      state.record = null;
       return;
     }
-    recCtx = REC_INLINE;
     state.record = p;
     wrap.hidden = false;
     renderRecord(p);
@@ -1039,43 +1025,12 @@
      Every list row, every Edit button, every History row lands here, and here lands on the
      Calculator with the record mounted underneath it. One screen per program.
 
-     openRecord — the modal — is no longer an entry point. It is still wired, and renderSignIn
-     still uses it, because signing in genuinely wants a focused overlay with a title and a
-     backdrop and the Calculator has no equivalent of that. What it is no longer is the place
-     you edit a program from. */
+     There is no record modal any more — it went in v1.338, leaving only the sign-in dialog that
+     was the one thing it still did better than a panel. */
   function openProgram(id) {
     var p = (state.programs || []).filter(function (x) { return x.program_id === id; })[0];
     if (!p) return;
     openInCalculator(p);
-  }
-
-  /* NO CALLERS as of step 4 — every entry point goes through openProgram now. Kept, unused, for
-     one step: the modal markup it drives is still what renderSignIn paints into, and deleting the
-     two together is step 5. Do not wire anything back to it. */
-  function openRecord(id) {
-    var p = state.programs.filter(function (x) { return x.program_id === id; })[0];
-    if (!p) return;
-    var closeBtn = $('#recordCancel'); if (closeBtn) closeBtn.hidden = false;   // hidden by the sign-in view
-    /* Take the mount away from the inline copy BEFORE rendering, or both forms answer the same
-       id lookups and the collector reads whichever the DOM happens to hand it first. */
-    recCtx = REC_MODAL;
-    var inlineBody = $(REC_INLINE.body);
-    if (inlineBody) inlineBody.innerHTML = '';
-    var inlineWrap = $('#calcRecordWrap');
-    if (inlineWrap) inlineWrap.hidden = true;
-    state.record = p;
-    $('#recordTitle').textContent = p.program_name || p.title;
-    $('#recordSub').textContent = p.vendor + ' · tab "' + p.title + '"' + (p.source ? ' · ' + p.source : '');
-    $(recCtx.msg).textContent = '';
-    renderRecord(p);
-    $('#recordBack').hidden = false;
-  }
-
-  function closeRecord() {
-    $('#recordBack').hidden = true;
-    state.record = null;
-    /* Hand the mount back to the Calculator if it is still editing something. */
-    syncRecordMount();
   }
 
   function field(label, key, value, type) {
@@ -1121,11 +1076,6 @@
             + 'date this app can read. Pick a pay period above to replace it.</span>'
           : '')
       + '</label>';
-  }
-
-  function planCell(label, value) {
-    return '<div class="sp-plan-c"><div class="sp-plan-l">' + esc(label) + '</div>'
-      + '<div class="sp-plan-v">' + esc(String(value == null ? '—' : value)) + '</div></div>';
   }
 
   function selField(label, key, value, opts) {
@@ -1209,20 +1159,13 @@
         + 'set by pay period. Picking periods below will replace these dates.</div>';
     }
 
-    $(recCtx.body).innerHTML = warn
+    $(REC.body).innerHTML = warn
       + '<h4 class="sp-h4">The program</h4>'
       + '<div class="sp-flds">'
-      /* NAME AND VENDOR ARE THE CALCULATOR'S INLINE. It has its own boxes for both, directly
-         above this form — and both halves save `program_name` and `vendor`, so rendering a
-         second pair here would put two inputs for one column on one screen. Whichever the user
-         did not touch would quietly overwrite the one they did, depending on which Save they
-         pressed. In the modal they stay, because there the Calculator is nowhere in sight. */
-      +   (recCtx.inline ? '' :
-            recField('Program name', 'program_name', p.program_name, 'text', 'is-wide')
-          + '<div class="sp-fld sp-pick"><span>Vendor</span>'
-          +   '<div class="sp-pick-input"><input id="rVendor" autocomplete="off" placeholder="Start typing a brand…"'
-          +     (canEdit() ? '' : ' readonly') + ' role="combobox" aria-expanded="false" aria-controls="rVendorMenu"></div>'
-          +   '<div class="sp-pick-menu" id="rVendorMenu" role="listbox" hidden></div></div>')
+      /* NO NAME AND NO VENDOR. The Calculator has its own boxes for both, directly above this
+         form, and both halves of the screen save `program_name` and `vendor` — so a second pair
+         here would be two inputs for one column, where whichever one you did not touch quietly
+         overwrote the one you did. Status has no such twin, which is why it stays. */
       +   selField('Status', 'status', p.status, [
             { v: 'draft', l: 'Draft — not started' },
             { v: 'active', l: 'Active — running now' },
@@ -1243,35 +1186,12 @@
       +   roDateField('End date', 'end_date', p.end_date)
       + '</div>'
 
-      /* THE PLAN. Inline, this whole block is dropped — the Calculator's own controls are the
-         live version of it, sitting directly above, and restating the same six figures under a
-         heading that says "modelled in the Calculator" would be the screen talking about itself.
-         In the modal it stays, because there the model is nowhere in sight.
-         IT IS READ-ONLY EITHER WAY, and that is the point of the split. Everything below was
-         a flatter, worse copy of the Calculator: one target box against its per-store table,
-         one cost box against a picker that sources cost from Dutchie, no reference pull, no
-         scales panel. Two editors for one set of numbers means two answers to "what is this
-         program", and the weaker one wins whenever it is the one someone happens to open.
-         So this states the plan and hands off; identity, dates, contact and actuals — the
-         things the Calculator has no view of — stay editable right here. */
-      + (recCtx.inline ? '' :
-        + '<div class="sp-h4-row"><h4 class="sp-h4">The plan</h4>'
-        +   '<span class="sp-h4-note">modelled in the Calculator</span>'
-        +   (canEdit()
-              ? '<button type="button" class="gx-btn" id="rEditParams" style="margin-left:auto">Edit parameters &rarr;</button>'
-              : '')
-        + '</div>'
-        + '<div class="sp-plan">'
-        +   planCell('Featured product', p.match_json && (p.match_json.filter_text || (p.match_json.products || []).join(', '))
-                     ? ((p.match_json.brand ? p.match_json.brand + ' · ' : '')
-                        + (p.match_json.filter_text || (p.match_json.products || []).join(', ')))
-                     : '— not set —')
-        +   planCell('Payout', money((p.payout_json || {}).amount) + ' ' + payoutLabel(p))
-        +   planCell('Cost per unit', money((p.cost_json || {}).per_unit))
-        +   planCell('Target units', ((p.target_json || {}).units || 0).toLocaleString())
-        +   planCell('Last month units', ((p.baseline_json || {}).units || 0).toLocaleString())
-        +   planCell('Budtenders', (p.target_json || {}).budtenders || '—')
-        + '</div>')
+      /* NO READ-ONLY PLAN BLOCK EITHER. It restated six figures — product, payout, cost, target,
+         last month, budtenders — that are live controls a few inches up the same screen, under a
+         heading reading "modelled in the Calculator". And with it goes "Edit parameters →", which
+         on this screen was a link to where you already are.
+         The split it used to describe is still real and still the point: the model above saves
+         wholesale, this form saves only what changed. What is gone is the second, weaker copy. */
 
       + '<h4 class="sp-h4">Contact</h4>'
       + '<div class="sp-flds">'
@@ -1292,20 +1212,9 @@
       +   recField('ROI % (decimal)', 'actual_json.roi_pct', a.roi_pct, 'number')
       + '</div>';
 
-    /* Vendor autocompletes in the MODAL mount — it is identity, not modeling, and a program
-       filed under a brand we do not carry is a data problem that screen owns. Inline there is no
-       #rVendor to bind: the Calculator's own vendor picker is the one on screen.
-       Showing the current vendor matters as much as the autocomplete. Without it the field reads
-       as a blank waiting for input, which invites retyping a value that is already correct — and
-       a vendor typed slightly differently is a program that no longer groups with its history. */
-    recPicker = recCtx.inline ? null : mountPicker({
-      vendor: '#rVendor', vendorMenu: '#rVendorMenu'
-    });
-    if (recPicker) recPicker.setVendorSilently(p.vendor || '');
-
     /* The saved match travels in a hidden field so collectPatch picks it up with everything
        else, instead of needing its own save path that could disagree about what changed. */
-    $(recCtx.body).insertAdjacentHTML('beforeend',
+    $(REC.body).insertAdjacentHTML('beforeend',
       '<input type="hidden" data-key="match_json" value="' + esc(JSON.stringify(p.match_json || {})) + '">');
 
     /* The two period selects drive the dates, and keep themselves in order: picking a LAST
@@ -1319,8 +1228,8 @@
       var a = Number(ppFrom.value), b = Number(ppTo.value);
       if (b < a) { if (moved === 'from') { ppTo.value = String(a); b = a; }
                    else { ppFrom.value = String(b); a = b; } }
-      $(recCtx.body + ' [data-key="start_date"]').value = periodByIndex(a).start;
-      $(recCtx.body + ' [data-key="end_date"]').value   = periodByIndex(b).end;
+      $(REC.body + ' [data-key="start_date"]').value = periodByIndex(a).start;
+      $(REC.body + ' [data-key="end_date"]').value   = periodByIndex(b).end;
     }
     if (ppFrom) ppFrom.addEventListener('change', function () { syncPeriodDates('from'); });
     if (ppTo)   ppTo.addEventListener('change', function () { syncPeriodDates('to'); });
@@ -1328,13 +1237,10 @@
     var pull = $('#rPullActuals');
     if (pull) pull.addEventListener('click', function () { pullActuals(p, pull); });
 
-    var toCalc = $('#rEditParams');
-    if (toCalc) toCalc.addEventListener('click', function () { openInCalculator(p); });
-
     // Minting a vendor link exposes this program to an outside party, so it sits behind
     // the same role gate as editing and says plainly what it does.
     if (canEdit()) {
-      $(recCtx.body).insertAdjacentHTML('beforeend',
+      $(REC.body).insertAdjacentHTML('beforeend',
         '<h4>Vendor link</h4>'
         + '<p class="hint">A read-only page showing only this program. To open it they enter '
         + '<b>their own email</b> and the shared password — so set the contact email above first, '
@@ -1349,9 +1255,9 @@
     }
 
     var s = session();
-    $(recCtx.save).hidden   = !canEdit();
-    $(recCtx.signIn).hidden = canEdit();
-    $(recCtx.msg).textContent = s
+    $(REC.save).hidden   = !canEdit();
+    $(REC.signIn).hidden = canEdit();
+    $(REC.msg).textContent = s
       ? 'Signed in as ' + s.user + (canEdit() ? ' (' + s.role + ')' : ' — role ' + s.role + ' cannot edit')
       : 'Read-only. Sign in to correct this record.';
   }
@@ -1465,37 +1371,38 @@
   }
 
   // Credentials go to GX Core, which owns sign-on; SPIFF never stores a password.
-  function renderSignIn() {
-    $('#recordBody').innerHTML =
-      // No explanatory paragraph: the modal header (#recordSub) already says exactly this and the body
-      // was repeating it word for word. Fields use the shared .gx-login-field/.gx-input so this reads
-      // as the same sign-in as every other app rather than a third treatment.
-      '<div class="signin">'
-      + '<label class="gx-login-field"><span>User</span>'
-      +   '<input class="gx-input" id="siUser" autocomplete="username"></label>'
-      + '<label class="gx-login-field"><span>Password</span>'
-      +   '<input class="gx-input" id="siPass" type="password" autocomplete="current-password"></label>'
-      + '<button class="gx-btn gx-btn-green gx-login-submit" id="siGo">Sign in</button>'
-      + '</div>';
-    $('#recordSave').hidden = true;
-    $('#recordSignIn').hidden = true;
-    $('#siGo').addEventListener('click', doSignIn);
-    $('#siPass').addEventListener('keydown', function (e) { if (e.key === 'Enter') doSignIn(); });
+  /* The sign-in dialog. Static markup in index.html rather than a form painted into a modal
+     body — it is one shape and it never varies, so there was nothing for a renderer to decide.
+     What is left of the record modal, and the only reason that overlay still exists: signing in
+     wants a focused window with a title and a dimmed page behind it, and a section inside a tab
+     cannot be that. */
+  function openSignIn() {
+    var back = $('#signInBack');
+    if (!back) return;
+    $('#siMsg').textContent = '';
+    $('#siPass').value = '';
+    back.hidden = false;
     $('#siUser').focus();
+  }
+
+  function closeSignIn() {
+    var back = $('#signInBack');
+    if (back) back.hidden = true;
+    var p = $('#siPass'); if (p) p.value = '';   // never leave a password in the DOM
   }
 
   async function doSignIn() {
     var user = $('#siUser').value.trim();
     var pass = $('#siPass').value;
-    if (!user || !pass) { $(recCtx.msg).textContent = 'Enter your user and password.'; return; }
-    $(recCtx.msg).textContent = 'Signing in…';
+    if (!user || !pass) { $('#siMsg').textContent = 'Enter your user and password.'; return; }
+    $('#siMsg').textContent = 'Signing in…';
     try {
       var r = await GX.jsonp('login', { user: user, pass: pass, app: APP });
       // Same `code` contract as the full-page gate, but NOT the same treatment: this modal is
       // reached from an app the user is already reading, so a full-page takeover would be a
       // worse answer than a plain sentence. Say the true thing and leave them where they are.
       if (r && r.code === 'no_access') {
-        $(recCtx.msg).textContent = 'Your account does not have access to SPIFF. Ask Sky to grant it.';
+        $('#siMsg').textContent = 'Your account does not have access to SPIFF. Ask Sky to grant it.';
         return;
       }
       if (!r || !r.ok) throw new Error((r && r.error) || 'Sign-in failed');
@@ -1503,19 +1410,20 @@
       // roster avatar. The chip showed the slug and bare initials because neither was stored.
       setSession({ user: r.user, name: r.displayName || r.user, avatar: r.avatarConfig || null,
                    role: r.role, token: r.token, expiresAt: r.expiresAt });
-      $(recCtx.msg).textContent = '';
+      $('#siMsg').textContent = '';
       renderAuthChip();
       /* The sign-in form is painted into the MODAL, whatever host the record is mounted in — it
          wants a title and a backdrop, and the Calculator has no equivalent. So success closes the
          modal and hands the mount back, rather than re-rendering the record underneath a sign-in
          form that is still on screen. Everything repaints because the role just changed and half
          this app is gated on it. */
-      closeRecord();
+      closeSignIn();
+      syncRecordMount();
       renderPrograms();
       renderHistory();
       if (state.tab === 'reports') renderReport();
     } catch (err) {
-      $(recCtx.msg).textContent = String(err.message || err);
+      $('#siMsg').textContent = String(err.message || err);
     }
   }
 
@@ -1523,7 +1431,7 @@
   // the rest of the record.
   function collectPatch(p) {
     var patch = Object.create(null), nested = Object.create(null);
-    $$(recCtx.body + ' [data-key]').forEach(function (el) {
+    $$(REC.body + ' [data-key]').forEach(function (el) {
       var key = el.dataset.key, raw = el.value.trim();
       var val = el.type === 'number' ? (raw === '' ? null : Number(raw)) : raw;
       var parts = key.split('.');
@@ -1574,8 +1482,8 @@
      reads them before they are committed. */
   async function pullActuals(p, btn) {
     var stores = p.stores_json || [];
-    var from = ($(recCtx.body + ' [data-key="start_date"]') || {}).value || p.start_date;
-    var to   = ($(recCtx.body + ' [data-key="end_date"]')   || {}).value || p.end_date;
+    var from = ($(REC.body + ' [data-key="start_date"]') || {}).value || p.start_date;
+    var to   = ($(REC.body + ' [data-key="end_date"]')   || {}).value || p.end_date;
     var note = $('#rActualsNote');
     if (!from || !to) { note.textContent = 'set a start and end date first'; return; }
     if (!stores.length) { note.textContent = 'this program has no stores'; return; }
@@ -1606,9 +1514,9 @@
       return;
     }
 
-    var rate   = Number(($(recCtx.body + ' [data-key="payout_json.amount"]') || {}).value) || 0;
-    var cost   = Number(($(recCtx.body + ' [data-key="cost_json.per_unit"]') || {}).value) || 0;
-    var base   = Number(($(recCtx.body + ' [data-key="baseline_json.units"]') || {}).value) || 0;
+    var rate   = Number(($(REC.body + ' [data-key="payout_json.amount"]') || {}).value) || 0;
+    var cost   = Number(($(REC.body + ' [data-key="cost_json.per_unit"]') || {}).value) || 0;
+    var base   = Number(($(REC.body + ' [data-key="baseline_json.units"]') || {}).value) || 0;
     var invest = rate * hit;                        // paid only on budtenders who actually hit
     var roi    = (units - base) * cost - invest;    // same identity the Calculator models on
 
@@ -1631,7 +1539,7 @@
   }
 
   function setRecField(key, v) {
-    var el = $(recCtx.body + ' [data-key="' + key + '"]');
+    var el = $(REC.body + ' [data-key="' + key + '"]');
     if (!el) return;
     el.value = v;
     el.classList.remove('sp-changed');
@@ -1643,18 +1551,18 @@
     var p = state.record;
     if (!p) return;
     var patch = collectPatch(p);
-    if (!Object.keys(patch).length) { $(recCtx.msg).textContent = 'Nothing changed.'; return; }
+    if (!Object.keys(patch).length) { $(REC.msg).textContent = 'Nothing changed.'; return; }
 
-    $(recCtx.msg).textContent = 'Saving…';
+    $(REC.msg).textContent = 'Saving…';
     try {
       var r = await ENG.jsonp('editProgram', {
         token: (session() || {}).token, id: p.program_id, patch: JSON.stringify(patch)
       });
       if (!r || !r.ok) {
-        if (r && r.needsAuth) { clearSession(); renderSignIn(); }
+        if (r && r.needsAuth) { clearSession(); openSignIn(); }
         throw new Error((r && r.error) || 'Save failed');
       }
-      $(recCtx.msg).textContent = 'Saved (' + (r.changed || []).join(', ') + ')';
+      $(REC.msg).textContent = 'Saved (' + (r.changed || []).join(', ') + ')';
       await loadPrograms();
       renderPrograms();
       renderHistory();
@@ -1664,10 +1572,9 @@
          rather than a flash.
          Inline there is nothing to close — the form IS the screen — so it re-renders against the
          saved program instead, which is what clears the warnings the save just resolved. */
-      if (recCtx.inline) setTimeout(syncRecordMount, 550);
-      else               setTimeout(closeRecord, 550);
+      setTimeout(syncRecordMount, 550);
     } catch (err) {
-      $(recCtx.msg).textContent = String(err.message || err);
+      $(REC.msg).textContent = String(err.message || err);
     }
   }
 
@@ -2249,7 +2156,10 @@
      typed must never be quietly rewritten by a control she did not touch. */
   var GOAL_MAX = 150;
   var draggingGoal = false;
-  var calcPicker = null, recPicker = null;
+  /* One picker now. The record form had its own vendor autocomplete while it lived in a
+     modal with no Calculator in sight; on the Calculator the vendor field IS the
+     Calculator's, so there is nothing second to mount or dismiss. */
+  var calcPicker = null;
 
   function wireCalculator() {
     ['cName', 'cVendor', 'cCost', 'cSpiff'].forEach(function (id) {
@@ -2378,11 +2288,11 @@
      per mount — two mounts each adding their own listener would close the other's menu. */
   document.addEventListener('mousedown', function (e) {
     if (e.target.closest('.sp-pick')) return;
-    [calcPicker, recPicker].forEach(function (x) { if (x) x.close(); });
+    if (calcPicker) calcPicker.close();
   });
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
-    [calcPicker, recPicker].forEach(function (x) { if (x) x.close(); });
+    if (calcPicker) calcPicker.close();
   });
 
   function driving(sel) {
@@ -2822,7 +2732,7 @@
     var merged = Object.assign({}, p, patch);
     if (Object.keys(patch).length) {
       /* Say it plainly rather than silently binding unsaved values into the model. */
-      $(recCtx.msg).textContent = 'Carrying your unsaved changes to the Calculator.';
+      $(REC.msg).textContent = 'Carrying your unsaved changes to the Calculator.';
     }
 
     calc.editingId = p.program_id;
@@ -2873,7 +2783,7 @@
       calcPicker.setChosen(calc.product);
     }
     calc.locked = String(merged.status || '').toLowerCase() === 'closed';
-    closeRecord();                     // also hands the record mount to the inline host
+    closeSignIn();                     // in case the program was opened from behind the dialog
     showTab('calculator');
     recalc(PULSE_ALL);
     renderCalcEditing();
@@ -3038,8 +2948,8 @@
     document.addEventListener('keydown', pitchKey);
   }
 
-  /* Escape leaves, and it is captured here rather than relying on the record modal's handler --
-     that one calls closeRecord and would do nothing while a pitch is up. */
+  /* Escape leaves, and it is captured here rather than relying on the sign-in dialog's handler --
+     that one closes a dialog that is not open and would do nothing while a pitch is up. */
   function pitchKey(e) { if (e.key === 'Escape') exitPitch(); }
   function exitPitch() {
     var w = document.getElementById('spPitch');

@@ -248,6 +248,9 @@ body {
   border-radius: var(--gx-radius-lg, 12px);
   box-shadow: var(--gx-shadow-lg, 0 20px 60px rgba(0,0,0,.5));
 }
+/* The sign-in dialog is the only modal left, and it is a two-field form — 760px of width around
+   it read as a dialog that had failed to load its content. */
+.modal-sm { width: min(420px, 100%); }
 .modal-head, .modal-foot {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   padding: 16px 20px;
@@ -1121,10 +1124,12 @@ body.is-gated .workspace { display: none !important; }
    is information the vendor is entitled to, not an error state. */
 .sp-tbl .neg { color: var(--gx-red); font-weight: 600; }
 
-/* ── Edit Program modal ─────────────────────────────────────────────────── */
-.modal-body .sp-flds { margin-bottom: 4px; }
-.modal-body .sp-h4 { margin-top: 20px; }
-.modal-body .sp-h4-row { margin-top: 20px; align-items: center; }
+/* ── The program record, on the Calculator ──────────────────────────────────
+   These lived under .modal-body until v1.338, when the record left the modal for good. Rehomed
+   rather than deleted: the form is the same form, it is just somewhere else now. */
+#calcRecordBody .sp-flds { margin-bottom: 4px; }
+#calcRecordBody .sp-h4 { margin-top: 20px; }
+#calcRecordBody .sp-h4-row { margin-top: 20px; align-items: center; }
 .sp-fld-note { grid-column: span 2; font-size: 11px; color: var(--gx-text-mute); margin: -4px 0 2px; line-height: 1.45; }
 .sp-fld select.sp-in { color-scheme: dark; }
 /* A date input's picker glyph is near-black on the dark surface by default. */
@@ -1132,17 +1137,10 @@ body.is-gated .workspace { display: none !important; }
 /* The whole actuals block dims while it is being refetched, so nobody reads a half-updated
    set of figures as final. */
 #rActuals.is-busy { opacity: .45; pointer-events: none; transition: opacity .12s ease; }
-/* The modal body MUST keep scrolling — this record is long and the header/footer are fixed —
-   so the picker menu cannot escape it. Overriding overflow to visible would have traded a
-   clipped dropdown for a modal whose Save button walks off the bottom of the screen. Instead
-   the menu is kept short enough to sit inside the body, and scrolls itself when it is not. */
-.modal-body .sp-pick-menu { max-height: 220px; }
-
-/* Read-only plan summary in the record. Deliberately not inputs — the Calculator edits these. */
-.sp-plan { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 4px; }
-.sp-plan-c { background: var(--sp-inset); border: 1px solid var(--gx-border); border-radius: 9px; padding: 10px 12px; }
-.sp-plan-l { font-size: 9.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--gx-text-mute); }
-.sp-plan-v { font-size: 13.5px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+/* The record scrolls with the page now rather than inside a fixed-height modal body, so the
+   picker-menu height cap that kept a dropdown from escaping that box is gone with it — as is the
+   read-only plan summary (.sp-plan), which restated six figures that are live controls further up
+   the same screen. */
 
 /* The Calculator has to say which program it is editing, or Save silently forks a duplicate. */
 .sp-editing {
@@ -1153,7 +1151,6 @@ body.is-gated .workspace { display: none !important; }
 }
 .sp-editing b { color: var(--gx-text); }
 .sp-editing .gx-btn { padding: 3px 9px; font-size: 11px; }
-@media (max-width: 900px) { .sp-plan { grid-template-columns: repeat(2, 1fr); } }
 
 /* ── Waiting on last-month data ────────────────────────────────────────────
    Everything downstream of the reference pull is stale until it lands: the goal, the whole
