@@ -51,7 +51,12 @@
  *                  per_unit: { per_unit }                   ← declared, not yet implemented
  *                  tiered:   { tiers: [{units, amount}] }   ← declared, not yet implemented
  *   baseline_json  { units, revenue, by_store:{}, per_bt:{} }   pre-SPIFF period
- *   target_json    { units, revenue, by_store:{}, per_bt:{} }   goal
+ *   target_json    { units, revenue, budtenders, by_store:{}, per_bt:{}, bts_by_store:{} }
+ *                  the goal. bts_by_store is the per-store HEADCOUNT and was added 2026-09-01 --
+ *                  it used to be inferred by dividing last month's units by last month's per-BT
+ *                  figure, both already rounded, and the inference was wrong for 20 of 26 live
+ *                  programs. Rows written before that date do not carry it; the frontend derives
+ *                  it from by_store / per_bt instead, which is exact wherever those two multiply.
  *   actual_json    { units_sold, revenue, bts_hit, investment, roi, roi_pct }
  *                  present only for programs that already ran
  *   source         where the row came from, e.g. 'calculator:Wyld 10pc'

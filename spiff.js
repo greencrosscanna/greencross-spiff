@@ -1597,6 +1597,34 @@
     stores: []       // [{ store_id, name, baseline, bts, refState, refUnits }]
   };
 
+  /* ── HOW MANY BUDTENDERS DID THIS STORE HAVE? ─────────────────────────────────────────────
+     Three sources, best first, because the good one only exists on programs saved since
+     2026-09-01.
+
+       1. What was SAVED. Exact, and the only one that is not an inference.
+       2. Derived from the program's own goal: a store goal IS per_bt x headcount by construction,
+          so dividing them back gives the headcount exactly. Available on every historical row.
+       3. Derived from LAST MONTH's pair — which is what this used to do, alone, and it is wrong
+          often enough to matter. Both of those numbers were rounded before they were stored, so
+          a store with 9 units across 6 people stored per_bt 2 (1.5 rounded), and 9/2 reconstructs
+          5 people. Everything downstream then re-derived off a headcount nobody had.
+
+     Falls back to 6 only when there is nothing at all to read. */
+  function btsForStore(id, tgt, base) {
+    var saved = (tgt.bts_by_store || {})[id];
+    if (saved > 0) return Math.max(1, Math.round(Number(saved)));
+
+    var goal = Number((tgt.by_store || {})[id] || 0);
+    var tPer = Number((tgt.per_bt   || {})[id] || 0);
+    if (goal > 0 && tPer > 0) return Math.max(1, Math.round(goal / tPer));
+
+    var b    = Number((base.by_store || {})[id] || 0);
+    var bPer = Number((base.per_bt   || {})[id] || 0);
+    if (b > 0 && bPer > 0) return Math.max(1, Math.round(b / bPer));
+
+    return 6;
+  }
+
   /* No participation flag any more. Every store runs every program, so the old tick-box was a
      control nobody used -- and it let a store be silently dropped from the model while its row
      stayed visible. Stores come from the GX Core registry; a seventh appears on its own. */
@@ -2705,17 +2733,17 @@
     var reg = state.stores.length
       ? state.stores
       : (merged.stores_json || []).map(function (id) { return { store_id: id, display_name: storeName(id) }; });
+    var mTgt = merged.target_json || {};
     calc.stores = reg.map(function (st) {
       var b = (base.by_store || {})[st.store_id];
-      var perBt = (base.per_bt || {})[st.store_id];
       /* The SAVED per-BT goal comes back as a pin. Re-deriving it from the target would quietly
          discard whatever tuning was done last time — the store rows would look right and be
          different numbers from the ones the vendor was shown. */
-      var tgtPerBt = ((merged.target_json || {}).per_bt || {})[st.store_id];
+      var tgtPerBt = (mTgt.per_bt || {})[st.store_id];
       return {
         store_id: st.store_id, name: st.display_name || st.store_id,
         baseline: b || 0,
-        bts: perBt ? Math.max(1, Math.round((b || 0) / perBt)) : 6,
+        bts: btsForStore(st.store_id, mTgt, base),
         perBtSet: tgtPerBt ? Number(tgtPerBt) : null
       };
     });
@@ -2873,12 +2901,11 @@
        `on` flag hid it behind an unticked box. */
     calc.stores = state.stores.map(function (s) {
       var b = (base.by_store || {})[s.store_id];
-      var perBt = (base.per_bt || {})[s.store_id];
       var tgtPerBt = (tgt.per_bt || {})[s.store_id];
       return {
         store_id: s.store_id, name: s.display_name || s.store_id,
         baseline: b || 0,
-        bts: perBt ? Math.max(1, Math.round((b || 0) / perBt)) : 6,
+        bts: btsForStore(s.store_id, tgt, base),
         perBtSet: tgtPerBt ? Number(tgtPerBt) : null
       };
     });
@@ -2891,13 +2918,12 @@
     recalc();
   }
 
-  async function saveCalcProgram() {
-    if (!canEdit()) { $('#btnAuth').click(); return; }
-    var m = calcModel();
-    if (!calc.name) { alert('Give the program a name first.'); return; }
-
+  /* The nine model fields, built once. Create sends all of them because there is nothing to
+     compare against; update sends only the ones that moved — see calcModelPatch. */
+  function calcModelPayload(m) {
     var byStore = Object.create(null), perBt = Object.create(null);
     var baseByStore = Object.create(null), basePerBt = Object.create(null);
+    var btsByStore = Object.create(null);
     /* SAVED FROM THE PLAN, so the record holds exactly what was on the screen. These two
        lines used to run their own arithmetic -- per_bt as round(round(base/bts) x ratio),
        against a table that showed round(round(base x ratio)/bts) -- two formulas for one
@@ -2906,14 +2932,109 @@
     m.plan.forEach(function (s) {
       byStore[s.store_id] = s.goal;
       perBt[s.store_id]   = s.perBt || 0;
+      /* HEADCOUNT IS SAVED. It never used to be, and reopening a program had to guess it back by
+         dividing last month's units by last month's per-budtender figure — two numbers that were
+         already rounded when they were stored. The guess was wrong for 20 of the 26 live
+         programs, so opening one and pressing Update rewrote its store goals: Meraki Gardens
+         December went 90 units to 78 with nobody typing anything. */
+      btsByStore[s.store_id] = Number(s.n) || 0;
       /* The per-store LAST-MONTH split is saved too. It is what openInCalculator reads back,
          so without it a second trip through Edit parameters would open on zeroed references
          and recompute a different target than the one the vendor agreed to. */
       baseByStore[s.store_id] = Number(s.baseline) || 0;
       basePerBt[s.store_id]   = s.bts ? Math.round((Number(s.baseline) || 0) / s.bts) : 0;
     });
+    return {
+      program_name: calc.name, vendor: calc.vendor,
+      cost_json:   { mode: 'flat', per_unit: Number(calc.cost) || 0, source_label: 'calculator' },
+      /* The model is SAVED. It used to be hardcoded 'flat', so a per-unit program (Hapy Kitchen
+         paid $1/unit) came back out of the datastore looking flat — which is exactly how the
+         imported history came to look uniformly flat. */
+      payout_type: calc.model,
+      payout_json: { amount: Number(calc.spiff) || 0, model: calc.model },
+      match_json:  matchOf(calc.product),
+      stores_json: m.on.map(function (x) { return x.store_id; }),
+      baseline_json: { units: m.baseUnits, revenue: m.baseRev, by_store: baseByStore, per_bt: basePerBt },
+      /* budtenders is what Programs divides the payout by; without it the hero showed
+         "of 0 hit" and an earned-so-far of $0 on a program that was paying out. */
+      target_json: { units: m.goalUnits, revenue: m.targetRev,
+                     budtenders: m.bts, by_store: byStore, per_bt: perBt,
+                     bts_by_store: btsByStore }
+    };
+  }
 
+  /* Canonical JSON — object keys sorted, so two structurally identical values compare equal
+     however they were built. The stored value came back out of the datastore and the candidate
+     was just assembled on screen; nothing makes those two agree on key order, and a plain
+     JSON.stringify comparison would call every field dirty every time, which is the whole
+     failure this is here to remove. */
+  function canonJson(v) {
+    if (v === undefined) return 'null';
+    if (v === null || typeof v !== 'object') return JSON.stringify(v);
+    if (Array.isArray(v)) return '[' + v.map(canonJson).join(',') + ']';
+    return '{' + Object.keys(v).sort().map(function (k) {
+      return JSON.stringify(k) + ':' + canonJson(v[k]);
+    }).join(',') + '}';
+  }
+
+  /* ── ONLY WHAT MOVED ──────────────────────────────────────────────────────────────────────
+     Update used to post all nine fields whether or not any of them had been touched. Pressing
+     "Update this program" to correct a name therefore re-derived and re-wrote the target, the
+     baseline and the per-store goals — including `per_bt`, which is the threshold Progress
+     judges a budtender against and pays on. Every value was recomputed from the live screen, so
+     nothing errored and the numbers all looked reasonable; a program could simply come out
+     settled against a slightly different goal than the one the vendor agreed to. That exact
+     class of bug has been paid for here once already, when the save ran its own rounding
+     separate from the table's.
+
+     The comparison is deliberately biased toward SENDING. A false "changed" costs one redundant
+     column write, which is what happened on every save until now. A false "unchanged" silently
+     drops an edit. So anything the canonical form cannot prove identical goes out. */
+  function calcModelPatch(prog, payload) {
+    var patch = Object.create(null);
+    Object.keys(payload).forEach(function (k) {
+      var next = payload[k], prev = prog[k];
+      if (k === 'stores_json') {
+        /* Order carries no meaning here — the registry's order is not the stored order, and
+           re-writing six identical ids because they were listed differently is exactly the
+           noise this function exists to stop. */
+        var a = (next || []).slice().sort().join('|');
+        var b = (Array.isArray(prev) ? prev.slice().sort() : []).join('|');
+        if (a !== b) patch[k] = next;
+        return;
+      }
+      if (typeof next === 'string') {
+        if (String(prev == null ? '' : prev) !== next) patch[k] = next;
+        return;
+      }
+      if (canonJson(next) !== canonJson(prev)) patch[k] = next;
+    });
+    return patch;
+  }
+
+  async function saveCalcProgram() {
+    if (!canEdit()) { $('#btnAuth').click(); return; }
+    var m = calcModel();
+    if (!calc.name) { alert('Give the program a name first.'); return; }
+
+    var payload = calcModelPayload(m);
     var btn = $('#calcSave');
+
+    var patch = null;
+    if (calc.editingId) {
+      var prog = (state.programs || []).filter(function (x) {
+        return x.program_id === calc.editingId;
+      })[0];
+      /* No stored copy to compare against means we cannot tell what moved, so send everything —
+         the same thing this did before, and the safe direction of the two. */
+      patch = prog ? calcModelPatch(prog, payload) : payload;
+      if (!Object.keys(patch).length) {
+        btn.textContent = 'Nothing changed';
+        setTimeout(function () { renderCalcEditing(); }, 1800);
+        return;
+      }
+    }
+
     btn.disabled = true; btn.textContent = 'Saving…';
     try {
       /* UPDATE when we arrived from a record, CREATE otherwise. Without this the "Edit
@@ -2923,37 +3044,12 @@
       var r = calc.editingId
         ? await ENG.jsonp('editProgram', {
             token: (session() || {}).token, id: calc.editingId,
-            patch: JSON.stringify({
-              program_name: calc.name, vendor: calc.vendor,
-              cost_json:   { mode: 'flat', per_unit: Number(calc.cost) || 0, source_label: 'calculator' },
-              payout_type: calc.model,
-              payout_json: { amount: Number(calc.spiff) || 0, model: calc.model },
-              match_json:  matchOf(calc.product),
-              stores_json: m.on.map(function (x) { return x.store_id; }),
-              baseline_json: { units: m.baseUnits, revenue: m.baseRev, by_store: baseByStore, per_bt: basePerBt },
-              target_json: { units: m.goalUnits, revenue: m.targetRev,
-                             budtenders: m.bts, by_store: byStore, per_bt: perBt }
-            })
+            patch: JSON.stringify(patch)
           })
         : await ENG.jsonp('createProgram', {
-        token: (session() || {}).token,
-        program: JSON.stringify({
-          program_name: calc.name, vendor: calc.vendor,
-          cost_json:   { mode: 'flat', per_unit: Number(calc.cost) || 0, source_label: 'calculator' },
-          /* The model is SAVED now. It used to be hardcoded 'flat', so a per-unit program
-             (Hapy Kitchen paid $1/unit) came back out of the datastore looking flat — which
-             is exactly how the imported history came to look uniformly flat. */
-          payout_type: calc.model,
-          payout_json: { amount: Number(calc.spiff) || 0, model: calc.model },
-          match_json:  matchOf(calc.product),
-          stores_json: m.on.map(function (s) { return s.store_id; }),
-          baseline_json: { units: m.baseUnits, revenue: m.baseRev, by_store: baseByStore, per_bt: basePerBt },
-          /* budtenders is what Programs divides the payout by; without it the hero showed
-             "of 0 hit" and an earned-so-far of $0 on a program that was paying out. */
-          target_json:   { units: m.goalUnits, revenue: m.targetRev,
-                           budtenders: m.bts, by_store: byStore, per_bt: perBt }
-        })
-      });
+            token: (session() || {}).token,
+            program: JSON.stringify(payload)
+          });
       if (!r || !r.ok) throw new Error((r && r.error) || 'save failed');
       btn.textContent = calc.editingId ? 'Updated' : 'Saved';
       await loadPrograms();

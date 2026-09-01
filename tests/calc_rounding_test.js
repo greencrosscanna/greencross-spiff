@@ -93,10 +93,19 @@ const perUnit = model(six, 1200, { model: 'per_unit', spiff: 1 });
 ok('a per-unit payout funds the reconciled goal', perUnit.invest === perUnit.goalUnits);
 
 /* ── one formula, not two: the save path reads the same plan ──────────────────────────────────── */
+/* The payload moved out of saveCalcProgram into its own builder on 2026-09-01, so that create and
+   update stop carrying two copies of it. That is a STRONGER version of what this block has always
+   checked — there is now literally one place the saved numbers come from — so the assertions moved
+   with it rather than being dropped. */
+const payload = grab('calcModelPayload');
+ok('the save builds per_bt from the plan', /m\.plan\.forEach/.test(payload));
+ok('  …and no longer runs its own rounding', !/Math\.round\(Math\.round\(s\.baseline/.test(payload));
+ok('  …and files the reconciled ask as the target',
+   (payload.match(/units: m\.goalUnits/g) || []).length === 1);
+
 const save = grab('saveCalcProgram');
-ok('the save builds per_bt from the plan', /m\.plan\.forEach/.test(save));
-ok('  …and no longer runs its own rounding', !/Math\.round\(Math\.round\(s\.baseline/.test(save));
-ok('  …and files the reconciled ask as the target', (save.match(/units: m\.goalUnits/g) || []).length === 2);
+ok('  …and there is exactly ONE payload, shared by create and update',
+   !/m\.plan\.forEach/.test(save) && /calcModelPayload\(m\)/.test(save));
 
 const recalc = grab('recalc');
 ok('the per-store table reads the plan too', /m\.plan\.map/.test(recalc));
