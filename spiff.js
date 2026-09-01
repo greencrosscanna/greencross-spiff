@@ -825,15 +825,15 @@
         var sh = e.target.closest('[data-share]');
         if (sh) { e.preventDefault(); e.stopPropagation(); rowShare(sh); return; }
         var ed = e.target.closest('[data-edit]');
-        if (ed) { openRecord(ed.dataset.edit); return; }
+        if (ed) { openProgram(ed.dataset.edit); return; }
         var row = e.target.closest('.sp-row[data-id]');
-        if (row) openRecord(row.dataset.id);
+        if (row) openProgram(row.dataset.id);
       });
       panel.addEventListener('keydown', function (e) {
         if (e.key !== 'Enter' && e.key !== ' ') return;
         if (e.target.closest('[data-share]')) return;   // the button handles its own activation
         var row = e.target.closest('.sp-row[data-id]');
-        if (row) { e.preventDefault(); openRecord(row.dataset.id); }
+        if (row) { e.preventDefault(); openProgram(row.dataset.id); }
       });
     }
 
@@ -841,12 +841,12 @@
     if (list) {
       list.addEventListener('click', function (e) {
         var tr = e.target.closest('tr[data-id]');
-        if (tr) openRecord(tr.dataset.id);
+        if (tr) openProgram(tr.dataset.id);
       });
       list.addEventListener('keydown', function (e) {
         if (e.key !== 'Enter' && e.key !== ' ') return;
         var tr = e.target.closest('tr[data-id]');
-        if (tr) { e.preventDefault(); openRecord(tr.dataset.id); }
+        if (tr) { e.preventDefault(); openProgram(tr.dataset.id); }
       });
     }
 
@@ -1035,6 +1035,23 @@
     renderRecord(p);
   }
 
+  /* ── THE WAY INTO A PROGRAM ───────────────────────────────────────────────────────────────
+     Every list row, every Edit button, every History row lands here, and here lands on the
+     Calculator with the record mounted underneath it. One screen per program.
+
+     openRecord — the modal — is no longer an entry point. It is still wired, and renderSignIn
+     still uses it, because signing in genuinely wants a focused overlay with a title and a
+     backdrop and the Calculator has no equivalent of that. What it is no longer is the place
+     you edit a program from. */
+  function openProgram(id) {
+    var p = (state.programs || []).filter(function (x) { return x.program_id === id; })[0];
+    if (!p) return;
+    openInCalculator(p);
+  }
+
+  /* NO CALLERS as of step 4 — every entry point goes through openProgram now. Kept, unused, for
+     one step: the modal markup it drives is still what renderSignIn paints into, and deleting the
+     two together is step 5. Do not wire anything back to it. */
   function openRecord(id) {
     var p = state.programs.filter(function (x) { return x.program_id === id; })[0];
     if (!p) return;
@@ -1374,7 +1391,9 @@
       /* Refuses rather than minting a link that cannot open. Opens the record on the program so the
          missing field is in front of them, instead of an error they have to act on from memory. */
       flashShare(btn, 'Needs a contact email', false);
-      setTimeout(function () { openRecord(id); }, 900);
+      /* Opens the program so the missing field is in front of them — on the Calculator now,
+         where the Contact section lives, rather than in a modal that no longer opens. */
+      setTimeout(function () { openProgram(id); }, 900);
       return;
     }
 
@@ -1486,8 +1505,15 @@
                    role: r.role, token: r.token, expiresAt: r.expiresAt });
       $(recCtx.msg).textContent = '';
       renderAuthChip();
-      if (state.record) renderRecord(state.record);
-      else { closeRecord(); if (state.tab === 'reports') renderReport(); }
+      /* The sign-in form is painted into the MODAL, whatever host the record is mounted in — it
+         wants a title and a backdrop, and the Calculator has no equivalent. So success closes the
+         modal and hands the mount back, rather than re-rendering the record underneath a sign-in
+         form that is still on screen. Everything repaints because the role just changed and half
+         this app is gated on it. */
+      closeRecord();
+      renderPrograms();
+      renderHistory();
+      if (state.tab === 'reports') renderReport();
     } catch (err) {
       $(recCtx.msg).textContent = String(err.message || err);
     }
@@ -2787,7 +2813,12 @@
      UNSAVED EDITS IN THE MODAL ARE CARRIED TOO. Changing the payout here and then clicking
      through would otherwise model the old rate, and nothing on the Calculator would say so. */
   function openInCalculator(p) {
-    var patch = collectPatch(p);
+    /* Unsaved edits are carried forward ONLY from a form that was showing THIS program. Since
+       every list row now lands here, the mounted form is usually the LAST program opened — and
+       collecting from that would paste its contact email, its actuals and its dates onto a
+       different program, as "unsaved changes" nobody made. */
+    var showing = state.record && state.record.program_id === p.program_id;
+    var patch = showing ? collectPatch(p) : Object.create(null);
     var merged = Object.assign({}, p, patch);
     if (Object.keys(patch).length) {
       /* Say it plainly rather than silently binding unsaved values into the model. */
@@ -3513,7 +3544,7 @@
     });
     $('#hList').addEventListener('click', function (e) {
       var row = e.target.closest('[data-id]');
-      if (row) openRecord(row.dataset.id);
+      if (row) openProgram(row.dataset.id);
     });
   }
 

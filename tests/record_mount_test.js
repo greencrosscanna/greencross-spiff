@@ -117,5 +117,51 @@ ok('  …and the modal still closes', /else\s+setTimeout\(closeRecord, 550\)/.te
 ok('both hosts’ buttons are wired by literal id, not through the live context',
    /\[REC_MODAL, REC_INLINE\]\.forEach/.test(js));
 
+/* ══════════════ STEP 4: EVERY WAY IN LANDS ON THE CALCULATOR ══════════════
+ * Seven entry points used to open the modal: the programs-panel rows and their Edit buttons, the
+ * keyboard activation of those rows, the same two for the programs table, the History rows, and
+ * the share button's "needs a contact email" bounce. All seven go through openProgram now, which
+ * lands on the Calculator with the record mounted underneath.
+ *
+ * The modal is NOT deleted. It is still what renderSignIn paints into, because signing in wants a
+ * focused overlay with a title and a backdrop and the Calculator has no equivalent of that. What
+ * it is no longer is the place a program is edited from.
+ */
+ok('openProgram exists and is the single way in',
+   (js.match(/function openProgram\s*\(/g) || []).length === 1);
+ok('  …and it hands off to the Calculator', /openInCalculator\(p\)/.test(grab('openProgram')));
+
+/* Nothing may call openRecord any more. Counting the definition, one occurrence is correct;
+   two means an entry point was missed and that row still opens a modal nobody expects. */
+ok('NOTHING calls openRecord any more', (js.match(/openRecord\(/g) || []).length === 1);
+ok('  …and the one occurrence is its own definition',
+   /function openRecord\(/.test(js.match(/.*openRecord\(.*/)[0]));
+/* All seven repointed. A lower count means one was dropped rather than moved — and a row that
+   silently does nothing is worse than one that opens the old modal. */
+ok('all seven entry points call openProgram',
+   (js.match(/openProgram\(/g) || []).length === 8);   // 7 call sites + the definition
+
+/* ── CARRYING UNSAVED EDITS IS NOW DANGEROUS, AND GUARDED ──
+   openInCalculator used to collect the mounted form unconditionally, which was safe when the only
+   way here was the "Edit parameters" button on that very program's modal. Now every list row lands
+   here, and the mounted form is usually the LAST program opened — so collecting it would paste one
+   program's contact email, actuals and dates onto a different program, labelled as unsaved changes
+   nobody made. */
+const openCalc = grab('openInCalculator');
+ok('unsaved edits are only carried from a form showing THE SAME program',
+   /state\.record && state\.record\.program_id === p\.program_id/.test(openCalc));
+ok('  …and otherwise it starts from an empty patch',
+   /showing \? collectPatch\(p\) : Object\.create\(null\)/.test(openCalc));
+
+/* ── SIGN-IN STILL WORKS, AND RETURNS YOU SOMEWHERE COHERENT ──
+   renderSignIn paints into the modal whatever host the record is mounted in. Re-rendering the
+   record on success — what it used to do — would leave the sign-in form sitting on screen in the
+   modal with the record repainted behind it. */
+const signInDone = js.slice(js.indexOf('renderAuthChip();'));
+ok('a successful sign-in closes the modal rather than repainting behind it',
+   /renderAuthChip\(\);[\s\S]{0,700}closeRecord\(\)/.test(signInDone));
+ok('  …and repaints the lists, because the role just changed',
+   /renderAuthChip\(\);[\s\S]{0,900}renderPrograms\(\)/.test(signInDone));
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nrecord mount: all passed');
 process.exit(fail ? 1 : 0);
