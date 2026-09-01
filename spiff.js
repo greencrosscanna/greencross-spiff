@@ -1566,6 +1566,7 @@
       await loadPrograms();
       renderPrograms();
       renderHistory();
+      fillProgramPickers();          // a rename has to reach the dropdowns, not just the lists
       /* Close on success, per Sky. The modal staying open after a save invites a second press
          of a button that now has nothing to do, and leaves the list underneath looking stale
          even though it has already been refreshed. Brief pause so the confirmation is readable
@@ -3147,12 +3148,24 @@
       btn.textContent = calc.editingId ? 'Updated' : 'Saved';
       await loadPrograms();
       renderPrograms();
-      fillCalcLoad();
+      fillProgramPickers();
     } catch (err) {
       btn.textContent = 'Save failed';
       console.error('[spiff] save program failed:', err);
     }
     setTimeout(function () { renderCalcEditing(); btn.disabled = false; }, 2500);
+  }
+
+  /* EVERY PICKER THAT NAMES A PROGRAM, refilled together.
+     They were filled once at boot and never again, so renaming a program left its OLD name in the
+     Progress dropdown, the Reports dropdown, the History vendor filter and the Calculator's
+     "model from a past program" list — every list in the app except the two that re-render from
+     state on each paint. Reported by Sky 2026-09-01: "in progress mode, it's not picking up the
+     changes made to the program name". The record had saved correctly and the engine was
+     returning the new name; four <select> elements were simply never rebuilt.
+     One function so the next list added here cannot be the one somebody forgets. */
+  function fillProgramPickers() {
+    fillCalcLoad(); fillReportPicker(); fillHistoryFilters(); fillProgressPicker();
   }
 
   function fillCalcLoad() {
@@ -3238,10 +3251,13 @@
   function fillReportPicker() {
     var sel = $('#repProgram');
     if (!sel) return;
+    var was = sel.value;                     // same rule as Progress: a refill must not move you
     var closed = sortPrograms(state.programs.filter(function (p) { return p.actual_json; }));
     sel.innerHTML = closed.map(function (p) {
-      return '<option value="' + esc(p.program_id) + '">' + esc(p.program_name || p.title) + '</option>';
+      return '<option value="' + esc(p.program_id) + '">'
+        + esc(p.program_name || p.title) + ' · ' + esc(prettyRangeY(p)) + '</option>';
     }).join('');
+    if (was && closed.some(function (p) { return p.program_id === was; })) sel.value = was;
     if (closed.length) renderReport();
   }
 
@@ -3603,6 +3619,10 @@
   function fillProgressPicker() {
     var sel = $('#pgProgram');
     if (!sel) return;
+    /* Refilling must not move you. This runs after every save now, and rebuilding the options
+       drops the selection — so saving a rename while looking at one program's grid would silently
+       swing Progress onto the running program instead. */
+    var was = sel.value;
     var list = sortPrograms(state.programs);
     /* The date range rides along with the name. Programs repeat — Meraki Gardens, Mule and
        Hellavated each ran more than once — so the name alone made the picker a guess about
@@ -3615,6 +3635,10 @@
     /* Default to the RUNNING program, not whatever sorts first. sortPrograms already puts
        active ahead of draft and closed, but being explicit keeps this true if that order ever
        changes — Progress is a screen about the program happening now. */
+    if (was && list.some(function (p) { return p.program_id === was; })) {
+      sel.value = was;
+      return;
+    }
     var running = list.filter(function (p) { return p.status === 'active'; })[0];
     if (running) sel.value = running.program_id;
   }
@@ -4214,7 +4238,7 @@
 
     var sharedP   = loadShared({ timeoutMs: 6000, retries: 1 }).then(calcInit);
     var programsP = loadPrograms().then(function () {
-      fillCalcLoad(); fillReportPicker(); fillHistoryFilters(); fillProgressPicker();
+      fillProgramPickers();
     });
     var cacheP    = loadProgressCache();
 

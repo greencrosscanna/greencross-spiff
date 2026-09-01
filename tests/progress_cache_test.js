@@ -74,6 +74,7 @@ function load() {
     function sellthrough_(p) { return SELL(p); }
     function slug_(s) { return String(s || '').toLowerCase().trim().replace(/\\s+/g, '-'); }
     function nowStamp_() { return '2026-08-27 12:00:00'; }
+    ${grab('payoutModelOf_')} ${grab('payoutRateOf_')}
     ${grab('progEarned_')} ${grab('stampOf_')} ${grab('textDate_')} ${grab('payPeriodMatches_')}
     ${grab('forceProgressTextDates_')} ${grab('refreshSpiffProgress_')}
     ${grab('spiffProgress_')} ${grab('refreshProgressPlan_')}
@@ -144,11 +145,32 @@ ok('the store that succeeded is updated',
 ok('and it did not duplicate the refreshed rows',
    read.rows.filter(x => x.employee_id === 'c').length === 1);
 
-/* ── per_unit pays on volume, so there is no target to clear ── */
-ok('per_unit pays every unit sold',
-   M.progEarned_({ payout_json: { type: 'per_unit', per_unit: 2 } }, 7, false) === 14);
+/* ── per_unit pays on volume, so there is no target to clear ──
+   THREE SHAPES, because three different things have written this column: the seed wrote
+   { per_unit }, the Calculator writes { amount, model } beside a payout_type column, and the 22
+   flat programs carry a bare { amount }. progEarned_ used to read `payout_json.type` — a fourth
+   shape nothing has ever written — so every per_unit program fell through to the flat branch and
+   paid `hit ? amount : 0`. A per_unit program has no per-budtender target, so nobody is ever
+   `hit`: BOTH per-unit programs in the datastore paid every budtender $0.
+   Found live on 2026-09-01, on a $0.75/unit program covering 3,514 units across six stores. */
+ok('per_unit pays every unit sold — { amount, model }, what the Calculator writes',
+   M.progEarned_({ payout_json: { amount: 0.75, model: 'per_unit' } }, 100, false) === 75);
+ok('  …and { per_unit }, what the SPIF-doc seed wrote for Hapy Kitchen',
+   M.progEarned_({ payout_json: { per_unit: 1 } , payout_type: 'per_unit' }, 37, false) === 37);
+ok('  …and the payout_type COLUMN on its own, with no model in the JSON',
+   M.progEarned_({ payout_json: { amount: 2 }, payout_type: 'per_unit' }, 7, false) === 14);
+ok('  …and it pays somebody who never "hit", because there is nothing to hit',
+   M.progEarned_({ payout_json: { amount: 0.75, model: 'per_unit' } }, 12, false) === 9);
 ok('flat pays nothing to somebody who missed',
-   M.progEarned_({ payout_json: { type: 'flat', amount: 25 } }, 4, false) === 0);
+   M.progEarned_({ payout_json: { amount: 25 } }, 4, false) === 0);
+ok('  …and the flat amount to somebody who hit',
+   M.progEarned_({ payout_json: { amount: 25 } }, 9, true) === 25);
+/* `tiered` is schema'd and unimplemented. It must resolve to FLAT, not to a silent zero — an
+   unimplemented model that pays nobody is the same failure this whole block is about. */
+ok('an unknown model resolves to flat rather than paying nothing',
+   M.progEarned_({ payout_json: { amount: 25, model: 'tiered' } }, 9, true) === 25);
+ok('a program with no payout at all earns zero without throwing',
+   M.progEarned_({}, 9, true) === 0);
 
 /* ── the gate ── */
 /* spiffProgress_ no longer re-checks the secret itself: `progress` is a token-gated READ so a

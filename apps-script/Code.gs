@@ -868,11 +868,49 @@ function progressSheet_() {
 }
 
 /** What a program pays one person, given their units. Mirrors computePayouts_ exactly. */
-function progEarned_(prog, units, hit) {
+/* WHAT A PROGRAM PAYS, AND HOW — read from every shape this datastore actually holds.
+ *
+ * There are three, because the payout has been written by three different things:
+ *   { amount }                the 22 flat programs, seeded and Calculator-written alike
+ *   { amount, model }         what the Calculator writes today
+ *   { per_unit }              what the SPIF-doc seed wrote for Hapy Kitchen
+ * plus a `payout_type` COLUMN beside the JSON, which the Calculator also fills.
+ *
+ * progEarned_ used to read `payout_json.type` and `payout_json.per_unit` — a fourth shape, which
+ * nothing has ever written. So every per_unit program fell through to the flat branch and paid
+ * `hit ? amount : 0`; and since a per_unit program has no per-budtender target to clear, nobody
+ * was ever `hit`. BOTH per-unit programs in the datastore therefore paid EVERY budtender $0.
+ *
+ * Found 2026-09-01 by Sky, on a live $0.75/unit program covering 3,514 units across six stores:
+ * "the new spiff Portland Heights should create a spiff reward for almost every employee." It
+ * created one for nobody. Hapy Kitchen, $1/unit in February, has the same hole in its history.
+ *
+ * Read the model from the places that are written, in the order they are trustworthy. */
+function payoutModelOf_(prog) {
   var pay = prog.payout_json || {};
-  var type = pay.type || 'flat';
-  if (type === 'per_unit') return (Number(units) || 0) * (Number(pay.per_unit) || 0);
-  return hit ? (Number(pay.amount) || 0) : 0;
+  var m = String(pay.model || prog.payout_type || pay.type || '').toLowerCase();
+  /* per_unit is the only non-flat model the engine implements; `tiered` is schema'd and is not,
+     so it must resolve to flat rather than silently paying nothing. */
+  return m === 'per_unit' ? 'per_unit' : 'flat';
+}
+
+/* The money, in the unit the model implies: dollars-per-unit for per_unit, dollars-per-budtender
+   for flat. `per_unit` is checked before `amount` because a row that carries BOTH means the seed
+   wrote the rate and something later added a headline figure beside it. */
+function payoutRateOf_(prog) {
+  var pay = prog.payout_json || {};
+  if (payoutModelOf_(prog) === 'per_unit') {
+    var r = pay.per_unit != null ? pay.per_unit : pay.amount;
+    return Number(r) || 0;
+  }
+  return Number(pay.amount) || 0;
+}
+
+function progEarned_(prog, units, hit) {
+  if (payoutModelOf_(prog) === 'per_unit') {
+    return (Number(units) || 0) * payoutRateOf_(prog);
+  }
+  return hit ? payoutRateOf_(prog) : 0;
 }
 
 /**
