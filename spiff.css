@@ -721,6 +721,23 @@ body.is-gated .workspace { display: none !important; }
 /* A per-BT goal that has been PINNED by hand, rather than split from the typed target. It has to
    look different from the derived ones or the table reads as eight identical boxes, and moving
    the target silently leaves the pinned stores behind with nothing on screen saying why. */
+/* ── A CLOSED PROGRAM, OPENED READ-ONLY ──
+   It has to LOOK settled, not broken. Disabled controls alone read as a screen that failed to
+   load; the dot and the banner say which of the two this is. */
+.sp-in.is-locked, input.is-locked, #panel-calculator.is-locked input:disabled {
+  opacity: 1;                       /* the browser's default fade reads as "still loading" */
+  background: var(--sp-inset);
+  color: var(--gx-text-mute);
+  border-style: dashed;
+  cursor: not-allowed;
+}
+#panel-calculator.is-locked .sp-pick-input,
+#panel-calculator.is-locked .sp-seg-sm { opacity: .55; }
+.sp-lock-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--gx-text-mute); margin-right: 6px; vertical-align: 1px;
+}
+
 /* A field that belongs to the one above it — cost per unit under the product it prices. Indented
    and rule-marked so it reads as part of that block rather than as the next question down. */
 .sp-subfld {

@@ -366,6 +366,7 @@
     /* Leaving these behind is how a "new" program inherits the last one's product and, worse,
        its editingId — which would make Save overwrite the program you thought you had left. */
     calc.product = null; calc.editingId = null; calc.window = null; calc.refRun = null;
+    calc.locked = false;                     // a new model is never somebody else's settled one
     /* Reference units reset to 0, budtender counts do NOT: headcount is a property of the
        store, not of the program being modelled, so re-typing it every time would be busywork. */
     calc.stores = state.stores.map(function (st) {
@@ -381,6 +382,7 @@
     $$('#cTarget, #cGrowth').forEach(function (x) { x.classList.remove('sp-driving'); });
     if (calcPicker) { calcPicker.setChosen(null); calcPicker.setVendorSilently(''); }
     renderCalcEditing();
+    applyCalcLock();
     showTab('calculator');
     recalc();
     $('#cName').focus();
@@ -1591,6 +1593,7 @@
     name: '', vendor: '', cost: 10, spiff: 25, target: 0,
     model: 'flat',   // 'flat' | 'per_unit' — per_unit is real; see payoutLabel/CLAUDE.md
     editingId: null, // set when the Calculator is updating an EXISTING program, not modeling a new one
+    locked: false,   // a CLOSED program opens read-only — see applyCalcLock
     window: null,    // that program's dates, carried for display only — the record owns them
     product: null,   // {label, brand, filter_text, products[], skus, qty} — the SPIFF's subject
     refRun: null,    // identity of the in-flight reference pull, so a stale one can be dropped
@@ -2023,6 +2026,12 @@
     if (hint) hint.textContent = calc.model === 'per_unit'
       ? 'You pay ' + money(calc.spiff) + ' on every unit that budtender sells, from the first one.'
       : 'You pay ' + money(calc.spiff) + ' to each budtender who reaches their own target — and nothing for one who doesn’t.';
+
+    /* The per-store table is innerHTML-replaced above, so its fresh inputs know nothing about
+       the lock. Re-applying here — after the paint, in the one function every repaint goes
+       through — is what stops a closed program's rows coming back alive on the next keystroke
+       anywhere else on the screen. */
+    if (calc.locked) applyCalcLock();
 
     pulse(changedIds);
   }
@@ -2757,10 +2766,12 @@
       calcPicker.setVendorSilently(calc.vendor);
       calcPicker.setChosen(calc.product);
     }
+    calc.locked = String(merged.status || '').toLowerCase() === 'closed';
     closeRecord();
     showTab('calculator');
     recalc(PULSE_ALL);
     renderCalcEditing();
+    applyCalcLock();
   }
 
   /* The Calculator has to say WHICH program it is editing, or "Save as program" silently forks
@@ -2775,12 +2786,68 @@
     var win = calc.window && calc.window.start
       ? prettyDay(calc.window.start) + ' → ' + prettyDay(calc.window.end || '?')
       : 'no dates set';
-    bar.innerHTML = 'Editing <b>' + esc(calc.name || 'this program') + '</b> &middot; ' + esc(win)
+    bar.innerHTML = (calc.locked ? '<span class="sp-lock-dot" aria-hidden="true"></span>Closed &middot; ' : 'Editing ')
+      + '<b>' + esc(calc.name || 'this program') + '</b> &middot; ' + esc(win)
+      + (calc.locked
+          ? ' <button type="button" class="gx-btn" id="calcUnlock">Unlock to re-model</button>'
+          : '')
       + ' <button type="button" class="gx-btn" id="calcStopEditing">Stop editing</button>';
     $('#calcStopEditing').addEventListener('click', function () {
-      calc.editingId = null; calc.window = null;
+      calc.editingId = null; calc.window = null; calc.locked = false;
       renderCalcEditing();
+      applyCalcLock();
     });
+    var un = $('#calcUnlock');
+    if (un) un.addEventListener('click', function () {
+      /* Named, not a shrug. The program was reported to the vendor against these numbers, and
+         whoever unlocks it should be reading that sentence before the controls come alive. */
+      if (!confirm('This program is closed. Its goals were reported to the vendor and paid '
+                 + 'against.\n\nUnlock and re-model it anyway?')) return;
+      calc.locked = false;
+      renderCalcEditing();
+      applyCalcLock();
+    });
+  }
+
+  /* ── A CLOSED PROGRAM OPENS READ-ONLY ─────────────────────────────────────────────────────
+     A closed program has been measured, reported to the vendor and paid. Its model is history,
+     and the Calculator is a live thing — every keystroke re-derives the plan, and until v1.334
+     every save wrote the whole model back whether or not anyone had touched it.
+
+     That is the shape of the bug this app has already paid for twice: the save running its own
+     rounding separate from the table's, and the per-store headcount being guessed back from two
+     already-rounded numbers. Both wrote plausible wrong goals into settled programs, silently.
+     The narrow fix was to stop saving what did not change. This is the wide one — don't put a
+     settled program's goals behind live controls in the first place.
+
+     NOT a refusal. Sky, 2026-09-01: a genuinely wrong closed record has to be fixable somewhere
+     other than the sheet. So it is a door with a name on it — the button says what the program
+     is, and unlocking is a deliberate act rather than the default state of the screen. */
+  var CALC_MODEL_CONTROLS = ['#cName', '#cVendor', '#cCost', '#cProduct', '#cSpiff',
+                             '#cTarget', '#cGrowth', '#cGoalRange'];
+
+  function applyCalcLock() {
+    var on = !!calc.locked;
+    CALC_MODEL_CONTROLS.forEach(function (sel) {
+      var el = $(sel);
+      if (el) { el.disabled = on; el.classList.toggle('is-locked', on); }
+    });
+    $$('#cModel button').forEach(function (b) { b.disabled = on; });
+    /* The per-store table is innerHTML-replaced on every recalc, so its inputs are locked HERE
+       rather than at render — one place that runs after every repaint, instead of a flag every
+       future edit to that table would have to remember. */
+    $$('#calcTable input, #calcTable button').forEach(function (el) {
+      el.disabled = on; el.classList.toggle('is-locked', on);
+    });
+    var clear = $('#cProductClear');
+    if (clear) clear.disabled = on;
+    var save = $('#calcSave');
+    if (save) {
+      save.disabled = on;
+      save.title = on ? 'This program is closed — unlock it first' : '';
+    }
+    var panel = $('#panel-calculator');
+    if (panel) panel.classList.toggle('is-locked', on);
   }
 
   /* ------------------------------------------------------- pitch mode (1c) */
@@ -2889,6 +2956,11 @@
     var p = state.programs.filter(function (x) { return x.program_id === $('#calcLoad').value; })[0];
     if (!p) return;
     var base = p.baseline_json || {}, tgt = p.target_json || {};
+    /* Modeling FROM a past program is a new deal, not an edit of that one — so it inherits the
+       numbers and neither the editingId nor the lock. Carrying either would mean picking a
+       closed program off this list to sketch next quarter's deal opened a dead screen, or worse,
+       pointed Save at the program being copied. */
+    calc.editingId = null; calc.window = null; calc.locked = false;
     calc.name   = p.program_name || p.title;
     calc.vendor = p.vendor;
     calc.cost   = (p.cost_json || {}).per_unit || 0;
@@ -2916,6 +2988,8 @@
     var m = calcModel();
     $('#cGrowth').value = m.baseUnits ? Math.round(m.typedGrowth * 100) : 0;
     recalc();
+    renderCalcEditing();
+    applyCalcLock();
   }
 
   /* The nine model fields, built once. Create sends all of them because there is nothing to
