@@ -4,7 +4,7 @@
  *   RUN:  node tests/record_mount_test.js
  *
  * WHY
- * A program used to be two screens: the Calculator modelled it, a modal held its identity, dates,
+ * A program used to be two screens: the Calculator modeled it, a modal held its identity, dates,
  * contact, actuals and vendor link, and a button hopped between them. v1.336 rendered the record
  * under the Calculator as well; v1.337 pointed every entry there; v1.338 deleted the modal.
  *

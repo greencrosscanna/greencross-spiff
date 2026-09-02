@@ -107,9 +107,9 @@ set = [
 ];
 annotate(set);
 const rc = (t) => set.filter(p => p.title === t)[0].actual_json.rate_changed;
-ok('modelled 25 but settled 50 is a changed rate', rc('settled high') === true);
-ok('modelled and settled agreeing is not', rc('settled same') === false);
-ok('no modelled rate ("You Decide") has nothing to differ from', rc('you decide') === false);
+ok('modeled 25 but settled 50 is a changed rate', rc('settled high') === true);
+ok('modeled and settled agreeing is not', rc('settled same') === false);
+ok('no modeled rate ("You Decide") has nothing to differ from', rc('you decide') === false);
 ok('an unsettled record is not a changed rate', rc('not settled') === false);
 
 /* ── and none of it is ever written back ── */

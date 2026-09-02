@@ -359,7 +359,7 @@ function parseCalcTab_(sheet, stores) {
   // Actuals, if this program already ran.
   //
   // The actuals panel carries its OWN SPIFF rate, and it does not always match the
-  // plan: 'Drops' was modelled at $25/BT but settled at $50/BT (26 BTs × $50 = the
+  // plan: 'Drops' was modeled at $25/BT but settled at $50/BT (26 BTs × $50 = the
   // recorded $1,300 investment). Record both — the plan rate is what we pitched, the
   // actual rate is what we paid — and self-audit the arithmetic so a bad import is
   // visible instead of silent.
@@ -483,8 +483,8 @@ function annotateActuals_(programs) {
       .filter(function (q) { return q !== p; })
       .map(function (q) { return q.title || q.program_name || q.program_id; });
 
-    /* Modelled rate vs the rate actually settled. Only a real disagreement counts: a program with
-       no modelled payout (Hapy Kitchen states "You Decide" where the rate goes) has nothing to
+    /* Modeled rate vs the rate actually settled. Only a real disagreement counts: a program with
+       no modeled payout (Hapy Kitchen states "You Decide" where the rate goes) has nothing to
        differ FROM, and calling that a changed rate would flag the schema, not a mistake. */
     var pay = (p.payout_json || {}).amount;
     var act = a.spiff_amount;
@@ -1011,7 +1011,7 @@ function refreshSpiffProgress_(only, onlyStore) {
  *     already be on a vendor report; a fat-fingered end_date must not un-send that.
  *   A DRAFT WHOSE WINDOW HAS ENTIRELY PASSED IS LEFT ALONE, and reported as `stale`. Closing it
  *     would file a program in History as though it ran, with no actuals, when the likelier truth
- *     is that it was drafted and never started. That is a judgement call for a human.
+ *     is that it was drafted and never started. That is a judgment call for a human.
  *
  * Rows with no start/end date are skipped -- there is no schedule to act on.
  * Writes only the status and updated_at cells: `edited_by` records the HUMAN who last corrected a
@@ -1367,7 +1367,7 @@ var GX_SECRET_PROP = 'GX_DEPLOY_SECRET';   // set in Script Properties; never in
  *
  * Object.create(null) throughout: `name` is Dutchie's completedByUser, i.e. data we do not
  * control. On a plain object a budtender named "constructor" or "valueOf" would find the
- * INHERITED member truthy, skip the initialiser, and start adding units onto a function.
+ * INHERITED member truthy, skip the initializer, and start adding units onto a function.
  * Absurd as a name, but it is the same class pricecards hit and the fix is free.
  */
 function aggregateSellers_(rows, store) {
@@ -1703,7 +1703,7 @@ function clientView_(p) {
    * "Absent cache means no result columns" was the intent and NOT what happened. The cache is only
    * ever swept for ACTIVE programs (refreshSpiffProgress_ reads listPrograms_('active')), so a
    * CLOSED one — which is exactly what a vendor is sent — has no rows in it, and byStore emitted
-   * sold:0 for every store. The vendor then saw a table totalling 0 units directly beneath a
+   * sold:0 for every store. The vendor then saw a table totaling 0 units directly beneath a
    * headline of 117. Reported by Sky 2026-08-29 on the BeGoat page.
    *
    * There is no per-store settled figure to fall back on: actual_json records program TOTALS only.
@@ -1773,7 +1773,7 @@ function clientView_(p) {
   /* ONE SOURCE PER PAGE.
    *
    * The headline KPIs used to come from actual_json while the table came from the progress cache,
-   * so a vendor could read "117 units sold" above a table totalling 122 and neither number
+   * so a vendor could read "117 units sold" above a table totaling 122 and neither number
    * explained the other. Sky, 2026-08-29: measured data wins, the historical actuals get
    * recalibrated separately.
    *
@@ -2361,7 +2361,7 @@ function authorize() {
  *
  * WHY THIS EXISTS: the Calculator had no way to say WHICH product the SPIFF is on.
  * Vendor, cost per unit and reference units were all typed from memory, which is
- * how a program gets modelled against the wrong sell-through and pitched to a
+ * how a program gets modeled against the wrong sell-through and pitched to a
  * vendor with a number nobody can reproduce.
  *
  * THE SOURCE IS THE BOUND LIBRARY, NOT AN HTTP HOP. `dutchieProducts` has no

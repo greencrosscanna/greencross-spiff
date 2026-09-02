@@ -73,7 +73,7 @@ ok('a gain does not', down(90, 450) === false);
 
 /* ── THE HEADLINE MUST TIE TO THE TABLE ──
    The KPIs came from actual_json while the table came from the progress cache, so BeGoat's page
-   showed "117 units sold" above a table totalling 122 and neither number explained the other.
+   showed "117 units sold" above a table totaling 122 and neither number explained the other.
    Measured data now drives both. This replicates the engine's derivation. */
 function derive(byStore, actual, rate) {
   const has = byStore.some(s => s.budtenders > 0);

@@ -81,7 +81,7 @@ function load() {
     return { refreshSpiffProgress_, spiffProgress_, progEarned_, stampOf_, textDate_,
              forceProgressTextDates_, payPeriodMatches_, refreshProgressPlan_ };`;
   const PropertiesService = { getScriptProperties: () => ({ getProperty: () => 'SEKRET' }) };
-  /* Honours BOTH arguments on purpose. A mock that ignored the timezone would have passed happily
+  /* Honors BOTH arguments on purpose. A mock that ignored the timezone would have passed happily
      through the very bug this file now guards: formatting a UTC-midnight date in LA time and
      losing a day. */
   const Utilities = { formatDate: (d, tz, fmt) => {
@@ -257,7 +257,7 @@ ok('a single-store refresh touches only that store',
    silently shifts a day. Observed live on 2026-08-29: the route returned 2026-08-16 - 2026-08-29
    for a program the programs tab dates 2026-08-17 - 2026-08-30.
 
-   The mock's formatDate honours the timezone argument, so this genuinely fails if textDate_ ever
+   The mock's formatDate honors the timezone argument, so this genuinely fails if textDate_ ever
    goes back to a local zone. */
 SHEET = makeSheet(HEADERS);
 PROGRAMS = () => [Object.assign({}, PROG, { stores_json: [{ store_id: 'bend' }] })];

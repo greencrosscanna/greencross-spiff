@@ -92,7 +92,7 @@ All six stores are always in scope. There is no store multi-select — the desig
 
 **Sub-nav / filter bar** — a second bar directly under the header, background `#121715`, bottom border `#232a27`, padding `10px 20px`, `flex-wrap:wrap; gap:9px`. Starts with an uppercase 11px/700 `#5e6864` label naming the bar's job ("Modeling", "Filter", …), then search input, scope pills, and store pills. Inputs: background `#1a221f`, border `#232a27`, radius `8px`, `padding:6px 10px`, 12.5px, `color-scheme:dark`.
 
-**Stat strip** — a row of figures directly under the sub-nav: big Montserrat number over a 10px uppercase muted label. Figures that carry a judgement take the accent green or the severity color; neutral figures stay `#e6ece9`.
+**Stat strip** — a row of figures directly under the sub-nav: big Montserrat number over a 10px uppercase muted label. Figures that carry a judgment take the accent green or the severity color; neutral figures stay `#e6ece9`.
 
 ---
 
@@ -132,9 +132,9 @@ The lookup surface. Sub-nav is search + month scope. Rows are dense (12.5px, tab
 
 ### 1g Record modal — `screens/1g-record-modal.png`
 Signed-in, editable, one flagged record. Overlay `rgba(0,0,0,.62)`; panel 820px wide, `#121715`, border `#2e3733`, radius `14px`, standard shadow, internally scrolling with a fixed header and footer.
-- Modelled and actual figures sit **side by side in two bordered groups** (`grid-template-columns:1fr 1fr; gap:24px`) — that comparison is the reason the record exists.
+- Modeled and actual figures sit **side by side in two bordered groups** (`grid-template-columns:1fr 1fr; gap:24px`) — that comparison is the reason the record exists.
 - The eighteen inputs are labeled rows inside those groups; only program identity keeps the field-card treatment.
-- Notices are the 3px-left-border block: gold `#d4a847` "rate differs — Modelled at $25 per budtender, settled at $20."; a missing contact email borders gold and states what it blocks.
+- Notices are the 3px-left-border block: gold `#d4a847` "rate differs — Modeled at $25 per budtender, settled at $20."; a missing contact email borders gold and states what it blocks.
 
 ### 1h My SPIFF — `screens/1h-my-spiff.png`
 The budtender phone view, 390px wide, radius `26px`, padding `20px 16px 16px`. Big single figure ("what you've earned"), then the active programs as compact rows. Optimized for glancing at on the floor: nothing below 44px is tappable, and the earned figure is the largest thing on screen.

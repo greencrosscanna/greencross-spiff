@@ -85,7 +85,7 @@ body {
 .status.is-active { color: var(--gx-green); border-color: var(--gx-green-hair, var(--gx-green)); background: var(--gx-green-soft, transparent); }
 .status.is-draft  { color: var(--gx-amber, var(--gx-gold)); border-color: var(--gx-gold-line, var(--gx-border-strong)); }
 
-/* Paid rate diverged from the modelled rate — visible, not buried in a JSON blob. */
+/* Paid rate diverged from the modeled rate — visible, not buried in a JSON blob. */
 .flag {
   font-size: 11px;
   color: var(--gx-amber, var(--gx-gold));
@@ -434,7 +434,7 @@ body.is-gated .workspace { display: none !important; }
 }
 .sp-stat-v { font-size: 23px; font-weight: 700; letter-spacing: -.4px; color: var(--gx-text); }
 .sp-stat-l { font-size: 11px; color: var(--gx-text-mute); margin-top: 2px; letter-spacing: .3px; }
-/* A figure only takes a color when it carries a JUDGEMENT. Neutral counts stay plain —
+/* A figure only takes a color when it carries a JUDGMENT. Neutral counts stay plain —
    coloring everything is how a dashboard stops meaning anything. */
 .sp-stat.is-pos  .sp-stat-v { color: var(--gx-green); }
 .sp-stat.is-neg  .sp-stat-v { color: var(--gx-red); }

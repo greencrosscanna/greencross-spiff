@@ -286,7 +286,7 @@
       return a && ((a.duplicate_of && a.duplicate_of.length) || a.rate_changed);
     }).length;
 
-    /* ---- stat strip. Only figures carrying a judgement take a color. */
+    /* ---- stat strip. Only figures carrying a judgment take a color. */
     var atStake = running.reduce(function (n, p) {
       var pay = (p.payout_json && p.payout_json.amount) || 0;
       return n + pay * ((p.target_json && p.target_json.budtenders) || 0);
@@ -3683,7 +3683,7 @@
   function mergeWindow(a, b) {
     /* Keyed on the budtender NAME from Dutchie -- data we do not control. On a plain object,
        k="constructor" makes `!by[k]` false because the INHERITED member is truthy, so the
-       initialiser is skipped and the += lands on the Object constructor itself. This is the
+       initializer is skipped and the += lands on the Object constructor itself. This is the
        frontend twin of the same merge in the engine; both are null-prototype now. */
     var by = Object.create(null);
     a.rows.concat(b.rows).forEach(function (e) {

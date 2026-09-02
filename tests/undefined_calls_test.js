@@ -36,7 +36,7 @@ for (const m of code.matchAll(/\b(?:var|let|const)\s+([A-Za-z_$][\w$]*)/g)) decl
 for (const m of code.matchAll(/function\s*(?:[A-Za-z_$][\w$]*)?\s*\(([^)]*)\)/g)) {
   m[1].split(',').forEach(a => { const n = a.trim().split('=')[0].trim(); if (n) declared.add(n); });
 }
-/* Arrow-function params, single or parenthesised. */
+/* Arrow-function params, single or parenthesized. */
 for (const m of code.matchAll(/\(([^)]*)\)\s*=>/g)) {
   m[1].split(',').forEach(a => { const n = a.trim().split('=')[0].trim(); if (n) declared.add(n); });
 }
