@@ -368,7 +368,7 @@
     calc.product = null; calc.editingId = null; calc.window = null; calc.refRun = null;
     calc.locked = false;                     // a new model is never somebody else's settled one
     /* Reference units reset to 0, budtender counts do NOT: headcount is a property of the
-       store, not of the program being modelled, so re-typing it every time would be busywork. */
+       store, not of the program being modeled, so re-typing it every time would be busywork. */
     calc.stores = state.stores.map(function (st) {
       var prev = calc.stores.filter(function (x) { return x.store_id === st.store_id; })[0];
       return { store_id: st.store_id, name: st.display_name || st.store_id,
@@ -722,7 +722,7 @@
       +   (dupe ? '<span class="sp-flag is-bad" title="Identical units sold, budtenders hit and investment as '
                   + esc(a.duplicate_of.join(', ')) + ' — likely a copied tab, verify before it reaches a vendor">'
                   + 'actuals match ' + esc(a.duplicate_of.join(', ')) + ' &mdash; verify</span>' : '')
-      +   (rate && !dupe ? '<span class="sp-flag is-warn" title="Modelled at ' + money(pay)
+      +   (rate && !dupe ? '<span class="sp-flag is-warn" title="Modeled at ' + money(pay)
                   + ', settled at ' + money(a.spiff_amount) + '">rate ' + money(pay)
                   + ' &rarr; ' + money(a.spiff_amount) + '</span>' : '')
       + '</div>'
@@ -792,7 +792,7 @@
        and NO handler was ever attached to it (`git log -S btnNewProgram -- spiff.js` finds
        nothing). Creating a program only ever happened through the Calculator's "Save as
        program", so that is where this goes — with the model cleared, which is the difference
-       between "new" and just switching tabs onto whatever was last modelled. */
+       between "new" and just switching tabs onto whatever was last modeled. */
     var nb = $('#btnNewProgram');
     if (nb) nb.addEventListener('click', newProgram);
 
@@ -1109,7 +1109,7 @@
     }
     if (a.rate_changed) {
       warn += '<div class="sp-notice is-warn"><span class="sp-notice-l">Rate differs</span>'
-        + 'Modelled at ' + money(p.payout_json && p.payout_json.amount)
+        + 'Modeled at ' + money(p.payout_json && p.payout_json.amount)
         + ', settled at ' + money(a.spiff_amount) + '.</div>';
     }
     if (!p.contact_email) {
@@ -1188,7 +1188,7 @@
 
       /* NO READ-ONLY PLAN BLOCK EITHER. It restated six figures — product, payout, cost, target,
          last month, budtenders — that are live controls a few inches up the same screen, under a
-         heading reading "modelled in the Calculator". And with it goes "Edit parameters →", which
+         heading reading "modeled in the Calculator". And with it goes "Edit parameters →", which
          on this screen was a link to where you already are.
          The split it used to describe is still real and still the point: the model above saves
          wholesale, this form saves only what changed. What is gone is the second, weaker copy. */
@@ -2402,7 +2402,7 @@
 
   /* ═══════════════════════════════════ FEATURED PRODUCT PICKER ══════════ */
   /* What the SPIFF is actually ON. Before this, vendor / cost per unit / reference units
-     were all typed from memory, so a program could be modelled against sell-through that
+     were all typed from memory, so a program could be modeled against sell-through that
      had nothing to do with the product being pitched.
 
      THE SELECTION IS A FILTER, NOT A LIST OF SKUs. Sky's normal case is "the SPIFF is on
