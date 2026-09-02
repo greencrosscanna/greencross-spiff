@@ -383,6 +383,7 @@
     if (calcPicker) { calcPicker.setChosen(null); calcPicker.setVendorSilently(''); }
     renderCalcEditing();
     applyCalcLock();
+    applyStatusView();
     syncRecordMount();
     showTab('calculator');
     recalc();
@@ -3089,6 +3090,7 @@
     recalc(PULSE_ALL);
     renderCalcEditing();
     applyCalcLock();
+    applyStatusView();
     syncRecordMount();
   }
 
@@ -3167,6 +3169,123 @@
     }
     var panel = $('#panel-calculator');
     if (panel) panel.classList.toggle('is-locked', on);
+  }
+
+  /* ── THE PAGE FOLLOWS THE PROGRAM'S STATUS ────────────────────────────────────────────────
+     A program should look like what it IS. Draft and active are questions — what should we ask
+     for, how is it going. Closed is an answer, and an answer does not need a screenful of locked
+     controls above it.
+
+     CLOSED (or a draft whose window has passed, once it has been measured):
+       the model folds away, and the frozen per-budtender grid takes the page.
+     DRAFT / ACTIVE:
+       today's layout, untouched. The model is the point and the results are still moving.
+
+     The grid is read from the program's OWN row, not re-measured — six stores of Dutchie calls at
+     ~9s each is why this could never live on the record before. */
+  function statusView() {
+    var rec = calc.editingId
+      ? (state.programs || []).filter(function (x) { return x.program_id === calc.editingId; })[0]
+      : null;
+    var st = String((rec && rec.status) || '').toLowerCase();
+    var snap = rec && rec.progress_json;
+    /* Settled means "finished AND measured". A closed program with no snapshot yet still shows the
+       model — folding it away to reveal an empty space would be worse than not folding at all. */
+    return { rec: rec, status: st, snap: (snap && snap.stores && snap.stores.length) ? snap : null,
+             settled: !!(st === 'closed' && snap && snap.stores && snap.stores.length) };
+  }
+
+  function applyStatusView() {
+    var v = statusView();
+    var fold = $('#calcModelFold'), results = $('#calcResults');
+    if (!fold || !results) return;
+
+    /* Only ever set open/closed from the STATUS on load — never on every repaint, or expanding the
+       model on a closed program would slam shut on the next keystroke. renderCalcEditing calls
+       this once per program. */
+    fold.open = !v.settled;
+    var t = $('#calcFoldTitle'), n = $('#calcFoldNote');
+    if (t) t.textContent = v.settled ? 'The model, as agreed' : 'The model';
+    if (n) n.textContent = v.settled
+      ? 'collapsed — this program is settled'
+      : 'product, cost, payout, goal and the per-store table';
+
+    if (!v.snap) { results.hidden = true; return; }
+    results.hidden = false;
+    renderFrozen(v.rec, v.snap);
+  }
+
+  /* The frozen grid. Same shape as Progress, and deliberately so — it is the same information,
+     just no longer moving. */
+  function renderFrozen(rec, snap) {
+    var perUnit = snap.model === 'per_unit';
+    var rate = Number(snap.rate) || 0;
+
+    var title = $('#resTitle'), note = $('#resNote'), stamp = $('#resStamp');
+    if (title) title.textContent = 'What sold';
+    if (note) note.textContent = snap.units.toLocaleString() + ' units · ' + snap.earners
+      + ' budtender' + (snap.earners === 1 ? '' : 's') + ' earning · ' + money(snap.earned)
+      + (perUnit ? ' at ' + money(rate) + ' a unit' : ' at ' + money(rate) + ' each');
+    if (stamp) {
+      /* WHEN it was measured, always. These numbers are frozen, and a reader has to be able to
+         tell a settled figure from a stale one without opening anything. */
+      stamp.innerHTML = 'measured ' + esc(String(snap.at || '').slice(0, 10))
+        + ((snap.partial && snap.partial.length)
+            ? ' · <span style="color:var(--gx-red)">missing '
+              + esc(snap.partial.map(storeName).join(', ')) + ' — these totals undercount</span>'
+            : '')
+        + (canEdit() ? ' · <button type="button" class="sp-remeasure" id="resRemeasure">Re-measure</button>' : '');
+      var rm = $('#resRemeasure');
+      if (rm) rm.addEventListener('click', function () { remeasure(rec, rm); });
+    }
+
+    var grid = $('#resGrid');
+    if (!grid) return;
+    grid.innerHTML = (snap.stores || []).map(function (st) {
+      var earners = (st.rows || []).filter(function (e) { return perUnit ? e.units > 0 : e.hit; }).length;
+      var rows = (st.rows || []).map(function (e) {
+        var earned = Number(e.earned) || 0;
+        return '<div class="sp-bt' + (earned > 0 ? ' is-hit' : '') + '">'
+          + '<span class="sp-bt-av">' + esc(initials(e.name)) + '</span>'
+          + '<span class="sp-bt-n" title="' + esc(e.name) + '">' + esc(e.name) + '</span>'
+          + (earned > 0 ? '<span class="sp-bt-d is-earn">' + money(earned) + '</span>' : '')
+          + '<span class="sp-bt-u">' + (Number(e.units) || 0).toLocaleString() + '</span></div>';
+      }).join('') || '<div class="sp-bt"><span class="sp-bt-n">No matching sales</span></div>';
+
+      var owed = (st.rows || []).reduce(function (n2, e) { return n2 + (Number(e.earned) || 0); }, 0);
+      return '<div class="sp-pgcard" style="--dot:' + esc(storeColor(st.store_id)) + '">'
+        + '<div class="sp-pgcard-h"><div class="sp-pgcard-t"><span class="sp-dot"></span>'
+        +   '<b>' + esc(storeName(st.store_id)) + '</b>'
+        +   '<span class="sp-pgcard-u">' + (Number(st.units) || 0).toLocaleString() + ' units</span></div>'
+        + '<div class="sp-pgcard-f"><span class="done">' + earners + ' of '
+        +   (st.rows || []).length + ' earning</span><span>' + money(owed) + '</span></div></div>'
+        + '<div class="sp-pgcard-b">' + rows + '</div></div>';
+    }).join('');
+  }
+
+  /* BREAK GLASS. Sky, 2026-09-02: "we probably need a way to break glass to re-measure, but I
+     don't think that would be the norm." So it is one button, it names what it is about to do,
+     and it is never automatic — a settled record must not change quietly under a vendor invoice. */
+  async function remeasure(rec, btn) {
+    if (!rec) return;
+    if (!confirm('Re-measure ' + (rec.program_name || 'this program') + '?\n\n'
+               + 'It closed on ' + prettyDay(rec.end_date) + ' and these numbers were reported to '
+               + 'the vendor. Re-measuring replaces them with what Dutchie says today.')) return;
+    var was = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Measuring…';
+    try {
+      var r = await ENG.jsonp('snapshotProgress',
+        { token: (session() || {}).token, program: rec.program_id, force: '1', max: 1 },
+        { timeoutMs: 120000, retries: 0 });
+      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+      await loadPrograms();
+      renderPrograms();
+      applyStatusView();
+    } catch (err) {
+      btn.disabled = false; btn.textContent = 'Re-measure failed';
+      console.error('[spiff] re-measure failed:', err);
+      setTimeout(function () { btn.textContent = was; }, 2500);
+    }
   }
 
   /* ------------------------------------------------------- pitch mode (1c) */
@@ -3318,6 +3437,7 @@
     recalc();
     renderCalcEditing();
     applyCalcLock();
+    applyStatusView();
     syncRecordMount();
   }
 

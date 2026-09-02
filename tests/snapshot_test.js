@@ -1,0 +1,160 @@
+#!/usr/bin/env node
+/* ─── Frozen progress: measured once, when a program stops moving ─────────────────────────────────
+ *
+ *   RUN:  node tests/snapshot_test.js
+ *
+ * WHY
+ * A program's results stop changing the moment it stops running, and recomputing them after that
+ * costs six stores of Dutchie calls (~9s each) to arrive at the same answer — which is why the
+ * Progress grid could never be part of the record. Measure once, write it to the program's row,
+ * and History renders instantly.
+ *
+ * TWO DECISIONS THIS FILE HOLDS.
+ *
+ * WHERE. On the PROGRAM, not in the shared spiff_progress tab. Crew fetches that tab whole and
+ * unfiltered — it filters by window itself — so adding the 23 closed programs would take one
+ * response from 23KB to ~343KB against Crew's 95KB cache ceiling. Crew would silently stop caching
+ * and re-fetch the lot on every page load. Measured 2026-09-02.
+ *
+ * WHICH. Closed, obviously. And a DRAFT whose window has passed (Sky, 2026-09-02) — the status roll
+ * leaves those alone on purpose, because "drafted and never run" and "ran and finished" are
+ * different facts only a human can separate. But the sales either happened or they did not, and
+ * measuring them is what makes that call answerable. An ACTIVE program is never frozen: its numbers
+ * are still moving and the live grid is the whole point.
+ */
+'use strict';
+const fs = require('fs');
+
+let fail = 0;
+const ok = (l, c) => c ? console.log('  ✓ ' + l) : (fail++, console.log('  ✗ ' + l));
+
+const gs = fs.readFileSync(__dirname + '/../apps-script/Code.gs', 'utf8');
+function grab(name) {
+  const i = gs.indexOf('function ' + name + '(');
+  if (i < 0) throw new Error('missing ' + name);
+  let d = 0;
+  for (let k = gs.indexOf('{', i); k < gs.length; k++) {
+    if (gs[k] === '{') d++; else if (gs[k] === '}') { d--; if (!d) return gs.slice(i, k + 1); }
+  }
+  throw new Error('unbalanced ' + name);
+}
+
+/* ── the column exists, round-trips, and does not disturb the others ── */
+const HEADERS = new Function('return ' + (gs.match(/var PROGRAM_HEADERS = (\[[\s\S]*?\]);/) || [])[1])();
+ok('progress_json is a column', HEADERS.indexOf('progress_json') >= 0);
+ok('  …appended LAST, so no existing column shifts',
+   HEADERS[HEADERS.length - 1] === 'progress_json');
+ok('  …and it is written', /p\.progress_json \? JSON\.stringify\(p\.progress_json\) : ''/.test(grab('programToRow_')));
+ok('  …and read back at the matching index',
+   new RegExp('progress_json: parseJson_\\(r\\[' + (HEADERS.length - 1) + '\\], null\\)').test(grab('rowToProgram_')));
+/* migrateHeaders_ remaps by NAME, which is what makes appending safe on a live sheet. */
+ok('adding a column is safe because rows are remapped by name',
+   /remapped BY NAME|rather than trusted to line up/.test(gs));
+
+/* ── WHICH programs freeze ── */
+const reason = new Function('today_', 'textDate_',
+  grab('snapshotReasonFor_') + '; return snapshotReasonFor_;')(
+  () => '2026-09-02', (v) => String(v || ''));
+
+ok('a closed program freezes', reason({ status: 'closed' }) === 'closed');
+ok('an ACTIVE program never freezes — its numbers are still moving',
+   reason({ status: 'active', end_date: '2026-09-13' }) === '');
+ok('  …not even one whose window has passed but is still marked active',
+   reason({ status: 'active', end_date: '2026-08-30' }) === '');
+ok('a draft whose window has PASSED freezes',
+   /passed/.test(reason({ status: 'draft', end_date: '2026-08-30' })));
+ok('  …but a draft still ahead of its window does not',
+   reason({ status: 'draft', end_date: '2026-09-30' }) === '');
+ok('  …nor one with no window at all', reason({ status: 'draft', end_date: '' }) === '');
+ok('an unknown status is left alone rather than guessed at',
+   reason({ status: 'archived' }) === '');
+
+/* ── the measurement ── */
+const snap = grab('snapshotProgram_');
+ok('a store that refuses is NAMED, not written as zeros', /out\.partial\.push\(slug\)/.test(snap));
+ok('  …and a snapshot with no store at all refuses outright',
+   /no store answered/.test(snap));
+/* The distinction that makes the whole thing trustworthy: a quiet undercount is indistinguishable
+   from a store that genuinely sold nothing. */
+ok('earnings come from the shared payout helper, not a second formula',
+   /progEarned_\(prog, e\.units, e\.hit\)/.test(snap));
+ok('per-unit counts everyone who SOLD as an earner, flat counts who hit',
+   /perUnit \? x\.units > 0 : x\.hit/.test(snap));
+ok('the rate and model are recorded with the numbers, so a later rate change cannot rewrite history',
+   /rate: rate/.test(snap) && /model: perUnit \? 'per_unit' : 'flat'/.test(snap));
+
+/* ── bounded and resumable ── */
+const pend = grab('snapshotPending_');
+ok('the work is capped per call', /Math\.max\(1, Math\.min\(20, Number\(opts\.max\) \|\| 1\)\)/.test(pend));
+ok('  …and reports what is LEFT, so a caller can finish the job', /remaining:/.test(pend));
+ok('  …counting eligible programs it did not get to, rather than reporting zero',
+   /eligible\+\+/.test(pend) && /if \(done\.length \+ failed\.length >= max\) continue/.test(pend));
+ok('a program that already has a snapshot is skipped', /if \(prog\.progress_json && !force\) continue/.test(pend));
+ok('force re-measures it — the break-glass', /var force = !!opts\.force/.test(pend));
+ok('only ONE cell is written; a measurement is not a human edit',
+   /sh\.getRange\(i \+ 2, pCol \+ 1\)\.setValue/.test(pend));
+
+/* ── how it is reached ── */
+const SECRET = new Function('return ' + (gs.match(/var SECRET_ACTIONS = (\[[\s\S]*?\]);/) || [])[1])();
+ok('snapshotProgress is secret-gated — it is expensive and it writes',
+   SECRET.indexOf('snapshotProgress') >= 0);
+const PUBLIC = new Function('return ' + (gs.match(/var PUBLIC_ACTIONS = (\[[\s\S]*?\]);/) || [])[1])();
+ok('  …and never public', PUBLIC.indexOf('snapshotProgress') < 0);
+
+const trig = grab('refreshSpiffProgressTrigger');
+ok('the hourly trigger freezes ONE program per run', /snapshotPending_\(\{ max: 1 \}\)/.test(trig));
+ok('  …after the status roll, so a program that just closed is caught the same hour',
+   trig.indexOf('rollProgramStatuses_') < trig.indexOf('snapshotPending_'));
+ok('  …and a failure there does not take the sweep down with it',
+   /catch \(e\) \{ console\.warn\('\[spiff\] snapshot failed/.test(trig));
+
+/* ══════════════ THE PAGE FOLLOWS THE STATUS ══════════════ */
+const js = fs.readFileSync(__dirname + '/../spiff.js', 'utf8');
+const html = fs.readFileSync(__dirname + '/../index.html', 'utf8');
+function grabJs(name) {
+  const i = js.search(new RegExp('\\n\\s*(?:async\\s+)?function ' + name + '\\s*\\('));
+  if (i < 0) throw new Error('missing ' + name);
+  let d = 0;
+  for (let k = js.indexOf('{', i); k < js.length; k++) {
+    if (js[k] === '{') d++; else if (js[k] === '}') { d--; if (!d) return js.slice(i, k + 1); }
+  }
+  throw new Error('unbalanced ' + name);
+}
+
+ok('the model sits in a fold', html.indexOf('id="calcModelFold"') >= 0);
+ok('  …open by default, so an unsettled program is unaffected',
+   /id="calcModelFold" open/.test(html));
+ok('the frozen results have a home', html.indexOf('id="calcResults"') >= 0);
+ok('  …hidden until there is something to show', /id="calcResults" hidden/.test(html));
+
+const view = grabJs('statusView');
+ok('"settled" means finished AND measured, not merely closed',
+   /st === 'closed' && snap && snap\.stores && snap\.stores\.length/.test(view));
+/* A closed program with no snapshot must keep its model open — folding it away to reveal an empty
+   space is worse than not folding at all. */
+ok('  …so a closed program with no snapshot still shows its model',
+   /settled: !!\(st === 'closed'/.test(view));
+
+const apply = grabJs('applyStatusView');
+ok('the fold follows settled-ness', /fold\.open = !v\.settled/.test(apply));
+ok('the results appear only when a snapshot exists', /if \(!v\.snap\) \{ results\.hidden = true/.test(apply));
+ok('  …and it is only set on load, never on every repaint',
+   /never on every repaint/.test(apply));
+
+const froz = grabJs('renderFrozen');
+ok('the frozen grid reads the snapshot, it does not re-measure',
+   !/sellthrough|pullStore|ENG\.jsonp/.test(froz));
+ok('it says WHEN it was measured', /measured ' \+ esc\(String\(snap\.at/.test(froz));
+ok('  …and names any store the snapshot is missing, as an undercount',
+   /these totals undercount/.test(froz));
+ok('per-unit credits everyone who sold; flat credits who hit',
+   /perUnit \? e\.units > 0 : e\.hit/.test(froz));
+
+const rem = grabJs('remeasure');
+ok('re-measuring is behind a confirm that names the vendor risk',
+   /confirm\(/.test(rem) && /reported to '/.test(rem));
+ok('  …and it is the only thing that passes force', /force: '1'/.test(rem));
+ok('  …offered only to someone who can edit', /canEdit\(\) \? ' · <button/.test(froz));
+
+console.log(fail ? '\n' + fail + ' FAILED' : '\nsnapshot: all passed');
+process.exit(fail ? 1 : 0);

@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.348"/>
-<link rel="stylesheet" href="spiff.css?v=1.348"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.349"/>
+<link rel="stylesheet" href="spiff.css?v=1.349"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -153,6 +153,18 @@
       <!-- Stat strip: what the vendor is asked for, and what it returns. -->
       <div class="sp-calc-stats" id="calcStats"></div>
 
+      <!-- ---- THE MODEL, FOLDABLE ----
+           A closed program's inputs are the record of what was AGREED, so they stay reachable —
+           but they are not what you came to the page for once it has settled, and a screenful of
+           locked controls above the results is a screenful of things you cannot do. Open by
+           default; collapsed only when the program is closed. See applyStatusView. -->
+      <details class="sp-fold" id="calcModelFold" open>
+        <summary class="sp-fold-h">
+          <span class="sp-fold-t" id="calcFoldTitle">The model</span>
+          <span class="sp-fold-n" id="calcFoldNote"></span>
+          <span class="sp-fold-chev" aria-hidden="true">&#9656;</span>
+        </summary>
+        <div class="sp-fold-b">
       <div class="sp-calc-grid">
         <div class="sp-calc-left">
           <div>
@@ -264,6 +276,20 @@
         your number instead. Goals divide by that store&rsquo;s own budtender count, which is why the count is
         editable here rather than assumed even, and <b>BT unit increase</b> is the ask each budtender actually
         hears. A new store joins by appearing in the GX Core registry &mdash; the table grows with it.</p>
+        </div>
+      </details>
+
+      <!-- ---- WHAT SOLD ----
+           The frozen per-budtender grid, read straight off the program's own row. No Dutchie
+           calls, no waiting: a finished programme was measured once, when it stopped moving. -->
+      <div id="calcResults" hidden>
+        <div class="sp-h4-row">
+          <h4 class="sp-h4" id="resTitle">What sold</h4>
+          <span class="sp-h4-note" id="resNote"></span>
+          <span class="sp-res-stamp" id="resStamp"></span>
+        </div>
+        <div class="sp-pg-grid" id="resGrid"></div>
+      </div>
 
       <!-- ---- THE RECORD, ON THE SAME SCREEN AS THE MODEL ----
            Everything the Calculator has no view of: status, the pay-period window, the vendor
@@ -399,6 +425,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="spiff.js?v=1.348"></script>
+<script src="spiff.js?v=1.349"></script>
 </body>
 </html>

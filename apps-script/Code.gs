@@ -81,7 +81,13 @@ var PROGRAM_HEADERS = [
   'program_id', 'vendor', 'program_name', 'title', 'status', 'start_date', 'end_date', 'pay_period',
   'match_json', 'stores_json', 'cost_json', 'payout_type', 'payout_json',
   'baseline_json', 'target_json', 'actual_json', 'source', 'updated_at',
-  'edited_by', 'edited_at', 'share_token', 'contact_name', 'contact_email', 'doc_json'
+  'edited_by', 'edited_at', 'share_token', 'contact_name', 'contact_email', 'doc_json',
+  /* WHAT ACTUALLY SOLD, PER BUDTENDER, FROZEN. Written once when a program stops moving — see
+     snapshotProgram_. It is on the PROGRAM and deliberately not in the shared spiff_progress tab:
+     Crew fetches that tab whole and unfiltered, so adding 23 closed programs to it would take one
+     response from 23KB to ~343KB against a 95KB cache ceiling, and Crew would silently stop
+     caching and re-fetch the lot on every page load. History is SPIFF's own business. */
+  'progress_json'
 ];
 
 // Shared passphrase for vendor-facing links. Set it from the script editor:
@@ -207,7 +213,7 @@ var GATED_WRITES = [];
    that stay secret-only both COST something: refreshProgress walks every store's date windows
    (~57s measured) and installProgressTrigger changes the schedule. A deploy secret still opens
    all three; see guard_. */
-var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses'];
+var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses', 'snapshotProgress'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -272,6 +278,15 @@ function doGet(e) {
          Called WITHOUT a store this returns the PLAN (every program × store pair) so a caller can
          loop and watch it fill, exactly as the Progress grid already does. The hourly trigger still
          does the whole sweep, because a trigger gets six minutes. */
+      /* Freeze finished programs onto their own rows. BOUNDED AND RESUMABLE: one program is six
+         stores at ~9s, so `max` governs how many fit in a call and the reply says what is LEFT.
+         The hourly trigger takes one per run; the 23-program backfill is this in a loop.
+         `force=1` re-measures a program that already has a snapshot — the break-glass, never
+         automatic, because a settled record must not change quietly under a vendor invoice. */
+      case 'snapshotProgress':
+        out = snapshotPending_({ max: p.max, force: String(p.force || '') === '1',
+                                 program: p.program || '' });
+        break;
       case 'refreshProgress':
         out = (String(p.secret || '') !== PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP))
               ? { ok: false, error: 'Unauthorized' }
@@ -802,7 +817,8 @@ function programToRow_(p, audit) {
        exactly how these ended up stored in the first place. */
     p.actual_json ? JSON.stringify(stripDerivedActuals_(p.actual_json)) : '',
     p.source || '', nowStamp_(), by, at, p.share_token || '',
-    p.contact_name || '', p.contact_email || '', JSON.stringify(p.doc_json || {})
+    p.contact_name || '', p.contact_email || '', JSON.stringify(p.doc_json || {}),
+    p.progress_json ? JSON.stringify(p.progress_json) : ''
   ];
 }
 
@@ -820,7 +836,8 @@ function rowToProgram_(r) {
     actual_json:   parseJson_(r[15], null),
     source: r[16], updated_at: textDate_(r[17]),
     edited_by: r[18] || '', edited_at: textDate_(r[19]), share_token: r[20] || '',
-    contact_name: r[21] || '', contact_email: r[22] || '', doc_json: parseJson_(r[23], {})
+    contact_name: r[21] || '', contact_email: r[22] || '', doc_json: parseJson_(r[23], {}),
+    progress_json: parseJson_(r[24], null)
   };
 }
 
@@ -1004,6 +1021,132 @@ function refreshSpiffProgress_(only, onlyStore) {
            swept: seen, all_programs_by_status: byStatus };
 }
 
+/* ══════════════════════ FROZEN PROGRESS ══════════════════════
+ * A program's results stop changing the moment it stops running, and from then on recomputing them
+ * costs six stores of Dutchie calls (~9s each) to arrive at the same answer. So they are measured
+ * ONCE and written to the program's own row, and History and the record read them instantly.
+ *
+ * WHICH PROGRAMS QUALIFY, and the second one is Sky's (2026-09-02):
+ *   closed                     — settled. Reported to the vendor, paid, done.
+ *   draft whose window PASSED  — "plausible that a draft sits for a while, and should be re-calc'd
+ *                                if past the proposed window." The status roll deliberately leaves
+ *                                these alone because "drafted and never run" and "ran and finished"
+ *                                are different facts only a human can tell apart — but the sales
+ *                                either happened or they did not, and measuring them is what makes
+ *                                that call answerable instead of a guess.
+ *
+ * An ACTIVE program is never frozen: its numbers are still moving, and the live grid is the point.
+ *
+ * WHY IT IS NOT THE shared spiff_progress TAB. Crew fetches that tab WHOLE and unfiltered — it
+ * filters by window itself — so adding the 23 closed programs to it would take one response from
+ * 23KB to about 343KB against Crew's 95KB cache ceiling. Crew would stop caching and re-fetch
+ * everything on every page load. Measured 2026-09-02. The shared tab stays the live feed; this is
+ * the archive, and it belongs to SPIFF alone.
+ */
+
+/* Has this program stopped moving? Returns the reason, or '' when it is still live. */
+function snapshotReasonFor_(prog) {
+  var st = String(prog.status || '').trim().toLowerCase();
+  if (st === 'closed') return 'closed';
+  if (st === 'draft') {
+    var end = textDate_(prog.end_date);
+    if (end && end < today_()) return 'draft whose window has passed';
+  }
+  return '';
+}
+
+/* Measure one program across every store it ran in and return the frozen shape. ~9s per store, so
+ * this is for a TRIGGER or a bounded backfill, never for a /exec call that a browser is waiting on.
+ *
+ * A store that refuses is NAMED in `partial` and its rows are omitted — never written as zeros. A
+ * snapshot that quietly undercounts is worse than no snapshot, because nothing downstream can tell
+ * the difference between "this store sold nothing" and "this store did not answer".
+ */
+function snapshotProgram_(prog) {
+  var stores = prog.stores_json || [];
+  if (!stores.length) return { ok: false, error: 'program has no stores' };
+  var from = textDate_(prog.start_date), to = textDate_(prog.end_date);
+  if (!from || !to) return { ok: false, error: 'program has no window' };
+
+  var rate = payoutRateOf_(prog), perUnit = payoutModelOf_(prog) === 'per_unit';
+  var out = { at: nowStamp_(), from: from, to: to, rate: rate,
+              model: perUnit ? 'per_unit' : 'flat',
+              units: 0, earners: 0, earned: 0, stores: [], partial: [] };
+
+  stores.forEach(function (raw) {
+    var slug = slug_(raw && raw.store_id ? raw.store_id : raw);
+    if (!slug) return;
+    var r;
+    try { r = sellthrough_({ id: prog.program_id, store: slug }); }
+    catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+    if (!r || r.ok === false) { out.partial.push(slug); return; }
+
+    var rows = (r.rows || []).map(function (e) {
+      var earned = progEarned_(prog, e.units, e.hit);
+      return { name: e.name, employee_id: e.employee_id || '',
+               units: Number(e.units) || 0, hit: !!e.hit,
+               earned: Math.round(earned * 100) / 100 };
+    });
+    out.stores.push({ store_id: slug, units: Number(r.units) || 0,
+                      target: Number(r.target) || 0, rows: rows });
+    out.units   += Number(r.units) || 0;
+    out.earned  += rows.reduce(function (n, x) { return n + x.earned; }, 0);
+    /* Who EARNED, which is not who hit: a per-unit program pays from the first unit and sets no
+       individual target, so `hit` is false for everyone however much was sold. */
+    out.earners += rows.filter(function (x) { return perUnit ? x.units > 0 : x.hit; }).length;
+  });
+
+  out.earned = Math.round(out.earned * 100) / 100;
+  if (!out.stores.length) return { ok: false, error: 'no store answered', partial: out.partial };
+  return { ok: true, snapshot: out };
+}
+
+/* Freeze up to `max` programs that qualify and have no snapshot yet.
+ *
+ * BOUNDED AND RESUMABLE, because the work does not fit anywhere it could be done in one go: six
+ * stores at ~9s is ~54s for ONE program, against a 60s /exec ceiling and a 6-minute trigger. The
+ * 23-program backfill is roughly twenty minutes of measuring. So this does a little, says what is
+ * left, and is safe to call again — the hourly trigger takes one per run and the backfill is the
+ * same call in a loop.
+ *
+ * `force` re-measures programs that already carry a snapshot. That is the break-glass Sky asked
+ * for: not the norm, and never automatic, because a settled record should not quietly change after
+ * a vendor has been invoiced against it.
+ */
+function snapshotPending_(opts) {
+  opts = opts || {};
+  var max = Math.max(1, Math.min(20, Number(opts.max) || 1));
+  var force = !!opts.force;
+  var only = String(opts.program || '').trim();
+
+  var sh = dataSheet_();
+  if (sh.getLastRow() < 2) return { ok: true, done: [], remaining: 0, skipped: [] };
+  var vals = sh.getRange(2, 1, sh.getLastRow() - 1, PROGRAM_HEADERS.length).getValues();
+  var pCol = PROGRAM_HEADERS.indexOf('progress_json');
+
+  var done = [], failed = [], eligible = 0;
+  for (var i = 0; i < vals.length; i++) {
+    var prog = rowToProgram_(vals[i]);
+    if (only && String(prog.program_id) !== only) continue;
+    var why = snapshotReasonFor_(prog);
+    if (!why) continue;
+    if (prog.progress_json && !force) continue;
+    eligible++;
+    if (done.length + failed.length >= max) continue;      // counted, not measured — see `remaining`
+
+    var res = snapshotProgram_(prog);
+    if (!res.ok) { failed.push({ program_id: prog.program_id, error: res.error }); continue; }
+    /* Writes ONE cell. edited_by records the human who last corrected a record, and a measurement
+       is not an edit by that person — the same rule the status roll follows. */
+    sh.getRange(i + 2, pCol + 1).setValue(JSON.stringify(res.snapshot));
+    done.push({ program_id: prog.program_id, reason: why, units: res.snapshot.units,
+                earned: res.snapshot.earned, earners: res.snapshot.earners,
+                partial: res.snapshot.partial });
+  }
+  return { ok: true, done: done, failed: failed,
+           remaining: Math.max(0, eligible - done.length - failed.length) };
+}
+
 /* ===================== SCHEDULED STATUS ROLL =====================
  * A program's status was a thing somebody had to remember to change. Nothing moved a draft to
  * active on its start date and nothing closed a program when its window ran out, so the landing
@@ -1096,6 +1239,17 @@ function installSpiffProgressTrigger() {
 function refreshSpiffProgressTrigger() {
   try { rollProgramStatuses_(); }
   catch (e) { console.warn('[spiff] status roll failed: ' + ((e && e.message) || e)); }
+  /* ONE frozen program per run, and deliberately before the sweep. A program that just closed in
+     the roll above is measured while this hour's numbers are still the last word on it, and one
+     at a time keeps a ~54s measurement well inside the trigger's six minutes however many
+     programs happen to close at once. The rest wait an hour; `remaining` says how many. */
+  try {
+    var snap = snapshotPending_({ max: 1 });
+    if (snap.done.length) {
+      console.log('[spiff] froze ' + snap.done[0].program_id + ' (' + snap.done[0].reason
+                  + ') — ' + snap.remaining + ' still to freeze');
+    }
+  } catch (e) { console.warn('[spiff] snapshot failed: ' + ((e && e.message) || e)); }
   refreshSpiffProgress_();
 }
 

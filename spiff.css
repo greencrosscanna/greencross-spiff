@@ -739,6 +739,31 @@ body.is-gated .workspace { display: none !important; }
 }
 .sp-rec-foot .modal-msg { margin-right: auto; }
 
+/* ── The model, foldable ──
+   A closed program's inputs stay reachable but stop taking the page. The summary row has to read
+   as a control rather than a heading, or nobody discovers the model is still in there. */
+.sp-fold { border: 1px solid var(--gx-border); border-radius: var(--gx-radius-md, 10px); background: var(--gx-surface-2); margin-bottom: 20px; }
+.sp-fold > summary { list-style: none; cursor: pointer; }
+.sp-fold > summary::-webkit-details-marker { display: none; }
+.sp-fold-h { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+.sp-fold > summary:focus-visible { outline: 2px solid var(--gx-green); outline-offset: -2px; }
+.sp-fold-t { font-size: 11.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--gx-text); }
+.sp-fold-n { font-size: 12px; color: var(--gx-text-mute); }
+.sp-fold-chev { margin-left: auto; color: var(--gx-text-mute); transition: transform .15s ease; }
+.sp-fold[open] .sp-fold-chev { transform: rotate(90deg); }
+.sp-fold-b { padding: 4px 14px 16px; border-top: 1px solid var(--gx-border); }
+
+/* The frozen results header: when it was measured, and the way back to re-measuring it. */
+.sp-res-stamp { margin-left: auto; font-size: 11.5px; color: var(--gx-text-mute); }
+.sp-remeasure {
+  background: none; border: 0; padding: 0; font: inherit; font-size: 11.5px;
+  color: var(--gx-text-mute); text-decoration: underline; cursor: pointer;
+}
+.sp-remeasure:hover { color: var(--gx-text); }
+.sp-remeasure[disabled] { cursor: default; text-decoration: none; }
+
+@media (prefers-reduced-motion: reduce) { .sp-fold-chev { transition: none; } }
+
 /* ── A CLOSED PROGRAM, OPENED READ-ONLY ──
    It has to LOOK settled, not broken. Disabled controls alone read as a screen that failed to
    load; the dot and the banner say which of the two this is. */
