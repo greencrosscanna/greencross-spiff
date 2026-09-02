@@ -149,8 +149,12 @@ ok('update posts the patch, not the whole payload',
    /patch: JSON\.stringify\(patch\)/.test(save));
 ok('create still posts the whole payload — there is nothing to compare against',
    /program: JSON\.stringify\(payload\)/.test(save));
-ok('and a save with nothing to send says so instead of posting an empty patch',
-   /Nothing changed/.test(save) && /Object\.keys\(patch\)\.length/.test(save));
+/* The model save now RETURNS an empty result rather than posting; the one button reports
+   "Nothing changed" once, for both halves together. */
+ok('a model patch with nothing in it is never posted',
+   /if \(!Object\.keys\(patch\)\.length\) return \{ changed: \[\] \}/.test(save));
+ok('  …and the single Save says so, for both halves at once',
+   /'Nothing changed'/.test(grab('saveEverything')));
 ok('a program with no stored copy falls back to sending everything',
    /prog \? calcModelPatch\(prog, payload\) : payload/.test(save));
 

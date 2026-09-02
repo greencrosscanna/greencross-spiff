@@ -42,8 +42,8 @@ const all = grab('fillProgramPickers');
 });
 
 /* ── and it runs after every save, not only at boot ── */
-ok('the record save refills the pickers',
-   /fillProgramPickers\(\)/.test(grab('saveRecord')));
+/* saveRecord is gone — ONE button saves both halves now (v1.354), so the refill lives there. */
+ok('the save refills the pickers', /fillProgramPickers\(\)/.test(grab('saveEverything')));
 ok('the Calculator save refills them too',
    /fillProgramPickers\(\)/.test(grab('saveCalcProgram')));
 /* Boot must go through the same call, or boot and save drift into two lists of lists. */

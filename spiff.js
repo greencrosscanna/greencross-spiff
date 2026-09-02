@@ -863,10 +863,10 @@
     $('#siGo').addEventListener('click', doSignIn);
     $('#siPass').addEventListener('keydown', function (e) { if (e.key === 'Enter') doSignIn(); });
 
-    /* The record's own two buttons, on the Calculator. */
-    var recSave = $(REC.save), recIn = $(REC.signIn);
-    if (recSave) recSave.addEventListener('click', saveRecord);
-    if (recIn)   recIn.addEventListener('click', openSignIn);
+    /* ONE SAVE — the top button saves both halves (saveEverything), so the record has no button
+       of its own any more. Its sign-in stays: signing in is not saving. */
+    var recIn = $(REC.signIn);
+    if (recIn) recIn.addEventListener('click', openSignIn);
   }
 
   /* ------------------------------------------------------------- the record */
@@ -999,8 +999,9 @@
      been taken down with the modal it existed to support.
      Named constants rather than inlined strings, because the collector, the save and the actuals
      pull all read this form back by selector — four literals to keep in step is how they drift. */
-  var REC = { body:   '#calcRecordBody', msg:    '#calcRecordMsg',
-              save:   '#calcRecordSave', signIn: '#calcRecordSignIn' };
+  /* No `save` here any more: ONE button saves both halves (saveEverything), so the record has
+     no button of its own to hide or show. */
+  var REC = { body: '#calcRecordBody', msg: '#calcRecordMsg', signIn: '#calcRecordSignIn' };
 
   /* Show the record under the Calculator while it is editing a real program; take it away
      otherwise. EMPTIED, not hidden — the form is read back by id, and a hidden copy still answers
@@ -1063,22 +1064,6 @@
     return null;                       // unparseable — "8/3026" lands here
   }
 
-  /* A date the app DERIVES rather than accepts. Still carries data-key, so collectPatch saves it
-     with everything else and there is no second save path to disagree with the first. `readonly`
-     rather than `disabled` on purpose: a disabled input is skipped by the collector, which would
-     mean picking a pay period changed what the screen showed and nothing that was stored. */
-  function roDateField(label, key, value) {
-    var iso = toISODate(value);
-    return '<label class="sp-fld"><span>' + esc(label) + '</span>'
-      + '<input class="sp-in is-derived" data-key="' + esc(key) + '" type="date" value="'
-      + esc(iso === null ? '' : iso) + '" readonly tabindex="-1">'
-      + (iso === null
-          ? '<span class="sp-cost-warn">Stored as &ldquo;' + esc(value) + '&rdquo;, which is not a '
-            + 'date this app can read. Pick a pay period above to replace it.</span>'
-          : '')
-      + '</label>';
-  }
-
   function selField(label, key, value, opts) {
     var ro = canEdit() ? '' : ' disabled';
     return '<label class="sp-fld"><span>' + esc(label) + '</span>'
@@ -1135,23 +1120,38 @@
     var pps = payPeriodOptions(p.pay_period_start || p.start_date);
     var ppNow = periodIndexOf(today());
     var span = periodSpanOf(p.start_date, p.end_date);
-    var offGrid = !!(p.start_date && p.end_date && !span);
+    /* "Off grid" now means "not exactly ONE pay period" — a two-period programme is as much an
+       exception as a seven-day one once the control only offers a single period. */
+    var offGrid = !!(p.start_date && p.end_date && (!span || span.from !== span.to));
 
     function ppOptsFor(selIdx) {
       var out = pps.map(function (x) {
         var rel = x.index === ppNow ? ' · current' : (x.index > ppNow ? ' · upcoming' : '');
         return { v: String(x.index), l: periodLabel(x) + rel };
       });
-      /* A record already off the grid keeps its own dates. Offering only grid rows would make
-         the first touch of this control rewrite a closed program's window. */
-      if (offGrid) out.unshift({ v: '', l: 'Keep the dates below (does not match a pay period)' });
+      /* ── A RECORD THAT IS NOT ONE PAY PERIOD KEEPS ITS OWN WINDOW ─────────────────────────
+         Three exist and they are history, not a shape to support: Buddies ran 2026-06-22 →
+         2026-07-19, two whole periods; green-cross-2025-08-11 is seven days; the wyld-0626 draft
+         is a calendar month. Two are CLOSED and were reported to the vendor against exactly those
+         dates.
+
+         Sky, 2026-09-02: "buddies is an edge case, can we preserve that history without having
+         to build it into our current UI". So there is no extra control and no warning — the
+         window becomes the SELECTED OPTION, written out as itself. The record reads true, the
+         control stays a single select, and nothing changes until somebody deliberately picks a
+         real period. A shape the UI can no longer create, it can still show. */
+      if (offGrid) {
+        out.unshift({ v: '', l: prettyDay(p.start_date) + ' → ' + prettyDay(p.end_date)
+                                + ', ' + String(p.end_date || '').slice(0, 4) + '  (as recorded)' });
+      }
       if (selIdx !== null && !out.some(function (o) { return o.v === String(selIdx); })) {
         out.push({ v: String(selIdx), l: periodLabel(periodByIndex(selIdx)) });
       }
       return out;
     }
+    /* A multi-period record (Buddies) selects its FIRST period, and the note beside it says what
+       the window really is. Nothing snaps until somebody chooses. */
     var fromSel = span ? String(span.from) : (offGrid ? '' : String(ppNow));
-    var toSel   = span ? String(span.to)   : (offGrid ? '' : String(ppNow));
 
     if (offGrid) {
       warn += '<div class="sp-notice is-warn"><span class="sp-notice-l">Window is not a pay period</span>'
@@ -1174,17 +1174,20 @@
           ])
       + '</div>'
 
+      /* ONE PERIOD, and the dates follow from it (Sky, 2026-09-02: "the only date range that
+         matters is First Pay Period, which we can shorten to Pay Period"). A SPIFF is settled
+         against payroll, so a programme IS a pay period — showing a start and an end date beside
+         the control that derives them was three fields restating one fact.
+         The dates are still SAVED: they ride in hidden inputs so the collector picks them up
+         exactly as before, and every consumer that reads a window still gets one. */
       + '<h4 class="sp-h4">When it runs</h4>'
       + '<div class="sp-flds">'
-      +   selField('First pay period', '', fromSel, ppOptsFor(span ? span.from : null))
+      +   selField('Pay period', '', fromSel, ppOptsFor(span ? span.from : null))
             .replace('data-key=""', 'id="rPPFrom"')
-      +   selField('Last pay period', '', toSel, ppOptsFor(span ? span.to : null))
-            .replace('data-key=""', 'id="rPPTo"')
-      +   '<span class="sp-fld-note">Pick the same period twice for a normal two-week program. '
-      +     'The dates below follow from this — a SPIFF is settled against payroll, so its window '
-      +     'is whole pay periods.</span>'
-      +   roDateField('Start date', 'start_date', p.start_date)
-      +   roDateField('End date', 'end_date', p.end_date)
+      +   '<span class="sp-fld-note">A SPIFF is settled against payroll, so its window is a '
+      +     'whole pay period. The dates follow from this.</span>'
+      +   '<input type="hidden" data-key="start_date" value="' + esc(toISODate(p.start_date) || '') + '">'
+      +   '<input type="hidden" data-key="end_date" value="' + esc(toISODate(p.end_date) || '') + '">'
       + '</div>'
 
       /* NO READ-ONLY PLAN BLOCK EITHER. It restated six figures — product, payout, cost, target,
@@ -1218,22 +1221,16 @@
     $(REC.body).insertAdjacentHTML('beforeend',
       '<input type="hidden" data-key="match_json" value="' + esc(JSON.stringify(p.match_json || {})) + '">');
 
-    /* The two period selects drive the dates, and keep themselves in order: picking a LAST
-       period before the first would describe a window that ends before it begins, and the
-       engine would happily store it. Whichever one the user just moved is the one respected;
-       the other follows. */
-    var ppFrom = $('#rPPFrom'), ppTo = $('#rPPTo');
-    function syncPeriodDates(moved) {
-      if (!ppFrom || !ppTo) return;
-      if (ppFrom.value === '' || ppTo.value === '') return;   // "keep the dates" on a legacy row
-      var a = Number(ppFrom.value), b = Number(ppTo.value);
-      if (b < a) { if (moved === 'from') { ppTo.value = String(a); b = a; }
-                   else { ppFrom.value = String(b); a = b; } }
-      $(REC.body + ' [data-key="start_date"]').value = periodByIndex(a).start;
-      $(REC.body + ' [data-key="end_date"]').value   = periodByIndex(b).end;
-    }
-    if (ppFrom) ppFrom.addEventListener('change', function () { syncPeriodDates('from'); });
-    if (ppTo)   ppTo.addEventListener('change', function () { syncPeriodDates('to'); });
+    /* One select, and the hidden dates follow it. An empty value is the "keep what is there"
+       option a legacy record gets — it must not write anything. */
+    var ppFrom = $('#rPPFrom');
+    if (ppFrom) ppFrom.addEventListener('change', function () {
+      if (ppFrom.value === '') return;
+      var per = periodByIndex(Number(ppFrom.value));
+      var a = $(REC.body + ' [data-key="start_date"]'), b = $(REC.body + ' [data-key="end_date"]');
+      if (a) a.value = per.start;
+      if (b) b.value = per.end;
+    });
 
     var pull = $('#rPullActuals');
     if (pull) pull.addEventListener('click', function () { pullActuals(p, pull); });
@@ -1256,7 +1253,6 @@
     }
 
     var s = session();
-    $(REC.save).hidden   = !canEdit();
     $(REC.signIn).hidden = canEdit();
     $(REC.msg).textContent = s
       ? 'Signed in as ' + s.user + (canEdit() ? ' (' + s.role + ')' : ' — role ' + s.role + ' cannot edit')
@@ -1595,37 +1591,9 @@
     el.classList.add('sp-changed');
   }
 
-  async function saveRecord() {
-    var p = state.record;
-    if (!p) return;
-    var patch = collectPatch(p);
-    if (!Object.keys(patch).length) { $(REC.msg).textContent = 'Nothing changed.'; return; }
-
-    $(REC.msg).textContent = 'Saving…';
-    try {
-      var r = await ENG.jsonp('editProgram', {
-        token: (session() || {}).token, id: p.program_id, patch: JSON.stringify(patch)
-      });
-      if (!r || !r.ok) {
-        if (r && r.needsAuth) { clearSession(); openSignIn(); }
-        throw new Error((r && r.error) || 'Save failed');
-      }
-      $(REC.msg).textContent = 'Saved (' + (r.changed || []).join(', ') + ')';
-      await loadPrograms();
-      renderPrograms();
-      renderHistory();
-      fillProgramPickers();          // a rename has to reach the dropdowns, not just the lists
-      /* Close on success, per Sky. The modal staying open after a save invites a second press
-         of a button that now has nothing to do, and leaves the list underneath looking stale
-         even though it has already been refreshed. Brief pause so the confirmation is readable
-         rather than a flash.
-         Inline there is nothing to close — the form IS the screen — so it re-renders against the
-         saved program instead, which is what clears the warnings the save just resolved. */
-      setTimeout(syncRecordMount, 550);
-    } catch (err) {
-      $(REC.msg).textContent = String(err.message || err);
-    }
-  }
+  /* saveRecord is gone: its patch is issued by saveEverything, which sends BOTH halves under one
+     button. Keeping a second entry point to the same write is how the two buttons diverged in the
+     first place. */
 
   /* --------------------------------------------------------- the calculator
    *
@@ -2407,7 +2375,7 @@
     });
 
     $('#calcLoad').addEventListener('change', loadIntoCalc);
-    $('#calcSave').addEventListener('click', saveCalcProgram);
+    $('#calcSave').addEventListener('click', saveEverything);
     var pres = $('#calcPresent');
     if (pres) pres.addEventListener('click', enterPitch);
   }
@@ -3591,7 +3559,77 @@
     return patch;
   }
 
-  async function saveCalcProgram() {
+  /* ── ONE SAVE, TWO PATCHES ────────────────────────────────────────────────────────────────
+     Sky, 2026-09-02: "does the update this program button at the top and save program details at
+     the bottom do the same thing?" They did not, and nothing said so — the top one saved the
+     model, the bottom one saved status, window, contact and actuals, and pressing the wrong one
+     changed nothing while reporting success.
+
+     There were two because the model save used to rewrite all nine of its fields whether or not
+     they had been touched, so one button would have meant a contact-email fix quietly re-writing
+     the per-budtender goals people are paid on. v1.334 made that save send only what changed, and
+     the record half always did — so the reason for the split had already gone, and this is
+     finishing the job the merge started.
+
+     Still TWO PATCHES underneath, and deliberately: they are different shapes going to different
+     halves of the row. What changed is that one press sends both, each carrying only real edits —
+     usually one of them is empty and never leaves the browser. */
+  async function saveEverything() {
+    if (!canEdit()) { $('#btnAuth').click(); return; }
+    if (!calc.name) { alert('Give the program a name first.'); return; }
+
+    var btn = $('#calcSave');
+    var wasLabel = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+    var changed = [], failed = [];
+
+    /* The record half first. It is the cheaper patch and the one most likely to be what somebody
+       just typed, so a failure on the model does not swallow it. */
+    if (state.record && calc.editingId === state.record.program_id) {
+      var rp = collectPatch(state.record);
+      if (Object.keys(rp).length) {
+        try {
+          var rr = await ENG.jsonp('editProgram', {
+            token: (session() || {}).token, id: state.record.program_id,
+            patch: JSON.stringify(rp)
+          });
+          /* An expired session must reopen the dialog, not read as a failed save. saveRecord did
+             this before it folded in here, and losing it would mean a signed-out user pressing
+             Save and being told the write failed, with nothing to do about it. */
+          if (rr && rr.needsAuth) { clearSession(); openSignIn(); throw new Error('signed out'); }
+          if (!rr || !rr.ok) throw new Error((rr && rr.error) || 'save failed');
+          changed = changed.concat(rr.changed || Object.keys(rp));
+        } catch (e) { failed.push('program details'); }
+      }
+    }
+
+    var modelRes = await saveCalcProgram({ silent: true });
+    if (modelRes && modelRes.error) failed.push('the model');
+    else if (modelRes && modelRes.changed) changed = changed.concat(modelRes.changed);
+
+    await loadPrograms();
+    renderPrograms();
+    renderHistory();
+    fillProgramPickers();
+    syncRecordMount();
+    applyStatusView();
+
+    if (btn) {
+      /* SAY WHAT WAS SAVED. "Updated" on a press that changed nothing is the trap this whole
+         change is about — and a half-failure that reports success is worse than either. */
+      btn.textContent = failed.length
+        ? 'Saved, but ' + failed.join(' and ') + ' failed'
+        : changed.length ? 'Saved ' + changed.length + ' change' + (changed.length === 1 ? '' : 's')
+                         : 'Nothing changed';
+      setTimeout(function () { renderCalcEditing(); btn.disabled = false; }, 2600);
+    }
+    var msg = $(REC.msg);
+    if (msg) msg.textContent = failed.length ? '' : (changed.length ? 'Saved: ' + changed.join(', ') : '');
+  }
+
+  async function saveCalcProgram(opts) {
+    opts = opts || {};
     if (!canEdit()) { $('#btnAuth').click(); return; }
     var m = calcModel();
     if (!calc.name) { alert('Give the program a name first.'); return; }
@@ -3607,14 +3645,10 @@
       /* No stored copy to compare against means we cannot tell what moved, so send everything —
          the same thing this did before, and the safe direction of the two. */
       patch = prog ? calcModelPatch(prog, payload) : payload;
-      if (!Object.keys(patch).length) {
-        btn.textContent = 'Nothing changed';
-        setTimeout(function () { renderCalcEditing(); }, 1800);
-        return;
-      }
+      if (!Object.keys(patch).length) return { changed: [] };   // nothing of the MODEL moved
     }
 
-    btn.disabled = true; btn.textContent = 'Saving…';
+    if (!opts.silent) { btn.disabled = true; btn.textContent = 'Saving…'; }
     try {
       /* UPDATE when we arrived from a record, CREATE otherwise. Without this the "Edit
          parameters" route silently forked a duplicate off the program Tawny thought she was
@@ -3630,15 +3664,24 @@
             program: JSON.stringify(payload)
           });
       if (!r || !r.ok) throw new Error((r && r.error) || 'save failed');
+      /* A create has no editingId until now — adopt it, or the next press would fork a second
+         copy of the programme just saved. */
+      if (!calc.editingId && r.program_id) calc.editingId = r.program_id;
+      if (opts.silent) return { changed: r.changed || Object.keys(patch || payload) };
+
       btn.textContent = calc.editingId ? 'Updated' : 'Saved';
       await loadPrograms();
       renderPrograms();
       fillProgramPickers();
+      setTimeout(function () { renderCalcEditing(); btn.disabled = false; }, 2500);
+      return { changed: r.changed || [] };
     } catch (err) {
-      btn.textContent = 'Save failed';
       console.error('[spiff] save program failed:', err);
+      if (opts.silent) return { error: String((err && err.message) || err) };
+      btn.textContent = 'Save failed';
+      setTimeout(function () { renderCalcEditing(); btn.disabled = false; }, 2500);
+      return { error: String((err && err.message) || err) };
     }
-    setTimeout(function () { renderCalcEditing(); btn.disabled = false; }, 2500);
   }
 
   /* EVERY PICKER THAT NAMES A PROGRAM, refilled together.

@@ -59,13 +59,20 @@ ok('the "Edit parameters →" hop is gone — it pointed at the screen it now li
 
 /* ── ONE HOST ── */
 const REC = new Function('return ' + (js.match(/var REC\s*=\s*(\{[\s\S]*?\});/) || [])[1])();
-['body', 'msg', 'save', 'signIn'].forEach(k => {
+/* No `save` since v1.354 — ONE button saves both halves, so the record has no button of its own. */
+ok('the record has no Save button of its own', REC.save === undefined
+   && html.indexOf('id="calcRecordSave"') < 0);
+['body', 'msg', 'signIn'].forEach(k => {
   ok('REC.' + k + ' points at an element that exists',
      html.indexOf('id="' + REC[k].slice(1) + '"') >= 0);
 });
 ok('there is still exactly one renderRecord', (js.match(/function renderRecord\s*\(/g) || []).length === 1);
 ok('and one collectPatch',  (js.match(/function collectPatch\s*\(/g) || []).length === 1);
-ok('and one saveRecord',    (js.match(/async function saveRecord\s*\(/g) || []).length === 1);
+/* saveRecord folded into saveEverything in v1.354 — ONE button, still ONE write path. Keeping a
+   second entry point to the same write is how the two buttons diverged in the first place. */
+ok('and exactly one path that writes a record patch',
+   (js.match(/async function saveRecord\s*\(/g) || []).length === 0
+   && (js.match(/async function saveEverything\s*\(/g) || []).length === 1);
 
 const sync = grab('syncRecordMount');
 ok('an unmounted record is EMPTIED, not merely hidden', /body\.innerHTML = ''/.test(sync));
@@ -79,7 +86,12 @@ const render = grab('renderRecord');
 ok('no Program name field — the Calculator owns it', render.indexOf("'program_name'") < 0);
 ok('no vendor field either', render.indexOf('rVendorMenu') < 0);
 ok('but Status IS here, because the Calculator has no view of it', /selField\('Status'/.test(render));
-ok('and so is the pay-period window', /First pay period/.test(render));
+/* One select since v1.354 — "First"/"Last" collapsed to a single "Pay period", and the start and
+   end dates it derives ride in hidden inputs rather than as fields restating it. */
+ok('and so is the pay-period window', /selField\('Pay period'/.test(render));
+ok('  …with the derived dates hidden, not shown as three fields for one fact',
+   /data-key="start_date"/.test(render) && /type="hidden"/.test(render)
+   && !/roDateField/.test(render));
 ok('and the contact, the actuals and the vendor link',
    /contact_email/.test(render) && /rPullActuals/.test(render) && /btnShare/.test(render));
 
@@ -113,7 +125,10 @@ ok('a successful sign-in closes the dialog and repaints the record',
    /closeSignIn\(\);\s*\n\s*syncRecordMount\(\);/.test(grab('doSignIn')));
 ok('signing OUT re-renders the record read-only rather than dropping it',
    /clearSession\(\);[\s\S]{0,300}syncRecordMount\(\)/.test(js));
-ok('a rejected write reopens the dialog', /needsAuth[^\n]*openSignIn\(\)/.test(js));
+/* An expired session must reopen the dialog rather than read as a failed save — a signed-out user
+   pressing Save would otherwise be told the write failed with nothing to do about it. */
+ok('a rejected write reopens the dialog',
+   /rr\.needsAuth\) \{ clearSession\(\); openSignIn\(\);/.test(grab('saveEverything')));
 ok('the dialog is sized for a two-field form, not the record it replaced',
    /\.modal-sm\s*\{/.test(css) && html.indexOf('modal modal-sm') >= 0);
 
