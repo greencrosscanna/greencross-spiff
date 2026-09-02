@@ -163,5 +163,51 @@ ok('flat programs still report hit against target',
 ok('  …and still price the ceiling as everyone landing it',
    /money\(btsAll \* rate\)/.test(paint));
 
+/* ══════════════ "IT SCALES WITH SUCCESS" SCALED BACKWARDS ══════════════
+ * The panel above the Present-to-vendor button asks "how many budtenders hit their number", and
+ * assumes one who hits contributes their goal while one who misses contributes their reference.
+ * On a per-unit program there is no individual goal — everyone earns from their first unit — so
+ * with the goal at zero that assumption inverts: hitting means contributing NOTHING.
+ *
+ * Portland Heights live, 2026-09-02, $0.75/unit against 225 units last month:
+ *
+ *     All 36 hit   ->  $0 funded,   0 units,  "costs you nothing"
+ *     Nobody hit   ->  $168.75,   225 units,  -$169
+ *
+ * Exactly backwards, on a screen a vendor reads. Per-unit now scales on the axis it actually
+ * has — units sold. */
+const SCALE = new Function('calc', grab('scaleRows') + '; return scaleRows;');
+const perUnitRows = SCALE({ model: 'per_unit', spiff: 0.75, cost: 8.68 })
+                         ({ baseUnits: 225, goalUnits: 0, bts: 36 });
+
+ok('a per-unit program still gets a scale, with no target set', perUnitRows.length >= 3);
+ok('selling MORE funds more, never less',
+   perUnitRows.every((r, i, a) => i === 0 || r.funds > a[i - 1].funds));
+ok('  …and every row is priced at rate × units, the way the payout actually works',
+   perUnitRows.every(r => Math.abs(r.funds - r.units * 0.75) < 0.01));
+ok('the baseline row funds the baseline — not zero',
+   Math.abs(perUnitRows[0].funds - 225 * 0.75) < 0.01);
+/* The old shape, asserted as gone: "everyone succeeds" must never read as costing nothing. */
+ok('"all of them" no longer reads as $0 funded',
+   !perUnitRows.some(r => r.units === 0));
+ok('net gain rises with volume once past the baseline',
+   perUnitRows[perUnitRows.length - 1].net > perUnitRows[0].net);
+ok('rows are labelled by lift, because units sold is the axis',
+   /Same as last month/.test(perUnitRows[0].label) && /units/.test(perUnitRows[1].label));
+
+/* A flat program is untouched — 22 of 24 are flat, and its axis is genuinely headcount. */
+const flatRows = SCALE({ model: 'flat', spiff: 25, cost: 10 })
+                      ({ baseUnits: 200, goalUnits: 400, bts: 10 });
+ok('flat still scales on budtenders who hit',
+   flatRows.length && /All 10|Nobody|of 10/.test(flatRows[0].label));
+ok('  …funding the bounty per person who hits, not per unit',
+   Math.abs(flatRows[0].funds - 10 * 25) < 0.01);
+ok('  …and "Nobody" funds nothing on a flat program, which is true there',
+   flatRows[flatRows.length - 1].funds === 0);
+
+const recalcSrc = grab('recalc');
+ok('the table heading follows the model rather than asserting one axis',
+   /scaleAxis = calc\.model === 'per_unit' \? 'Units sold'/.test(recalcSrc));
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nproduct match: all passed');
 process.exit(fail ? 1 : 0);

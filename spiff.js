@@ -1758,19 +1758,52 @@
      then showed to a vendor. Everything else here follows from it arithmetically. */
   function scaleRows(m) {
     var bts = m.bts;
+    var cost = Number(calc.cost) || 0;
+    var rate = Number(calc.spiff) || 0;
+
+    /* ── PER UNIT SCALES ON VOLUME, NOT ON HEADCOUNT ──────────────────────────────────────────
+       The flat model's axis is "how many budtenders hit their number", and the assumption under
+       it is that one who hits contributes their goal while one who misses contributes their
+       reference. On a per-unit program there IS no individual goal to hit — everyone earns from
+       their first unit — so that axis has nothing to measure, and with the goal at zero the
+       arithmetic inverts: "hitting" means contributing zero, so ALL 36 HIT reads as 0 units and
+       $0 funded while NOBODY HIT reads as the full 225 units. Exactly backwards, on the panel
+       that has a Present to vendor button above it.
+       Seen live on Portland Heights, 2026-09-02, which is $0.75 a unit with no target.
+       So per-unit gets the axis it actually has: units sold. */
+    if (calc.model === 'per_unit') {
+      if (!m.baseUnits) return [];
+      var pts = [m.baseUnits, m.baseUnits * 1.25, m.baseUnits * 1.5, m.baseUnits * 2];
+      if (m.goalUnits > 0) pts.push(m.goalUnits);
+      var seenU = {};
+      return pts.map(function (u) { return Math.round(u); })
+        .filter(function (u) { if (u <= 0 || seenU[u]) return false; seenU[u] = 1; return true; })
+        .sort(function (a, b) { return a - b; })
+        .map(function (units) {
+          var funds = rate * units;
+          var gain  = (units - m.baseUnits) * cost;
+          var lift  = units - m.baseUnits;
+          return {
+            units: units,
+            label: lift === 0 ? 'Same as last month'
+                 : (lift > 0 ? '+' : '') + lift.toLocaleString() + ' units'
+                   + (m.baseUnits ? ' (' + Math.round((lift / m.baseUnits) * 100) + '%)' : ''),
+            funds: funds, net: Math.round(gain - funds),
+            ret: funds ? (gain - funds) / funds : null
+          };
+        });
+    }
+
     if (!bts || !m.baseUnits) return [];
     var perBtRef  = m.baseUnits / bts;
     var perBtGoal = m.goalUnits / bts;
-    var cost = Number(calc.cost) || 0;
     var steps = [bts, Math.round(bts * .75), Math.round(bts * .5), Math.round(bts * .2), 0];
     var seen = {};
     return steps.filter(function (n) {
       if (n < 0 || seen[n]) return false; seen[n] = 1; return true;
     }).map(function (hit) {
       var units = hit * perBtGoal + (bts - hit) * perBtRef;
-      var funds = calc.model === 'per_unit'
-        ? (Number(calc.spiff) || 0) * units
-        : (Number(calc.spiff) || 0) * hit;
+      var funds = rate * hit;
       var gain  = (units - m.baseUnits) * cost;
       return {
         hit: hit, label: hit === bts ? 'All ' + bts : (hit === 0 ? 'Nobody' : hit + ' of ' + bts),
@@ -1902,9 +1935,13 @@
     var scale = $('#calcScale');
     if (scale) {
       var rows = scaleRows(m);
+      /* The first column is a different QUESTION per model — how many people cleared their
+         number, versus how much was sold — so it cannot carry one heading. */
+      var scaleAxis = calc.model === 'per_unit' ? 'Units sold' : 'Budtenders who hit';
+      var scaleImplies = calc.model === 'per_unit' ? 'Units total' : 'Units that implies';
       scale.innerHTML = rows.length
-        ? '<table class="sp-tbl"><thead><tr><th>Budtenders who hit</th><th class="num">You fund</th>'
-          + '<th class="num">Units that implies</th><th class="num">Your net gain</th></tr></thead><tbody>'
+        ? '<table class="sp-tbl"><thead><tr><th>' + scaleAxis + '</th><th class="num">You fund</th>'
+          + '<th class="num">' + scaleImplies + '</th><th class="num">Your net gain</th></tr></thead><tbody>'
           + rows.map(function (r, i) {
               var lead = i === 0;
               return '<tr><td class="' + (lead ? 'strong' : 'dim') + '">' + esc(r.label) + '</td>'
@@ -1918,7 +1955,11 @@
                 + (r.funds <= 0 ? 'costs you nothing' : money(r.net)) + '</td></tr>';
             }).join('')
           + '</tbody></table>'
-        : '<table class="sp-tbl"><tbody><tr><td class="dim">Set a reference and a target to see how the cost scales.</td></tr></tbody></table>';
+        : '<table class="sp-tbl"><tbody><tr><td class="dim">'
+          + (calc.model === 'per_unit'
+              ? 'Pull last month&rsquo;s units to see how the cost scales.'
+              : 'Set a reference and a target to see how the cost scales.')
+          + '</td></tr></tbody></table>';
     }
 
     /* The percentage return is INVARIANT under a flat bounty -- funds and the units they buy
