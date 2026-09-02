@@ -86,9 +86,12 @@ const TYPES = {
 };
 
 http.createServer(function (req, res) {
+  /* Path only — the query string is the cache-buster (?v=1.341) and never part of the filename.
+     Parsed by hand rather than through `new URL`, which would need a base host invented purely to
+     satisfy it. */
   let rel;
   try {
-    rel = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+    rel = decodeURIComponent(req.url.split('?')[0].split('#')[0]);
   } catch (e) {
     res.writeHead(400); res.end('bad request'); return;               // undecodable %-escape
   }
