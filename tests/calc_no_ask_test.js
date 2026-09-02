@@ -59,13 +59,19 @@ ok('a target genuinely BELOW last month is still negative, not clamped', below.u
 /* ── 2. the guards that keep it off the screen ────────────────────────────────────────────────── */
 const recalc = grab('recalc');
 
-const lift = /cstat\('Unit lift',([\s\S]*?)\);/.exec(recalc);
-ok('the Unit lift card exists', !!lift);
-if (lift) {
-  ok('Unit lift gates its VALUE on an ask, not just a base', /hasAsk \?/.test(lift[1]));
-  ok('Unit lift gates its CAPTION on an ask too', (lift[1].match(/hasAsk \?/g) || []).length >= 2);
+/* TWO cards carry this label since v1.348: one reports a CLOSED program's settled lift from
+   actual_json, the other projects an unsettled one. Only the projecting card needs the ask gate —
+   the settled card is reporting something that already happened — so pick it deliberately rather
+   than letting the regex take whichever comes first. */
+const lifts = recalc.match(/cstat\('Unit lift',[\s\S]*?\);/g) || [];
+ok('the Unit lift card exists', lifts.length >= 1);
+const lift = [ (lifts.filter(function (x) { return /hasAsk/.test(x); })[0] || '') ];
+ok('one Unit lift card is the MODELLED one, gated on an ask', !!lift[0]);
+if (lift[0]) {
+  ok('Unit lift gates its VALUE on an ask, not just a base', /hasAsk \?/.test(lift[0]));
+  ok('Unit lift gates its CAPTION on an ask too', (lift[0].match(/hasAsk \?/g) || []).length >= 2);
   ok('Unit lift never falls back to hasBase for a computed figure',
-     !/hasBase \? (?:\(m\.unitInc|pct\()/.test(lift[1]));
+     !/hasBase \? (?:\(m\.unitInc|pct\()/.test(lift[0]));
 }
 
 const belowLine = /var below = ([^;]+);/.exec(recalc);

@@ -246,5 +246,40 @@ ok('242 units at $0.75 is $181.50 of investment',
 ok('  …and the ROI identity holds against last month',
    Math.abs(((units - base) * cost - rate * units) - 130.98) < 0.01);
 
+/* ══════════════ FOUR EM DASHES ON A PROGRAM THAT KNEW ITS OWN ANSWER ══════════════
+ * Sky: "none of the kpi boxes are displaying info?"
+ *
+ * All four cards are gated on an ASK — a target above last month — because a projection with
+ * nothing to project from was announcing "Your return -100%" on a fresh Calculator, which is
+ * worse than blank on a screen that gets turned around to face a vendor.
+ *
+ * Right for modeling, wrong twice over here. A PER-UNIT program sets no target by design, so the
+ * gate never opens. And a CLOSED program does not need projecting at all — it has settled figures
+ * in actual_json. Portland Heights was both, so the top of the screen showed four dashes above a
+ * record that had just measured itself at 242 units and $181.50.
+ */
+const rc = grab('recalc');
+ok('a closed program with actuals reports what HAPPENED',
+   /var settled = !!\(act && String\(recNow\.status \|\| ''\)\.toLowerCase\(\) === 'closed'/.test(rc));
+ok('  …and only when there are actuals to report', /Number\(act\.units_sold\) > 0/.test(rc));
+ok('  …in the past tense, so it cannot be read as a projection',
+   /'You funded'/.test(rc) && /'Revenue it earned'/.test(rc));
+ok('per-unit says what it paid per unit; flat says how many budtenders hit',
+   /money\(sRate\) \+ ' on each of '/.test(rc) && /budtenders at ' \+ money\(sRate\)/.test(rc));
+
+/* Gross gain is not stored. It is the return plus the bounty that bought it — the same identity
+   the model prices on, so the settled cards and the modelled ones cannot drift apart. */
+ok('revenue earned is derived as return + investment', /var sGross = sRoi \+ sInv/.test(rc));
+const phUnits = 242, phBase = 206, phInv = 181.5, phRoi = 130.98, phCost = 8.68;
+ok('  …and that identity holds on the real figures',
+   Math.abs((phRoi + phInv) - (phUnits - phBase) * phCost) < 0.01);
+
+/* The modeling gate must survive untouched — it is what keeps a fresh Calculator from quoting
+   -100% at a vendor. */
+ok('an unsettled program still requires an ask before it projects',
+   /var hasAsk  = hasBase && \(Number\(calc\.target\) \|\| 0\) > 0/.test(rc));
+ok('  …and still says "not yet" rather than a confident zero',
+   /set a product and a target first/.test(rc) && /pick a product to pull last month/.test(rc));
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nproduct match: all passed');
 process.exit(fail ? 1 : 0);

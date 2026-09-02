@@ -1856,8 +1856,46 @@
     var hasBase = m.baseUnits > 0;
     var hasAsk  = hasBase && (Number(calc.target) || 0) > 0;
 
+    /* ── A CLOSED PROGRAM HAS ALREADY ANSWERED THESE FOUR QUESTIONS ───────────────────────────
+       All four cards are gated on an ASK — a target above last month — because a projection with
+       nothing to project from was announcing "Your return -100%" on a fresh Calculator. That gate
+       is right for modeling and wrong for everything else, in two ways that met on Portland
+       Heights: a PER-UNIT program sets no target by design, so the gate never opens; and a CLOSED
+       program does not need projecting at all, because it has settled figures sitting in
+       actual_json. The result was four em dashes at the top of a program that had just measured
+       itself at 242 units and $181.50.
+       So: if the program is closed and has actuals, these say what HAPPENED, in the past tense.
+       Revenue increase and unit lift are derived rather than stored — gross gain is the return
+       plus the bounty that bought it, which is the same identity the model prices on. */
+    var recNow = calc.editingId
+      ? (state.programs || []).filter(function (x) { return x.program_id === calc.editingId; })[0]
+      : null;
+    var act = (recNow && recNow.actual_json) || null;
+    var settled = !!(act && String(recNow.status || '').toLowerCase() === 'closed'
+                        && Number(act.units_sold) > 0);
+
     var stats = $('#calcStats');
-    if (stats) stats.innerHTML =
+    if (stats && settled) {
+      var sUnits = Number(act.units_sold) || 0;
+      var sInv   = Number(act.investment) || 0;
+      var sRoi   = Number(act.roi) || 0;
+      var sRate  = Number(act.spiff_amount) || 0;
+      var sBase  = Number((recNow.baseline_json || {}).units) || 0;
+      var sGross = sRoi + sInv;                       // what the extra units earned, before the bounty
+      var sLift  = sUnits - sBase;
+      var sPer   = normalModel((recNow.payout_json || {}).model || recNow.payout_type) === 'per_unit';
+      stats.innerHTML =
+          cstat('You funded', money(sInv),
+                sPer ? money(sRate) + ' on each of ' + sUnits.toLocaleString() + ' units sold'
+                     : (act.bts_hit || 0) + ' budtenders at ' + money(sRate) + ' each', '')
+        + cstat('Revenue it earned', money(sGross),
+                sBase ? sLift.toLocaleString() + ' units over last month' : 'against last month', '')
+        + cstat('Your return', sInv ? pctWhole(Number(act.roi_pct) || 0) : '—',
+                money(sRoi) + ' net of the bounty', sRoi < 0 ? 'is-neg' : 'is-hero')
+        + cstat('Unit lift', (sLift > 0 ? '+' : '') + sLift.toLocaleString(),
+                sBase ? pct(sBase ? sLift / sBase : 0) + ' over last month'
+                      : 'no last-month figure to compare', '');
+    } else if (stats) stats.innerHTML =
         cstat('You fund, at most', hasAsk ? money(m.invest) : '—',
               !hasAsk ? 'set a product and a target first'
                 : calc.model === 'per_unit'
