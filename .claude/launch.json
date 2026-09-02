@@ -3,9 +3,9 @@
   "configurations": [
     {
       "name": "spiff",
-      "runtimeExecutable": "python3",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
       "runtimeArgs": [
-        "serve.py"
+        "/Users/skypinnick/Library/CloudStorage/Dropbox/GX Dashboards/greencross-spiff/serve.js"
       ],
       "port": 8754,
       "autoPort": false
