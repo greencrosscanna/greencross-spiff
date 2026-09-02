@@ -108,6 +108,35 @@ ok('  …after the status roll, so a program that just closed is caught the same
 ok('  …and a failure there does not take the sweep down with it',
    /catch \(e\) \{ console\.warn\('\[spiff\] snapshot failed/.test(trig));
 
+/* ══════════════ ONE STORE PER CALL ══════════════
+ * The first cut of the backfill route measured a whole program per request — six stores at ~9s —
+ * and died at 60.15s against Google's 60s /exec ceiling without writing a thing. Measured, not
+ * guessed. Every other expensive path in this app already loops stores for exactly this reason;
+ * this one now does too.
+ */
+const store = grab('snapshotStore_');
+ok('a store can be measured on its own', /function snapshotStore_\(prog, slug\)/.test(gs));
+ok('  …and merges into what is already there rather than replacing it',
+   /snap\.stores = \(snap\.stores \|\| \[\]\)\.filter/.test(store));
+ok('  …keyed by store, so re-running one corrects it without disturbing the other five',
+   /x\.store_id !== slug/.test(store));
+ok('totals are recomputed from the stores present, never accumulated blindly',
+   /snap\.units   = snap\.stores\.reduce/.test(store));
+ok('`partial` is derived from what is MISSING, so it clears itself as stores land',
+   /snap\.partial = \(prog\.stores_json \|\| \[\]\)/.test(store));
+ok('the window and rate are refreshed each time, so a half-built snapshot cannot describe itself twice',
+   /snap\.from = from; snap\.to = to;/.test(store));
+
+const plan = grab('snapshotPlan_');
+ok('a plan lists every (program, store) pair still to do', /plan\.push\(\{ program: prog\.program_id, store: slug/.test(plan));
+ok('  …skipping stores already measured, unless forced', /if \(done && !force\) \{ skipped\+\+; return; \}/.test(plan));
+ok('  …and writes nothing', !/setValue|writeSnapshot_/.test(plan));
+ok('the route measures one store when named, and plans when not',
+   /out = p\.store[\s\S]{0,220}snapshotStore_\(g\.program, p\.store\)/.test(gs));
+
+/* The trigger keeps the whole-program path: a trigger gets six minutes, a web call does not. */
+ok('the hourly trigger still freezes whole programs', /snapshotPending_\(\{ max: 1 \}\)/.test(gs));
+
 /* ══════════════ THE PAGE FOLLOWS THE STATUS ══════════════ */
 const js = fs.readFileSync(__dirname + '/../spiff.js', 'utf8');
 const html = fs.readFileSync(__dirname + '/../index.html', 'utf8');

@@ -284,8 +284,17 @@ function doGet(e) {
          `force=1` re-measures a program that already has a snapshot — the break-glass, never
          automatic, because a settled record must not change quietly under a vendor invoice. */
       case 'snapshotProgress':
-        out = snapshotPending_({ max: p.max, force: String(p.force || '') === '1',
-                                 program: p.program || '' });
+        /* ONE STORE PER CALL when a store is named — a whole program is ~54s against a 60s
+           ceiling, and the first cut of this route died at 60.15s without writing anything.
+           Called without one it returns the PLAN of pairs still to do, so the caller can loop
+           and watch it fill. The hourly trigger still does whole programs: a trigger gets six
+           minutes. */
+        out = p.store
+          ? (function () {
+              var g = getProgram_(p.program || '');
+              return g.ok ? snapshotStore_(g.program, p.store) : g;
+            })()
+          : snapshotPlan_({ force: String(p.force || '') === '1', program: p.program || '' });
         break;
       case 'refreshProgress':
         out = (String(p.secret || '') !== PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP))
@@ -1099,6 +1108,109 @@ function snapshotProgram_(prog) {
   out.earned = Math.round(out.earned * 100) / 100;
   if (!out.stores.length) return { ok: false, error: 'no store answered', partial: out.partial };
   return { ok: true, snapshot: out };
+}
+
+/* ONE STORE, MERGED INTO WHAT IS ALREADY THERE.
+ *
+ * snapshotProgram_ below measures a whole program, which is ~54s for six stores — fine inside a
+ * six-minute trigger and DEAD in a web call, which Google kills at 60s. Measured 2026-09-02: the
+ * backfill route timed out at 60.15s without writing a thing.
+ *
+ * So the web path does what every other expensive path in this app already does — one store per
+ * request, merged — and the caller loops. Same shape as refreshProgress, and as the Progress grid
+ * that loops stores in the browser.
+ *
+ * The merge is by store_id, so re-running one store corrects it without disturbing the other five,
+ * and a partial snapshot is a real state rather than an error: it says which stores it has.
+ */
+function snapshotStore_(prog, slug) {
+  slug = slug_(slug);
+  if (!slug) return { ok: false, error: 'store required' };
+  var from = textDate_(prog.start_date), to = textDate_(prog.end_date);
+  if (!from || !to) return { ok: false, error: 'program has no window' };
+
+  var r;
+  try { r = sellthrough_({ id: prog.program_id, store: slug }); }
+  catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+  if (!r || r.ok === false) return { ok: false, error: (r && r.error) || 'sell-through failed' };
+
+  var perUnit = payoutModelOf_(prog) === 'per_unit';
+  var rows = (r.rows || []).map(function (e) {
+    return { name: e.name, employee_id: e.employee_id || '',
+             units: Number(e.units) || 0, hit: !!e.hit,
+             earned: Math.round(progEarned_(prog, e.units, e.hit) * 100) / 100 };
+  });
+
+  var snap = prog.progress_json && prog.progress_json.stores
+    ? prog.progress_json
+    : { from: from, to: to, rate: payoutRateOf_(prog),
+        model: perUnit ? 'per_unit' : 'flat', stores: [], partial: [] };
+  /* The window and rate are refreshed with every store, so a snapshot half-built before an edit
+     cannot end up describing itself with two different windows. */
+  snap.from = from; snap.to = to;
+  snap.rate = payoutRateOf_(prog);
+  snap.model = perUnit ? 'per_unit' : 'flat';
+  snap.at = nowStamp_();
+
+  snap.stores = (snap.stores || []).filter(function (x) { return x.store_id !== slug; });
+  snap.stores.push({ store_id: slug, units: Number(r.units) || 0,
+                     target: Number(r.target) || 0, rows: rows });
+  snap.partial = (prog.stores_json || [])
+    .map(function (x) { return slug_(x && x.store_id ? x.store_id : x); })
+    .filter(function (id) {
+      return id && !snap.stores.some(function (x) { return x.store_id === id; });
+    });
+
+  snap.units   = snap.stores.reduce(function (n, x) { return n + (Number(x.units) || 0); }, 0);
+  snap.earned  = Math.round(snap.stores.reduce(function (n, x) {
+    return n + (x.rows || []).reduce(function (m, e) { return m + (Number(e.earned) || 0); }, 0);
+  }, 0) * 100) / 100;
+  snap.earners = snap.stores.reduce(function (n, x) {
+    return n + (x.rows || []).filter(function (e) { return perUnit ? e.units > 0 : e.hit; }).length;
+  }, 0);
+
+  writeSnapshot_(prog.program_id, snap);
+  return { ok: true, program_id: prog.program_id, store: slug,
+           units: snap.units, earned: snap.earned, earners: snap.earners,
+           stores_done: snap.stores.length, still_missing: snap.partial };
+}
+
+/* One cell, found by id. edited_by records the human who last corrected a record, and a
+   measurement is not an edit by that person — the same rule the status roll follows. */
+function writeSnapshot_(programId, snap) {
+  var sh = dataSheet_();
+  var pCol = PROGRAM_HEADERS.indexOf('progress_json');
+  var ids = sh.getRange(2, 1, Math.max(sh.getLastRow() - 1, 1), 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) === String(programId)) {
+      sh.getRange(i + 2, pCol + 1).setValue(JSON.stringify(snap));
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Every (program, store) pair still needing a measurement. The caller loops it — one request each,
+ * ~9s — exactly as the Progress grid does. Writes nothing. */
+function snapshotPlan_(opts) {
+  opts = opts || {};
+  var force = !!opts.force, only = String(opts.program || '').trim();
+  var plan = [], skipped = 0;
+  listPrograms_().forEach(function (prog) {
+    if (only && String(prog.program_id) !== only) return;
+    if (!snapshotReasonFor_(prog)) return;
+    var have = (prog.progress_json && prog.progress_json.stores) || [];
+    (prog.stores_json || []).forEach(function (raw) {
+      var slug = slug_(raw && raw.store_id ? raw.store_id : raw);
+      if (!slug) return;
+      var done = have.some(function (x) { return x.store_id === slug; });
+      if (done && !force) { skipped++; return; }
+      plan.push({ program: prog.program_id, store: slug, reason: snapshotReasonFor_(prog) });
+    });
+  });
+  return { ok: true, plan: plan, pairs: plan.length, already_done: skipped,
+           note: 'one store per call — a whole program is ~54s against a 60s /exec ceiling. '
+               + 'Call snapshotProgress with program= and store= for each pair.' };
 }
 
 /* Freeze up to `max` programs that qualify and have no snapshot yet.
