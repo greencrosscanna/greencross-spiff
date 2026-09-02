@@ -127,7 +127,9 @@ function libVersion_() {
     if (typeof GXCore.libVersion !== 'function') return { ok: false, error: 'pinned GXCore has no libVersion() - pre-v153' };
     return { ok: true, app: APP, gxcore: GXCore.libVersion() };
   } catch (e) {
-    return { ok: false, error: String(e && e.message || e) };
+    /* Scrubbed: the URLs this engine builds carry the deploy secret, and UrlFetchApp puts the
+       whole URL in its exception message. See scrubSecrets_. */
+    return { ok: false, error: scrubSecrets_(e && e.message || e) };
   }
 }
 
@@ -938,7 +940,7 @@ function refreshSpiffProgress_(only, onlyStore) {
       if (onlyStore && slug !== slug_(onlyStore)) return;
       var r;
       try { r = sellthrough_({ id: prog.program_id, store: slug }); }
-      catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
+      catch (e) { r = { ok: false, error: scrubSecrets_((e && e.message) || e) }; }
       if (!r || r.ok === false) {
         /* Reported, not written. The previous rows for this program+store stay exactly as they
            were — a store whose read failed keeps yesterday's ticks rather than losing them. */
@@ -1587,6 +1589,24 @@ function flyer_(p) {
   };
 }
 
+/* ── NEVER LET A SECRET OUT IN AN ERROR ───────────────────────────────────────────────────────
+ * UrlFetchApp puts the WHOLE URL in its exception message — "Address unavailable: https://…" —
+ * and the URLs this engine builds carry GX_DEPLOY_SECRET as a query parameter. So a transient
+ * network failure rendered the deploy secret into an error banner in the app, in front of whoever
+ * was looking at the screen, and into anything they pasted it into afterwards.
+ *
+ * Reported by Sky 2026-09-02: a reference pull failed on one store and the message printed the
+ * secret in full. That secret opens every secret-gated route in GX Core — sales_by_employee,
+ * dev_claim, dev_update, the payroll-shaped reads — so this is not cosmetic.
+ *
+ * Redacts by PATTERN rather than by comparing against the known value: the message may contain a
+ * URL-encoded form, and an error raised before the secret was read would compare against nothing
+ * and pass a live one through. Anything that looks like a credential parameter goes. */
+function scrubSecrets_(msg) {
+  return String(msg == null ? '' : msg)
+    .replace(/(secret|token|key|pass|password)=[^&\s"']*/gi, '$1=[redacted]');
+}
+
 function gxSalesByEmployee_(secret, from, to, store, match) {
   var url = GXCORE_URL + '?action=sales_by_employee'
     + '&secret='  + encodeURIComponent(secret)
@@ -1604,7 +1624,7 @@ function gxSalesByEmployee_(secret, from, to, store, match) {
     if (body.indexOf('<') === 0) return { ok: false, error: 'GX Core returned HTML (auth or redirect issue)' };
     return JSON.parse(body);
   } catch (e) {
-    return { ok: false, error: 'GX Core unreachable: ' + (e && e.message || e) };
+    return { ok: false, error: 'GX Core unreachable: ' + scrubSecrets_(e && e.message || e) };
   }
 }
 
@@ -1947,7 +1967,7 @@ function buildReport_(p) {
     var file   = folder.createFile(blob);
     return { ok: true, name: name, file_id: file.getId(), url: file.getUrl(), by: auth.user };
   } catch (e) {
-    return { ok: false, error: 'Could not write to the reports folder: ' + (e && e.message || e) };
+    return { ok: false, error: 'Could not write to the reports folder: ' + scrubSecrets_(e && e.message || e) };
   }
 }
 
@@ -2018,7 +2038,7 @@ function diag_() {
   // Reports write into a folder this script did not create, which needs the full drive
   // scope — drive.file would silently only cover our own files.
   try { d.reportFolder = DriveApp.getFolderById(REPORT_FOLDER_ID).getName(); }
-  catch (e) { d.reportFolder = 'ERR ' + (e && e.message || e); }
+  catch (e) { d.reportFolder = 'ERR ' + scrubSecrets_(e && e.message || e); }
   /* Does the clock actually run? The status roll and the progress sweep both ride ONE hourly
      trigger, and whether it is installed was answerable only from the script editor -- so a trigger
      deleted by hand looked exactly like a program that simply had not moved yet. Reported as a
@@ -2124,7 +2144,7 @@ function gxEmployees_(opts) {
   try {
     rows = GXCore.getEmployees() || [];
   } catch (e) {
-    return { ok: false, error: 'GXCore library unavailable: ' + (e && e.message || e) };
+    return { ok: false, error: 'GXCore library unavailable: ' + scrubSecrets_(e && e.message || e) };
   }
 
   /* Null-prototype, and these are the ones I MISSED on the first sweep: pricecards found the
@@ -2491,14 +2511,14 @@ function dutchieInventoryViaGXCore_(storeId) {
     lastErr = lastErr || 'no rows in response';
     Utilities.sleep(400);   // the /exec second hop 404s on ~6% of rapid calls
   }
-  throw new Error('GX Core dutchie_inventory unreachable after 5 tries — ' + lastErr);
+  throw new Error('GX Core dutchie_inventory unreachable after 5 tries — ' + scrubSecrets_(lastErr));
 }
 
 /* The catalog, deduped across stores. A product carried at five stores is ONE row here —
    the Calculator asks "which product", not "which product at which store". */
 function buildCatalog_() {
   var stores = [];
-  try { stores = GXCore.getStores() || []; } catch (e) { return { ok: false, error: 'GX Core getStores failed: ' + (e && e.message || e) }; }
+  try { stores = GXCore.getStores() || []; } catch (e) { return { ok: false, error: 'GX Core getStores failed: ' + scrubSecrets_(e && e.message || e) }; }
 
   var by = Object.create(null), errs = [], seen = 0;
   stores.forEach(function (s) {
@@ -2506,7 +2526,7 @@ function buildCatalog_() {
     if (!id) return;
     var rows;
     try { rows = dutchieInventoryViaGXCore_(id); }
-    catch (e) { errs.push(id + ': ' + (e && e.message || e)); return; }
+    catch (e) { errs.push(id + ': ' + scrubSecrets_(e && e.message || e)); return; }
     rows.forEach(function (pr) {
       var x = conformProduct_(pr);
       if (!x) return;
