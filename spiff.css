@@ -1024,6 +1024,43 @@ body.is-gated .workspace { display: none !important; }
 .sp-pick-row:hover, .sp-pick-row.is-cur { background: var(--gx-surface-2); }
 .sp-pick-row.is-child { padding-left: 30px; background: var(--sp-inset); }
 .sp-pick-row.is-child:hover, .sp-pick-row.is-child.is-cur { background: var(--gx-surface-2); }
+/* ── Picking is MULTIPLE now: all of a vendor, or up to four things ──────────────────────────
+   A SPIFF runs on everything from a vendor (Portland Heights) or on a handful of lines, so the
+   menu is a checklist rather than a one-shot chooser. The tick sits where the old spacer did, so
+   rows keep their alignment whether or not anything is selected. */
+.sp-pick-check {
+  width: 19px; flex: 0 0 19px; text-align: center;   /* same width as the old .sp-pick-spacer, so rows stay aligned */
+  font-size: 12px; line-height: 1; color: var(--gx-green);
+}
+.sp-pick-row.is-picked { background: color-mix(in srgb, var(--gx-green) 12%, transparent); }
+.sp-pick-row.is-picked:hover { background: color-mix(in srgb, var(--gx-green) 18%, transparent); }
+.sp-pick-row.is-picked .sp-pick-name { color: var(--gx-green); }
+/* "All <vendor> products" is the alternative to the list below it, not a member of it. */
+.sp-pick-row.is-all { border-bottom: 1px solid var(--gx-border-strong, var(--gx-border)); }
+.sp-pick-chev.is-picked { color: var(--gx-green); transform: none !important; }
+
+/* The refusal when a fifth pick is attempted. GX Core silently truncates to four, so this has to
+   read as a rule rather than a hiccup. */
+.sp-pick-empty.is-warn { color: var(--gx-gold, var(--gx-text)); }
+
+/* Chosen items, as removable chips. */
+.sp-chosen-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.sp-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--sp-inset); border: 1px solid var(--gx-border);
+  border-radius: 999px; padding: 3px 6px 3px 10px; font-size: 12px; max-width: 100%;
+}
+.sp-chip > i {
+  font-style: normal; font-size: 10px; font-weight: 700;
+  color: var(--gx-text-mute); background: var(--gx-surface-3);
+  border-radius: 999px; padding: 1px 5px;
+}
+.sp-chip > button {
+  background: none; border: 0; padding: 0 2px; cursor: pointer; line-height: 1;
+  color: var(--gx-text-mute); font-size: 11px;
+}
+.sp-chip > button:hover { color: var(--gx-red, var(--gx-text)); }
+
 .sp-pick-body { flex: 1; min-width: 0; }
 .sp-pick-1 { display: flex; align-items: baseline; gap: 8px; }
 .sp-pick-name { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

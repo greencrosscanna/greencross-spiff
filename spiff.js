@@ -1469,6 +1469,37 @@
     return patch;
   }
 
+  /* THE STORED SHAPE, BACK INTO A SELECTION. Three cases, and the first is the one that was
+     missing: a program matched on BRAND ALONE — no filter_text, no products — is "all of this
+     vendor", which is how Portland Heights ran. That used to hydrate to null, so opening the
+     record showed no product chosen at all and the next save wrote whatever was picked instead.
+     `picks` is rebuilt from products[] so the chips come back individually removable; `qty` and
+     `cost` are left at 0 because they describe live stock, which the catalog fills in on load. */
+  function productFromMatch(mj) {
+    mj = mj || {};
+    var brand = mj.brand || '';
+    var prods = (mj.products || []).filter(Boolean);
+    if (!brand && !mj.filter_text && !prods.length) return null;
+
+    if (brand && !mj.filter_text && !prods.length) {
+      return { label: 'All ' + brand + ' products', brand: brand, filter_text: '', products: [],
+               all: true, picks: [], skus: 0, qty: 0, category: mj.category || '', price: 0 };
+    }
+    /* filter_text is the LEGACY single-group shape, written before multi-select existed. It is
+       carried through as-is rather than converted: it still matches the same products, and
+       rewriting a closed program's match on load would change what it measured. */
+    var picks = prods.map(function (n) {
+      return { key: 'sku:' + String(n).toLowerCase(), kind: 'sku', label: n, match: n,
+               skus: 1, qty: 0, cost: 0, category: mj.category || '', price: 0 };
+    });
+    var label = mj.filter_text
+      ? (brand ? brand + ' · ' : '') + mj.filter_text
+      : prods.join(' + ');
+    return { label: label, brand: brand, filter_text: mj.filter_text || '', products: prods,
+             all: false, picks: picks, skus: prods.length || 1, qty: 0,
+             category: mj.category || '', price: 0 };
+  }
+
   function matchOf(chosen) {
     return chosen
       ? { brand: chosen.brand || '', category: '', filter_text: chosen.filter_text || '',
@@ -2463,6 +2494,14 @@
         + 'this is the last product list that read cleanly, so stock and cost may be out of date.</div>';
     }
 
+    /* A refusal the user needs to read, held until the next repaint. */
+    var pickNote = '';
+
+    function isPicked(key) {
+      return !!(api.chosen && !api.chosen.all
+                && (api.chosen.picks || []).some(function (x) { return x.key === key; }));
+    }
+
     function renderProducts(q) {
       pMenu.hidden = false;
       pEl.setAttribute('aria-expanded', 'true');
@@ -2474,16 +2513,34 @@
         return;
       }
       var groups = groupProducts(matchProducts(q));
+
+      /* ALL OF THIS VENDOR, pinned at the top and never filtered out by the search box — it is
+         not one of the products, it is the alternative to picking them. This is how Portland
+         Heights ran, and until now there was no way to say it. */
+      var brandNow = pick.brand || vEl.value;
+      var allOn = !!(api.chosen && api.chosen.all);
+      var head = brandNow
+        ? '<div class="sp-pick-row is-all' + (allOn ? ' is-picked' : '') + '" data-all="1" role="option">'
+          + '<span class="sp-pick-check">' + (allOn ? '&#10003;' : '') + '</span>'
+          + '<div class="sp-pick-body"><div class="sp-pick-1">'
+          +   '<span class="sp-pick-name">All ' + esc(brandNow) + ' products</span></div>'
+          + '<div class="sp-pick-2">the SPIFF covers everything from this vendor, including lines '
+          +   'added while it runs</div></div></div>'
+        : '';
+      var note = pickNote
+        ? '<div class="sp-pick-empty is-warn">' + esc(pickNote) + '</div>' : '';
+
       if (!groups.length) {
-        pMenu.innerHTML = '<div class="sp-pick-empty">Nothing in stock matches that for '
+        pMenu.innerHTML = head + note + '<div class="sp-pick-empty">Nothing in stock matches that for '
           + esc(pick.brand || 'this vendor') + '.</div>';
         return;
       }
-      pMenu.innerHTML = groups.slice(0, 60).map(function (g, gi) {
+      pMenu.innerHTML = head + note + groups.slice(0, 60).map(function (g, gi) {
         var p0 = g.items[0];
         if (g.items.length === 1) {
-          return '<div class="sp-pick-row" data-g="' + gi + '" data-c="0" role="option">'
-            + '<span class="sp-pick-spacer"></span>'
+          var oneOn = isPicked(pickKey('sku', p0.n));
+          return '<div class="sp-pick-row' + (oneOn ? ' is-picked' : '') + '" data-g="' + gi + '" data-c="0" role="option">'
+            + '<span class="sp-pick-check">' + (oneOn ? '&#10003;' : '') + '</span>'
             + '<div class="sp-pick-body"><div class="sp-pick-1"><span class="sp-pick-name">'
             +   esc(p0.n) + '</span></div>'
             + '<div class="sp-pick-2">' + money(p0.price) + ' &middot; '
@@ -2492,8 +2549,11 @@
             + '<span class="sp-pick-cost">' + money(p0.cost) + '</span></div>';
         }
         var isOpen = !!open[g.key];
-        var out = '<div class="sp-pick-row' + (isOpen ? ' is-open' : '') + '" data-g="' + gi + '" data-c="-1" role="option">'
-          + '<button type="button" class="sp-pick-chev" data-x="' + gi + '" title="Show flavors">&#9656;</button>'
+        var grpOn  = isPicked(pickKey('group', g.noun));
+        var out = '<div class="sp-pick-row' + (isOpen ? ' is-open' : '') + (grpOn ? ' is-picked' : '')
+          + '" data-g="' + gi + '" data-c="-1" role="option">'
+          + '<button type="button" class="sp-pick-chev' + (grpOn ? ' is-picked' : '') + '" data-x="' + gi
+          + '" title="Show flavors">' + (grpOn ? '&#10003;' : '&#9656;') + '</button>'
           + '<div class="sp-pick-body"><div class="sp-pick-1">'
           +   '<span class="sp-pick-name">' + esc(p0.b) + ' &middot; ' + esc(g.noun) + '</span>'
           +   '<button type="button" class="sp-pick-n" data-x="' + gi + '" title="'
@@ -2504,7 +2564,10 @@
           +   ' &middot; ' + groupQty(g).toLocaleString() + ' in stock</div></div>'
           + '<span class="sp-pick-cost">' + money(groupCost(g)) + '</span></div>';
         if (isOpen) out += g.items.map(function (x, ci) {
-          return '<div class="sp-pick-row is-child" data-g="' + gi + '" data-c="' + ci + '" role="option">'
+          var kidOn = isPicked(pickKey('sku', x.n));
+          return '<div class="sp-pick-row is-child' + (kidOn ? ' is-picked' : '') + '" data-g="' + gi
+            + '" data-c="' + ci + '" role="option">'
+            + '<span class="sp-pick-check">' + (kidOn ? '&#10003;' : '') + '</span>'
             + '<div class="sp-pick-body"><div class="sp-pick-1"><span class="sp-pick-name">'
             +   esc(x.n) + '</span></div>'
             + '<div class="sp-pick-2">' + x.qty.toLocaleString() + ' in stock</div></div>'
@@ -2515,38 +2578,160 @@
       pMenu._groups = groups;
     }
 
+    /* ── WHAT A SPIFF IS ON: one vendor, then either EVERYTHING or up to four things ──────────
+       GX Core matches a line item with these rules, all AND-ed, each a case-insensitive
+       SUBSTRING (gx_dutchie.gs, gxSalesByEmployee_):
+
+           brand        product's brand must contain it
+           category     product's category must contain it
+           filter_text  product's NAME must contain it
+           products[]   product's name must contain ANY of them   ← the only OR in the set
+
+       Three consequences shape this picker.
+
+       ALL OF A VENDOR is just brand with nothing else set — no filter_text, no products. That is
+       how Portland Heights actually ran ("the payout applied to all PH items", Sky 2026-09-02),
+       and it was expressible on the wire the whole time; the picker simply never offered it, so
+       the program was left pointing at whatever the row was cloned from.
+
+       MULTIPLE THINGS go in products[], not filter_text. filter_text is AND-ed, so two of them
+       would mean "name contains BOTH" — which is nothing. products[] is the OR, and because it
+       matches on substrings rather than exact SKUs, a whole flavor GROUP travels in it just as
+       well as one SKU does.
+
+       FOUR IS A HARD CEILING, and a silent one: GX Core does .slice(0, 4) on the list, so a fifth
+       pick is dropped with no error and its sales quietly stop counting toward a payout. That is
+       why this refuses the fifth in the UI instead of accepting it and hoping. */
+    var MAX_PICKS = 4;
+
+    function pickKey(kind, name) { return kind + ':' + String(name).toLowerCase(); }
+
+    /* Rebuild the saved shape from the picks. `all` sends brand alone; anything else sends the
+       picks as products[] and CLEARS filter_text, which would otherwise AND against them. */
+    function composeChosen(picks, all, brand) {
+      if (all) {
+        var everything = pick.products.filter(function (x) { return x.b === brand; });
+        return { label: 'All ' + brand + ' products', brand: brand, filter_text: '', products: [],
+                 all: true, picks: [],
+                 skus: everything.length,
+                 qty: everything.reduce(function (n, x) { return n + (x.qty || 0); }, 0),
+                 category: '', price: 0,
+                 costSuspect: everything.some(function (x) { return x.costSuspect; }) };
+      }
+      if (!picks.length) return null;
+      return {
+        label: picks.map(function (x) { return x.label; }).join(' + '),
+        brand: brand, filter_text: '',
+        products: picks.map(function (x) { return x.match; }),
+        all: false, picks: picks,
+        skus: picks.reduce(function (n, x) { return n + (x.skus || 1); }, 0),
+        qty:  picks.reduce(function (n, x) { return n + (x.qty || 0); }, 0),
+        category: picks[0].category || '',
+        price: picks[0].price || 0,
+        costSuspect: picks.some(function (x) { return x.costSuspect; })
+      };
+    }
+
+    /* The unit cost the Calculator prices everything off. One pick gives its own cost; several
+       give the mean, because there is one Cost per unit field and a blended program has one
+       blended cost. It stays typeable — this is a starting figure, not an answer. */
+    function costOf(chosen) {
+      if (!chosen) return 0;
+      if (chosen.all) {
+        var all = pick.products.filter(function (x) { return x.b === chosen.brand && x.cost > 0; });
+        if (!all.length) return 0;
+        return all.reduce(function (n, x) { return n + x.cost; }, 0) / all.length;
+      }
+      var withCost = (chosen.picks || []).filter(function (x) { return x.cost > 0; });
+      if (!withCost.length) return 0;
+      return withCost.reduce(function (n, x) { return n + x.cost; }, 0) / withCost.length;
+    }
+
     function renderChosen() {
       if (!chosenHost) return;
       if (!api.chosen) { chosenHost.innerHTML = ''; if (hintEl) hintEl.hidden = false; return; }
       if (hintEl) hintEl.hidden = true;
       var c = api.chosen;
+
+      var body;
+      if (c.all) {
+        body = '<div class="sp-chosen-n">' + esc(c.label) + '</div>'
+             + '<div class="sp-chosen-m">every product we carry from this vendor'
+             + (c.skus ? ' &mdash; ' + c.skus + ' in stock right now' : '')
+             + ' &middot; new lines count automatically</div>';
+      } else {
+        body = '<div class="sp-chosen-chips">'
+             + (c.picks || []).map(function (x, i) {
+                 return '<span class="sp-chip">' + esc(x.label)
+                   + (x.skus > 1 ? '<i>' + x.skus + '</i>' : '')
+                   + '<button type="button" data-drop="' + i + '" aria-label="Remove ' + esc(x.label) + '">&#10005;</button></span>';
+               }).join('')
+             + '</div>'
+             + '<div class="sp-chosen-m">'
+             +   (c.picks || []).length + ' of ' + MAX_PICKS + ' &middot; '
+             +   (c.qty || 0).toLocaleString() + ' in stock'
+             +   (c.category ? ' &middot; ' + esc(c.category) : '') + '</div>';
+      }
+
       chosenHost.innerHTML = '<div class="sp-chosen"><div class="sp-chosen-b">'
-        + '<div class="sp-chosen-n">' + esc(c.label) + '</div>'
-        + '<div class="sp-chosen-m">'
-        +   (c.skus > 1 ? c.skus + ' flavors &mdash; the SPIFF covers all of them' : 'this SKU only')
-        +   ' &middot; ' + (c.qty || 0).toLocaleString() + ' in stock'
-        +   (c.price ? ' &middot; ' + money(c.price) + ' on the shelf' : '')
-        +   (c.category ? ' &middot; ' + esc(c.category) : '') + '</div>'
+        + body
         + (c.costSuspect
             ? '<span class="sp-cost-warn">Dutchie lists a unit cost under a cent for this &mdash; check it before quoting a vendor.</span>'
             : '')
-        + '</div><button type="button" class="gx-btn" data-unpick="1">Change</button></div>';
+        + '</div><button type="button" class="gx-btn" data-unpick="1">Clear</button></div>';
     }
 
-    function choose(g, ci) {
-      var whole = ci < 0, p0 = g.items[0];
-      var cost = whole ? groupCost(g) : g.items[ci].cost;
-      api.chosen = whole
-        ? { label: p0.b + ' · ' + g.noun, brand: p0.b, filter_text: g.noun, products: [],
-            skus: g.items.length, qty: groupQty(g), category: p0.c, price: p0.price,
-            costSuspect: g.items.some(function (x) { return x.costSuspect; }) }
-        : { label: g.items[ci].n, brand: p0.b, filter_text: '', products: [g.items[ci].n],
-            skus: 1, qty: g.items[ci].qty, category: g.items[ci].c, price: g.items[ci].price,
-            costSuspect: !!g.items[ci].costSuspect };
-      pEl.value = '';
-      closeBoth();
+    function commit() {
       renderChosen();
-      if (cfg.onProduct) cfg.onProduct(api.chosen, Math.round(cost * 100) / 100);
+      renderProducts(pEl.value);                 // the menu's checkmarks follow the selection
+      if (cfg.onProduct) cfg.onProduct(api.chosen, Math.round(costOf(api.chosen) * 100) / 100);
+    }
+
+    /* Every vendor's products, as one selection. Mutually exclusive with picking items: "all of
+       them" and "these four" are different answers to the same question. */
+    function toggleAll() {
+      var brand = pick.brand || (api.chosen && api.chosen.brand) || vEl.value;
+      if (!brand) return;
+      api.chosen = (api.chosen && api.chosen.all) ? null : composeChosen([], true, brand);
+      pEl.value = '';
+      commit();
+    }
+
+    function toggle(g, ci) {
+      var whole = ci < 0, p0 = g.items[0];
+      var item  = whole ? null : g.items[ci];
+      var entry = whole
+        ? { key: pickKey('group', g.noun), kind: 'group', label: p0.b + ' · ' + g.noun,
+            match: g.noun, skus: g.items.length, qty: groupQty(g), cost: groupCost(g),
+            category: p0.c, price: p0.price,
+            costSuspect: g.items.some(function (x) { return x.costSuspect; }) }
+        : { key: pickKey('sku', item.n), kind: 'sku', label: item.n,
+            match: item.n, skus: 1, qty: item.qty, cost: item.cost,
+            category: item.c, price: item.price, costSuspect: !!item.costSuspect };
+
+      var brand = p0.b;
+      /* Picking an item leaves "all products" — you have just said which ones. */
+      var picks = (api.chosen && !api.chosen.all && api.chosen.brand === brand)
+        ? (api.chosen.picks || []).slice() : [];
+
+      var at = picks.map(function (x) { return x.key; }).indexOf(entry.key);
+      if (at >= 0) {
+        picks.splice(at, 1);                     // clicking a chosen row takes it back off
+      } else {
+        if (picks.length >= MAX_PICKS) {
+          /* Refused rather than accepted-and-truncated. GX Core slices to four without telling
+             anyone, so a fifth would look chosen on screen and count for nothing in the payout. */
+          pickNote = 'Four is the limit — the sell-through lookup only accepts four. Remove one, '
+                   + 'or use “All ' + brand + ' products”.';
+          renderProducts(pEl.value);
+          return;
+        }
+        picks.push(entry);
+      }
+      pickNote = '';
+      api.chosen = composeChosen(picks, false, brand);
+      pEl.value = '';
+      commit();
     }
 
     async function setVendor(name) {
@@ -2556,6 +2741,7 @@
       /* Changing vendor invalidates the product and everything derived from it. Leaving a
          Wyld product selected under vendor "Mule" is the kind of state that gets pitched. */
       api.chosen = null;
+      pickNote = '';
       renderChosen();
       pEl.disabled = false;
       pEl.placeholder = 'Search ' + name + '’s products…';
@@ -2586,8 +2772,12 @@
        field sat blank with no indication anything was happening. */
     pEl.addEventListener('focus', function () { if (pick.brand || pick.loading) renderProducts(pEl.value); });
     pEl.addEventListener('input', function () { renderProducts(pEl.value); });
+    /* THE MENU STAYS OPEN. Picking is now additive up to four, and a menu that closed on the
+       first click would make choosing a second thing a re-open, a re-search and a re-scroll. It
+       closes on Escape, on a click outside, and when the vendor changes — same as before. */
     pMenu.addEventListener('mousedown', function (e) {
       e.preventDefault();
+      if (e.target.closest('[data-all]')) { toggleAll(); return; }
       var x = e.target.closest('[data-x]');
       if (x) {                                  // chevron / count pill expands, never selects
         var g = (pMenu._groups || [])[Number(x.dataset.x)];
@@ -2597,12 +2787,24 @@
       var row = e.target.closest('[data-g]');
       if (!row) return;
       var grp = (pMenu._groups || [])[Number(row.dataset.g)];
-      if (grp) choose(grp, Number(row.dataset.c));
+      if (grp) toggle(grp, Number(row.dataset.c));
     });
     }
     if (chosenHost) chosenHost.addEventListener('click', function (e) {
+      var drop = e.target.closest('[data-drop]');
+      if (drop) {
+        /* Remove one chip and keep the rest. Rebuilt through composeChosen so products[], the
+           label and the totals all follow from the same list rather than being edited in place. */
+        var picks = ((api.chosen && api.chosen.picks) || []).slice();
+        picks.splice(Number(drop.dataset.drop), 1);
+        var brand = api.chosen && api.chosen.brand;
+        api.chosen = picks.length ? composeChosen(picks, false, brand) : null;
+        pickNote = '';
+        commit();
+        return;
+      }
       if (!e.target.closest('[data-unpick]')) return;
-      api.chosen = null; renderChosen(); if (hasProduct) pEl.focus();
+      api.chosen = null; pickNote = ''; commit(); if (hasProduct) pEl.focus();
     });
 
     api.close = closeBoth;
@@ -2617,7 +2819,14 @@
          covers the case where the user opened it while this was in flight. */
       loadBrandProducts(name).then(function () { if (!pMenu.hidden) renderProducts(pEl.value); });
     };
-    api.setChosen = function (c) { api.chosen = c; renderChosen(); };
+    /* Accepts either a live selection (already carrying `picks`) or a stored match_json shape,
+       so callers never have to know which they hold. */
+    api.setChosen = function (c) {
+      api.chosen = (c && (c.picks || c.all)) ? c : productFromMatch(c);
+      pickNote = '';
+      renderChosen();
+      if (hasProduct && !pMenu.hidden) renderProducts(pEl.value);
+    };
     return api;
   }
 
@@ -2746,11 +2955,7 @@
     calc.window = { start: merged.start_date || '', end: merged.end_date || '' };
 
     var mj = merged.match_json || {};
-    calc.product = (mj.filter_text || (mj.products || []).length)
-      ? { label: (mj.brand ? mj.brand + ' · ' : '') + (mj.filter_text || (mj.products || []).join(', ')),
-          brand: mj.brand || '', filter_text: mj.filter_text || '', products: mj.products || [],
-          skus: (mj.products || []).length || 0, qty: 0, category: mj.category || '' }
-      : null;
+    calc.product = productFromMatch(mj);
 
     var base = merged.baseline_json || {};
     /* The registry is preferred, but the PROGRAM knows which stores it ran in. When GX Core's
@@ -2986,6 +3191,11 @@
     calc.spiff  = (p.payout_json || {}).amount || 0;
     calc.model  = normalModel((p.payout_json || {}).model || p.payout_type);
     calc.target = tgt.units || 0;
+    /* THE FEATURED PRODUCT COMES TOO. It never did — this path copied the name, the vendor, the
+       cost, the payout, the target and the stores, and left the product null. So "model from a
+       past program" produced a model with nothing selected, and pullReference returns early
+       without one: the reference figures the whole Calculator prices off silently never loaded. */
+    calc.product = productFromMatch(p.match_json);
     /* EVERY registry store, not just the ones this program ran in. The Calculator models a NEW
        deal; loading a past one seeds its numbers, it does not re-scope the chain. A store that
        sat out last time has a 0 reference here, which is visible and editable -- where the old
@@ -3004,6 +3214,10 @@
     $('#cCost').value = calc.cost; $('#cSpiff').value = calc.spiff;
     $('#cTarget').value = calc.target;
     $$('#cModel button').forEach(function (x) { x.classList.toggle('is-on', x.dataset.model === calc.model); });
+    if (calcPicker) {
+      calcPicker.setVendorSilently(calc.vendor);
+      calcPicker.setChosen(calc.product);
+    }
     var m = calcModel();
     $('#cGrowth').value = m.baseUnits ? Math.round(m.typedGrowth * 100) : 0;
     recalc();

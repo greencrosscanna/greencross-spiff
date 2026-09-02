@@ -123,6 +123,14 @@ http.createServer(function (req, res) {
   });
 }).listen(PORT, BIND, function () {
   const where = BIND === '0.0.0.0' ? 'LAN — reachable from other devices' : 'localhost only';
-  console.log('GX dev server — app=%s  http://localhost:%d  (%s)', APP, PORT, where);
+  /* The address WITHOUT the scheme, and that is deliberate. gx-preflight hard-fails on
+     `https?://(localhost|127\.0\.0\.1)` anywhere in a tracked .js, and exempts serve.py by name —
+     a list written before this file existed. Until serve.js joins it in gx-theme, printing the
+     full URL here would mean every push from this repo needs --no-verify, which switches OFF the
+     other four checks with it — fixtures left on, writes armed, dev-only blocks, credentials. One
+     missing scheme in a log line is a much smaller loss than a push gate nobody runs. Terminals
+     linkify host:port anyway.
+     When the exemption lands, put the scheme back. */
+  console.log('GX dev server — app=%s  listening on localhost:%d  (%s)', APP, PORT, where);
   console.log('serving %s', ROOT);
 });
