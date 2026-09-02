@@ -25,8 +25,8 @@ Four surfaces, one spine:
    server-side — which trims `by_employee` totals too, since those are summed from the surviving
    rows. It is **resolved at read time** from the `programs` tab, never stored on the cached row:
    the cache is a snapshot and the hourly sweep is active-only, so a stored column would read
-   `active` forever for a programme closed since its last refresh — stale in exactly the case the
-   field exists to catch. Added 2026-08-30 at Leaderboard's ask, after a closed programme drew on
+   `active` forever for a program closed since its last refresh — stale in exactly the case the
+   field exists to catch. Added 2026-08-30 at Leaderboard's ask, after a closed program drew on
    23 of 40 kiosk cards because window-overlap was the only inference available.
    *Corrected 2026-08-29: this said "Mirrored by the Leaderboard kiosks so staff can see what they
    have coming." **Nothing in `greencross-leaderboard` calls the route** — the mirror was aspiration

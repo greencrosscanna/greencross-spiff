@@ -14,10 +14,10 @@
  * The distinction the code now makes, and the only one available: a genuine zero comes back with an
  * EMPTY errors array. A zero with errors beside it is a refusal wearing a number, and is refused.
  *
- * ALSO PINNED: the product catalogue. buildCatalog_ has the same shape — errors reported, build
- * carries on — so a chain-wide outage produced a well-formed catalogue of zero products which was
+ * ALSO PINNED: the product catalog. buildCatalog_ has the same shape — errors reported, build
+ * carries on — so a chain-wide outage produced a well-formed catalog of zero products which was
  * then cached for six hours OVER the good one. Verified live: forcing refresh=1 during the 401
- * replaced an 8,480-row catalogue with an empty one, emptying the vendor picker.
+ * replaced an 8,480-row catalog with an empty one, emptying the vendor picker.
  */
 'use strict';
 const fs = require('fs');
@@ -75,14 +75,14 @@ ok('  …and carries its errors so the caller can say it is short a store',
 const clean = runRef({ units: 413, revenue: 1239 }, []);
 ok('a clean read halves the 28 days as Sky specified', clean.reference === Math.round(413 / 2));
 
-/* ── the catalogue must not be emptied by an outage ───────────────────────────────────────────── */
+/* ── the catalog must not be emptied by an outage ───────────────────────────────────────────── */
 const cat = grab(gs, 'catalog_');
 ok('an empty build with errors does not overwrite the cache', /!built\.rows_seen && \(built\.errors/.test(cat));
-ok('  …the last good catalogue is served instead', /cat = keep; cached = true; stale = true/.test(cat));
+ok('  …the last good catalog is served instead', /cat = keep; cached = true; stale = true/.test(cat));
 ok('  …flagged stale, so the picker can say the list may be old', /stale: stale/.test(cat));
 ok('  …and with nothing cached, it is an error rather than an empty list',
    /ok: false, error: 'no products could be read/.test(cat));
-ok('an empty catalogue already IN the cache is treated as a miss',
+ok('an empty catalog already IN the cache is treated as a miss',
    /if \(cat && !\(cat\.products \|\| \[\]\)\.length\) cat = null;/.test(cat));
 ok('  …and the stale-fallback applies the same test, rather than handing it straight back',
    /if \(keep && !\(keep\.products \|\| \[\]\)\.length\) keep = null;/.test(cat));
