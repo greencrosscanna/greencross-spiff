@@ -2645,13 +2645,13 @@
             + '<span class="sp-pick-cost">' + money(p0.cost) + '</span></div>';
         }
         var isOpen = !!open[g.key];
-        var grpOn  = isPicked(pickKey('group', g.noun));
+        var grpOn  = isPicked(pickKey('group', g.key));
         var out = '<div class="sp-pick-row' + (isOpen ? ' is-open' : '') + (grpOn ? ' is-picked' : '')
           + '" data-g="' + gi + '" data-c="-1" role="option">'
           + '<button type="button" class="sp-pick-chev' + (grpOn ? ' is-picked' : '') + '" data-x="' + gi
           + '" title="Show flavors">' + (grpOn ? '&#10003;' : '&#9656;') + '</button>'
           + '<div class="sp-pick-body"><div class="sp-pick-1">'
-          +   '<span class="sp-pick-name">' + esc(p0.b) + ' &middot; ' + esc(g.noun) + '</span>'
+          +   '<span class="sp-pick-name">' + esc(p0.b) + ' &middot; ' + esc(groupLabel(g)) + '</span>'
           +   '<button type="button" class="sp-pick-n" data-x="' + gi + '" title="'
           +     g.items.length + ' flavors — the SPIFF covers all of them">' + g.items.length + '</button>'
           + '</div>'
@@ -2796,9 +2796,13 @@
     function toggle(g, ci) {
       var whole = ci < 0, p0 = g.items[0];
       var item  = whole ? null : g.items[ci];
+      /* Keyed by the GROUP, not by its noun. Three Mule families all reduce to "Tank", so a
+         noun key checked all three at once and un-checked all three together. g.key carries
+         brand, noun AND price, which is what actually separates them. */
+      var gLabel = groupLabel(g);
       var entry = whole
-        ? { key: pickKey('group', g.noun), kind: 'group', label: p0.b + ' · ' + g.noun,
-            match: g.noun, skus: g.items.length, qty: groupQty(g), cost: groupCost(g),
+        ? { key: pickKey('group', g.key), kind: 'group', label: p0.b + ' · ' + gLabel,
+            match: gLabel, skus: g.items.length, qty: groupQty(g), cost: groupCost(g),
             category: p0.c, price: p0.price,
             costSuspect: g.items.some(function (x) { return x.costSuspect; }) }
         : { key: pickKey('sku', item.n), kind: 'sku', label: item.n,
@@ -3001,6 +3005,53 @@
       by[key].items.push(p);
     });
     return groups;
+  }
+
+  /* ── WHAT THIS GROUP IS ACTUALLY CALLED ───────────────────────────────────────────────────
+     baseNoun walks in from the right past specs, so "Bigfoot pines Live Resin Dank Tank | 2g"
+     becomes "Tank" — and so does "Dragonfruit Chill FXT Tank | 2g" and "Mendo Breath Dank Tank
+     | 1g". Three different products, three different prices, one label. Sky, 2026-09-02, trying
+     to set up the LIVE Mule programme: "selecting Mule Extracts - Tank (28) is then also
+     selecting Tank (6) and Tank (7). I need more precise detail to find the product I want,
+     which is Mule Extracts - Tank 2g."
+
+     The name that separates them is the COMMON TAIL of the group's own products — the part every
+     member shares, which is exactly the product family:
+
+         28 items  →  "Live Resin Dank Tank | 2g"   $55
+          6 items  →  "FXT Tank | 2g"               $40
+          7 items  →  "Dank Tank | 1g"              $35
+
+     It is also the right thing to MATCH on. GX Core matches products[] as a case-insensitive
+     substring of the product name, so "Tank" swept up all 41; the tail selects one family and
+     nothing else. Verified across the whole Mule catalogue: 12 groups, every tail appears
+     literally in every one of its members, and none of them catches a product from another
+     group.
+
+     Falls back to the noun when there is no common tail (4 of those 12 have none) — a heading is
+     better than a blank, and the group is still separated by price in its key. */
+  function groupTail(items) {
+    var toks = (items || []).map(function (p) {
+      return String(p.n || '').trim().split(/\s+/).filter(Boolean);
+    }).filter(function (t) { return t.length; });
+    if (toks.length < 2) return toks.length ? toks[0].join(' ') : '';
+    var shortest = Math.min.apply(null, toks.map(function (t) { return t.length; }));
+    var out = [];
+    for (var k = 1; k <= shortest; k++) {
+      var cand = toks[0].slice(-k).join(' ').toLowerCase();
+      var all = toks.every(function (t) { return t.slice(-k).join(' ').toLowerCase() === cand; });
+      if (!all) break;
+      out = toks[0].slice(-k);
+    }
+    return out.join(' ');
+  }
+
+  /* The label AND the filter — deliberately the same string, so what the row says is what the
+     program will measure. A group of one is its own name. */
+  function groupLabel(g) {
+    if (!g || !g.items || !g.items.length) return (g && g.noun) || '';
+    if (g.items.length === 1) return String(g.items[0].n || g.noun);
+    return groupTail(g.items) || g.noun;
   }
 
   function matchProducts(q) {

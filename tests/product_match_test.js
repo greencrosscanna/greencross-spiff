@@ -281,5 +281,76 @@ ok('an unsettled program still requires an ask before it projects',
 ok('  …and still says "not yet" rather than a confident zero',
    /set a product and a target first/.test(rc) && /pick a product to pull last month/.test(rc));
 
+/* ══════════════ THREE PRODUCTS, ONE NAME ══════════════
+ * Sky, 2026-09-02, setting up the LIVE Mule programme: "selecting Mule Extracts - Tank (28) is
+ * then also selecting Tank (6) and Tank (7). I need more precise detail to find the product I
+ * want, which is Mule Extracts - Tank 2g."
+ *
+ * baseNoun walks in from the right past specs, so all of these become "Tank":
+ *
+ *     Bigfoot pines Live Resin Dank Tank | 2g     Extract (Liquid)      $55   28 flavours
+ *     Dragonfruit Chill FXT Tank | 2g             Inhalable w/ additives $40    6 flavours
+ *     Mendo Breath Dank Tank | 1g                 Extract (Liquid)      $35    7 flavours
+ *
+ * Two failures came out of that. The pick key was the NOUN, so checking one checked all three.
+ * And the filter was the noun too — products:["Tank"] matches all 41 tank products in the
+ * catalogue, so the programme would have measured every one of them whichever row was clicked.
+ *
+ * The fix is the group's own COMMON TAIL: the part every member of the group shares, which is
+ * exactly the product family, and which GX Core can match on because it appears literally in
+ * every one of their names.
+ */
+const TAIL = new Function(grab('groupTail') + '; return groupTail;')();
+const LABEL = new Function(grab('groupTail') + grab('groupLabel') + '; return groupLabel;')();
+
+const DANK2G = [
+  { n: 'Bigfoot pines Live Resin Dank Tank | 2g' },
+  { n: 'Black dog Live Resin Dank Tank | 2g' },
+  { n: 'Golden Sap Sativa Live Resin Dank Tank | 2g' },
+  { n: 'Mint Tropics  Live Resin Dank Tank | 2g' },   // note the double space, as in the catalogue
+];
+const FXT2G  = [{ n: 'Dragonfruit Chill FXT Tank | 2g' }, { n: 'P.O.G. Boost FXT Tank | 2g' },
+                { n: 'Pineapple Lock In FXT Tank | 2g' }];
+const DANK1G = [{ n: 'Mendo Breath Dank Tank | 1g' }, { n: 'Golden Butter Live Resin Dank Tank | 1g' }];
+
+ok('the 2g Dank Tanks name themselves', TAIL(DANK2G) === 'Live Resin Dank Tank | 2g');
+ok('the FXT Tanks name themselves', TAIL(FXT2G) === 'FXT Tank | 2g');
+ok('the 1g Dank Tanks name themselves', TAIL(DANK1G) === 'Dank Tank | 1g');
+ok('so the three are no longer the same string',
+   new Set([TAIL(DANK2G), TAIL(FXT2G), TAIL(DANK1G)]).size === 3);
+
+/* THE MATCH ITSELF. GX Core does a case-insensitive indexOf on the product name, so the tail has
+   to appear LITERALLY in every member — including the one with a double space in it. */
+function matchesAll(tail, items) {
+  return items.every(function (p) { return p.n.toLowerCase().indexOf(tail.toLowerCase()) >= 0; });
+}
+ok('every 2g Dank Tank contains its own tail, double space and all', matchesAll(TAIL(DANK2G), DANK2G));
+ok('every FXT Tank contains its own tail', matchesAll(TAIL(FXT2G), FXT2G));
+/* And crucially it does NOT reach across families — which "Tank" did, to all 41. */
+ok('the 2g tail catches no FXT product', !FXT2G.some(function (p) {
+  return p.n.toLowerCase().indexOf(TAIL(DANK2G).toLowerCase()) >= 0; }));
+ok('  …and no 1g product', !DANK1G.some(function (p) {
+  return p.n.toLowerCase().indexOf(TAIL(DANK2G).toLowerCase()) >= 0; }));
+ok('the 1g tail catches no 2g product', !DANK2G.some(function (p) {
+  return p.n.toLowerCase().indexOf(TAIL(DANK1G).toLowerCase()) >= 0; }));
+ok('"Tank" alone would have caught all three — which is the bug',
+   [DANK2G, FXT2G, DANK1G].every(function (g) { return matchesAll('Tank', g); }));
+
+/* Fallbacks: a group of one is its own name, and a group with nothing in common keeps the noun. */
+ok('a single product is its own label', LABEL({ items: [{ n: 'Kicker | 24.5mg' }], noun: 'Kicker' }) === 'Kicker | 24.5mg');
+ok('a group with no common tail falls back to the noun',
+   LABEL({ items: [{ n: 'Blue Dream' }, { n: 'Sour Diesel' }], noun: 'Gummy' }) === 'Gummy');
+ok('an empty group does not blow up', LABEL({ items: [], noun: 'Gummy' }) === 'Gummy');
+
+/* ── the key, which is what stopped three rows checking at once ── */
+ok('groups are keyed by the GROUP, not by the shared noun',
+   /pickKey\('group', g\.key\)/.test(js) && !/pickKey\('group', g\.noun\)/.test(js));
+/* g.key is brand|noun|PRICE — price is what actually separates the three Tank families. */
+ok('  …and the group key carries the price', /var key = \(p\.b \+ '\|' \+ noun \+ '\|' \+ p\.price\)/.test(js));
+ok('the row shows the family name rather than the bare noun',
+   /esc\(groupLabel\(g\)\)/.test(js));
+ok('and what the row SAYS is what the program will measure',
+   /match: gLabel/.test(js) && /label: p0\.b \+ ' · ' \+ gLabel/.test(js));
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nproduct match: all passed');
 process.exit(fail ? 1 : 0);
