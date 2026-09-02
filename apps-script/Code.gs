@@ -1172,6 +1172,13 @@ function snapshotProgram_(prog) {
 
   out.earned = Math.round(out.earned * 100) / 100;
   if (!out.stores.length) return { ok: false, error: 'no store answered', partial: out.partial };
+  /* Same refusal as snapshotStore_, so the hourly sweep cannot write what the web path won't. */
+  var rec = Number((prog.actual_json || {}).units_sold) || 0;
+  if (out.units === 0 && rec > 0) {
+    return { ok: false, refused: 'zero_vs_record', recorded: rec,
+             error: 'measured 0 units but this program records ' + rec
+                  + ' — its filter matches nothing. Not written.' };
+  }
   return { ok: true, snapshot: out };
 }
 
@@ -1233,6 +1240,34 @@ function snapshotStore_(prog, slug) {
   snap.earners = snap.stores.reduce(function (n, x) {
     return n + (x.rows || []).filter(function (e) { return perUnit ? e.units > 0 : e.hit; }).length;
   }, 0);
+
+  /* ── A ZERO THAT CONTRADICTS THE RECORD IS NOT A MEASUREMENT ──────────────────────────────
+     Found 2026-09-02 while backfilling: Hellavated measured 0 units against 649 recorded, Hapy
+     Kitchen 0 against 289. Not quiet fortnights — broken filters. The SPIF-doc seed copied
+     Tawny's PROSE into fields Dutchie has to match literally:
+
+         category "Inhalable Cannabanoid w/ Non-Cannabis Additives"   <- typo, 'a' for 'i'
+         category "Edible Solid, Tinctures, Concentrates"             <- a list, not a category
+         category "Extracts"  /  "Extracts(Liquid)"                   <- plural, missing space
+         products ["All Disposables"]                                 <- no product is called that
+
+     Fifteen of twenty-six programs carry a category that cannot match anything, and category is
+     AND-ed, so those measure zero however much sold. Writing that would have filled History with
+     empty grids that look authoritative — and the overnight sweep was about to do it to fifteen
+     programmes at once.
+
+     So a zero is REFUSED when the record says otherwise, and the reason is returned rather than
+     stored. The same rule the rest of this app already follows: a source that could not be read
+     is not a measurement of zero. A program with no recorded actuals is left alone — there, zero
+     is simply unproven either way and the human has nothing to contradict. */
+  var recorded = Number((prog.actual_json || {}).units_sold) || 0;
+  if (snap.units === 0 && recorded > 0) {
+    return { ok: false, program_id: prog.program_id, store: slug, refused: 'zero_vs_record',
+             recorded: recorded,
+             error: 'measured 0 units but this program records ' + recorded
+                  + '. Its filter matches nothing — check match_json (category and products are '
+                  + 'AND-ed, and must be values Dutchie actually uses). Not written.' };
+  }
 
   writeSnapshot_(prog.program_id, snap);
   return { ok: true, program_id: prog.program_id, store: slug,

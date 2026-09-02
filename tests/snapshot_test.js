@@ -109,6 +109,35 @@ ok('  …after the status roll, so a program that just closed is caught the same
 ok('  …and a failure there does not take the sweep down with it',
    /catch \(e\) \{ console\.warn\('\[spiff\] snapshot failed/.test(trig));
 
+/* ══════════════ A ZERO THAT CONTRADICTS THE RECORD IS NOT A MEASUREMENT ══════════════
+ * Found while backfilling, 2026-09-02: Hellavated measured 0 units against 649 recorded, Hapy
+ * Kitchen 0 against 289. Not quiet fortnights — broken filters. The SPIF-doc seed copied Tawny's
+ * PROSE into fields Dutchie has to match literally:
+ *
+ *     category "Inhalable Cannabanoid w/ Non-Cannabis Additives"   typo, 'a' for 'i'
+ *     category "Edible Solid, Tinctures, Concentrates"             a list, not a category
+ *     category "Extracts" / "Extracts(Liquid)"                     plural, missing space
+ *     products ["All Disposables"]                                 no product is called that
+ *
+ * Fifteen of twenty-six carry a category that matches nothing, and category is AND-ed — so they
+ * measure zero however much sold. The overnight sweep was about to write that across History as
+ * empty grids that look authoritative.
+ */
+const store0 = grab('snapshotStore_');
+ok('a measured zero is refused when the record says otherwise',
+   /snap\.units === 0 && recorded > 0/.test(store0));
+ok('  …and NOT written', store0.indexOf('refused:') < store0.indexOf('writeSnapshot_'));
+ok('  …naming the recorded figure it contradicts', /recorded: recorded/.test(store0));
+ok('  …and pointing at the filter, which is the actual fault',
+   /check match_json/.test(store0));
+/* A program with NO recorded actuals is left alone: there, zero is unproven either way and there
+   is nothing for it to contradict. */
+ok('a program with no recorded actuals is not blocked',
+   /Number\(\(prog\.actual_json \|\| \{\}\)\.units_sold\) \|\| 0/.test(store0));
+const whole = grab('snapshotProgram_');
+ok('the whole-program path refuses identically, so the trigger cannot write what the web path will not',
+   /out\.units === 0 && rec > 0/.test(whole));
+
 /* ══════════════ ONE STORE PER CALL ══════════════
  * The first cut of the backfill route measured a whole program per request — six stores at ~9s —
  * and died at 60.15s against Google's 60s /exec ceiling without writing a thing. Measured, not
