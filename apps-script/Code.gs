@@ -691,6 +691,57 @@ function getProgram_(id) {
 /* Upsert by program_id — re-running the import updates rows instead of duplicating them.
    opts.fromImport marks a machine write: those never overwrite a record a human has
    corrected, because the Calculator is exactly the source those corrections fix. */
+/* ── A MEASUREMENT BELONGS TO THE PROGRAM IT MEASURED ─────────────────────────────────────────
+ * Change WHAT a program is on, WHEN it ran, or WHERE — and every number already measured for it
+ * describes a program that no longer exists. Nothing used to notice.
+ *
+ * Portland Heights, 2026-09-02: its match was corrected from the Green Cross house brand to "all
+ * Portland Heights products". The cached rows stayed exactly as they were — 3,514 units of house
+ * brand, measured the day before against the old filter — and three surfaces kept serving them:
+ * ?action=progress (which GX Crew's incentive column reads), the vendor Report, and anything else
+ * on progressRowsFor_. The live screen said 242. Crew reported the figure it was given and had no
+ * way to know better; it was Crew who found it.
+ *
+ * The hourly sweep could never have healed this: it is ACTIVE-only by design, so a CLOSED
+ * program's cache is frozen at whatever it held when it last ran — correction or no correction.
+ *
+ * So a save that moves any of these clears the measurements outright. An EMPTY cache is honest —
+ * the route already reports a program with no rows, and every consumer treats that as "no data
+ * yet" rather than as zero. A stale one is a confident wrong answer, and it outlived the edit that
+ * invalidated it by a day.
+ *
+ * Not payout_json: the rate changes what a person EARNED, not what they SOLD, and progEarned_ is
+ * applied at read time from the program, not baked into the rows. Re-measuring for a rate change
+ * would throw away good unit counts to recompute a multiplication.
+ */
+var MEASURED_BY = ['match_json', 'start_date', 'end_date', 'stores_json'];
+
+function measurementInvalidatedBy_(before, after) {
+  if (!before) return [];
+  var moved = [];
+  MEASURED_BY.forEach(function (f) {
+    var a = before[f], b = after[f];
+    var same = (typeof a === 'object' || typeof b === 'object')
+      ? JSON.stringify(a || null) === JSON.stringify(b || null)
+      : String(a == null ? '' : a) === String(b == null ? '' : b);
+    if (!same) moved.push(f);
+  });
+  return moved;
+}
+
+/* Drop every cached row for one program. Bottom-up, because deleting a row shifts the ones
+   after it. */
+function dropProgressRows_(programId) {
+  var sh = progressSheet_();
+  if (sh.getLastRow() < 2) return 0;
+  var vals = sh.getDataRange().getValues();
+  var gone = 0;
+  for (var i = vals.length - 1; i >= 1; i--) {
+    if (String(vals[i][0]) === String(programId)) { sh.deleteRow(i + 1); gone++; }
+  }
+  return gone;
+}
+
 function saveProgram_(p, opts) {
   if (!p || !p.program_id) return { ok: false, error: 'program_id required' };
   opts = opts || {};
@@ -714,9 +765,23 @@ function saveProgram_(p, opts) {
       }
       // An import must not erase who corrected this row; an edit stamps itself.
       var rowAudit = audit || (priorBy ? { edited_by: priorBy, edited_at: textDate_(rows[i][atCol]) } : null);
+
+      /* Did this edit move something the measurements were taken against? Compared BEFORE the
+         write, or the old values are gone and there is nothing to compare to. */
+      var moved = measurementInvalidatedBy_(rowToProgram_(rows[i]), p);
+      if (moved.length) p.progress_json = null;
+
       sh.getRange(i + 2, 1, 1, PROGRAM_HEADERS.length).setValues([programToRow_(p, rowAudit)]);
       invalidatePrograms_();
-      return { ok: true, program_id: p.program_id, updated: true };
+
+      var dropped = 0;
+      if (moved.length) {
+        try { dropped = dropProgressRows_(p.program_id); }
+        catch (e) { /* the row is already saved; a stuck cache must not fail the save */ }
+      }
+      return { ok: true, program_id: p.program_id, updated: true,
+               invalidated: moved.length ? moved : undefined,
+               dropped_rows: moved.length ? dropped : undefined };
     }
   }
   sh.appendRow(programToRow_(p, audit));
