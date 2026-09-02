@@ -3290,8 +3290,13 @@
       /* The per-store LAST-MONTH split is saved too. It is what openInCalculator reads back,
          so without it a second trip through Edit parameters would open on zeroed references
          and recompute a different target than the one the vendor agreed to. */
-      baseByStore[s.store_id] = Number(s.baseline) || 0;
-      basePerBt[s.store_id]   = s.bts ? Math.round((Number(s.baseline) || 0) / s.bts) : 0;
+      /* A PLAN ROW CALLS THESE `base` AND `n`, not `baseline` and `bts` — those are the names on
+         calc.stores, which is a different object. Reading the wrong ones wrote 0 for every store
+         while `units` above came out right, so a saved program looked fine in total and had a
+         flat zero per-store split underneath. Every Calculator-written record carries that; the
+         seeded ones do not, which is why it survived this long. */
+      baseByStore[s.store_id] = Number(s.base) || 0;
+      basePerBt[s.store_id]   = s.n ? Math.round((Number(s.base) || 0) / s.n) : 0;
     });
     return {
       program_name: calc.name, vendor: calc.vendor,

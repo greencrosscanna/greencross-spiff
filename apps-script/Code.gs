@@ -107,8 +107,21 @@ var EDIT_ROLES = ['admin', 'editor', 'director'];
 
 // Fields a human may change on an imported record. Everything else (ids, source,
 // audit columns) is engine-owned.
+/* WHAT A PATCH IS ALLOWED TO CHANGE. A key missing from this list is dropped in SILENCE:
+   editProgram_ skips it, reports ok, and lists only the fields it did apply — so a caller that
+   never reads `changed` sees a successful save that did nothing.
+
+   match_json and stores_json were missing, and that is not a small omission: match_json is WHAT
+   THE SPIFF IS ON. Sky changed Portland Heights from the Green Cross house brand to "all Portland
+   Heights products" twice on 2026-09-02, the app said Updated both times, and the record kept
+   measuring the wrong catalogue — 3,514 units of house brand against a real 242. The Calculator
+   is the only screen that can set either field, and its patch was the one the engine ignored.
+
+   Both belong here for the same reason payout_json does: the Calculator owns them, and every
+   other field it sends was already accepted. */
 var EDITABLE_FIELDS = [
   'vendor', 'program_name', 'status', 'start_date', 'end_date', 'pay_period',
+  'match_json', 'stores_json', 'payout_type',
   'payout_json', 'cost_json', 'target_json', 'baseline_json', 'actual_json',
   'contact_name', 'contact_email'
 ];
