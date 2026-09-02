@@ -115,5 +115,53 @@ ok('modeling from a past program brings its product too',
    /calc\.product = productFromMatch\(p\.match_json\)/.test(load));
 ok('  …and shows it in the picker', /calcPicker\.setChosen\(calc\.product\)/.test(load));
 
+/* ══════════════ A PER-UNIT PROGRAM HAS NO INDIVIDUAL TARGET ══════════════
+ * Portland Heights, 2026-09-02: the vendor set a per-STORE threshold, every store cleared it, and
+ * every budtender then earned $0.75 on each unit they personally sold. Sky's way of expressing
+ * that in this app is "all products" plus a per-budtender goal of zero — no per-store threshold
+ * logic, because no future program works this way.
+ *
+ * That is correct for the MONEY: progEarned_ pays units × rate for per_unit and never consults
+ * `hit`. But the screens were built for flat programs, where earnings come from clearing a target,
+ * and they would have reported the opposite of the truth: $0 earned, 0 of 38 at target, a progress
+ * bar at 0% — on a program owing $181.50 across 242 units.
+ */
+const paint = grab('paintProgress');
+ok('Progress knows a per-unit program when it sees one',
+   /normalModel\(\(prog\.payout_json \|\| \{\}\)\.model \|\| prog\.payout_type\) === 'per_unit'/.test(paint));
+ok('earned so far is UNITS × rate for per-unit, not hit × rate',
+   /var earned  = perUnit \? units \* rate : hit \* rate/.test(paint));
+ok('  …and the caption says so, so the figure can be checked by hand',
+   /'earned so far, ' \+ units\.toLocaleString\(\) \+ ' × '/.test(paint));
+ok('"budtenders at their target" becomes who is EARNING — everyone who sold',
+   /budtenders earning — everyone who sold/.test(paint));
+ok('and "if everyone lands it" — a flat idea — is replaced by the rate',
+   /per unit sold, from the first one/.test(paint));
+/* With no chain target set, "242 / 0" is worse than "242". */
+ok('the units tile drops the "/ target" half when there is no target',
+   /target \? ' <small>\/ '/.test(paint));
+
+const card = grab('pgCard');
+ok('each store card reports who is earning rather than who "hit"',
+   /earning \+ ' of ' \+ r\.budtenders \+ ' earning<\/span>'/.test(card));
+ok('  …and shows the store’s money instead of a per-head target',
+   /money\(r\.units \* cardRate\)/.test(card));
+ok('a budtender’s row shows what they have EARNED, not how far short they are',
+   /money\(e\.units \* cardRate\)/.test(card));
+ok('  …styled as money rather than as a deficit',
+   /sp-bt-d is-earn/.test(card));
+ok('everyone who sold reads as earning', /var earns = cardPerUnit && e\.units > 0/.test(card));
+/* A bar drawn against a goal of zero sits empty, which reads as "nothing sold" on a card that
+   just said 60 units. */
+ok('no progress bar is drawn when there is no goal to draw it against',
+   /cardPerUnit && !goal \? ''/.test(card));
+
+/* The flat path must be untouched — 22 of the 24 programs are flat. */
+ok('flat programs still report hit against target',
+   /r\.hit \+ ' of ' \+ r\.budtenders \+ ' hit<\/span>'/.test(card) &&
+   /budtenders at their target/.test(paint));
+ok('  …and still price the ceiling as everyone landing it',
+   /money\(btsAll \* rate\)/.test(paint));
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nproduct match: all passed');
 process.exit(fail ? 1 : 0);

@@ -4070,15 +4070,35 @@
     });
     var btsAll = plannedBts || bts;
 
+    /* PER-UNIT PAYS ON VOLUME, so the flat program's stats are not just unhelpful for it — they
+       are wrong. "Earned so far" as hit × rate reads $0 for a program that owes real money, and
+       "budtenders at their target" counts against a threshold that does not exist: a per-unit
+       SPIFF has no individual goal to clear, everyone who sold anything has earned.
+       Portland Heights, 2026-09-02: $0.75 a unit across 242 units, and this strip would have
+       shown $0 earned and 0 of 38 at target while the payout was $181.50. */
+    var perUnit = normalModel((prog.payout_json || {}).model || prog.payout_type) === 'per_unit';
+    var earned  = perUnit ? units * rate : hit * rate;
+    var sellers = 0;
+    if (perUnit) stores.forEach(function (st) {
+      var r = run.results[st];
+      if (r) sellers += (r.rows || []).filter(function (x) { return x.units > 0; }).length;
+    });
+
     /* Totals cover only the stores that came back. Saying so is not a nicety -- an
        undercount that looks authoritative is how a vendor gets billed the wrong number. */
     $('#pgStats').innerHTML =
-        pgStat(units.toLocaleString() + ' <small>/ ' + target.toLocaleString() + '</small>',
+        pgStat(units.toLocaleString() + (target ? ' <small>/ ' + target.toLocaleString() + '</small>' : ''),
                'units sold', target ? units / target : 0, '')
-      + pgStat(hit + ' <small>/ ' + btsAll + '</small>', 'budtenders at their target',
-               btsAll ? hit / btsAll : 0, '')
-      + pgStat(money(hit * rate), 'earned so far, ' + hit + ' × ' + money(rate), null, 'is-pos')
-      + pgStat(money(btsAll * rate), 'if everyone lands it', null, '');
+      + (perUnit
+          ? pgStat(sellers.toLocaleString(), 'budtenders earning — everyone who sold', null, '')
+          : pgStat(hit + ' <small>/ ' + btsAll + '</small>', 'budtenders at their target',
+                   btsAll ? hit / btsAll : 0, ''))
+      + pgStat(money(earned),
+               perUnit ? 'earned so far, ' + units.toLocaleString() + ' × ' + money(rate)
+                       : 'earned so far, ' + hit + ' × ' + money(rate), null, 'is-pos')
+      + (perUnit
+          ? pgStat(money(rate), 'per unit sold, from the first one', null, '')
+          : pgStat(money(btsAll * rate), 'if everyone lands it', null, ''));
 
     var missing = stores.length - back;
     /* SAY WHEN THE NUMBERS ARE REMEMBERED RATHER THAN MEASURED. A cached figure and a live one
@@ -4150,14 +4170,24 @@
     var goal = per * (r.budtenders || 0);
     var frac = goal ? r.units / goal : 0;
     var ahead = goal ? r.units >= goal : false;
+    /* A per-unit program has no individual target, so "0 of 6 hit" and a bar against a goal of
+       zero describe a threshold nobody was ever set. The card shows what it is paying instead. */
+    var cardPerUnit = normalModel((run.prog.payout_json || {}).model || run.prog.payout_type) === 'per_unit';
+    var cardRate    = (run.prog.payout_json || {}).amount || 0;
+    var earning     = (r.rows || []).filter(function (e) { return e.units > 0; }).length;
 
     var rows = r.rows.length
       ? r.rows.map(function (e) {
           var short = (e.target || 0) - e.units;
-          return '<div class="sp-bt' + (e.hit ? ' is-hit' : '') + '">'
+          /* Per unit, anyone who sold is earning — and what they are owed is the useful figure,
+             not how far they are from a target that does not exist. */
+          var earns = cardPerUnit && e.units > 0;
+          return '<div class="sp-bt' + (earns || e.hit ? ' is-hit' : '') + '">'
             + '<span class="sp-bt-av">' + esc(initials(e.name)) + '</span>'
             + '<span class="sp-bt-n" title="' + esc(e.name) + '">' + esc(e.name) + '</span>'
-            + (!e.hit && short > 0 ? '<span class="sp-bt-d">&minus;' + short + '</span>' : '')
+            + (cardPerUnit
+                ? (earns ? '<span class="sp-bt-d is-earn">' + money(e.units * cardRate) + '</span>' : '')
+                : (!e.hit && short > 0 ? '<span class="sp-bt-d">&minus;' + short + '</span>' : ''))
             + '<span class="sp-bt-u">' + e.units.toLocaleString() + '</span>'
             + '</div>';
         }).join('')
@@ -4166,12 +4196,18 @@
     return '<div class="sp-pgcard' + (ahead ? ' is-ahead' : '') + '" style="--dot:' + esc(col) + '">'
       + '<div class="sp-pgcard-h"><div class="sp-pgcard-t">' + head
       +   '<span class="sp-pgcard-u">' + r.units.toLocaleString() + ' units</span></div>'
-      +   '<div class="sp-pgbar' + (partial ? ' is-pulling' : '') + '"><i style="width:'
-      +     Math.max(0, Math.min(100, frac * 100)).toFixed(1) + '%"></i></div>'
+      /* No bar without a goal to draw it against — an empty track reads as "nothing sold". */
+      +   (cardPerUnit && !goal ? ''
+            : '<div class="sp-pgbar' + (partial ? ' is-pulling' : '') + '"><i style="width:'
+              + Math.max(0, Math.min(100, frac * 100)).toFixed(1) + '%"></i></div>')
       +   '<div class="sp-pgcard-f">'
-      +     '<span class="' + (r.hit === r.budtenders && r.budtenders ? 'done' : '') + '">'
-      +       r.hit + ' of ' + r.budtenders + ' hit</span>'
-      +     '<span>' + (per ? per + ' each' : '') + '</span></div></div>'
+      +     (cardPerUnit
+            ? '<span class="done">' + earning + ' of ' + r.budtenders + ' earning</span>'
+              + '<span>' + money(r.units * cardRate) + '</span>'
+            : '<span class="' + (r.hit === r.budtenders && r.budtenders ? 'done' : '') + '">'
+              + r.hit + ' of ' + r.budtenders + ' hit</span>'
+              + '<span>' + (per ? per + ' each' : '') + '</span>')
+      +   '</div></div>'
       + '<div class="sp-pgcard-b">' + rows + '</div>'
       + '</div>';
   }

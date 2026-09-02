@@ -1044,6 +1044,10 @@ body.is-gated .workspace { display: none !important; }
 .sp-pick-empty.is-warn { color: var(--gx-gold, var(--gx-text)); }
 
 /* Chosen items, as removable chips. */
+/* What a budtender has earned on a per-unit program, where the flat card shows how far short of
+   target they are. It is money, not a deficit, so it must not read like one. */
+.sp-bt-d.is-earn { color: var(--gx-green); font-weight: 700; }
+
 .sp-chosen-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .sp-chip {
   display: inline-flex; align-items: center; gap: 5px;
