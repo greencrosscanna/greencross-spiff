@@ -102,7 +102,8 @@ const PUBLIC = new Function('return ' + (gs.match(/var PUBLIC_ACTIONS = (\[[\s\S
 ok('  …and never public', PUBLIC.indexOf('snapshotProgress') < 0);
 
 const trig = grab('refreshSpiffProgressTrigger');
-ok('the hourly trigger freezes ONE program per run', /snapshotPending_\(\{ max: 1 \}\)/.test(trig));
+ok('the hourly trigger freezes whole programs, capped per run',
+   /snapshotPending_\(\{ max: quietHours_\(\) \? 4 : 1 \}\)/.test(trig));
 ok('  …after the status roll, so a program that just closed is caught the same hour',
    trig.indexOf('rollProgramStatuses_') < trig.indexOf('snapshotPending_'));
 ok('  …and a failure there does not take the sweep down with it',
@@ -135,7 +136,34 @@ ok('the route measures one store when named, and plans when not',
    /out = p\.store[\s\S]{0,220}snapshotStore_\(g\.program, p\.store\)/.test(gs));
 
 /* The trigger keeps the whole-program path: a trigger gets six minutes, a web call does not. */
-ok('the hourly trigger still freezes whole programs', /snapshotPending_\(\{ max: 1 \}\)/.test(gs));
+ok('the hourly trigger still freezes whole programs — a trigger gets six minutes',
+   /snapshotPending_\(\{ max: quietHours_\(\) \? 4 : 1 \}\)/.test(gs));
+
+/* ══════════════ IT DRAINS THE BACKLOG WHEN NOBODY IS LOOKING ══════════════
+ * Apps Script runs one thing at a time per project, so every second spent measuring is a second
+ * the app cannot answer a page load. A 20-minute backfill made SPIFF unusable twice this
+ * afternoon and had to be killed both times. So the trigger does more work overnight and almost
+ * none during the day — a 23-program backlog is gone by morning either way.
+ */
+const quiet = new Function('Utilities',
+  grab('quietHours_') + '; return quietHours_;')({
+    formatDate: function (d, tz, fmt) { return String(global.__H); }
+  });
+[[22, true], [23, true], [0, true], [3, true], [5, true],
+ [6, false], [9, false], [14, false], [17, false], [21, false]].forEach(function (c) {
+  global.__H = c[0];
+  ok((c[0] + ':00 is ' + (c[1] ? 'quiet' : 'working hours')), quiet() === c[1]);
+});
+ok('the hour is read in LOS ANGELES — the stores are in Oregon',
+   /'America\/Los_Angeles', 'H'/.test(grab('quietHours_')));
+
+const trig2 = grab('refreshSpiffProgressTrigger');
+ok('the trigger takes four at a time overnight, one in working hours',
+   /max: quietHours_\(\) \? 4 : 1/.test(trig2));
+/* Four programs is ~216s of measuring against a six-minute trigger — room to spare, and the cap
+   is what keeps a run from being killed halfway with rows half-written. */
+ok('  …and still says how many are left, so the drain is watchable',
+   /snap\.remaining \+ ' still to freeze'/.test(trig2));
 
 /* ══════════════ THE PAGE FOLLOWS THE STATUS ══════════════ */
 const js = fs.readFileSync(__dirname + '/../spiff.js', 'utf8');

@@ -1416,18 +1416,33 @@ function installSpiffProgressTrigger() {
 function refreshSpiffProgressTrigger() {
   try { rollProgramStatuses_(); }
   catch (e) { console.warn('[spiff] status roll failed: ' + ((e && e.message) || e)); }
-  /* ONE frozen program per run, and deliberately before the sweep. A program that just closed in
-     the roll above is measured while this hour's numbers are still the last word on it, and one
-     at a time keeps a ~54s measurement well inside the trigger's six minutes however many
-     programs happen to close at once. The rest wait an hour; `remaining` says how many. */
+  /* Freeze finished programs, deliberately BEFORE the sweep — a program that just closed in the
+     roll above is measured while this hour's numbers are still the last word on it.
+     HOW MANY depends on whether anyone is likely to be looking. Apps Script runs one thing at a
+     time per project, so every second spent measuring is a second the app cannot answer a page
+     load: a 20-minute backfill made SPIFF unusable this afternoon and had to be killed twice.
+     Overnight nobody is competing, so it drains the backlog four at a time (~216s, comfortably
+     inside the trigger's six minutes) and a 23-program backlog is gone by morning. In working
+     hours it takes ONE, ~54s an hour, which nobody notices. */
   try {
-    var snap = snapshotPending_({ max: 1 });
+    var snap = snapshotPending_({ max: quietHours_() ? 4 : 1 });
     if (snap.done.length) {
-      console.log('[spiff] froze ' + snap.done[0].program_id + ' (' + snap.done[0].reason
-                  + ') — ' + snap.remaining + ' still to freeze');
+      console.log('[spiff] froze ' + snap.done.length + ' program(s), '
+                  + snap.remaining + ' still to freeze'
+                  + (quietHours_() ? ' (quiet hours)' : ''));
     }
   } catch (e) { console.warn('[spiff] snapshot failed: ' + ((e && e.message) || e)); }
   refreshSpiffProgress_();
+}
+
+/* Is anybody likely to be using the app? Los Angeles, not UTC and not the script's idea of local
+   time — the stores are in Oregon and the answer has to mean 10pm THERE. Same rule as every other
+   date in this app: a calendar hour is Los Angeles.
+   The window is deliberately generous at the late end and stops before opening: Tawny is in the
+   app in the morning, and a store that opens at 9 has managers in before it. */
+function quietHours_() {
+  var h = Number(Utilities.formatDate(new Date(), 'America/Los_Angeles', 'H'));
+  return h >= 22 || h < 6;
 }
 
 /* What a full refresh would do, without doing any of it. Lets a caller loop store by store and see
