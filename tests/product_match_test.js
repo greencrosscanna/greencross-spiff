@@ -209,5 +209,42 @@ const recalcSrc = grab('recalc');
 ok('the table heading follows the model rather than asserting one axis',
    /scaleAxis = calc\.model === 'per_unit' \? 'Units sold'/.test(recalcSrc));
 
+/* ══════════════ PULLING ACTUALS READ FIELDS THAT NO LONGER EXIST ══════════════
+ * Portland Heights, live: the pull measured 242 units correctly and then wrote rate $0,
+ * investment $0 and ROI $0 beside them — which is what put "RATE DIFFERS: modelled at $0.75,
+ * settled at $0" on a record that had just measured itself right.
+ *
+ * Two causes, stacked. The rate, cost and baseline were read out of INPUTS IN THE RECORD FORM —
+ * and those inputs moved to the Calculator when the record did in v1.336, so every lookup
+ * returned undefined and every figure derived from them computed off zero. And investment was
+ * rate × hit, which is the flat formula: a per-unit program sets no individual target, so `hit`
+ * is always zero however much was sold.
+ */
+const pull = grab('pullActuals');
+ok('the rate comes from the PROGRAM, not from a form field that moved',
+   /var rate = Number\(\(p\.payout_json \|\| \{\}\)\.amount\) \|\| 0/.test(pull));
+ok('  …and so do the cost and the baseline',
+   /\(p\.cost_json \|\| \{\}\)\.per_unit/.test(pull) &&
+   /\(p\.baseline_json \|\| \{\}\)\.units/.test(pull));
+ok('  …and nothing is read out of the record form any more',
+   !/REC\.body \+ ' \[data-key="payout_json/.test(pull) &&
+   !/REC\.body \+ ' \[data-key="cost_json/.test(pull) &&
+   !/REC\.body \+ ' \[data-key="baseline_json/.test(pull));
+
+ok('per-unit investment is rate × UNITS, not rate × hit',
+   /var invest  = perUnit \? rate \* units : rate \* hit/.test(pull));
+ok('  …and the people credited are everyone who SOLD, not everyone who hit a target',
+   /var earners = perUnit \? sellers : hit/.test(pull));
+ok('  …counted from the rows themselves',
+   /sellers \+= \(r\.rows \|\| \[\]\)\.filter/.test(pull));
+ok('flat programs still pay per budtender who hit', /: rate \* hit/.test(pull));
+
+/* The arithmetic, on Portland Heights' real figures. */
+const units = 242, rate = 0.75, cost = 8.68, base = 206;
+ok('242 units at $0.75 is $181.50 of investment',
+   Math.abs(rate * units - 181.5) < 0.001);
+ok('  …and the ROI identity holds against last month',
+   Math.abs(((units - base) * cost - rate * units) - 130.98) < 0.01);
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nproduct match: all passed');
 process.exit(fail ? 1 : 0);

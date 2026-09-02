@@ -1526,12 +1526,16 @@
 
     var windows = dateWindows(from, to, PROGRESS_WINDOW_DAYS);
     var got = 0, failed = [];
-    var units = 0, hit = 0, bts = 0;
+    /* `sellers` is everyone who sold at least one unit. On a per-unit program that IS the number
+       who earned, because there is no target to clear — `hit` counts against a threshold the
+       program never set and is therefore always zero. */
+    var units = 0, hit = 0, bts = 0, sellers = 0;
 
     await Promise.all(stores.map(async function (st) {
       try {
         var r = await pullStore(p.program_id, st, windows, null);
         units += r.units; hit += r.hit; bts += r.budtenders;
+        sellers += (r.rows || []).filter(function (x) { return (x.units || 0) > 0; }).length;
         got++;
         note.textContent = 'pulled ' + got + ' of ' + stores.length + ' stores…';
       } catch (e) { failed.push(storeName(st)); }
@@ -1545,14 +1549,26 @@
       return;
     }
 
-    var rate   = Number(($(REC.body + ' [data-key="payout_json.amount"]') || {}).value) || 0;
-    var cost   = Number(($(REC.body + ' [data-key="cost_json.per_unit"]') || {}).value) || 0;
-    var base   = Number(($(REC.body + ' [data-key="baseline_json.units"]') || {}).value) || 0;
-    var invest = rate * hit;                        // paid only on budtenders who actually hit
-    var roi    = (units - base) * cost - invest;    // same identity the Calculator models on
+    /* THE RATE, THE COST AND THE BASELINE COME FROM THE PROGRAM, not from fields in this form.
+       They used to be read out of the record's own inputs — and those inputs moved to the
+       Calculator when the record did (v1.336), so every lookup returned undefined and every
+       figure below it computed from a rate of ZERO. Portland Heights pulled 242 units correctly
+       and then filled rate, investment and ROI with 0, which is what put "RATE DIFFERS: modelled
+       at $0.75, settled at $0" on a record that had just measured itself right. */
+    var rate = Number((p.payout_json || {}).amount) || 0;
+    var cost = Number((p.cost_json || {}).per_unit) || 0;
+    var base = Number((p.baseline_json || {}).units) || 0;
+
+    /* PER UNIT PAYS ON VOLUME. `hit` counts people who cleared an individual target, and a
+       per-unit program sets none — so investment as rate × hit is zero however much was sold.
+       What the program actually owes is rate × units, and everyone who sold anything earned. */
+    var perUnit = normalModel((p.payout_json || {}).model || p.payout_type) === 'per_unit';
+    var invest  = perUnit ? rate * units : rate * hit;
+    var earners = perUnit ? sellers : hit;
+    var roi     = (units - base) * cost - invest;    // same identity the Calculator models on
 
     setRecField('actual_json.units_sold', units);
-    setRecField('actual_json.bts_hit', hit);
+    setRecField('actual_json.bts_hit', earners);
     setRecField('actual_json.spiff_amount', rate);
     setRecField('actual_json.investment', Math.round(invest * 100) / 100);
     setRecField('actual_json.roi', Math.round(roi * 100) / 100);
