@@ -21,6 +21,17 @@
  * IT IS A DOOR, NOT A WALL. A genuinely wrong closed record has to be fixable somewhere other than
  * the spreadsheet, so the lock opens — deliberately, behind a sentence that says what the program
  * is. What must never happen is the lock coming off by itself.
+ *
+ * ONE FIELD IS OUTSIDE IT (Sky, 2026-09-02): the featured product. The lock protects the money
+ * that was promised — spiff, target, per-store goals, the headcount they were divided by. WHICH
+ * products those were measured against is a different fact, and fifteen of the twenty-six live
+ * programs carry a seeded filter matching nothing in Dutchie, so they measure zero against a
+ * record that says 649. Correcting one changes what the app compares, not what was agreed.
+ *
+ * That carve-out is only safe because of two things this file pins, and neither is `disabled`:
+ * picking a product while locked must not rewrite Cost per unit or re-run the plan, and the save
+ * must narrow to match_json regardless of what the DOM allowed. A disabled attribute is a claim
+ * about markup; the narrowing is the guarantee.
  */
 'use strict';
 const fs = require('fs');
@@ -75,16 +86,24 @@ ok('the lock covers the table inputs, not only the deal fields',
 ok('  …and the buttons in it, so a pinned goal cannot be cleared',
    /#calcTable input, #calcTable button/.test(apply));
 ok('the payout model segment locks too', /#cModel button/.test(apply));
-ok('and Save itself is disabled, with a reason', /save\.disabled = on/.test(apply)
-   && /unlock it first/i.test(apply));
+/* Save STAYS LIVE, because the featured product above it is live and an edit you cannot save is
+   worse than one you cannot make. What it may carry is narrowed in saveCalcProgram instead. */
+ok('Save stays usable, and says what it is limited to',
+   /save\.disabled = false/.test(apply) && /only the featured product/i.test(apply));
+ok('  …and the product clear button stays live with it',
+   /clear\.disabled = false/.test(apply));
 ok('the deal fields are covered by the shared list, not a second copy',
    /CALC_MODEL_CONTROLS\.forEach/.test(apply));
 
 const CONTROLS = new Function('return ' +
   (js.match(/var CALC_MODEL_CONTROLS = (\[[\s\S]*?\]);/) || [])[1])();
-['#cName', '#cVendor', '#cCost', '#cProduct', '#cSpiff', '#cTarget', '#cGrowth'].forEach(id => {
+['#cName', '#cVendor', '#cCost', '#cSpiff', '#cTarget', '#cGrowth'].forEach(id => {
   ok('  ' + id + ' is in the locked set', CONTROLS.indexOf(id) >= 0);
 });
+/* The carve-out, stated as an absence. If #cProduct ever rejoins this list the fifteen broken
+   filters become unfixable again without the confirm() that froze the page to begin with. */
+ok('  #cProduct is deliberately NOT in it — the filter stays correctable',
+   CONTROLS.indexOf('#cProduct') < 0);
 /* The slider is the one people forget, because it is not a text box — and dragging it is the
    fastest way to change a target by accident. */
 ok('  the growth slider is in it too', CONTROLS.indexOf('#cGoalRange') >= 0);
@@ -93,6 +112,24 @@ const html = fs.readFileSync(__dirname + '/../index.html', 'utf8');
 CONTROLS.forEach(sel => {
   ok('  ' + sel + ' actually exists in index.html', html.indexOf('id="' + sel.slice(1) + '"') >= 0);
 });
+
+/* ── THE CARVE-OUT'S TWO GUARANTEES ──
+   Letting one control through the lock is only safe if nothing rides along behind it. */
+
+/* 1. The pick must not re-price the deal. Normally choosing a product fills Cost per unit from
+      Dutchie and re-runs the plan off it — on a settled program that silently re-prices something
+      already reported and paid. The early return is what keeps one field to one field. */
+ok('picking a product on a CLOSED program does not touch cost or the plan',
+   /if \(calc\.locked\) \{ renderCalcEditing\(\); return; \}[\s\S]{0,120}calc\.cost = cost/
+     .test(js));
+
+/* 2. The save must narrow, whatever the DOM allowed. This is the half that does not depend on
+      anyone remembering to add a future control to CALC_MODEL_CONTROLS. */
+const save = grab('saveCalcProgram');
+ok('a locked save carries match_json and nothing else',
+   /if \(calc\.locked\)/.test(save) && /only\.match_json = patch\.match_json/.test(save));
+ok('  …and it filters the PATCH, so an unchanged filter still writes nothing',
+   save.indexOf('calcModelPatch(prog, payload)') < save.indexOf('if (calc.locked)'));
 
 /* ── the door ── */
 const editing = grab('renderCalcEditing');

@@ -2367,6 +2367,12 @@
       onVendor: function (name) { calc.vendor = name; },
       onProduct: function (chosen, cost) {
         calc.product = chosen;
+        /* ON A CLOSED PROGRAM, THE FILTER MOVES AND NOTHING ELSE DOES. Picking a product
+           normally fills Cost per unit from Dutchie and re-runs the whole plan off it — which on
+           a settled program would quietly re-price a deal that has already been reported and
+           paid. The one field outside the lock has to stay one field: set the filter, leave the
+           cost, the target and the per-store goals exactly as the vendor agreed them. */
+        if (calc.locked) { renderCalcEditing(); return; }
         calc.cost = cost;
         $('#cCost').value = cost;
         recalc(PULSE_ALL);
@@ -3127,8 +3133,11 @@
       : 'no dates set';
     bar.innerHTML = (calc.locked ? '<span class="sp-lock-dot" aria-hidden="true"></span>Closed &middot; ' : 'Editing ')
       + '<b>' + esc(calc.name || 'this program') + '</b> &middot; ' + esc(win)
+      /* The button says what is still SHUT, not what the screen is. The featured product is
+         editable without it now, so "Unlock to re-model" over a live product field read as a
+         contradiction — you were already editing the thing it claimed to be guarding. */
       + (calc.locked
-          ? ' <button type="button" class="gx-btn" id="calcUnlock">Unlock to re-model</button>'
+          ? ' <button type="button" class="gx-btn" id="calcUnlock">Unlock the goals too</button>'
           : '')
       + ' <button type="button" class="gx-btn" id="calcStopEditing">Stop editing</button>';
     $('#calcStopEditing').addEventListener('click', function () {
@@ -3162,8 +3171,27 @@
 
      NOT a refusal. Sky, 2026-09-01: a genuinely wrong closed record has to be fixable somewhere
      other than the sheet. So it is a door with a name on it — the button says what the program
-     is, and unlocking is a deliberate act rather than the default state of the screen. */
-  var CALC_MODEL_CONTROLS = ['#cName', '#cVendor', '#cCost', '#cProduct', '#cSpiff',
+     is, and unlocking is a deliberate act rather than the default state of the screen.
+
+     ── AND ONE FIELD IS OUTSIDE THE LOCK: the featured product (Sky, 2026-09-02).
+     What the lock protects is the money that was promised — the spiff, the target, the per-store
+     goals, the headcount they were divided by. WHICH products those were measured against is a
+     different kind of fact. Fifteen of the twenty-six live programs carry a filter seeded from
+     Tawny's prose that matches nothing in Dutchie ("Cannabanoid", "All Disposables", a
+     three-category list), so they measure zero units against a record that says 649. Correcting
+     one does not change what the vendor agreed to; it changes what the app compares against it.
+
+     It was behind the lock until now, and the cost of that was not theoretical: the unlock is a
+     native confirm(), which freezes the page to anything but a human hand — so fixing all
+     fifteen meant fifteen interruptions to authorize an edit that never touched a goal. The
+     narrow door is both safer and less work than the wide one.
+
+     Two guarantees make this hold, and neither is the disabled attribute:
+       - picking a product while locked does NOT rewrite Cost per unit or re-run the plan, so
+         nothing downstream of the filter moves (see onProduct);
+       - the save is narrowed to match_json in saveCalcProgram, so even if some future control
+         slips out of CALC_MODEL_CONTROLS, a locked save cannot carry it. */
+  var CALC_MODEL_CONTROLS = ['#cName', '#cVendor', '#cCost', '#cSpiff',
                              '#cTarget', '#cGrowth', '#cGoalRange'];
 
   function applyCalcLock() {
@@ -3179,12 +3207,16 @@
     $$('#calcTable input, #calcTable button').forEach(function (el) {
       el.disabled = on; el.classList.toggle('is-locked', on);
     });
+    /* NOT locked — it clears the featured product, which is the field that stays editable. */
     var clear = $('#cProductClear');
-    if (clear) clear.disabled = on;
+    if (clear) clear.disabled = false;
+    /* Save stays LIVE on a closed program, because the product filter above it is live and an
+       edit you cannot save is worse than one you cannot make. What it is allowed to carry is
+       narrowed at the source instead — saveCalcProgram drops everything but match_json. */
     var save = $('#calcSave');
     if (save) {
-      save.disabled = on;
-      save.title = on ? 'This program is closed — unlock it first' : '';
+      save.disabled = false;
+      save.title = on ? 'Closed — only the featured product can be changed' : '';
     }
     var panel = $('#panel-calculator');
     if (panel) panel.classList.toggle('is-locked', on);
@@ -3645,6 +3677,21 @@
       /* No stored copy to compare against means we cannot tell what moved, so send everything —
          the same thing this did before, and the safe direction of the two. */
       patch = prog ? calcModelPatch(prog, payload) : payload;
+      /* ── THE LOCK, ENFORCED WHERE IT COUNTS ────────────────────────────────────────────────
+         A closed program can have its featured product corrected and nothing else. Disabling the
+         other controls is the visible half of that rule; this is the half that holds. A disabled
+         input is a statement about the DOM, and every future control added to the model section
+         has to remember to join CALC_MODEL_CONTROLS or it silently opts out. Narrowing the patch
+         needs nobody to remember anything: whatever else the screen managed to change, a locked
+         save carries one key.
+
+         Note it filters the PATCH, after the diff — so an unchanged filter still saves nothing
+         at all, rather than re-writing the same value on every press. */
+      if (calc.locked) {
+        var only = Object.create(null);
+        if ('match_json' in patch) only.match_json = patch.match_json;
+        patch = only;
+      }
       if (!Object.keys(patch).length) return { changed: [] };   // nothing of the MODEL moved
     }
 

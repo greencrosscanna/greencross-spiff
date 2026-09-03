@@ -776,6 +776,15 @@ body.is-gated .workspace { display: none !important; }
 }
 #panel-calculator.is-locked .sp-pick-input,
 #panel-calculator.is-locked .sp-seg-sm { opacity: .55; }
+/* …EXCEPT the featured product, which stays live on a closed program. Dimming it alongside the
+   rest would say "you cannot touch this" about the one control you still can. */
+#panel-calculator.is-locked #cProductField .sp-pick-input { opacity: 1; }
+#panel-calculator.is-locked #cProductField > span::after {
+  content: 'still editable';
+  margin-left: 8px; padding: 1px 6px; border-radius: 999px;
+  font-size: 10px; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--gx-text-mute); border: 1px solid var(--gx-line);
+}
 .sp-lock-dot {
   display: inline-block; width: 7px; height: 7px; border-radius: 50%;
   background: var(--gx-text-mute); margin-right: 6px; vertical-align: 1px;
