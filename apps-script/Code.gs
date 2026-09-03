@@ -1284,6 +1284,16 @@ function writeSnapshot_(programId, snap) {
   for (var i = 0; i < ids.length; i++) {
     if (String(ids[i][0]) === String(programId)) {
       sh.getRange(i + 2, pCol + 1).setValue(JSON.stringify(snap));
+      /* BUST THE PROGRAMS CACHE, or the measurement just written is invisible for five minutes.
+         Every OTHER writer on this sheet calls invalidatePrograms_; this one did not, because it
+         writes a single cell directly rather than going through saveProgram_. The cost was not
+         theoretical — Hellavated March measured 650 units, wrote them, and the record still
+         showed an empty grid on reload. Two reloads and a JSONP probe later it was still empty,
+         which reads exactly like a failed write. The data was on the sheet the whole time.
+         Worse during a backfill: 89 pairs written over an evening, each one invisible until a
+         cache it never touches happens to expire — so the screen you would use to watch the
+         backfill work is the one guaranteed to be behind it. */
+      invalidatePrograms_();
       return true;
     }
   }
@@ -1355,6 +1365,11 @@ function snapshotPending_(opts) {
                 earned: res.snapshot.earned, earners: res.snapshot.earners,
                 partial: res.snapshot.partial });
   }
+  /* ONCE, after the loop rather than per row: the sweep can write several programs in a run and
+     the cache is one key, so busting it per write would just be the same work repeated. Same
+     reason as writeSnapshot_ — without this the overnight backfill fills the sheet while every
+     screen watching it keeps showing the empty grids it is there to fix. */
+  if (done.length) invalidatePrograms_();
   return { ok: true, done: done, failed: failed,
            remaining: Math.max(0, eligible - done.length - failed.length) };
 }
