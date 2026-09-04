@@ -72,6 +72,10 @@ function load() {
        roster, which is the case that must leave every name exactly as Dutchie reported it;
        the friendly-name block below swaps in a real one. */
     var GXCore = { getEmployees: function () { return (typeof ROSTER === 'function') ? ROSTER() : []; } };
+    /* gxRosterFull_ is the HTTP read of GX Core's roster — it exists because the bound library's
+       getEmployees() drops preferred_name/display_name. Stubbed here at that seam: what this file
+       is testing is the MAPPING and the read-time rule, not UrlFetchApp. */
+    function gxRosterFull_() { return (typeof ROSTER === 'function') ? (ROSTER() || []) : []; }
     function progressSheet_() { return SHEET; }
     function listPrograms_(status) { return PROGRAMS(status); }
     function listProgramsCached_() { return PROGRAMS(); }

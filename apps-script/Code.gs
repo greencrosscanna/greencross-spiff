@@ -1637,9 +1637,53 @@ function payPeriodMatches_(row, want) {
    FAILURE IS SILENT AND SAFE. A roster we cannot read returns an empty map, every row keeps the
    name Dutchie gave it, and nothing else on the screen changes. A friendlier label is not worth
    failing a payout read over. */
+/* THE ROSTER, WITH THE NAME FIELDS THE LIBRARY DOES NOT EXPOSE.
+
+   GXCore.getEmployees() -- the bound library call this app uses everywhere else -- returns
+   full_name and no preferred_name or display_name. GX Core's HTTP route does return them, off the
+   same sheet. So the friendly name is not missing from GX Core; it is missing from the library's
+   projection of it, and no re-pin fixes that on our side.
+
+   Found by verifying against the LIVE engine after deploying: every row came back with
+   display_name exactly equal to full_name, so the feature was a silent no-op while every test
+   passed. The tests mock getEmployees, which is precisely the shape they cannot check.
+
+   Fetched over HTTP with the deploy secret, the same way gxStores_ reads stores, and cached for 15
+   minutes -- names change about never, and this sits on a route Crew and the kiosks poll. Errors
+   are scrubbed: UrlFetchApp puts the whole URL, secret included, into its exception message.
+
+   The cleaner fix is upstream -- getEmployees() carrying the field -- and that is core-admin's to
+   make. This is not worth blocking a display nicety on another app's release. */
+function gxRosterFull_() {
+  var cache = CacheService.getScriptCache();
+  var hit = cache.get('gx_roster_names');
+  if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+  var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP) || '';
+  if (!secret) return [];
+  try {
+    var res = UrlFetchApp.fetch(GXCORE_URL + '?action=employees&secret=' + encodeURIComponent(secret),
+                                { muteHttpExceptions: true, followRedirects: true });
+    var txt = String(res.getContentText() || '').trim();
+    /* The second hop serves Google's HTML page on a bounce, with a cheerful 200 — the body shape
+       is the only tell, and JSON.parse on it throws something that reads like our fault. */
+    if (txt.charAt(0) !== '{') return [];
+    var data = JSON.parse(txt);
+    var rows = (data && data.employees) || [];
+    if (rows.length) cache.put('gx_roster_names', JSON.stringify(rows), 900);
+    return rows;
+  } catch (e) {
+    Logger.log('[spiff] roster names unavailable: ' + scrubSecrets_(e && e.message || e));
+    return [];
+  }
+}
+
 function displayNameMap_() {
   var rows;
-  try { rows = GXCore.getEmployees() || []; } catch (e) { return Object.create(null); }
+  try { rows = gxRosterFull_() || []; } catch (e) { return Object.create(null); }
+  /* Fall back to the library when the HTTP read gives us nothing: it has no friendly names, so the
+     map simply comes out empty and every row keeps the name Dutchie reported. Failing to a worse
+     LABEL is fine; failing the read is not. */
+  if (!rows.length) { try { rows = GXCore.getEmployees() || []; } catch (e2) { return Object.create(null); } }
   var byId = Object.create(null), byName = Object.create(null);
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
@@ -2673,10 +2717,18 @@ function reportBug_(p) {
 function gxEmployees_(opts) {
   opts = opts || {};
   var rows;
+  /* Prefer the HTTP roster: it carries preferred_name / display_name, which the bound library's
+     getEmployees() projection drops. See gxRosterFull_. Falls back to the library, which still has
+     everything except the friendlier name. */
   try {
-    rows = GXCore.getEmployees() || [];
-  } catch (e) {
-    return { ok: false, error: 'GXCore library unavailable: ' + scrubSecrets_(e && e.message || e) };
+    rows = gxRosterFull_() || [];
+  } catch (e0) { rows = []; }
+  if (!rows.length) {
+    try {
+      rows = GXCore.getEmployees() || [];
+    } catch (e) {
+      return { ok: false, error: 'GXCore library unavailable: ' + scrubSecrets_(e && e.message || e) };
+    }
   }
 
   /* Null-prototype, and these are the ones I MISSED on the first sweep: pricecards found the
