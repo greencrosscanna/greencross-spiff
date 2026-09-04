@@ -68,6 +68,10 @@ function load() {
     var PROGRESS_TAB = 'spiff_progress';
     var PROGRESS_HEADERS = ${JSON.stringify(HEADERS)};
     var GX_SECRET_PROP = 'GX_DEPLOY_SECRET';
+    /* displayNameMap_ reads the roster to resolve friendly names. Default stub is an empty
+       roster, which is the case that must leave every name exactly as Dutchie reported it;
+       the friendly-name block below swaps in a real one. */
+    var GXCore = { getEmployees: function () { return (typeof ROSTER === 'function') ? ROSTER() : []; } };
     function progressSheet_() { return SHEET; }
     function listPrograms_(status) { return PROGRAMS(status); }
     function listProgramsCached_() { return PROGRAMS(); }
@@ -77,9 +81,11 @@ function load() {
     ${grab('payoutModelOf_')} ${grab('payoutRateOf_')}
     ${grab('progEarned_')} ${grab('stampOf_')} ${grab('textDate_')} ${grab('payPeriodMatches_')}
     ${grab('forceProgressTextDates_')} ${grab('refreshSpiffProgress_')}
+    ${grab('userKey_')} ${grab('displayNameMap_')} ${grab('friendlyName_')}
     ${grab('spiffProgress_')} ${grab('refreshProgressPlan_')}
     return { refreshSpiffProgress_, spiffProgress_, progEarned_, stampOf_, textDate_,
-             forceProgressTextDates_, payPeriodMatches_, refreshProgressPlan_ };`;
+             forceProgressTextDates_, payPeriodMatches_, refreshProgressPlan_,
+             displayNameMap_, friendlyName_ };`;
   const PropertiesService = { getScriptProperties: () => ({ getProperty: () => 'SEKRET' }) };
   /* Honors BOTH arguments on purpose. A mock that ignored the timezone would have passed happily
      through the very bug this file now guards: formatting a UTC-midnight date in LA time and
@@ -92,9 +98,13 @@ function load() {
     const day = `${p.year}-${p.month}-${p.day}`;
     return fmt === 'yyyy-MM-dd' ? day : `${day} ${p.hour}:${p.minute}:${p.second}`;
   } };
-  return new Function('SHEET', 'PROGRAMS', 'SELL', 'PropertiesService', 'Utilities', 'Number', src)
-    (SHEET, (s) => PROGRAMS(s), (p) => SELL(p), PropertiesService, Utilities, Number);
+  return new Function('SHEET', 'PROGRAMS', 'SELL', 'PropertiesService', 'Utilities', 'Number', 'ROSTER', src)
+    (SHEET, (s) => PROGRAMS(s), (p) => SELL(p), PropertiesService, Utilities, Number, () => ROSTER);
 }
+
+/* The roster displayNameMap_ reads. Empty by default: the baseline every existing assertion in
+   this file relies on is that a name arrives exactly as Dutchie reported it. */
+let ROSTER = [];
 
 const PROG = { program_id: 'P1', pay_period: '2026-08-17', vendor: 'Wyld', program_name: 'Wyld 10pc',
                status: 'active', start_date: '2026-08-17', end_date: '2026-08-30',
@@ -380,6 +390,75 @@ ok('and says so in words a reader can act on',
    /not a fortnight|failure to read/i.test(blind.error || ''));
 ok('a genuine program still reads normally once the tab is back',
    (PROGRAMS = () => [PROG], M.spiffProgress_({}).rows.length === 2));
+
+/* ── the name a budtender is actually called ──────────────────────────────────────────────────
+ *
+ * Dutchie only knows the legal name someone was onboarded with, so sell-through says "Andrew
+ * Phillips" for a man everyone calls Drew. Nineteen people on this roster go by something else,
+ * and Progress is a screen those people read about themselves.
+ *
+ * The rules that matter, and each one is a way this could go wrong:
+ *   · `name` is NEVER overwritten. GX Crew and the Leaderboard kiosks already consume this
+ *     payload; display_name is a field they opt into, not a substitution under them.
+ *   · Resolved at READ time, like `status` — never stored on the cached row, or a name corrected
+ *     in Command Center would stay wrong until that program happened to be re-measured, which for
+ *     a closed program is never.
+ *   · Absent when it would be identical, so `display_name || name` is the whole rendering rule and
+ *     the field's presence actually means something.
+ *   · A roster we cannot read changes nothing.
+ */
+/* Earlier scenarios in this file mutate the sheet, so rebuild the three-person fixture rather
+   than inheriting whatever survived them. */
+SHEET = makeSheet(HEADERS);
+PROGRAMS = () => [PROG];
+SELL = (p) => ({ ok: true, rows: p.store === 'bend'
+  ? [{ employee_id: 'a', name: 'A One', units: 6, target: 5, hit: true },
+     { employee_id: 'b', name: 'B Two', units: 2, target: 5, hit: false }]
+  : [{ employee_id: '',  name: 'C Three', units: 5, target: 5, hit: true }] });
+ROSTER = [
+  { full_name: 'A One',   display_name: 'Ace One',   dutchie_employee_id: 'a' },
+  { full_name: 'B Two',   display_name: 'B Two',     dutchie_employee_id: 'b' },  // same — no entry
+  { full_name: 'C Three', display_name: 'Cee Three', dutchie_employee_id: '' },   // id-less: by name
+];
+M = load();
+M.refreshSpiffProgress_();
+let named = M.spiffProgress_({});
+let byId = {};
+named.rows.forEach(function (r) { byId[r.employee_id || ('name:' + r.name)] = r; });
+
+ok('a preferred name reaches the row as display_name',
+   byId.a && byId.a.display_name === 'Ace One');
+ok('  …and `name` still says exactly what Dutchie reported',
+   byId.a && byId.a.name === 'A One');
+ok('someone whose friendly name IS their legal name gets no display_name at all',
+   byId.b && !byId.b.display_name);
+/* Keyed under 'name:…' precisely BECAUSE they have no id — that is the fallback bucket. */
+ok('a person the connector has no id for is matched on their name instead',
+   byId['name:C Three'] && byId['name:C Three'].display_name === 'Cee Three');
+
+let rollup = {};
+(named.by_employee || []).forEach(function (e) { rollup[e.employee_id || e.name] = e; });
+ok('the per-person rollup Crew reads carries it too',
+   rollup.a && rollup.a.display_name === 'Ace One' && rollup.a.name === 'A One');
+
+/* The map is built from the roster on every read, so a name corrected upstream lands immediately
+   on rows that were measured long before — including a closed program that will never be
+   re-measured. That is the whole reason this is not a stored column. */
+ROSTER = [{ full_name: 'A One', display_name: 'Renamed Since', dutchie_employee_id: 'a' }];
+ok('correcting a name upstream fixes rows already in the cache, with no re-measure',
+   (function () {
+     let again = M.spiffProgress_({});
+     let row = again.rows.filter(function (r) { return r.employee_id === 'a'; })[0];
+     return row && row.display_name === 'Renamed Since';
+   })());
+
+/* A roster read that throws must cost nothing but the friendlier label. */
+ROSTER = null;   // getEmployees() returns null → treated as an empty roster
+let noRoster = M.spiffProgress_({});
+ok('an unreadable roster leaves every name as Dutchie reported it, and still answers',
+   noRoster.ok !== false && noRoster.rows.length === 3
+   && noRoster.rows.every(function (r) { return !r.display_name; })
+   && noRoster.rows.every(function (r) { return !!r.name; }));
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nprogress cache: all passed');
 process.exit(fail ? 1 : 0);

@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.359"/>
-<link rel="stylesheet" href="spiff.css?v=1.359"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.360"/>
+<link rel="stylesheet" href="spiff.css?v=1.360"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -104,7 +104,7 @@
   </div>
 
   <div class="sp-subnav" id="subnavProgress" hidden>
-    <select class="sp-in" id="pgProgram" style="max-width:260px" title="Which program to track"></select>
+    <select class="sp-in sp-progpick" id="pgProgram" title="Which program to track"></select>
     <span id="pgLive"></span>
     <div class="sp-subnav-right">
       <span class="sp-pg-pulled" id="pgPulled"></span>
@@ -113,7 +113,7 @@
   </div>
 
   <div class="sp-subnav" id="subnavReports" hidden>
-    <select class="sp-in" id="repProgram" style="max-width:300px" title="Which program to close out"></select>
+    <select class="sp-in sp-progpick" id="repProgram" title="Which program to close out"></select>
     <span id="repStatus"></span>
     <span class="sp-h4-note">Nothing is sent from here &mdash; the vendor hears from Tawny.</span>
   </div>
@@ -428,6 +428,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="spiff.js?v=1.359"></script>
+<script src="spiff.js?v=1.360"></script>
 </body>
 </html>

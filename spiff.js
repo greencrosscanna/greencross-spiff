@@ -20,6 +20,12 @@
   // This app's own Apps Script engine. Same two-hop /exec as GX Core, so it gets the
   // same retry-aware client rather than a hand-rolled fetch.
   var ENGINE = 'https://script.google.com/macros/s/AKfycbw0JUgI01c7iaJRnuQgHdjUazDPtyEiEHZvlYkjflLSIVMY7qs-0Bkv4gPoxt8o2e6JZw/exec';
+  /* The wordmark for a LIGHT background — green "GREEN", black "CROSS". gx-theme's gx-logo.png is
+     drawn for the dark topnav and sets "CROSS" in WHITE, so on the vendor's white report sheet half
+     the company name simply disappears. This variant lives HERE rather than in gx-theme because
+     shared files are core-admin's to change (and five other apps load that one); if another app
+     ever needs a light-background lockup, that is the moment to promote it upstream. */
+  var LOGO_ONLIGHT = 'https://greencrosscanna.github.io/greencross-spiff/gx-logo-onlight.png';
 
   var GX  = GXClient(GXCORE);
   // Single-sourced from the ?v=N cache-buster on this script tag, the same value deploy.sh records,
@@ -3310,8 +3316,10 @@
       var rows = (st.rows || []).map(function (e) {
         var earned = Number(e.earned) || 0;
         return '<div class="sp-bt' + (earned > 0 ? ' is-hit' : '') + '">'
-          + '<span class="sp-bt-av">' + esc(initials(e.name)) + '</span>'
-          + '<span class="sp-bt-n" title="' + esc(e.name) + '">' + esc(e.name) + '</span>'
+          /* The legal name stays reachable in the tooltip — Tawny reconciles against Dutchie
+             exports, which only ever say "Andrew Phillips". */
+          + '<span class="sp-bt-av">' + esc(initials(personName(e))) + '</span>'
+          + '<span class="sp-bt-n" title="' + esc(e.name) + '">' + esc(personName(e)) + '</span>'
           + (earned > 0 ? '<span class="sp-bt-d is-earn">' + money(earned) + '</span>' : '')
           + '<span class="sp-bt-u">' + (Number(e.units) || 0).toLocaleString() + '</span></div>';
       }).join('') || '<div class="sp-bt"><span class="sp-bt-n">No matching sales</span></div>';
@@ -3849,10 +3857,32 @@
     if (closed.length) renderReport();
   }
 
+  /* Which report render is the current one. Switching programs fires renderReport again while the
+     previous one is still awaiting its email draft, and the two can come back out of order — so the
+     slower FIRST pick would repaint over the second, leaving the screen showing one program while
+     the picker names another. A monotonic token is the cheap fix: a render that is no longer the
+     latest throws its result away instead of painting it. */
+  var repRenderSeq = 0;
+
   async function renderReport() {
     var p = state.programs.filter(function (x) { return x.program_id === $('#repProgram').value; })[0];
     var host = $('#repBody');
     if (!p) { host.innerHTML = '<div class="sp-notice">No closed programs yet.</div>'; return; }
+
+    var mySeq = ++repRenderSeq;
+
+    /* SAY SOMETHING IS HAPPENING, IMMEDIATELY. This function awaits the vendor email draft from the
+       engine, and until it returns the previous program's report sat fully rendered on screen —
+       so switching the picker looked like it had not registered, on the exact call that can take
+       seconds against a cold engine. Sky, 2026-09-03. Painted BEFORE the await, and it names the
+       program being opened so the screen and the picker agree the moment you change it. */
+    host.innerHTML = '<div class="sp-rep-loading" aria-busy="true">'
+      + '<div class="sp-rep-loading-h">Opening <b>' + esc(p.program_name || p.title) + '</b>&hellip;</div>'
+      + '<div class="sp-sk sp-sk-hero"></div>'
+      + '<div class="sp-sk sp-sk-row"></div>'
+      + '<div class="sp-sk sp-sk-row"></div>'
+      + '<div class="sp-sk sp-sk-row is-short"></div>'
+      + '</div>';
 
     var a    = p.actual_json || {};
     var t    = p.target_json || {};
@@ -3905,6 +3935,10 @@
         + '<td class="num">' + g.hit + ' / ' + g.bts + '</td></tr>';
     }).join('');
 
+    /* Overtaken while we waited — a newer pick owns the screen now. Returning leaves ITS loading
+       state or its finished report in place, rather than replacing it with this stale one. */
+    if (mySeq !== repRenderSeq) return;
+
     host.innerHTML = suspect
       + '<div class="sp-rep-hero">'
       +   '<div><div class="sp-rep-owed-l">The vendor owes</div>'
@@ -3930,7 +3964,8 @@
       +     '<span class="sp-step-note" id="repStep1Note">saved to the SPIFF Reports folder in Drive</span></div>'
       +   '<div class="sp-step-b">'
       +     '<div class="sp-paper" id="printArea">'
-      +       '<div class="sp-paper-h"><div class="sp-paper-mark">GC</div>'
+      +       '<div class="sp-paper-h">'
+      +         '<img class="sp-paper-mark" src="' + LOGO_ONLIGHT + '" alt="Green Cross">'
       +         '<div class="sp-paper-t"><h3>' + esc(p.program_name || p.title) + ' &mdash; SPIFF results</h3>'
       +           '<p>Green Cross Cannabis Emporium &middot; ' + esc(prettyDay(p.start_date)) + ' &ndash; '
       +             esc(prettyDay(p.end_date || '')) + '</p></div>'
@@ -4557,8 +4592,8 @@
              not how far they are from a target that does not exist. */
           var earns = cardPerUnit && e.units > 0;
           return '<div class="sp-bt' + (earns || e.hit ? ' is-hit' : '') + '">'
-            + '<span class="sp-bt-av">' + esc(initials(e.name)) + '</span>'
-            + '<span class="sp-bt-n" title="' + esc(e.name) + '">' + esc(e.name) + '</span>'
+            + '<span class="sp-bt-av">' + esc(initials(personName(e))) + '</span>'
+            + '<span class="sp-bt-n" title="' + esc(e.name) + '">' + esc(personName(e)) + '</span>'
             + (cardPerUnit
                 ? (earns ? '<span class="sp-bt-d is-earn">' + money(e.units * cardRate) + '</span>' : '')
                 : (!e.hit && short > 0 ? '<span class="sp-bt-d">&minus;' + short + '</span>' : ''))
@@ -4588,6 +4623,66 @@
 
   /* Two initials from a Dutchie name. Names arrive as "Zach B" or "Zach Bradley" and
      occasionally as one word, which must not produce an empty circle. */
+  /* ---------------------------------------------------------- what people are CALLED
+   * Dutchie only knows the legal name someone was onboarded with, so sell-through arrives as
+   * "Andrew Phillips", "Christopher Carney", "Jennifer Alexander". Nineteen people on this roster
+   * go by something else — Drew, Chris, Jayce, Rose, Sunshine — and Progress is a screen those
+   * people read about themselves. Sky, 2026-09-03.
+   *
+   * DONE HERE, AT RENDER, and not by rewriting the measurement. Two of the three places a name
+   * appears read a STORED snapshot (`progress_json` on the program record), written when the
+   * program was measured — sometimes months ago, sometimes on a closed program that will never be
+   * measured again. Baking the friendly name in at measure time would freeze whatever the roster
+   * said that day; resolving on the way to the screen means correcting a name in Command Center
+   * fixes every screen at once, including the closed ones. The engine applies the same rule at
+   * read time for the cross-app `progress` payload GX Crew and the kiosks consume.
+   *
+   * The roster is fetched ONCE per session and cached, and a failure is silent: no roster means
+   * every row keeps the name Dutchie gave it, which is exactly what the screen showed before. A
+   * friendlier label is not worth an error banner. */
+  var rosterByDutchie = null;    // null = not loaded yet; {} = loaded, or tried and failed
+
+  async function loadRoster() {
+    if (rosterByDutchie) return rosterByDutchie;
+    var map = Object.create(null);
+    try {
+      var r = await ENG.jsonp('employees', { token: (session() || {}).token });
+      (r && r.employees || []).forEach(function (e) {
+        var id = String(e.dutchie_employee_id || '').trim();
+        var friendly = String(e.display_name || '').trim();
+        /* Only a name that actually DIFFERS is worth storing — mapping a name onto itself just
+           makes the lookup lie about having found something. */
+        if (id && friendly && nameKey(friendly) !== nameKey(e.full_name)) map[id] = friendly;
+        var nk = nameKey(e.full_name);
+        if (nk && friendly && nameKey(friendly) !== nk && !map['n:' + nk]) map['n:' + nk] = friendly;
+      });
+    } catch (err) {
+      /* Logged, not surfaced. The screen is fully usable with legal names. */
+      console.warn('[spiff] roster unavailable — showing the names Dutchie reported:', err);
+    }
+    rosterByDutchie = map;
+    return map;
+  }
+
+  function nameKey(s) { return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ''); }
+
+  /* The one name-rendering rule, used everywhere a budtender is shown on Progress.
+     Order matters: a display_name the ENGINE already resolved wins (it read the roster server-side
+     for this row), then our own lookup by Dutchie id, then by normalized legal name for the people
+     the connector has no id for, and finally the name as Dutchie reported it. */
+  function personName(e) {
+    if (!e) return '';
+    if (e.display_name) return e.display_name;
+    var map = rosterByDutchie;
+    if (map) {
+      var id = String(e.employee_id || '').trim();
+      if (id && map[id]) return map[id];
+      var nk = nameKey(e.name);
+      if (nk && map['n:' + nk]) return map['n:' + nk];
+    }
+    return e.name || '';
+  }
+
   function initials(name) {
     var parts = String(name || '').trim().split(/\s+/).filter(Boolean);
     if (!parts.length) return '?';
@@ -4866,12 +4961,21 @@
       fillProgramPickers();
     });
     var cacheP    = loadProgressCache();
+    /* In the same parallel wave, and deliberately NOT awaited by anything: it only decides whether
+       a budtender's card says "Drew" or "Andrew", so a slow or failed roster read must never hold
+       up a screen. Whatever has already painted keeps Dutchie's names; the next render picks the
+       friendly ones up. */
+    var rosterP   = loadRoster();
 
-    Promise.all([sharedP, programsP, cacheP]).then(function () {
+    Promise.all([sharedP, programsP, cacheP, rosterP]).then(function () {
       /* Re-render once everything is in: programs may have painted before store colors
          arrived, and the hero needs both to be complete. */
       renderPrograms();
       initBugReport();
+      /* The roster may have landed after Progress already painted — repaint so the friendly names
+         appear without the user having to switch away and back. Cheap: it re-renders from data
+         already in hand, with no further calls. */
+      if (state.tab === 'progress') paintProgress();
     });
   }
 

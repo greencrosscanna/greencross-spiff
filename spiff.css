@@ -426,6 +426,26 @@ body.is-gated .workspace { display: none !important; }
 .sp-pill-n { color: var(--gx-text-mute); font-variant-numeric: tabular-nums; }
 .sp-subnav-right { margin-left: auto; display: flex; gap: 8px; }
 
+/* THE PROGRAM PICKERS, on Progress and Reports. Both were capped by an inline max-width — 260px
+   and 300px — set back when an option was just the program's name. The name now carries its date
+   range, because programs repeat (Meraki Gardens, Mule and Hellavated each ran more than once) and
+   the window is the question Progress exists to answer. That pushed the longest real label to
+   "Mule Extracts 2g Dank Tank Spiff · Aug 31 → Sep 13, 2026" — 56 characters against a box sized
+   for roughly 30, so the part that disambiguates was the part being clipped.
+
+   `width: auto` lets a <select> size itself to its widest OPTION, which is the behaviour we
+   actually want: it tracks the real data instead of a number someone guessed, and it shrinks again
+   if the labels ever get shorter. The max-width is the guard rail, not the size — it stops one
+   absurdly long vendor name from pushing Refresh off the bar, and it yields to the viewport on a
+   narrow screen. min() rather than a bare px so both bounds apply.
+
+   In CSS, not back in a style attribute: two inline caps are how these drifted apart (260 vs 300)
+   for two pickers that show the same labels and sit in the same bar. */
+.sp-progpick {
+  width: auto;
+  max-width: min(460px, 100%);
+}
+
 /* ----------------------------------------------------------- the stat strip */
 .sp-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 24px; }
 .sp-stat {
@@ -1320,7 +1340,15 @@ body.is-gated .workspace { display: none !important; }
   padding: 26px 28px; font-size: 12.5px; line-height: 1.5;
 }
 .sp-paper-h { display: flex; align-items: flex-start; gap: 14px; border-bottom: 2px solid #1a1f1d; padding-bottom: 14px; }
-.sp-paper-mark { width: 34px; height: 34px; border-radius: 8px; background: #1a1f1d; color: #4ade80; font-weight: 800; font-size: 13px; display: flex; align-items: center; justify-content: center; flex: none; }
+/* THE LETTERHEAD ON THE VENDOR'S REPORT. Was the letters "GC" in a green-on-dark square — a
+   placeholder that went out on the one artifact a vendor actually receives. Sky, 2026-09-03.
+
+   Uses gx-logo-onlight.png, not gx-theme's gx-logo.png. The shared asset sets "CROSS" in WHITE
+   because it was drawn for the dark topnav; on this white sheet that half of the company's name
+   would be invisible. This is the same lockup with the white recoloured to black.
+
+   `height` drives it and width follows, so the 838x102 wordmark can never be squashed. */
+.sp-paper-mark { height: 26px; width: auto; display: block; flex: none; }
 .sp-paper-t { flex: 1; min-width: 0; }
 .sp-paper-t h3 { margin: 0; font-family: var(--sp-display); font-size: 18px; font-weight: 800; color: #1a1f1d; }
 .sp-paper-t p { margin: 3px 0 0; font-size: 11.5px; color: #5a635f; }
@@ -1408,3 +1436,38 @@ body.is-gated .workspace { display: none !important; }
   .sp-hist-row { grid-template-columns: 1fr auto; row-gap: 6px; }
 }
 
+
+/* ------------------------------------------------- the Reports loading state
+   Reports awaits the vendor email draft from the engine before it can paint, and until that
+   returned the PREVIOUS program's report stayed on screen — so changing the picker looked like
+   nothing had happened, on the one call most likely to be slow. This is what sits there instead.
+
+   Skeleton rather than a spinner: it holds roughly the shape that is coming, so the panel does not
+   jump when the real content lands, and the eye already knows where to look.
+
+   The shimmer is decoration and says so — prefers-reduced-motion turns it off and leaves a plain
+   block, which still communicates "loading" through the heading above it. Motion is never the only
+   thing carrying the message. */
+.sp-rep-loading { padding: 4px 0 8px; }
+.sp-rep-loading-h {
+  font-size: 13px; color: var(--gx-text-mute); margin-bottom: 14px;
+}
+.sp-rep-loading-h b { color: var(--gx-text); font-weight: 600; }
+.sp-sk {
+  border-radius: var(--gx-radius-md);
+  background: linear-gradient(90deg,
+    var(--gx-surface-3) 0%, var(--gx-surface-2) 50%, var(--gx-surface-3) 100%);
+  background-size: 200% 100%;
+  animation: sp-sk-slide 1.4s ease-in-out infinite;
+  margin-bottom: 10px;
+}
+.sp-sk-hero { height: 88px; }
+.sp-sk-row  { height: 46px; }
+.sp-sk-row.is-short { width: 62%; }
+@keyframes sp-sk-slide {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sp-sk { animation: none; background: var(--gx-surface-3); }
+}

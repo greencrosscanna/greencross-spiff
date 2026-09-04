@@ -235,6 +235,13 @@ function login_(p) {
    a map lookup is not. */
 /* `login` is public because it MUST be: it is what a user calls to become authenticated, so
    gating it on a session is a contradiction. See login_ for why sign-in lives on this engine. */
+/* The Green Cross wordmark drawn for a LIGHT background — green "GREEN", black "CROSS". The
+   vendor PDF is a white page, and gx-theme's shared gx-logo.png sets "CROSS" in WHITE because it
+   was made for the dark topnav, so that one would print as half a name. Served from this app's own
+   Pages site rather than gx-theme: shared assets are core-admin's to change and five other apps
+   load that file. */
+var LOGO_ONLIGHT = 'https://greencrosscanna.github.io/greencross-spiff/gx-logo-onlight.png';
+
 var PUBLIC_ACTIONS = ['ping', 'diag', 'libversion', 'clientView', 'flyer', 'login'];
 
 /* Actions that additionally need an editor role. The rest of the write surface checks its own
@@ -1605,6 +1612,60 @@ function payPeriodMatches_(row, want) {
   return !!(a && b && a <= want && want <= b);                        // inside the program window
 }
 
+/* THE NAME A BUDTENDER IS ACTUALLY CALLED, resolved from the GX Core roster.
+
+   Dutchie only knows the legal name it was onboarded with, so sell-through comes back as "Andrew
+   Phillips", "Christopher Carney", "Jennifer Alexander". Nineteen people on this roster go by
+   something else -- Drew, Chris, Jayce, Rose, Sunshine -- and Progress is a screen those people
+   read about themselves. GX Core already computes display_name (preferred name + surname), so
+   this is a lookup, not a new source of truth.
+
+   RESOLVED AT READ TIME, never stored on the cached row -- the same rule `status` follows two
+   functions up, for the same reason. The cache is a snapshot; a name corrected in Command Center
+   today would otherwise stay wrong on every row until that program happened to be re-measured,
+   and a closed program is never re-measured at all.
+
+   JOIN ON THE DUTCHIE ID FIRST, name second. 52 of 76 roster rows carry a dutchie_employee_id and
+   that is the only key that survives a legal-name change; the normalized-name fallback exists for
+   the rest, and catches the one preferred-name person the connector has no id for. Names are
+   normalized through userKey_ because the two systems disagree on punctuation and case.
+
+   Object.create(null): the keys are names from Dutchie, i.e. data we do not control, and a
+   budtender named "constructor" would otherwise find an inherited member truthy. Same class of bug
+   aggregateSellers_ documents.
+
+   FAILURE IS SILENT AND SAFE. A roster we cannot read returns an empty map, every row keeps the
+   name Dutchie gave it, and nothing else on the screen changes. A friendlier label is not worth
+   failing a payout read over. */
+function displayNameMap_() {
+  var rows;
+  try { rows = GXCore.getEmployees() || []; } catch (e) { return Object.create(null); }
+  var byId = Object.create(null), byName = Object.create(null);
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var friendly = String(r.display_name || '').trim();
+    /* Only when it actually DIFFERS from the legal name. Mapping a name onto itself is noise, and
+       it would make the response claim a substitution happened where none did. */
+    if (!friendly || userKey_(friendly) === userKey_(r.full_name)) continue;
+    var id = String(r.dutchie_employee_id || '').trim();
+    if (id) byId[id] = friendly;
+    var nk = userKey_(r.full_name);
+    if (nk && !byName[nk]) byName[nk] = friendly;
+  }
+  return { byId: byId, byName: byName };
+}
+
+/* Returns the friendly name, or '' when there is nothing better than what Dutchie gave us. The
+   caller decides what to do with '' -- these rows keep `name` either way, so a consumer that has
+   never heard of display_name is unaffected. */
+function friendlyName_(map, employeeId, dutchieName) {
+  if (!map || !map.byId) return '';
+  var id = String(employeeId || '').trim();
+  if (id && map.byId[id]) return map.byId[id];
+  var nk = userKey_(dutchieName);
+  return (nk && map.byName[nk]) || '';
+}
+
 function spiffProgress_(p) {
   /* guard_ has already authorized this call — either a valid session token or the deploy
      secret. Re-demanding the secret here would have made the route unreachable from a browser
@@ -1642,6 +1703,9 @@ function spiffProgress_(p) {
   }
   var wantStatus = String(p.status || '').trim().toLowerCase();
 
+  /* One roster read for the whole response, not one per row. See displayNameMap_. */
+  var nameMap = displayNameMap_();
+
   var rows = [], newest = '', orphans = Object.create(null), orphanRows = 0;
   vals.forEach(function (v) {
     var o = {};
@@ -1674,6 +1738,12 @@ function spiffProgress_(p) {
     o.refreshed_at = stampOf_(o.refreshed_at);
     o.start_date   = textDate_(o.start_date);
     o.end_date     = textDate_(o.end_date);
+    /* ADDED, never substituted. `name` stays exactly what Dutchie reported, because GX Crew and
+       the Leaderboard kiosks already read this payload and at least one of them may be joining on
+       it; display_name is a new field a consumer opts into. It is only present when it differs
+       from the legal name, so `display_name || name` is the whole rendering rule. */
+    var friendly = friendlyName_(nameMap, o.employee_id, o.name);
+    if (friendly) o.display_name = friendly;
     rows.push(o);
     if (o.refreshed_at > newest) newest = o.refreshed_at;
   });
@@ -1685,6 +1755,7 @@ function spiffProgress_(p) {
   rows.forEach(function (r) {
     var key = String(r.employee_id || ('name:' + r.name));
     var e = by[key] || (by[key] = { employee_id: r.employee_id || '', name: r.name,
+                                    display_name: r.display_name || '',
                                     earned: 0, programs: [] });
     e.earned += r.earned;
     e.programs.push({ program_id: r.program_id, vendor: r.vendor, name: r.program_name,
@@ -2383,7 +2454,13 @@ function reportHtml_(p, matrix) {
     + 'th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#666} .n{text-align:right}'
     + '.owed{margin-top:18px;padding:12px 14px;border:2px solid #111;display:inline-block}'
     + '.owed b{font-size:20px} .note{font-size:11px;color:#666;font-style:italic}'
+    /* The masthead, matching the on-screen preview the operator approves before saving.
+       gx-logo-onlight.png, NOT gx-theme's gx-logo.png: the shared asset sets "CROSS" in white for
+       the dark topnav, and on this white page half the company name would be invisible on the one
+       document a vendor actually receives. Height drives it so the wordmark cannot be squashed. */
+    + '.mark{display:block;height:26px;width:auto;margin:0 0 14px}'
     + '</style></head><body>'
+    + '<img class="mark" src="' + LOGO_ONLIGHT + '" alt="Green Cross">'
     + '<h1>Green Cross SPIFF Performance Report</h1>'
     + '<p class="sub">' + esc(p.program_name || p.title) + ' &middot; ' + esc(p.vendor)
     +   (p.start_date ? ' &middot; ' + esc(p.start_date) + ' to ' + esc(p.end_date || '') : '') + '</p>'
@@ -2619,6 +2696,12 @@ function gxEmployees_(opts) {
 
     out.push({
       employee_id: r.employee_id, full_name: r.full_name, home_store: store,
+      /* display_name is what the person is actually CALLED — GX Core's preferred name plus
+         surname, so "Andrew Phillips" ships as "Drew Phillips". Sent alongside full_name, never
+         instead of it: the roster's legal name is still the right thing for a record, and the
+         caller decides which one the screen wants. Present on every row (falling back to the
+         legal name) so a consumer can read it unconditionally. */
+      display_name: String(r.display_name || r.full_name || '').trim(),
       dutchie_employee_id: r.dutchie_employee_id || '', role_title: role
     });
     if (store) byStore[store] = (byStore[store] || 0) + 1;
