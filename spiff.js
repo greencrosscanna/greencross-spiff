@@ -1394,7 +1394,20 @@
     if (!user || !pass) { $('#siMsg').textContent = 'Enter your user and password.'; return; }
     $('#siMsg').textContent = 'Signing in…';
     try {
-      var r = await GX.jsonp('login', { user: user, pass: pass, app: APP });
+      /* SIGN IN AT OUR OWN ENGINE, not GX Core. Apps Script serializes per script, so a browser
+         calling GX Core /exec waits behind everything GX Core is doing for the whole suite; the
+         JSONP shape this line used to use measured 3.6-6.4s and spiked to 42s, and abandoning a
+         JSONP attempt does not cancel the execution, so every retry queued behind the one it gave
+         up on. That is the "GX jsonp login failed after 5 tries" Sky hit on 2026-09-03. The engine
+         calls GXCore.login in-process (see login_ in Code.gs) -- one hop, no shared queue.
+
+         getJSON, not jsonp: it bounds EACH attempt with an AbortController and retries only a
+         transport miss. A parsed {ok:false} is the server's ANSWER -- a wrong password -- and
+         resolves on the first attempt, so a refusal can never become a retry storm.
+
+         `app` is no longer sent: the engine hardcodes it when it calls GXCore.login, so a value
+         here would be decoration at best and a caller claiming a different app at worst. */
+      var r = await ENG.getJSON('login', { user: user, pass: pass }, { retries: 2, timeoutMs: 20000 });
       // Same `code` contract as the full-page gate, but NOT the same treatment: this modal is
       // reached from an app the user is already reading, so a full-page takeover would be a
       // worse answer than a plain sentence. Say the true thing and leave them where they are.
@@ -4626,7 +4639,8 @@
       var pw = document.getElementById('gatePass').value;
       btn.disabled = true; btn.textContent = 'Signing in…'; err.textContent = '';
       try {
-        var r = await GX.jsonp('login', { user: u, pass: pw, app: APP });
+        // Same move as doSignIn, and for the same reason — see the note there.
+        var r = await ENG.getJSON('login', { user: u, pass: pw }, { retries: 2, timeoutMs: 20000 });
         // Branch on `code`, NEVER on `error`. GX Core v164 ships `error` as human prose it
         // reserves the right to reword, and `code` as the contract that will not change.
         // no_access means the password was RIGHT and there is simply no grant on SPIFF --

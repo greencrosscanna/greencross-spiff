@@ -70,7 +70,10 @@
       var u = $('#gUser').value.trim(), pw = $('#gPass').value;
       btn.disabled = true; btn.textContent = 'Signing in…'; err.textContent = '';
       try {
-        var r = await GX.jsonp('login', { user: u, pass: pw, app: APP });
+        // Sign-in runs at our own engine, not GX Core — see login_ in Code.gs for why. The
+        // budtender flyer is the surface most likely to be opened cold on a phone, so it is
+        // the one that least tolerates a 42s queue at the front door.
+        var r = await ENG.getJSON('login', { user: u, pass: pw }, { retries: 2, timeoutMs: 20000 });
         // Branch on `code`, never on `error` — same contract the operator app uses.
         if (r && r.code === 'no_access') { renderNoAccess(u); return; }
         if (!r || !r.ok) throw new Error((r && r.error) || 'Sign-in failed');
