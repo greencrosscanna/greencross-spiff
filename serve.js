@@ -24,6 +24,12 @@
  * BEHAVIOUR IS SERVE.PY'S, deliberately: same per-app ports, same 127.0.0.1 default, same
  * no-store headers so an edit + reload is the whole loop, same silence per request. If you change
  * one, change the other.
+ *
+ * THIS COPY LIVES IN gx-theme, WHICH IS NOT AN APP. There is no .gx_app here, so running it in this
+ * repo exits 2 with "cannot read .gx_app" — that is the correct answer, not a fault. gx-sync.sh
+ * copies it into each spoke, where .gx_app exists and names the port. Written by spiff (dc59865)
+ * and adopted here unchanged apart from the log line below, because gx-theme owns the shared dev
+ * files and a second copy per spoke is how they drift.
  */
 'use strict';
 const http = require('http');
@@ -45,7 +51,7 @@ const PORTS = {
 const ROOT = __dirname;
 
 /* The app key comes from .gx_app, not a constant, so this file is identical in every spoke and
-   can move to gx-theme unchanged. serve.py hardcodes it because gx-sync.sh rewrites __APP__ on
+   can move to gx-theme unchanged. serve.py hardcodes it because gx-sync.sh rewrites spiff on
    the way in; reading the file needs no sync step at all. */
 let APP;
 try {
@@ -123,14 +129,13 @@ http.createServer(function (req, res) {
   });
 }).listen(PORT, BIND, function () {
   const where = BIND === '0.0.0.0' ? 'LAN — reachable from other devices' : 'localhost only';
-  /* The address WITHOUT the scheme, and that is deliberate. gx-preflight hard-fails on
-     `https?://(localhost|127\.0\.0\.1)` anywhere in a tracked .js, and exempts serve.py by name —
-     a list written before this file existed. Until serve.js joins it in gx-theme, printing the
-     full URL here would mean every push from this repo needs --no-verify, which switches OFF the
-     other four checks with it — fixtures left on, writes armed, dev-only blocks, credentials. One
-     missing scheme in a log line is a much smaller loss than a push gate nobody runs. Terminals
-     linkify host:port anyway.
-     When the exemption lands, put the scheme back. */
-  console.log('GX dev server — app=%s  listening on localhost:%d  (%s)', APP, PORT, where);
+  /* The scheme is back, because the exemption landed. spiff wrote this line without it on
+     2026-09-02 and said so in place: gx-preflight hard-fails on `https?://(localhost|127\.0\.0\.1)`
+     in any tracked .js and exempted serve.py by name, a list written before this file existed, so
+     printing the full URL would have forced --no-verify on every push — switching off the other
+     four checks with it. They took the smaller loss and left an instruction. This is that
+     instruction being carried out; serve.js now sits beside serve.py in the exclusion, and the
+     line matches its Python twin again. */
+  console.log('GX dev server — app=%s  http://localhost:%d  (%s)', APP, PORT, where);
   console.log('serving %s', ROOT);
 });
