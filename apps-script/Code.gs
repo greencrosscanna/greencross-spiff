@@ -152,6 +152,49 @@ function libVersion_() {
   }
 }
 
+/* Sign-in runs HERE, in-process, instead of the browser calling GX Core's /exec.
+
+   WHY IT MOVED (core-admin, 2026-09-03; Sky approved the same night). Apps Script serializes
+   execution per script, so a browser signing in at GX Core /exec queues behind everything GX Core
+   is doing for the whole suite. Measured at GX Core with curl: plain JSON 2.5-2.8s, but the JSONP
+   shape our frontend actually used ran 3.6-6.4s and spiked to 42s, and one attempt came back as
+   Google's Drive HTML page instead of an answer. Worse, abandoning a JSONP attempt does NOT cancel
+   the execution -- it keeps its slot -- so attempt N+1 queued behind the one we gave up on. The
+   retry manufactured the queueing it existed to survive; that is "GX jsonp login failed after 5
+   tries". Sales never had this because it signs in against its OWN deployment, exactly like this.
+
+   GXCore.login is a LIBRARY call: it runs inside this execution, so there is no second hop, no
+   JSONP, and no shared queue. What we do NOT escape is our own /exec's ~6% second-hop flake --
+   that is the transport, and the browser's bounded retry covers it.
+
+   UNGATED, and that is not an oversight. This runs BEFORE anyone is authenticated; the credentials
+   ARE the credential. The deploy secret must stay nowhere near this route -- UrlFetchApp puts the
+   whole URL into its exception message, which is how the live secret reached an on-screen error
+   banner on 2026-09-02.
+
+   Returns GXCore.login's payload WHOLE. It carries token, expiresAt, user (the SLUG), role,
+   displayName and avatarConfig, and the frontend needs all of them: keeping only r.user is what
+   once showed 'sky' and bare initials where the person's name and avatar belong. `code` rides
+   along untouched too, so the browser can still tell no_access (right password, no grant on SPIFF)
+   from a bad password. */
+function login_(p) {
+  var user = String(p.user || '').trim();
+  var pass = String(p.pass || '');
+  // Never reaches GXCore, and never reaches a log line either -- the password is in this frame.
+  if (!user || !pass) return { ok: false, error: 'Enter your user and password.' };
+  try {
+    if (typeof GXCore === 'undefined' || !GXCore) return { ok: false, error: 'Sign-in unavailable: GXCore not bound' };
+    if (typeof GXCore.login !== 'function')       return { ok: false, error: 'Sign-in unavailable: pinned GXCore has no login()' };
+    var r = GXCore.login(user, pass, APP);
+    /* A library call that returns nothing is not a failed password. Saying so plainly keeps a
+       broken pin from being reported to the user as bad credentials they will retry forever. */
+    if (!r) return { ok: false, error: 'Sign-in unavailable: GXCore.login returned nothing' };
+    return r;
+  } catch (e) {
+    return { ok: false, error: 'Sign-in failed: ' + scrubSecrets_(e && e.message || e) };
+  }
+}
+
 /* ------------------------- WHO MAY CALL WHAT -------------------------
  * These reads used to require NOTHING. The frontend's sign-in gate is real, but
  * the gate and the data live on different servers, so being signed in was never
@@ -190,7 +233,9 @@ function libVersion_() {
    default, so ?action=toString and ?action=__proto__ answer "Unknown action" rather than
    falling through. Verified against live, all six inherited names. A switch is immune where
    a map lookup is not. */
-var PUBLIC_ACTIONS = ['ping', 'diag', 'libversion', 'clientView', 'flyer'];
+/* `login` is public because it MUST be: it is what a user calls to become authenticated, so
+   gating it on a session is a contradiction. See login_ for why sign-in lives on this engine. */
+var PUBLIC_ACTIONS = ['ping', 'diag', 'libversion', 'clientView', 'flyer', 'login'];
 
 /* Actions that additionally need an editor role. The rest of the write surface checks its own
    role after this, because each has its own message about what the role cannot do.
@@ -253,6 +298,7 @@ function doGet(e) {
     switch (p.action) {
       case 'ping':        out = { ok: true, app: APP, ts: nowStamp_() };            break;
       case 'libversion': out = libVersion_();                                        break;
+      case 'login':       out = login_(p);                                          break;
       case 'programs':    out = { ok: true, programs: listProgramsCached_() };      break;
       case 'program':     out = getProgram_(p.id);                                  break;
       /* Bug reports ride GET for the same reason. Signed in but NOT in GATED_WRITES —
