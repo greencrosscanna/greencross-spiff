@@ -96,20 +96,69 @@
   }
 
   /* ------------------------------------------------------- GX Core loaders */
-  // Stores and employees are shared truth. Pull them; don't re-hardcode store names — Command
-  // Center edits must flow through on the next load.
+  /* ONE stores call per boot, through the shared client, cache first.
+
+     This app was making TWO. startChrome fired GXStores.load() for the header colors, and
+     loadShared separately awaited its own GX.jsonp('stores') for state.stores — same endpoint,
+     same payload, twice, and the second one blocked first paint. Apps Script serializes per
+     script, so both were queueing at GX Core behind whatever the rest of the suite was doing.
+
+     GXStores already solves this and this app already loads it: it keeps a 6h localStorage cache,
+     applies it SYNCHRONOUSLY at the top of load(), and only then goes to the network. So a warm
+     visit has its stores before the first await and never waits at all; a cold one waits once and
+     every visit after it does not.
+
+     storesOnce() is what makes it one call rather than two: it memoizes the promise, so
+     startChrome and loadShared share a single in-flight request no matter which runs first.
+
+     NO HARDCODED FALLBACK, deliberately — the suite rule stands and this is the shape of it: a
+     cache expires and refreshes itself, a local table silently outlives a Command Center edit. If
+     the network fails and the cache is cold we say so and render nothing, which is the honest
+     answer. */
+  var _storesP = null;
+  function storesOnce(opts) {
+    if (_storesP) return _storesP;
+    _storesP = window.GXStores
+      ? GXStores.load(GXCORE, opts)
+      /* GXStores loads by URL from Pages; if that request failed we still have a working app. */
+      : GX.jsonp('stores', {}, opts || {}).then(function (s) {
+          return (s && Array.isArray(s.stores)) ? s.stores : [];
+        });
+    return _storesP;
+  }
+
   async function loadShared(opts) {
     try {
-      var s = await GX.jsonp('stores', {}, opts || {});
-      if (!s || !Array.isArray(s.stores)) throw new Error('stores: unexpected response');
-      state.stores = s.stores;
+      /* Start it (or join the one startChrome started), THEN read what the cache already put in
+         place. GXStores.load applies its cache before its first await, so on a warm visit all() is
+         already populated on the very next line and the app can paint without a round trip. */
+      var p = storesOnce(opts);
+      var cached = (window.GXStores && GXStores.all()) || [];
+      if (cached.length) {
+        state.stores = cached;
+        conn('GX Core', 'cached');
+      }
+
+      var rows = await p;
+      if (rows && rows.length) {
+        state.stores = rows;
+        conn('GX Core', 'connected');
+      } else if (!cached.length) {
+        throw new Error('stores: no rows from GX Core and nothing cached');
+      }
 
       // NOTE: the roster is NOT fetched here. GX Core exposes no public `employees`
       // action — it lives behind the bound GXCore library, so only the engine can read
       // it. This used to call action=employees and silently swallow "Unknown action",
       // leaving state.employees permanently empty while looking fine.
-      conn('GX Core', 'connected');
     } catch (err) {
+      /* A refresh that fails on top of a good cache is NOT an outage — the screen is correct and
+         saying "offline" over it would be a lie the user has to work out for themselves. */
+      if (state.stores.length) {
+        conn('GX Core', 'cached');
+        console.warn('[spiff] stores refresh failed; showing the cached registry:', err);
+        return;
+      }
       conn('offline', 'GX Core unreachable');
       console.error('[spiff] GX Core load failed:', err);
     }
@@ -2443,7 +2492,19 @@
      than to no answer, and the app still says which it used. */
   var payCfg = { anchor: '2026-05-11', days: 14, live: false };
 
+  /* WIRED UP 2026-09-03, and it had never been called. This function existed, was correct, and
+     nothing invoked it — so payCfg.live was permanently false and every pay period in this app came
+     from the built-in anchor, not from GX Core. Nothing was WRONG when it was found: the fallback
+     (2026-05-11 / 14) matches Core's config exactly, verified the same day. That is precisely why
+     it went unnoticed, and precisely why it mattered — the comment above says hardcoding the anchor
+     would put SPIFF's fortnight on a different timeline from payroll's with nothing to announce the
+     drift, and that was the live situation the moment Mike moved it.
+
+     Reports whether the change is REAL rather than just whether the call succeeded, so the caller
+     can repaint only when the grid actually moved. Re-rendering every boot to apply the same two
+     numbers would be noise. */
   async function loadPayPeriods() {
+    var was = payCfg.anchor + '/' + payCfg.days;
     try {
       var r = await GX.jsonp('config', {});
       if (r && r.ok && r.config) {
@@ -2453,6 +2514,7 @@
         if (d > 0) payCfg.days = d;
       }
     } catch (e) { console.warn('[spiff] pay-period config unavailable, using built-in anchor'); }
+    payCfg.moved = (payCfg.anchor + '/' + payCfg.days) !== was;
     return payCfg;
   }
 
@@ -4695,7 +4757,8 @@
      never showing placeholder dashes, signed in or out. */
   function startChrome() {
     if (window.GXTopNav) GXTopNav.startClock();
-    if (window.GXStores) GXStores.load(GXCORE).catch(function () { /* colors are a nicety */ });
+    /* Shared with loadShared via storesOnce — one request, whichever gets there first. */
+    storesOnce().catch(function () { /* colors are a nicety */ });
   }
 
   /* Full-page sign-in gate. SPIFF holds compensation data, and it is heading INSIDE Inventory the way
@@ -4961,13 +5024,24 @@
       fillProgramPickers();
     });
     var cacheP    = loadProgressCache();
+    /* NOT awaited by first paint, on purpose: the built-in anchor is correct today, so the screen
+       is right the moment it renders and this only has to CORRECT it if Core disagrees. Blocking
+       every boot on a call that almost always changes nothing would trade a real second of latency
+       for a hypothetical one. See loadPayPeriods — it had never been called at all until now. */
+    var payP      = loadPayPeriods().then(function (cfg) {
+      if (!cfg.moved) return;
+      /* The anchor moved under us, so every period label and every derived window on screen is now
+         wrong. Repaint the two places that render them. */
+      console.warn('[spiff] pay-period grid moved to ' + cfg.anchor + '/' + cfg.days + ' — repainting');
+      try { fillProgramPickers(); renderPrograms(); } catch (e) {}
+    });
     /* In the same parallel wave, and deliberately NOT awaited by anything: it only decides whether
        a budtender's card says "Drew" or "Andrew", so a slow or failed roster read must never hold
        up a screen. Whatever has already painted keeps Dutchie's names; the next render picks the
        friendly ones up. */
     var rosterP   = loadRoster();
 
-    Promise.all([sharedP, programsP, cacheP, rosterP]).then(function () {
+    Promise.all([sharedP, programsP, cacheP, rosterP, payP]).then(function () {
       /* Re-render once everything is in: programs may have painted before store colors
          arrived, and the hero needs both to be complete. */
       renderPrograms();
