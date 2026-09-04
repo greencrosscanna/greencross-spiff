@@ -1637,23 +1637,39 @@ function payPeriodMatches_(row, want) {
    FAILURE IS SILENT AND SAFE. A roster we cannot read returns an empty map, every row keeps the
    name Dutchie gave it, and nothing else on the screen changes. A friendlier label is not worth
    failing a payout read over. */
-/* THE ROSTER, WITH THE NAME FIELDS THE LIBRARY DOES NOT EXPOSE.
+/* THE ROSTER, CARRYING THE DERIVED NAME FIELDS.
 
-   GXCore.getEmployees() -- the bound library call this app uses everywhere else -- returns
-   full_name and no preferred_name or display_name. GX Core's HTTP route does return them, off the
-   same sheet. So the friendly name is not missing from GX Core; it is missing from the library's
-   projection of it, and no re-pin fixes that on our side.
+   THE LIBRARY DOES NOT DERIVE; IT DOES NOT WITHHOLD. GXCore.getEmployees() is a bare read of the
+   employees tab, so every STORED column comes back -- preferred_name included. display_name and
+   short_name are not columns at all: GX Core COMPUTES them (gxDisplayName_ / gxShortName_) and
+   only its HTTP route applies that decoration, so the library hands back undecorated rows.
 
-   Found by verifying against the LIVE engine after deploying: every row came back with
-   display_name exactly equal to full_name, so the feature was a silent no-op while every test
-   passed. The tests mock getEmployees, which is precisely the shape they cannot check.
+   Corrected 2026-09-03. This comment first said the library "returns full_name and no
+   preferred_name or display_name", which is wrong about preferred_name and would send the next
+   reader looking for a missing column that is right there. What I actually observed is narrower
+   and still true: every row came back with display_name equal to full_name. core-admin supplied
+   the reason, from Core's source.
+
+   IT MATTERS BECAUSE IT CHANGES WHAT THE UPSTREAM FIX IS -- decorate getEmployees() the way the
+   route already does, not add a column. It also means this app COULD derive the name itself from
+   preferred_name and skip the fetch entirely. Deliberately not doing that: the derivation is
+   Core's rule, and gxDisplayName_ exists precisely because a name living in two places drifted
+   (Crew corrected a record while another row kept the old spelling, and apps read the source of
+   truth and still showed the wrong name). A second copy of the rule here would agree with Core by
+   luck rather than by construction. Better to pay a cached fetch and read the one answer.
+
+   HOW IT WAS FOUND, which is the part worth keeping: by probing the LIVE engine after deploying.
+   v1.360 shipped this feature as a silent no-op with a full green test suite, because the tests
+   mock getEmployees -- a mock returns whatever you tell it to, so it can never catch the real
+   projection being wrong. No test would have caught this. The habit did.
 
    Fetched over HTTP with the deploy secret, the same way gxStores_ reads stores, and cached for 15
    minutes -- names change about never, and this sits on a route Crew and the kiosks poll. Errors
    are scrubbed: UrlFetchApp puts the whole URL, secret included, into its exception message.
 
-   The cleaner fix is upstream -- getEmployees() carrying the field -- and that is core-admin's to
-   make. This is not worth blocking a display nicety on another app's release. */
+   REMOVE THIS once getEmployees() decorates. That is a Core cut and another re-pin round, and it
+   fixes nothing this does not already deliver, so it is not urgent -- but when it lands, this
+   function and its fallback should go rather than linger as a second path to the same answer. */
 function gxRosterFull_() {
   var cache = CacheService.getScriptCache();
   var hit = cache.get('gx_roster_names');
@@ -1680,9 +1696,11 @@ function gxRosterFull_() {
 function displayNameMap_() {
   var rows;
   try { rows = gxRosterFull_() || []; } catch (e) { return Object.create(null); }
-  /* Fall back to the library when the HTTP read gives us nothing: it has no friendly names, so the
-     map simply comes out empty and every row keeps the name Dutchie reported. Failing to a worse
-     LABEL is fine; failing the read is not. */
+  /* Fall back to the library when the HTTP read gives us nothing. Its rows are undecorated, so the
+     map comes out empty and every row keeps the name Dutchie reported. Deliberately NOT deriving a
+     name from preferred_name here either -- see gxRosterFull_ -- because a fallback that computes
+     names a different way than the primary path is worse than one that simply shows fewer of them.
+     Failing to a worse LABEL is fine; failing the read is not. */
   if (!rows.length) { try { rows = GXCore.getEmployees() || []; } catch (e2) { return Object.create(null); } }
   var byId = Object.create(null), byName = Object.create(null);
   for (var i = 0; i < rows.length; i++) {
@@ -2717,9 +2735,9 @@ function reportBug_(p) {
 function gxEmployees_(opts) {
   opts = opts || {};
   var rows;
-  /* Prefer the HTTP roster: it carries preferred_name / display_name, which the bound library's
-     getEmployees() projection drops. See gxRosterFull_. Falls back to the library, which still has
-     everything except the friendlier name. */
+  /* Prefer the HTTP roster: GX Core DERIVES display_name / short_name there, and the bound
+     library returns rows undecorated. See gxRosterFull_. Falls back to the library, which carries
+     every stored column but none of the computed ones. */
   try {
     rows = gxRosterFull_() || [];
   } catch (e0) { rows = []; }
