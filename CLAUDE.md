@@ -152,6 +152,19 @@ Google's consent HTML instead of JSON until the owner has authorized.
   converse is guarded too — an **empty** programs tab makes every row look orphaned, so that
   refuses rather than answering with silence shaped like zero.
 
+- **Never delete a program by deleting its row** (2026-09-06). Use the Delete section in the
+  record panel, or `?action=deleteProgram` — a program is not one row. Its measurements live in
+  `spiff_progress` keyed on `program_id`, and `?action=progress` is read by GX Crew's incentive
+  column and the Leaderboard kiosks, so pulling the `programs` row by hand strands every one of
+  them as an orphan still carrying `earned` dollars. That is the BeGOAT failure above,
+  manufactured on purpose. The route unfiles the program, drops its measurements and clears the
+  cache together, and copies the row to a **`deleted_programs`** tab (with who and when) before
+  removing it, so a wrong delete is recoverable. **A CLOSED program is refused** — it was
+  reported to the vendor and paid, so it stays in History; draft and active are deletable. The
+  confirmation is the typed program name, checked server-side, because writes ride on GET here
+  and a URL gets pasted and re-fetched. A deploy secret alone cannot delete: the handler wants a
+  real session. Pinned by `tests/delete_program_test.js`.
+
 - **Payout model.** Most programs are **flat**: a fixed dollar bounty to each budtender who hits their
   individual target (`SPIFF $25 × 17 BTs = $425`). But **`per_unit` is real and implemented** — Hapy
   Kitchen (2.16–3.1.26) paid "$1 for every unit sold", with "Unit Based"/"You Decide" where the goals
