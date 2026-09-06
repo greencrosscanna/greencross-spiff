@@ -313,6 +313,7 @@ function doGet(e) {
       case 'bugreport':   out = reportBug_(p);                                      break;
       case 'editProgram': out = editProgram_(p);                                    break;
       case 'createProgram': out = createProgram_(p);                                break;
+      case 'deleteProgram': out = deleteProgram_(p);                                break;
       case 'employees':   out = gxEmployees_();                                     break;
       case 'diag':        out = diag_();                                            break;
       case 'buildReport': out = buildReport_(p);                                    break;
@@ -399,6 +400,7 @@ function doPost(e) {
     switch (body.action) {
       case 'saveProgram':   out = saveProgram_(body.program);         break;
       case 'editProgram':   out = editProgram_(body);                 break;
+      case 'deleteProgram': out = deleteProgram_(body);               break;
       case 'closeProgram':  out = notImplemented_('closeProgram');    break;
       case 'buildReport':   out = buildReport_(body);                 break;
       case 'draftEmail':    out = emailDraft_(body);                   break;
@@ -898,6 +900,102 @@ function createProgram_(p) {
   var res = saveProgram_(draft, { editedBy: auth.user });
   res.program_id = id;
   return res;
+}
+
+/* ── DELETING A PROGRAM ───────────────────────────────────────────────────────────────────────
+ * Sky, 2026-09-06: "need a way to delete a program, specifically the Wyld 10pc. it never
+ * happened so we can delete it."
+ *
+ * The obvious answer — open the sheet and delete the row — is the one that has already cost real
+ * money here. A program is not one row. Its MEASUREMENTS live in `spiff_progress`, keyed on
+ * program_id, and ?action=progress is read by GX Crew's incentive column and the Leaderboard
+ * kiosks. Delete the program and leave those behind and every one of them is an orphan carrying
+ * `earned` dollars for a program that no longer exists. That is exactly the BeGOAT failure of
+ * 2026-08-31: 25 stranded rows, $350 of earnings, fourteen people showing as owed $25 for a
+ * fortnight that had already been paid. `orphan_rows` was added to CATCH that; a hand-delete
+ * manufactures it on purpose.
+ *
+ * So deletion is a route, not a spreadsheet gesture, and it does the whole job at once: unfile the
+ * program, drop its measurements, clear the cache.
+ *
+ * NOTHING IS DESTROYED. The row moves to `deleted_programs` with who removed it and when. Gone
+ * from every surface, still recoverable by a human who deleted the wrong one — which matters
+ * because this is reachable over GET, and a URL is a thing that gets pasted, bookmarked and
+ * re-fetched. For the same reason the typed confirmation is checked HERE and not only in the
+ * browser: a dialog is a claim about a screen, this is the control.
+ *
+ * A CLOSED PROGRAM IS NOT DELETABLE. Closed means it ran, was measured, was reported to the vendor
+ * and was paid — the same reasoning that makes closed terminal in the status roll and locks its
+ * goals in the Calculator. Draft and active are fair game: a draft never ran, and an active one
+ * can only have been created by mistake if it is being deleted at all. Wyld 10pc is a draft.
+ */
+var DELETED_TAB = 'deleted_programs';
+
+function deletedSheet_() {
+  var sh = dataSheet_().getParent().getSheetByName(DELETED_TAB);
+  if (!sh) {
+    sh = dataSheet_().getParent().insertSheet(DELETED_TAB);
+    sh.getRange(1, 1, 1, DELETED_HEADERS.length).setValues([DELETED_HEADERS]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+var DELETED_HEADERS = PROGRAM_HEADERS.concat(['deleted_by', 'deleted_at', 'deleted_reason']);
+
+function deleteProgram_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) {
+    return { ok: false, error: 'Your role (' + auth.role + ') cannot delete SPIFF programs' };
+  }
+  if (!p.id) return { ok: false, error: 'id required' };
+
+  var current = getProgram_(p.id);
+  if (!current.ok) return current;
+  var prog = current.program;
+
+  if (String(prog.status || '').toLowerCase() === 'closed') {
+    return { ok: false, error: 'This program is closed — it ran, was reported to the vendor and was '
+                             + 'paid, so it stays in History. Only a draft or an active program can be deleted.' };
+  }
+
+  /* Confirm by NAME, compared server-side. The caller has to have read the record it is deleting;
+     a bare id in a re-fetched URL cannot satisfy this. */
+  var want = String(prog.program_name || prog.title || '').trim();
+  if (String(p.confirm || '').trim() !== want) {
+    return { ok: false, error: 'Type the program name exactly to confirm: ' + want };
+  }
+
+  /* Tombstone BEFORE the row goes, so a failure between the two leaves a duplicate rather than
+     nothing at all. A copy is recoverable; a gap is not. */
+  deletedSheet_().appendRow(
+    programToRow_(prog, { edited_by: prog.edited_by, edited_at: prog.edited_at })
+      .concat([auth.user, nowStamp_(), String(p.reason || '').slice(0, 500)]));
+
+  var sh = dataSheet_(), last = sh.getLastRow(), idCol = PROGRAM_HEADERS.indexOf('program_id');
+  var removed = false;
+  if (last >= 2) {
+    var rows = sh.getRange(2, 1, last - 1, PROGRAM_HEADERS.length).getValues();
+    for (var i = rows.length - 1; i >= 0; i--) {
+      if (String(rows[i][idCol]) !== String(p.id)) continue;
+      sh.deleteRow(i + 2);
+      removed = true;
+    }
+  }
+  invalidatePrograms_();
+
+  /* The measurements go with it. Failing here would leave exactly the orphans this route exists to
+     avoid, so it is reported rather than swallowed — but the program is already unfiled, and
+     re-running the delete is harmless. */
+  var dropped = 0, dropError = '';
+  try { dropped = dropProgressRows_(p.id); }
+  catch (e) { dropError = String(e && e.message || e); }
+
+  return { ok: true, program_id: p.id, deleted: removed, dropped_rows: dropped,
+           deleted_by: auth.user, program_name: want,
+           warning: dropError ? 'Program removed, but its cached progress rows could not be '
+                              + 'dropped (' + dropError + ') — re-run the delete.' : undefined };
 }
 
 /* Validate a GX Core session token and resolve this user's role on `spiff`.

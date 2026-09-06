@@ -1307,6 +1307,39 @@
       if (p.share_token) $('#btnRevoke').addEventListener('click', function () { revokeShare(p, this); });
     }
 
+    /* ── Deleting ─────────────────────────────────────────────────────────────────────────────
+       Last thing in the panel, because it is the last thing anyone should reach for. A closed
+       program says why it cannot go rather than simply not offering the button — an absent
+       control is indistinguishable from a broken one. */
+    if (canEdit()) {
+      var closed = String(p.status || '').toLowerCase() === 'closed';
+      $(REC.body).insertAdjacentHTML('beforeend',
+        '<h4>Delete</h4>'
+        + (closed
+            ? '<p class="hint">This program is closed — it ran, was reported to the vendor and was '
+              + 'paid, so it stays in History. Nothing here deletes it.</p>'
+            : '<p class="hint">Removes this program and every progress figure measured for it. '
+              + 'It moves to the <b>deleted_programs</b> tab of the engine sheet, so a wrong '
+              + 'delete is recoverable — but it disappears from Programs, History, the vendor '
+              + 'link and the Progress feed that GX Crew and the kiosks read.</p>'
+              + '<div class="share-row">'
+              +   '<input class="gx-input" id="delConfirm" placeholder="Type &quot;'
+              +     esc(p.program_name || p.title || '') + '&quot; to confirm" autocomplete="off">'
+              +   '<button class="gx-btn" id="btnDelete" disabled>Delete this program</button>'
+              + '</div>'));
+      if (!closed) {
+        /* The button stays dead until the name is typed. Nothing to mis-click, and the confirmation
+           is visible on the screen it belongs to rather than in a dialog that covers it. */
+        var want = String(p.program_name || p.title || '').trim();
+        var box  = $('#delConfirm'), del = $('#btnDelete');
+        box.addEventListener('input', function () { del.disabled = box.value.trim() !== want; });
+        del.addEventListener('click', function () {
+          if (box.value.trim() !== want) return;
+          deleteProgram(p, this);
+        });
+      }
+    }
+
     var s = session();
     $(REC.signIn).hidden = canEdit();
     $(REC.msg).textContent = s
@@ -1420,6 +1453,42 @@
       console.error('[spiff] revoke failed:', err);
     }
     btn.disabled = false;
+  }
+
+  /* Deleting is gated on typing the program's NAME, not on an OK. A confirm() dialog is one reflex
+     click, and the thing being deleted here carries measurements three other surfaces read. The
+     engine checks the same name again on arrival — the input is the prompt, not the guarantee. */
+  async function deleteProgram(p, btn) {
+    var name = String(p.program_name || p.title || '').trim();
+    btn.disabled = true;
+    btn.textContent = 'Deleting…';
+    try {
+      var r = await ENG.jsonp('deleteProgram', {
+        token: (session() || {}).token, id: p.program_id, confirm: name
+      });
+      if (r && r.needsAuth) { clearSession(); openSignIn(); throw new Error('signed out'); }
+      if (!r || !r.ok) throw new Error((r && r.error) || 'delete failed');
+
+      /* Leave the program we just deleted before repainting — the Calculator is still holding it
+         open, and syncRecordMount would find nothing to mount underneath a live form. */
+      calc.editingId = null; calc.window = null; calc.locked = false;
+      await loadPrograms();
+      renderPrograms();
+      renderHistory();
+      fillProgramPickers();
+      syncRecordMount();
+      applyStatusView();
+      showTab('programs');
+      alert('Deleted "' + name + '"'
+            + (r.dropped_rows ? ' and ' + r.dropped_rows + ' measured progress row'
+                                + (r.dropped_rows === 1 ? '' : 's') : '')
+            + '.' + (r.warning ? '\n\n' + r.warning : ''));
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Delete this program';
+      alert('Could not delete: ' + (err && err.message || err));
+      console.error('[spiff] delete failed:', err);
+    }
   }
 
   // Credentials go to GX Core, which owns sign-on; SPIFF never stores a password.
