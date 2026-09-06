@@ -36,15 +36,21 @@ function grab(name) {
 }
 const scrub = new Function(grab('scrubSecrets_') + '; return scrubSecrets_;')();
 
+/* A STAND-IN, never a real secret. The scrubber matches by PATTERN, not by value, so what this
+   proves does not depend on the value being real — and the first version of this file pasted the
+   LIVE one in here, which committed it to a public repo and forced a suite-wide rotation on
+   2026-09-06. The leak this test exists to prevent is the leak this test caused. Keep it fake. */
+const FAKE_SECRET = 'NOT-A-REAL-SECRET-0000000000000';
+
 /* The message that actually leaked, shape for shape. */
 const LEAKED = 'GX Core unreachable: Address unavailable: '
   + 'https://script.google.com/macros/s/AKfycbx9mjeCB/exec?action=sales_by_employee'
-  + '&secret=5BPaLToI9GKsXEppdpbKTbs_gn93P75t&from=2026-08-05&to=2026-09-01'
+  + '&secret=' + FAKE_SECRET + '&from=2026-08-05&to=2026-09-01'
   + '&stores=commercial&brand=Portland%20Heights';
 
 const out = scrub(LEAKED);
 ok('the secret is gone from the message that actually leaked',
-   out.indexOf('5BPaLToI9GKsXEppdpbKTbs_gn93P75t') < 0);
+   out.indexOf(FAKE_SECRET) < 0);
 ok('  …replaced by something that says what happened', /secret=\[redacted\]/.test(out));
 /* The rest has to survive, or the fix trades a leak for an unreadable error and the next failure
    takes an afternoon instead of a minute. */
@@ -87,6 +93,17 @@ ok('the router’s own catch is scrubbed as well',
 /* The secret file must never be committed. */
 const ignored = fs.readFileSync(__dirname + '/../.gitignore', 'utf8');
 ok('.gx_deploy_secret is gitignored', /^\.gx_deploy_secret$/m.test(ignored));
+
+/* Belt and braces, and the reason is this file's own history: it must never again hold the live
+   value. Compared against the real secret when one is present locally, skipped in CI where it is
+   not — a check that cannot run is not a check that passed, so it says which happened. */
+try {
+  const live = fs.readFileSync(__dirname + '/../.gx_deploy_secret', 'utf8').trim();
+  ok('this test file does not contain the live deploy secret',
+     !!live && fs.readFileSync(__filename, 'utf8').indexOf(live) < 0);
+} catch (e) {
+  console.log('  – no .gx_deploy_secret here; live-value check skipped');
+}
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nsecret leak: all passed');
 process.exit(fail ? 1 : 0);
