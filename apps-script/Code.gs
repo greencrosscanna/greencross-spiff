@@ -265,7 +265,8 @@ var GATED_WRITES = [];
    that stay secret-only both COST something: refreshProgress walks every store's date windows
    (~57s measured) and installProgressTrigger changes the schedule. A deploy secret still opens
    all three; see guard_. */
-var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses', 'snapshotProgress'];
+var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses', 'snapshotProgress',
+                      'sweepOrphanProgress'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -327,6 +328,7 @@ function doGet(e) {
       // The progress cache — the fast read GX Crew's incentive column and Leaderboard's kiosk
       // ticks both use. Secret-gated: a kiosk holds no session and Crew's engine has no browser.
       case 'progress':    out = spiffProgress_(p);                                   break;
+      case 'sweepOrphanProgress': out = sweepOrphanProgress_(p);                    break;
       /* ONE STORE PER CALL. A full sweep is ~9s per store and /exec is killed at 60s — asking for
          all of them timed out with nothing written and no error to read, which is the worst of both.
          Called WITHOUT a store this returns the PLAN (every program × store pair) so a caller can
@@ -1824,6 +1826,94 @@ function friendlyName_(map, employeeId, dutchieName) {
   if (id && map.byId[id]) return map.byId[id];
   var nk = userKey_(dutchieName);
   return (nk && map.byName[nk]) || '';
+}
+
+/* ── SWEEPING ORPHANED CACHE ROWS ────────────────────────────────────────────────────────────────
+ * The delete route drops a program's rows as it goes, so nothing new strands. This is for the
+ * debris that predates it: rows whose program was removed, or re-keyed, before anything cleaned up
+ * after itself. On 2026-09-06 that was 26 rows — 25 under `begoat-0826`, the pre-seed key the
+ * SPIF-doc seed replaced with `begoat-2026-07-20-2026-08-03`, plus one row with no program_id at
+ * all.
+ *
+ * They are already kept out of `rows` and `by_employee`, so this is not a correctness fix — it is
+ * removing a trap. Every consumer has to keep remembering to exclude them, and the day one forgets
+ * is the day fourteen people show as owed $25 again.
+ *
+ * ORPHANED MEANS THE PROGRAM ROW IS GONE — nothing subtler. spiffProgress_ decides what to serve on
+ * a resolved STATUS being empty, which catches a genuine orphan and also a program that exists with
+ * a blank status cell. Dropping a row from a response on that basis is recoverable by fixing the
+ * cell; DELETING it is not. So this asks the stricter question, and the two are allowed to disagree
+ * precisely because one of them is irreversible. (No live program has a blank status today. That is
+ * a reason this has never bitten, not a reason to lean on it.)
+ *
+ * The empty-programs guard is the same one spiffProgress_ carries, for the same reason and with
+ * more at stake: a momentary failure to read `programs` makes every cached row look orphaned, and
+ * here that would delete the lot. A source that could not be read is not a list of orphans.
+ *
+ * DRY BY DEFAULT. It reports the plan and writes nothing unless `apply=1`, and what it removes is
+ * copied to `swept_progress_rows` first. These rows carry `earned` dollars for programs that were
+ * really paid — they are not authoritative about money any more, since the payout they were
+ * computed from no longer exists in the system of record, but that is a reason not to SERVE them,
+ * not a reason to make them unrecoverable.
+ */
+var SWEPT_TAB = 'swept_progress_rows';
+
+function sweepOrphanProgress_(p) {
+  var want = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  if (!want) return { ok: false, error: 'GX_DEPLOY_SECRET is not set on this script' };
+  if (String(p.secret || '') !== want) return { ok: false, error: 'Unauthorized' };
+
+  /* Uncached, like getProgram_: a delete reads the truth, not a five-minute-old copy of it. */
+  var known = listPrograms_();
+  if (!known.length) {
+    return { ok: false, error: 'could not read the programs tab, so nothing can be called an '
+               + 'orphan. This is a failure to read, NOT a cache where every row is stranded.' };
+  }
+  var live = Object.create(null);
+  known.forEach(function (pr) { live[String(pr.program_id)] = 1; });
+
+  var sh = progressSheet_();
+  if (sh.getLastRow() < 2) return { ok: true, swept: 0, rows: 0, note: 'the progress cache is empty' };
+
+  var vals = sh.getRange(2, 1, sh.getLastRow() - 1, PROGRESS_HEADERS.length).getValues();
+  var idCol = PROGRESS_HEADERS.indexOf('program_id');
+  var earnCol = PROGRESS_HEADERS.indexOf('earned');
+
+  var plan = Object.create(null), doomed = [];
+  for (var i = 0; i < vals.length; i++) {
+    var id = String(vals[i][idCol] || '');
+    if (live[id]) continue;
+    doomed.push(i);                                   // index into vals; sheet row is i + 2
+    var k = id || '(no program_id)';
+    if (!plan[k]) plan[k] = { program_id: id, rows: 0, earned: 0 };
+    plan[k].rows++;
+    plan[k].earned += Number(vals[i][earnCol]) || 0;
+  }
+  var summary = Object.keys(plan).map(function (k) { return plan[k]; });
+
+  if (!doomed.length) return { ok: true, swept: 0, rows: 0, note: 'no orphaned rows' };
+  if (String(p.apply || '') !== '1') {
+    return { ok: true, dry: true, would_sweep: doomed.length, programs: summary,
+             note: 'nothing was written — re-run with apply=1' };
+  }
+
+  /* Copy first. A failure between the two leaves the rows in both places, which is noise; the
+     other order loses them. */
+  var ss = sh.getParent(), keep = ss.getSheetByName(SWEPT_TAB);
+  if (!keep) {
+    keep = ss.insertSheet(SWEPT_TAB);
+    keep.getRange(1, 1, 1, PROGRESS_HEADERS.length + 1)
+        .setValues([PROGRESS_HEADERS.concat(['swept_at'])]).setFontWeight('bold');
+    keep.setFrozenRows(1);
+  }
+  var stamp = nowStamp_();
+  var copies = doomed.map(function (i) { return vals[i].slice(0, PROGRESS_HEADERS.length).concat([stamp]); });
+  keep.getRange(keep.getLastRow() + 1, 1, copies.length, PROGRESS_HEADERS.length + 1).setValues(copies);
+
+  // Bottom-up: deleting a row shifts every row after it.
+  for (var j = doomed.length - 1; j >= 0; j--) sh.deleteRow(doomed[j] + 2);
+
+  return { ok: true, swept: doomed.length, programs: summary, kept_in: SWEPT_TAB, swept_at: stamp };
 }
 
 function spiffProgress_(p) {
