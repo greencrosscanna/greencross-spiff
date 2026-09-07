@@ -152,6 +152,17 @@ Google's consent HTML instead of JSON until the owner has authorized.
   converse is guarded too — an **empty** programs tab makes every row look orphaned, so that
   refuses rather than answering with silence shaped like zero.
 
+- **Orphaned cache rows are swept, not left as a standing exclusion** (2026-09-06). The 26 rows
+  that predated the delete route — 25 under `begoat-0826`, plus one with no `program_id` — were
+  removed by `?action=sweepOrphanProgress` (deploy-secret gated, **dry by default**, `apply=1` to
+  write, and what it removes is copied to a `swept_progress_rows` tab first). They were already
+  kept out of `rows` and `by_employee`, so nothing was wrong; a permanent exclusion every
+  consumer must remember is the trap. **It calls a row orphaned only when its `program_id` is
+  absent from `programs`** — deliberately stricter than `spiffProgress_`, which drops a row when
+  its resolved status is empty and so also catches a program that exists with a blank status
+  cell. That is recoverable in a response and not in a delete. Same empty-programs refusal as the
+  read path, and it matters more here. Pinned by `tests/orphan_sweep_test.js`.
+
 - **Never delete a program by deleting its row** (2026-09-06). Use the Delete section in the
   record panel, or `?action=deleteProgram` — a program is not one row. Its measurements live in
   `spiff_progress` keyed on `program_id`, and `?action=progress` is read by GX Crew's incentive
