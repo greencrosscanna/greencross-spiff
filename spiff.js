@@ -1595,7 +1595,31 @@
             + '</td></tr>';
         }).join('')
       + '</tbody></table>'
+      /* ONE PRESS FOR ALL OF THEM, and only when some are actually missing. Listing used to mint
+         as a side effect, which made opening this panel a write — see storeLinks_. */
+      + (links.some(function (l) { return !l.token; })
+            ? '<div class="share-row"><button type="button" class="gx-btn gx-btn-green" id="kioskMintAll">'
+              + 'Create links for the ' + links.filter(function (l) { return !l.token; }).length
+              + ' store(s) without one</button></div>'
+            : '')
       + '<span class="hint" id="kioskMsg"></span>';
+
+    var mintAll = $('#kioskMintAll');
+    if (mintAll) mintAll.addEventListener('click', async function () {
+      mintAll.disabled = true;
+      mintAll.textContent = 'Creating…';
+      try {
+        var r = await ENG.jsonp('storeLinkMintAll', { token: (session() || {}).token },
+                                { timeoutMs: 30000, retries: 0 });
+        if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+        await loadKioskLinks(true);
+      } catch (err) {
+        mintAll.textContent = 'Failed';
+        var m = $('#kioskMsg');
+        if (m) m.textContent = String(err.message || err);
+        mintAll.disabled = false;
+      }
+    });
 
     host.querySelectorAll('[data-kcopy]').forEach(function (b) {
       b.addEventListener('click', async function () {

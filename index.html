@@ -472,10 +472,15 @@
   // Dev guard: non-mutating actions. Anything NOT listed is blocked when this page is served
   // from localhost, until writes are armed (banner button / ?arm=1 / GXDev.arm()). Inert in
   // production. Add new READS here; leave writes off the list.
-  // Guarded writes: buildReport, bugreport, createProgram, editProgram, shareLink
+  // Guarded writes: buildReport, bugreport, createProgram, editProgram, shareLink,
+  //                  storeLinkMintAll, storeLinkRotate
+  // `storeLinks` and `storeView` are READS — listing the kiosk links and rendering a kiosk board.
+  // Minting (storeLinkMintAll) and rotating (storeLinkRotate) are writes and are deliberately
+  // NOT here: they must stay behind ARM WRITES. Listing used to mint as a side effect, and the
+  // dev guard blocking it is what surfaced that a read was mutating.
   window.GX_DEV_READS = [
     'catalog', 'clientView', 'config', 'emailDraft', 'login', 'productStats', 'programs',
-    'progress', 'refunits', 'sellthrough', 'stores', 'version_history'
+    'progress', 'refunits', 'sellthrough', 'storeLinks', 'storeView', 'stores', 'version_history'
   ];
 </script>
 <!-- Shared maintenance gate (core-admin note, 2026-08-28). Does nothing today: it fetches the

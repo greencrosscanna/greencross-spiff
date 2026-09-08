@@ -131,8 +131,30 @@ ok('the soonest to end is listed first — that is the one worth pushing today',
 /* An empty store registry is not an empty company. */
 ok('a registry that did not answer refuses rather than minting against nothing',
    /if \(!stores\.length\)/.test(links) && /Nothing was changed/.test(links));
-ok('every store is minted in ONE call, so none gets missed',
-   /stores\.forEach/.test(links) && /made\.push\(id\)/.test(links));
+/* ── LISTING MUST NOT MINT ────────────────────────────────────────────────────────────────────
+   It did, for convenience, and the dev guard refused it from localhost as an undeclared write —
+   correctly. A read that mutates cannot be declared a read, cannot be pointed at production just
+   to look, and makes "I only opened the panel to check" untrue. Minting is its own route and its
+   own press. */
+ok('listing kiosk links writes nothing',
+   links.indexOf('appendRow') < 0 && links.indexOf('Utilities.getUuid') < 0);
+ok('  …and reports how many stores still need one, so the panel can offer it',
+   /missing: links\.filter/.test(links));
+const mint = grab(gs, 'storeLinkMintAll_');
+ok('minting is a separate, deliberate route', /appendRow/.test(mint));
+ok('  …that does every missing store in ONE call, so none gets missed',
+   /stores\.forEach/.test(mint) && /made\.push\(id\)/.test(mint));
+ok('  …and skips a store that already has a live link',
+   /if \(!id \|\| live\[id\]\) return;/.test(mint));
+ok('  …and refuses an unanswered registry rather than minting against nothing',
+   /Nothing was minted/.test(mint));
+/* The dev guard's lists are the local half of the same rule. */
+const html = fs.readFileSync(__dirname + '/../index.html', 'utf8');
+ok('the two reads are declared to the dev guard',
+   /'storeLinks', 'storeView'/.test(html));
+ok('  …and the two writes are NOT, so they stay behind ARM WRITES',
+   !/GX_DEV_READS[\s\S]{0,400}storeLinkMintAll/.test(html)
+   && !/GX_DEV_READS[\s\S]{0,400}storeLinkRotate/.test(html));
 ok('replacing a link retires the old one and mints in the same call',
    /revoked_at\b/.test(grab(gs, 'storeLinkRotate_'))
    && /sh\.appendRow\(\[id, tok/.test(grab(gs, 'storeLinkRotate_')));

@@ -349,6 +349,7 @@ function doGet(e) {
          Minting and rotating them needs a real session, like every other write here. */
       case 'storeView':   out = storeView_(p);                                      break;
       case 'storeLinks':  out = storeLinks_(p);                                     break;
+      case 'storeLinkMintAll': out = storeLinkMintAll_(p);                          break;
       case 'storeLinkRotate': out = storeLinkRotate_(p);                            break;
       case 'sellthrough': out = sellthrough_(p);                                    break;
       case 'catalog':     out = catalog_(p);                                        break;
@@ -2744,8 +2745,12 @@ function storeLinkRows_() {
     });
 }
 
-/* List every store's link, minting for any store that has none. One call fills the panel and
- * leaves every kiosk with a URL, rather than making somebody press a button six times. */
+/* LIST, AND ONLY LIST. This minted for any store that had none, which made merely OPENING the
+ * panel write to the sheet — and the dev guard caught it, correctly, by refusing an undeclared
+ * write from localhost. A read that mutates is wrong regardless of how convenient it is: it
+ * cannot be declared as a read, it cannot be run against production to look, and "I only opened
+ * it to check" stops being true. Minting is storeLinkMintAll_ and takes a deliberate press.
+ */
 function storeLinks_(p) {
   var auth = gxAuth_(p.token);
   if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
@@ -2755,34 +2760,56 @@ function storeLinks_(p) {
 
   var stores = [];
   try { stores = gxStores_() || []; } catch (e) { stores = []; }
-  /* A REGISTRY THAT DID NOT ANSWER IS NOT AN EMPTY CHAIN. Minting against [] would quietly
-     revoke nothing and return nothing, and the panel would show "no stores" as though the
-     company had closed. Same refusal the progress read makes for an empty programs tab. */
+  /* A REGISTRY THAT DID NOT ANSWER IS NOT AN EMPTY CHAIN. Returning [] would render as "this
+     company has no stores", which is never the true answer. Same refusal the progress read makes
+     for an empty programs tab. */
   if (!stores.length) {
     return { ok: false, error: 'The store registry did not answer, so this cannot tell which '
                              + 'stores exist. Nothing was changed — try again.' };
   }
 
-  var sh = storeLinkSheet_(), rows = storeLinkRows_();
   var live = Object.create(null);
-  rows.forEach(function (r) { if (!r.revoked_at) live[r.store_id] = r; });
+  storeLinkRows_().forEach(function (r) { if (!r.revoked_at) live[r.store_id] = r; });
+
+  var links = stores.map(function (st) {
+    var id = slug_(st.store_id || '');
+    return { store_id: id, display_name: st.display_name || id,
+             token: (live[id] || {}).token || '' };
+  }).filter(function (x) { return x.store_id; });
+
+  return { ok: true, links: links,
+           missing: links.filter(function (x) { return !x.token; }).length };
+}
+
+/* Mint for every store that has none, in ONE call. One press rather than one per store: six
+ * presses is six chances to stop at five, and the store that gets missed shows a blank kiosk
+ * nobody is standing next to. Idempotent — a store that already has a live link is skipped. */
+function storeLinkMintAll_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) {
+    return { ok: false, error: 'Your role (' + auth.role + ') cannot manage kiosk links' };
+  }
+
+  var stores = [];
+  try { stores = gxStores_() || []; } catch (e) { stores = []; }
+  if (!stores.length) {
+    return { ok: false, error: 'The store registry did not answer, so this cannot tell which '
+                             + 'stores need a link. Nothing was minted — try again.' };
+  }
+
+  var sh = storeLinkSheet_();
+  var live = Object.create(null);
+  storeLinkRows_().forEach(function (r) { if (!r.revoked_at) live[r.store_id] = r; });
 
   var made = [];
   stores.forEach(function (st) {
     var id = slug_(st.store_id || '');
     if (!id || live[id]) return;
-    var tok = Utilities.getUuid().replace(/-/g, '');
-    sh.appendRow([id, tok, auth.user, nowStamp_(), '']);
-    live[id] = { store_id: id, token: tok };
+    sh.appendRow([id, Utilities.getUuid().replace(/-/g, ''), auth.user, nowStamp_(), '']);
     made.push(id);
   });
-
-  return { ok: true, minted: made,
-           links: stores.map(function (st) {
-             var id = slug_(st.store_id || '');
-             return { store_id: id, display_name: st.display_name || id,
-                      token: (live[id] || {}).token || '' };
-           }).filter(function (x) { return x.store_id; }) };
+  return { ok: true, minted: made };
 }
 
 /* Revoke one store's link and mint its replacement in the same call — a kiosk with no link is a
