@@ -2768,13 +2768,19 @@ function storeLinks_(p) {
                              + 'stores exist. Nothing was changed — try again.' };
   }
 
-  var live = Object.create(null);
-  storeLinkRows_().forEach(function (r) { if (!r.revoked_at) live[r.store_id] = r; });
+  var live = Object.create(null), ever = Object.create(null);
+  storeLinkRows_().forEach(function (r) {
+    ever[r.store_id] = 1;                                  // it has had one at some point
+    if (!r.revoked_at) live[r.store_id] = r;
+  });
 
   var links = stores.map(function (st) {
     var id = slug_(st.store_id || '');
+    /* `ever` separates "never set up" from "deliberately revoked". Without it the panel called
+       every linkless store revoked, which is a claim that somebody took its link away — sending
+       a reader to look for a decision that was never made. */
     return { store_id: id, display_name: st.display_name || id,
-             token: (live[id] || {}).token || '' };
+             token: (live[id] || {}).token || '', ever: !!ever[id] };
   }).filter(function (x) { return x.store_id; });
 
   return { ok: true, links: links,

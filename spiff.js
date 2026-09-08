@@ -1585,9 +1585,12 @@
       + links.map(function (l) {
           return '<tr data-store="' + esc(l.store_id) + '">'
             + '<td>' + esc(l.display_name || l.store_id) + '</td>'
+            /* "Never set up" and "revoked" are different facts. Calling both revoked claims
+               somebody took a link away, which sends a reader looking for a decision nobody
+               made. */
             + '<td>' + (l.token
                 ? '<input class="gx-input sp-klink-u" readonly value="' + esc(storeUrl(l.token)) + '">'
-                : '<span class="sp-klink-none">no link &mdash; revoked</span>') + '</td>'
+                : '<span class="sp-klink-none">' + (l.ever ? 'revoked' : 'no link yet') + '</span>') + '</td>'
             + '<td>'
             +   (l.token ? '<button type="button" class="gx-btn" data-kcopy="' + esc(l.token) + '">Copy</button>' : '')
             +   '<button type="button" class="gx-btn" data-krotate="' + esc(l.store_id) + '">'
