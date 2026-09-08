@@ -1802,71 +1802,65 @@ function payPeriodMatches_(row, want) {
    FAILURE IS SILENT AND SAFE. A roster we cannot read returns an empty map, every row keeps the
    name Dutchie gave it, and nothing else on the screen changes. A friendlier label is not worth
    failing a payout read over. */
-/* THE ROSTER, CARRYING THE DERIVED NAME FIELDS.
+/* ── THE NAME SOMEBODY IS ACTUALLY CALLED ─────────────────────────────────────────────────────
+   Dutchie reports the legal name ("Andrew Phillips"); staff are called something else ("Drew").
+   19 of the 76 roster people go by a different name, so any surface rendering full_name is
+   showing staff their legal name unknowingly.
 
-   THE LIBRARY DOES NOT DERIVE; IT DOES NOT WITHHOLD. GXCore.getEmployees() is a bare read of the
-   employees tab, so every STORED column comes back -- preferred_name included. display_name and
-   short_name are not columns at all: GX Core COMPUTES them (gxDisplayName_ / gxShortName_) and
-   only its HTTP route applies that decoration, so the library hands back undecorated rows.
+   THE ANSWER COMES FROM CORE, DERIVED THERE, NOT COMPUTED HERE. gxDisplayName_ exists precisely
+   because a name living in two places drifted — Crew corrected a record while another row kept
+   the old spelling, and apps read the source of truth and still showed the wrong name. A second
+   copy of that rule here would agree with Core by luck rather than by construction.
 
-   Corrected 2026-09-03. This comment first said the library "returns full_name and no
-   preferred_name or display_name", which is wrong about preferred_name and would send the next
-   reader looking for a missing column that is right there. What I actually observed is narrower
-   and still true: every row came back with display_name equal to full_name. core-admin supplied
-   the reason, from Core's source.
+   Corrected 2026-09-08, and this is the whole history worth keeping. This function used to be a
+   deploy-secret HTTP fetch of Core's ?action=employees route, carrying a comment that said the
+   BOUND LIBRARY returns undecorated rows and a "REMOVE THIS once getEmployees() decorates"
+   marker. Both were false by the time they were written: getEmployees() has mapped through
+   gxDisplayName_ and gxShortName_ since commit fad5bac on 2026-08-19, shipped as library @133,
+   and this engine pins v305. The marker was waiting for something that had already happened, and
+   core-admin said so on 2026-09-07 after checking it against live data (76 employees, 19 with a
+   preferred_name, all 19 correctly derived).
 
-   IT MATTERS BECAUSE IT CHANGES WHAT THE UPSTREAM FIX IS -- decorate getEmployees() the way the
-   route already does, not add a column. It also means this app COULD derive the name itself from
-   preferred_name and skip the fetch entirely. Deliberately not doing that: the derivation is
-   Core's rule, and gxDisplayName_ exists precisely because a name living in two places drifted
-   (Crew corrected a record while another row kept the old spelling, and apps read the source of
-   truth and still showed the wrong name). A second copy of the rule here would agree with Core by
-   luck rather than by construction. Better to pay a cached fetch and read the one answer.
+   So the workaround is gone and the library call is the whole implementation. What went with it:
+   a script-property secret used for a read that needed no secret, a second Apps Script hop with
+   its own ~6% bounce rate, an HTML-bounce guard, and error scrubbing that existed only because
+   UrlFetchApp puts the whole URL — secret included — into its exception message.
 
-   HOW IT WAS FOUND, which is the part worth keeping: by probing the LIVE engine after deploying.
-   v1.360 shipped this feature as a silent no-op with a full green test suite, because the tests
-   mock getEmployees -- a mock returns whatever you tell it to, so it can never catch the real
-   projection being wrong. No test would have caught this. The habit did.
+   THE CACHE STAYS, and it is the one thing that was load-bearing rather than compensatory. This
+   sits under ?action=progress, which GX Crew's incentive column and the Leaderboard kiosks poll;
+   names change about never, so 15 minutes of them costs nothing and saves a spreadsheet read on
+   every one of those calls.
 
-   Fetched over HTTP with the deploy secret, the same way gxStores_ reads stores, and cached for 15
-   minutes -- names change about never, and this sits on a route Crew and the kiosks poll. Errors
-   are scrubbed: UrlFetchApp puts the whole URL, secret included, into its exception message.
+   WHAT WAS REAL IN THE OLD COMMENT, and worth carrying forward: v1.360 shipped friendly names as
+   a silent no-op with a full green test suite, because the tests MOCK getEmployees — a mock
+   returns whatever you tell it to, so it can never catch the real projection being wrong. It was
+   found by probing the live engine after deploying. No test in this repo would have caught it;
+   the habit did. Do that.
 
-   REMOVE THIS once getEmployees() decorates. That is a Core cut and another re-pin round, and it
-   fixes nothing this does not already deliver, so it is not urgent -- but when it lands, this
-   function and its fallback should go rather than linger as a second path to the same answer. */
+   A failure here returns [] and every row keeps the name Dutchie reported. Failing to a worse
+   LABEL is fine; failing the read is not. */
 function gxRosterFull_() {
   var cache = CacheService.getScriptCache();
   var hit = cache.get('gx_roster_names');
   if (hit) { try { return JSON.parse(hit); } catch (e) {} }
-  var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP) || '';
-  if (!secret) return [];
   try {
-    var res = UrlFetchApp.fetch(GXCORE_URL + '?action=employees&secret=' + encodeURIComponent(secret),
-                                { muteHttpExceptions: true, followRedirects: true });
-    var txt = String(res.getContentText() || '').trim();
-    /* The second hop serves Google's HTML page on a bounce, with a cheerful 200 — the body shape
-       is the only tell, and JSON.parse on it throws something that reads like our fault. */
-    if (txt.charAt(0) !== '{') return [];
-    var data = JSON.parse(txt);
-    var rows = (data && data.employees) || [];
+    var rows = GXCore.getEmployees() || [];
     if (rows.length) cache.put('gx_roster_names', JSON.stringify(rows), 900);
     return rows;
   } catch (e) {
-    Logger.log('[spiff] roster names unavailable: ' + scrubSecrets_(e && e.message || e));
+    Logger.log('[spiff] roster names unavailable: ' + (e && e.message || e));
     return [];
   }
 }
 
 function displayNameMap_() {
+  /* NO SECOND SOURCE ANY MORE. There used to be a fallback here from the HTTP fetch to the
+     library, written when the library was believed not to decorate — so the fallback was
+     documented as degrading to no friendly names at all. The library IS the primary now, and a
+     fallback to the route it already reads would be the same answer fetched a slower way.
+     gxRosterFull_ returns [] on failure and every row keeps the name Dutchie reported. */
   var rows;
   try { rows = gxRosterFull_() || []; } catch (e) { return Object.create(null); }
-  /* Fall back to the library when the HTTP read gives us nothing. Its rows are undecorated, so the
-     map comes out empty and every row keeps the name Dutchie reported. Deliberately NOT deriving a
-     name from preferred_name here either -- see gxRosterFull_ -- because a fallback that computes
-     names a different way than the primary path is worse than one that simply shows fewer of them.
-     Failing to a worse LABEL is fine; failing the read is not. */
-  if (!rows.length) { try { rows = GXCore.getEmployees() || []; } catch (e2) { return Object.create(null); } }
   var byId = Object.create(null), byName = Object.create(null);
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
