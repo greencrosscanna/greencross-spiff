@@ -335,6 +335,10 @@ function doGet(e) {
       case 'editProgram': out = editProgram_(p);                                    break;
       case 'createProgram': out = createProgram_(p);                                break;
       case 'deleteProgram': out = deleteProgram_(p);                                break;
+      /* Re-key a program. Session-gated and name-confirmed like the delete, because program_id is
+         a foreign key into spiff_progress and into Core's published payload — see
+         renameProgramId_. Dry by default; apply=1 to move it. */
+      case 'renameProgramId': out = renameProgramId_(p);                            break;
       case 'employees':   out = gxEmployees_();                                     break;
       case 'diag':        out = diag_();                                            break;
       case 'buildReport': out = buildReport_(p);                                    break;
@@ -1011,6 +1015,165 @@ function deletedSheet_() {
 }
 
 var DELETED_HEADERS = PROGRAM_HEADERS.concat(['deleted_by', 'deleted_at', 'deleted_reason']);
+
+/* ── RENAMING A PROGRAM'S ID ──────────────────────────────────────────────────────────────────
+ * Sky, 2026-09-08: "update id green-cross-test-202608 to reflect the Portland Heights program."
+ *
+ * WHY THIS IS A ROUTE AND NOT A CELL EDIT, which is the same reason deleting is. `program_id` is a
+ * FOREIGN KEY, not a label:
+ *
+ *   · `spiff_progress` keys every measurement row on it — 38 rows for this program alone.
+ *   · `?action=progress` drops any cached row whose program_id is absent from `programs`, and
+ *     counts it in `orphan_rows`.
+ *   · GX Crew's incentive column and the Leaderboard kiosks read that route.
+ *   · Core's `spiff_publications` now carries the id INSIDE the published payload, in rows[] and
+ *     in by_employee[].programs[].
+ *
+ * So editing the cell in `programs` and stopping there would strand 38 measurement rows carrying
+ * $181.50 — which is the BeGOAT failure of 2026-08-31 reproduced exactly (25 stranded rows, $350,
+ * fourteen people showing as owed $25 for a fortnight already paid). The whole point of having a
+ * delete route was that a program is not one row; the same is true of a rename.
+ *
+ * THIS ONE IS ALLOWED ON A CLOSED PROGRAM, unlike a delete, and the distinction is the point. A
+ * delete removes money that was reported and paid; a rename moves the same money to a key that
+ * says what it is. Nothing about the figures, the window, the vendor or the payout changes — and
+ * `green-cross-test-202608` is a CLOSED, PAID program whose id is the one thing about it that is
+ * wrong, because ids are minted from the name at creation and it was created while named "Green
+ * Cross test". Refusing here would leave the misleading id permanent.
+ *
+ * WHAT IT DOES NOT DO: renumber history for its own sake. The id is not shown to anyone — the UI
+ * names programs through programLabel() — so this is worth running when an id actively misleads a
+ * reader of the sheet or a consumer's payload, and not otherwise.
+ *
+ * ORDER MATTERS. The progress rows move FIRST. If the run dies between the two halves, the cache
+ * points at an id that does not exist yet and those rows read as orphans — visible, counted, and
+ * fixed by re-running. The other order would unfile the program while its measurements still
+ * pointed at the old key, which reads as a successful rename with the money silently gone.
+ */
+function renameProgramId_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) {
+    return { ok: false, error: 'Your role (' + auth.role + ') cannot rename SPIFF programs' };
+  }
+  var from = String(p.id || '').trim();
+  var to   = slug_(String(p.to || '').trim());
+  if (!from || !to) return { ok: false, error: 'id and to are both required' };
+  if (from === to)  return { ok: false, error: 'the new id is the same as the old one' };
+
+  var current = getProgram_(from);
+  if (!current.ok) return current;
+  var prog = current.program;
+
+  /* A COLLISION WOULD MERGE TWO PROGRAMS' MEASUREMENTS. There is already a
+     portland-heights-2026-03-30-2026-04-12; landing on an id in use would silently pool two
+     fortnights of earnings under one key. */
+  if (getProgram_(to).ok) {
+    return { ok: false, error: 'a program with id "' + to + '" already exists — pick another' };
+  }
+
+  /* Confirm by NAME, server-side, exactly as the delete does: the caller has to have read the
+     record it is changing, and a bare id in a re-fetched URL cannot satisfy that. Writes ride on
+     GET here and a URL is a thing that gets pasted, bookmarked and re-fetched. */
+  var want = String(prog.program_name || prog.title || '').trim();
+  if (String(p.confirm || '').trim() !== want) {
+    return { ok: false, error: 'Type the program name exactly to confirm: ' + want };
+  }
+
+  var idCol = PROGRAM_HEADERS.indexOf('program_id');
+  var progressRows = countProgressRows_(from);
+
+  if (String(p.apply || '') !== '1') {
+    return { ok: true, dry: true, from: from, to: to, program_name: want,
+             status: prog.status, window: [prog.start_date, prog.end_date],
+             progress_rows_to_move: progressRows,
+             note: 'Nothing was changed. Re-run with apply=1 to rename.' };
+  }
+
+  /* Tombstone the row as it stands, before anything moves. A copy is recoverable; a half-moved
+     program is not. Reuses the deleted_programs tab deliberately — it is the audit trail for "this
+     id no longer exists", which is true of a rename too, and a second near-identical tab would be
+     a second place to look. */
+  deletedSheet_().appendRow(
+    programToRow_(prog, { edited_by: prog.edited_by, edited_at: prog.edited_at })
+      .concat([auth.user, nowStamp_(), 'renamed to ' + to]));
+
+  /* 1. THE MEASUREMENTS FIRST — see the header. */
+  var moved = 0;
+  try { moved = repointProgressRows_(from, to); }
+  catch (e) {
+    /* Scrubbed: a GXCore call can wrap a UrlFetchApp underneath, and that puts the whole URL —
+       secret included — into its exception message. The rule is blanket for exactly that reason. */
+    return { ok: false, error: 'Could not move the cached progress rows ('
+               + scrubSecrets_(e && e.message || e)
+               + '). NOTHING was renamed — the program still answers to ' + from + '.' };
+  }
+
+  /* 2. THEN THE PROGRAM ROW. */
+  var sh = dataSheet_(), last = sh.getLastRow(), renamed = false;
+  if (last >= 2) {
+    var vals = sh.getRange(2, 1, last - 1, PROGRAM_HEADERS.length).getValues();
+    for (var i = 0; i < vals.length; i++) {
+      if (String(vals[i][idCol]) !== from) continue;
+      sh.getRange(i + 2, idCol + 1).setValue(to);
+      renamed = true;
+      break;
+    }
+  }
+  if (!renamed) {
+    return { ok: false, error: 'The progress rows were moved to ' + to + ' but the program row was '
+               + 'not found to rename — those rows now read as orphans. Re-run with id=' + to
+               + ' and to=' + from + ' to put them back, or fix the programs row by hand.' };
+  }
+  /* Only `programs` is cached — the spiff_progress sheet is read directly, so there is nothing
+     else to clear. An earlier draft of this called an invalidateProgressCache_() that does not
+     exist; it would have thrown here, AFTER both halves had already moved. */
+  invalidatePrograms_();
+
+  /* 3. REPUBLISH, so Core's copy stops carrying the old id inside its payload. Core upserts on
+     (producer, scope), so this overwrites the affected period rather than adding to it. Reported
+     rather than thrown: the rename itself is done and correct, and the hourly trigger would
+     republish anyway within the hour. */
+  var republished = null, pubError = '';
+  try {
+    var pub = publishSpiffToCore_({ notes: 'republish after renaming ' + from + ' to ' + to });
+    if (pub && pub.ok) republished = pub.published;
+    else pubError = (pub && (pub.error || JSON.stringify(pub.failed))) || 'unknown';
+  } catch (e) { pubError = scrubSecrets_(e && e.message || e); }
+
+  return { ok: true, dry: false, from: from, to: to, program_name: want,
+           progress_rows_moved: moved, republished: republished,
+           renamed_by: auth.user,
+           warning: pubError
+             ? 'Renamed, but the republish to Core failed (' + pubError + ') — Core still holds the '
+               + 'old id inside its payload until the hourly trigger republishes.' : undefined };
+}
+
+/* How many cached rows a program has, without touching them. */
+function countProgressRows_(programId) {
+  var sh = progressSheet_();
+  if (sh.getLastRow() < 2) return 0;
+  var vals = sh.getDataRange().getValues();
+  var n = 0;
+  for (var i = 1; i < vals.length; i++) if (String(vals[i][0]) === String(programId)) n++;
+  return n;
+}
+
+/* Move every cached row from one program id to another. Writes the id COLUMN only — the
+ * measurements themselves are untouched, which is the whole point: this is a re-key, not a
+ * re-measure, and a settled program's numbers must not change because its id did. */
+function repointProgressRows_(from, to) {
+  var sh = progressSheet_();
+  if (sh.getLastRow() < 2) return 0;
+  var vals = sh.getDataRange().getValues();
+  var moved = 0;
+  for (var i = 1; i < vals.length; i++) {
+    if (String(vals[i][0]) !== String(from)) continue;
+    sh.getRange(i + 1, 1).setValue(to);
+    moved++;
+  }
+  return moved;
+}
 
 function deleteProgram_(p) {
   var auth = gxAuth_(p.token);
@@ -1758,7 +1921,7 @@ function payPeriodCfg_() {
        WOULD be wrong if the chain ever moved its anchor while Core was unreachable — hence the
        log, rather than a silent default. */
     console.warn('[spiff] pay-period config unavailable, using the built-in anchor: '
-                 + ((e && e.message) || e));
+                 + scrubSecrets_(e && e.message || e));
   }
   PP_CFG = { anchor: anchor, days: days };
   return PP_CFG;
@@ -1892,7 +2055,9 @@ function publishSpiffToCore_(opts) {
       if (r && r.ok) done.push({ scope: scope, rows: rows.length, bytes: r.bytes });
       else failed.push({ scope: scope, error: (r && r.error) || 'unknown' });
     } catch (e) {
-      failed.push({ scope: scope, error: (e && e.message) || String(e) });
+      /* publishSpiffProgress goes through the bound library to Core; scrub, for the same reason
+         gxSalesByEmployee_ does. */
+      failed.push({ scope: scope, error: scrubSecrets_(e && e.message || e) });
     }
   });
 
