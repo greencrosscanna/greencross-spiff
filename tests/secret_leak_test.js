@@ -102,7 +102,10 @@ try {
   ok('this test file does not contain the live deploy secret',
      !!live && fs.readFileSync(__filename, 'utf8').indexOf(live) < 0);
 } catch (e) {
-  console.log('  – no .gx_deploy_secret here; live-value check skipped');
+  // "SKIP" at the start of the line (indented is fine) is the marker every GX repo's CI coverage
+  // step looks for. Worded any other way, a reporter shows this file green while one of its
+  // comparisons did not run — which is the thing the reporter exists to prevent.
+  console.log('  SKIP  live-value check — no .gx_deploy_secret here (gitignored, as it should be)');
 }
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nsecret leak: all passed');
