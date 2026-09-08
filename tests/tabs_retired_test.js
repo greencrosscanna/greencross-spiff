@@ -51,6 +51,16 @@ function grab(name) {
 const tabs = (html.match(/data-tab="([a-z]+)"/g) || []).map(m => m.match(/"([a-z]+)"/)[1]);
 ok('three tabs remain: Programs, Reports, History',
    tabs.length === 3 && tabs.join(',') === 'programs,reports,history');
+/* ── AND NOTHING ELSE IN THE NAV ──────────────────────────────────────────────────────────────
+   My SPIFF left on 2026-09-08 (Sky). flyer.html is the BUDTENDER's page — own row only, own
+   sign-in — and this app is the operator's: Tawny and Sky have no row of their own to look at,
+   so a tab opening a personal earnings page from the program admin screen answered a question
+   nobody standing here was asking. The page is untouched and still served; it simply is not
+   linked from here. */
+ok('the nav carries no link-out either — My SPIFF is gone from it',
+   !/data-href/.test(html) && !/My SPIFF/.test(html));
+ok('  …but flyer.html itself is untouched and still shipped',
+   fs.existsSync(__dirname + '/../flyer.html') && fs.existsSync(__dirname + '/../flyer.js'));
 ok('  …no Calculator tab', tabs.indexOf('calculator') < 0);
 ok('  …and no Progress tab', tabs.indexOf('progress') < 0);
 /* The panel is the screen. Removing it would take the whole calculator with it. */

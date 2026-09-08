@@ -139,8 +139,10 @@
       +   '<span class="st-count">' + list.length + (list.length === 1 ? ' program' : ' programs') + ' running</span>'
       + '</div>'
       + list.map(function (p) { return card(p, d.today); }).join('')
-      + '<p class="st-foot">Ask Tawny about any of these. Your own running total is in '
-      +   '<b>My SPIFF</b>.</p>'
+      /* No pointer to My SPIFF (Sky, 2026-09-08). This is a SHARED screen: sending the room to a
+         page that needs a personal sign-in is an instruction most readers cannot follow where
+         they are standing, and it invited somebody to sign in on a kiosk everybody uses. */
+      + '<p class="st-foot">Ask Tawny about any of these.</p>'
       + '</div>';
   }
 

@@ -148,8 +148,26 @@ ok('  …and skips a store that already has a live link',
    /if \(!id \|\| live\[id\]\) return;/.test(mint));
 ok('  …and refuses an unanswered registry rather than minting against nothing',
    /Nothing was minted/.test(mint));
-/* The dev guard's lists are the local half of the same rule. */
+/* ── WHERE THE PANEL LIVES ────────────────────────────────────────────────────────────────────
+   In the user chip's Settings tray (Sky, 2026-09-08), not a fold under the Programs list. Kiosk
+   links are app-level configuration — set up once, then not thought about — and the programs
+   list is a working screen you should not scroll past config to read. */
 const html = fs.readFileSync(__dirname + '/../index.html', 'utf8');
+ok('the kiosk panel lives in the Settings dialog',
+   /id="settingsBack"/.test(html) && /modal-body" id="kioskBody"/.test(html));
+ok('  …and no longer sits under the programs list',
+   !/id="kioskFold"/.test(html));
+ok('  …reached from the chip menu, editor-only',
+   /if \(canEdit\(\)\) items\.push\(\{ action: 'settings'/.test(js));
+ok('  …and the app knows what that action means',
+   /if \(a === 'settings'\) openSettings\(\);/.test(js));
+ok('  …loading the links on first open rather than at boot',
+   /loadKioskLinks\(\);/.test(grab(js, 'openSettings')));
+ok('  …and it closes on the backdrop and on Escape, not only the ×',
+   /e\.target === back/.test(grab(js, 'wireSettings'))
+   && /e\.key === 'Escape'/.test(grab(js, 'wireSettings')));
+
+/* The dev guard's lists are the local half of the same rule. */
 ok('the two reads are declared to the dev guard',
    /'storeLinks', 'storeView'/.test(html));
 ok('  …and the two writes are NOT, so they stay behind ARM WRITES',
@@ -194,6 +212,20 @@ ok('a failure says the plain thing rather than showing a stack trace on the floo
    /Can’t reach the SPIFF board/.test(sjs));
 ok('nothing running is stated, not left blank',
    /No SPIFF running right now/.test(sjs));
+/* A SHARED screen must not send the room to a page that needs a personal sign-in — most readers
+   cannot follow that where they are standing, and it invited somebody to sign in on a kiosk
+   everybody uses. Removed 2026-09-08 (Sky), alongside the nav entry. */
+/* Checked against the RENDERED footer, not the file — the comment above it names My SPIFF to
+   explain the removal, and a bare substring search flags that prose. A test that cries about a
+   comment is a test people learn to loosen. */
+const foot = /st-foot">([^<]*)</.exec(sjs);
+ok('the kiosk footer no longer sends the room to a personal login',
+   !!foot && !/My SPIFF/.test(foot[1]));
+/* And nothing NAVIGATES there either. Checked as a link, not as a substring: the header comment
+   names flyer.html to explain the split, and flagging that would be a test crying about prose. */
+ok('  …and nothing on the page links or navigates to it',
+   !/href\s*=\s*['"][^'"]*flyer/.test(sjs) && !/location[^\n]*flyer/.test(sjs)
+   && !/window\.open[^\n]*flyer/.test(sjs));
 /* Dates are TEXT here too — a Date constructor on YYYY-MM-DD renders the day before in LA. */
 ok('dates are formatted from text, never through Date()',
    /never coerces a Date|parses as UTC and renders the day before/.test(sjs));

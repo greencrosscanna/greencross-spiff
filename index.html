@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.370"/>
-<link rel="stylesheet" href="spiff.css?v=1.370"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.371"/>
+<link rel="stylesheet" href="spiff.css?v=1.371"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -66,11 +66,12 @@
       <button class="gx-topnav-tab is-active" data-tab="programs">Programs</button>
       <button class="gx-topnav-tab" data-tab="reports">Reports</button>
       <button class="gx-topnav-tab" data-tab="history">History</button>
-      <!-- The budtender flyer is a separate PAGE, not a panel: its own credentialed session and a
-           deliberately narrower scope (own row only, no cost/ROI/coworkers). So this tab opens
-           flyer.html in a new tab via data-href rather than switching panels — which also keeps
-           the operator app's state intact, and works the same when SPIFF is nested in Inventory. -->
-      <button class="gx-topnav-tab" data-href="flyer.html" title="Open the budtender view in a new tab">My SPIFF &#8599;</button>
+      <!-- MY SPIFF IS NOT IN THIS NAV (Sky, 2026-09-08). flyer.html is the BUDTENDER's page — own
+           row only, own sign-in — and this app is the operator's: Tawny and Sky, who have no row
+           of their own to look at. A tab that opened a personal earnings page from the program
+           admin screen was answering a question nobody standing here was asking.
+           The page is unchanged and still live; budtenders reach it by its own URL, which is how
+           they were always going to. Nothing here links to it, deliberately. -->
     </nav>
     <div class="gx-topnav-right">
       <span class="conn" id="conn" hidden title="GX Core connection">&#9679; connecting&hellip;</span>
@@ -149,25 +150,6 @@
       </div>
       <div id="programsList" hidden></div>
 
-      <!-- ── KIOSK LINKS ──────────────────────────────────────────────────────────────────────
-           Sky, 2026-09-07: "We need unique store links for each store. We will then wire these
-           to Leaderboard so that BTs can open a window with the SPIFF details from their Kiosk."
-
-           APP-LEVEL, NOT PER PROGRAM, which is why it lives down here rather than on a program's
-           record. One permanent link per store: the token identifies the SCREEN, and the page
-           resolves at read time to whatever is running at that store today. Minted per program
-           they would need re-pasting into six kiosks every time a SPIFF ended, and the first
-           time somebody forgot, a kiosk would show a finished program as though it were live.
-
-           Collapsed by default because it is set up once and then not thought about again. -->
-      <details class="sp-fold" id="kioskFold">
-        <summary class="sp-fold-h">
-          <span class="sp-fold-t">Kiosk links</span>
-          <span class="sp-fold-n">one permanent link per store, for the SPIFF button on the kiosks</span>
-          <span class="sp-fold-chev" aria-hidden="true">&#9656;</span>
-        </summary>
-        <div class="sp-fold-b" id="kioskBody"></div>
-      </details>
     </section>
 
     <!-- ============ CALCULATOR ============ -->
@@ -397,6 +379,28 @@
 
   </main>
 
+  <!-- ============ SETTINGS ============ -->
+  <!-- Reached from the user chip's Settings row (Sky, 2026-09-08), not from a fold at the bottom
+       of the Programs list where it was. Kiosk links are app-level configuration — set up once,
+       then not thought about — and the programs list is a working screen. A permanent block of
+       config under it is something you scroll past every day to reach nothing.
+
+       A DIALOG rather than another tab: the nav is deliberately three tabs now, and a settings
+       destination would be a fourth that nobody visits twice. Same shape as the sign-in dialog
+       for the same reason — one focused thing, with a backdrop, over the screen you were on. -->
+  <div class="modal-back" id="settingsBack" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <header class="modal-head">
+        <div>
+          <h3 id="settingsTitle">Settings</h3>
+          <p class="modal-sub">Kiosk links for the SPIFF button on each store's screen.</p>
+        </div>
+        <button class="gx-btn" id="settingsClose" aria-label="Close">&times;</button>
+      </header>
+      <div class="modal-body" id="kioskBody"></div>
+    </div>
+  </div>
+
   <!-- ============ SIGN-IN ============ -->
   <!-- All that is left of the old record modal. The record itself moved onto the Calculator in
        v1.336-v1.337; this stayed because signing in genuinely wants a focused overlay with a
@@ -494,6 +498,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="spiff.js?v=1.370"></script>
+<script src="spiff.js?v=1.371"></script>
 </body>
 </html>

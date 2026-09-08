@@ -87,13 +87,30 @@
     return 'subnav' + tab.charAt(0).toUpperCase() + tab.slice(1);
   }
 
-  /* Loaded on FIRST OPEN, not at boot. Six kiosk links are set up once and then looked at
+  /* ── SETTINGS ─────────────────────────────────────────────────────────────────────────────
+     Loaded on FIRST OPEN, not at boot. Six kiosk links are set up once and then looked at
      roughly never, and this app already pays for a stores call and a programs call before it can
      paint anything — Apps Script serializes per script, so a third one on every load would be a
      tax on every visit for a panel almost nobody opens. */
-  function wireKioskFold() {
-    var f = $('#kioskFold');
-    if (f) f.addEventListener('toggle', function () { if (f.open) loadKioskLinks(); });
+  function openSettings() {
+    var back = $('#settingsBack');
+    if (!back) return;
+    back.hidden = false;
+    loadKioskLinks();
+  }
+  function closeSettings() {
+    var back = $('#settingsBack');
+    if (back) back.hidden = true;
+  }
+  function wireSettings() {
+    var back = $('#settingsBack'), x = $('#settingsClose');
+    if (x) x.addEventListener('click', closeSettings);
+    /* Backdrop click and Escape both close it, like the sign-in dialog. A modal you can only
+       leave by finding one small × is a modal people reload the page to escape. */
+    if (back) back.addEventListener('click', function (e) { if (e.target === back) closeSettings(); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && back && !back.hidden) closeSettings();
+    });
   }
 
   function wireTabs() {
@@ -101,8 +118,11 @@
     if (bar) bar.addEventListener('click', function (e) {
       var b = e.target.closest('.gx-topnav-tab');
       if (!b) return;
-      // A tab carrying data-href is a link-out (the budtender flyer), not a panel. Guard on
-      // dataset.tab too — a tab with neither would otherwise showTab(undefined) and blank the app.
+      /* A tab carrying data-href is a link-out rather than a panel. UNUSED since 2026-09-08,
+         when My SPIFF left this nav — kept for the same reason the empty GATED_WRITES gate is
+         kept: it is one line, and re-deriving it is harder than leaving it. The `dataset.tab`
+         guard below is NOT dead and is the load-bearing half — a tab with neither attribute
+         would call showTab(undefined) and blank the app. */
       if (b.dataset.href) { window.open(b.dataset.href, '_blank', 'noopener'); return; }
       if (b.dataset.tab) showTab(b.dataset.tab);
     });
@@ -989,6 +1009,25 @@
 
   /* Sign-in belongs in the topbar, reachable from any surface — filing a report from
      Reports shouldn't send you hunting for a program record to sign in from. */
+  /* The chip's menu, in the shared order: app info rows, Settings, Version, Sign out.
+     Built here rather than inline so the conditional row does not turn the config object into
+     a pair of concats mid-literal. */
+  function menuItems(connEl) {
+    var items = [
+      // No action -> a static info row. GX Core status is diagnostic: checked when something
+      // looks wrong, not worth a permanent slot in the header.
+      { label: connEl ? connEl.textContent.trim() : 'GX Core' }
+    ];
+    /* Settings holds the kiosk links (Sky, 2026-09-08). EDITOR-ONLY, and offered only when there
+       is something behind it: everything in there mints or rotates a link, so a viewer opening it
+       would find a panel that can only tell them no. An empty gear is the thing this app has
+       already been burned by — see the avatarEdit note in renderAuthChip. */
+    if (canEdit()) items.push({ action: 'settings', label: 'Settings' });
+    items.push({ action: 'version', label: 'Version', value: APP_VERSION });
+    items.push({ action: 'logout', label: 'Sign out', danger: true });
+    return items;
+  }
+
   function renderAuthChip() {
     var b = $('#btnAuth'), slot = $('#userSlot');
     if (!b) return;
@@ -1041,13 +1080,7 @@
           renderAuthChip();
         }
       },
-      items: [
-        // No action -> a static info row. GX Core status is diagnostic: checked when something looks
-        // wrong, not worth a permanent slot in the header.
-        { label: connEl ? connEl.textContent.trim() : 'GX Core' },
-        { action: 'version', label: 'Version', value: APP_VERSION },
-        { action: 'logout',  label: 'Sign out', danger: true }
-      ]
+      items: menuItems(connEl)
     });
     // Keep the status row live: #conn is written to by the app, so refresh the row when the menu opens
     // rather than leaving whatever was true at render time.
@@ -1068,6 +1101,7 @@
       // user sitting in.
       location.reload();
     }
+    if (a === 'settings') openSettings();
     // No 'version' branch: GXTopNav opens the shared release-history popup by default
     // (gx-changelog.js). It used to alert() the number back, which told you nothing you could not
     // already read on the row you clicked — and blocked the page to do it.
@@ -5422,7 +5456,7 @@
     wireReports();
     wireHistory();
     wireProgress();
-    wireKioskFold();
+    wireSettings();
     showTab('programs');
     initBugReport();
     /* PARALLEL, and the chain it replaces is why this screen took thirty seconds.
