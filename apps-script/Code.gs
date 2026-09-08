@@ -286,7 +286,7 @@ var GATED_WRITES = [];
    (~57s measured) and installProgressTrigger changes the schedule. A deploy secret still opens
    all three; see guard_. */
 var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses', 'snapshotProgress',
-                      'sweepOrphanProgress'];
+                      'sweepOrphanProgress', 'publishToCore'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -358,6 +358,10 @@ function doGet(e) {
       // ticks both use. Secret-gated: a kiosk holds no session and Crew's engine has no browser.
       case 'progress':    out = spiffProgress_(p);                                   break;
       case 'sweepOrphanProgress': out = sweepOrphanProgress_(p);                    break;
+      /* Publish now rather than waiting for the hour. Secret-gated and DRY BY DEFAULT: it reports
+         the periods and row counts it would send without writing to Core, so the shape can be
+         checked before a consumer is pointed at it. `apply=1` publishes. */
+      case 'publishToCore': out = publishToCore_(p);                                break;
       /* ONE STORE PER CALL. A full sweep is ~9s per store and /exec is killed at 60s — asking for
          all of them timed out with nothing written and no error to read, which is the worst of both.
          Called WITHOUT a store this returns the PLAN (every program × store pair) so a caller can
@@ -1681,6 +1685,245 @@ function installSpiffProgressTrigger() {
 /* Roll FIRST, then sweep. The sweep is active-only, so a program that starts today has to be
    flipped before the same run measures it -- otherwise its first hour of sales lands an hour late,
    and a program that ended yesterday gets measured one more time for nothing. */
+/* ═══════════════ PUBLISHING TO CORE — SPIFF STOPS BEING A DEPENDENCY ═══════════════
+ * Step 2 of 4 in GX_CONSOLIDATION_MAP.md, unblocked by the GXCore v306 re-pin.
+ *
+ * WHAT THIS REPLACES. Leaderboard's spiff.gs and Crew's spiffProgressFor_ both call THIS engine's
+ * /exec for per-employee sell-through and payout. Both files say in their own comments that it is
+ * app-to-app and temporary; Leaderboard's asks to be deleted when Core exposes the slice. The cost
+ * was measured: SPIFF's uptime was the kiosk's uptime, and Crew paid ~4s per load of the incentive
+ * screen re-fetching numbers that had not moved.
+ *
+ * SPIFF STILL OWNS THE ANSWER. It sets the targets, counts the units and decides the payout, and
+ * the vendor is paid SPIFF's figure. Core stores the payload VERBATIM and recomputes nothing —
+ * gxPublishPayload_ parses only to reject non-JSON and then writes the raw string. A second
+ * computation would be a second answer to "what does this person earn".
+ *
+ * THE PAYLOAD IS THE SAME SHAPE ?action=progress ALREADY SERVES, deliberately. Steps 3 and 4 are
+ * then "read Core instead of SPIFF, and check age_minutes" rather than "rewrite the parser". A
+ * new shape here would spend both consumers' budget on plumbing and give them nothing.
+ *
+ * ── SCOPE IS DERIVED, NOT READ OFF THE ROW, and this is the part worth reading ──
+ * Core keys a publication on (producer, scope) and documents scope as the pay-period START as
+ * YYYY-MM-DD. The obvious source is each cached row's `pay_period` column. IT IS NOT USABLE, and
+ * this was checked against live data on 2026-09-08 rather than assumed:
+ *
+ *     38 rows  pay_period "2026-08-17 - 2026-08-30"   <- a RANGE, not a date
+ *     34 rows  pay_period "2026-09-18"               <- a date AFTER its own window (Aug 31–Sep 13)
+ *
+ * The column's own schema comment says TEXT 'YYYY-MM-DD' (pay-period start). Neither live value
+ * honors it: it is free text on the program that nothing validates. This also explains a remark
+ * already in spiffProgress_ — "the pay_period parameter was unusable when Crew built against it,
+ * so Crew passes nothing and takes the whole payload." Now confirmed: unusable because the data
+ * is inconsistent, not because the filter was wrong.
+ *
+ * So the scope is computed from the program's START DATE against the chain's pay-period grid,
+ * which the record panel already enforces as whole pay periods. Building a MONEY contract on a
+ * column that holds a range string in one row and a wrong date in the next is how the wrong
+ * fortnight gets paid. `pay_period` is left alone rather than quietly rewritten — correcting
+ * program records is a separate, visible job.
+ *
+ * ONE PUBLICATION PER PERIOD. That is the unit Crew's incentive screen works in (a SPIFF dollar
+ * per employee per pay period) and the unit Core asks for. A consumer wanting "now" reads with no
+ * scope and gets the newest; Crew naming a fortnight passes it — which is strictly better than
+ * today, where it takes every row and filters client-side.
+ *
+ * STALENESS IS THE FAILURE MODE, and it is silent by construction: nothing throws when this stops
+ * running, the payload just gets older. Core returns age_minutes on every read so a consumer can
+ * refuse. That is the consumer's half; ours is to publish on every refresh, which is why this is
+ * called from the hourly trigger rather than left to a human.
+ */
+
+/* The chain's pay-period grid, from Core's config — never a local constant. Leaderboard, Crew and
+ * this app must agree on where a fortnight starts, and the anchor lives in exactly one place.
+ * Cached for the run: the trigger publishes several periods in one pass. */
+var PP_CFG = null;
+
+function payPeriodCfg_() {
+  if (PP_CFG) return PP_CFG;
+  var anchor = '2026-05-11', days = 14;          // last-resort fallback; see below
+  /* getKv, NOT a getConfig() that does not exist. The first cut of this called
+     GXCore.getConfig() behind a `typeof` guard, which meant it would have fallen through to the
+     built-in anchor forever while claiming in this very comment to read Core — the silent-no-op
+     shape this app has already shipped once. getKv is the accessor Core documents for exactly
+     this (it is what Leaderboard was told to read cfg.payPeriodAnchor from on a kiosk hot path),
+     it caches for 60s, and all three writers invalidate it. */
+  try {
+    var a = String(GXCore.getKv('cfg.payPeriodAnchor') || '').slice(0, 10);
+    var d = Number(GXCore.getKv('cfg.payPeriodDays'));
+    if (/^\d{4}-\d{2}-\d{2}$/.test(a)) anchor = a;
+    if (d > 0) days = d;
+  } catch (e) {
+    /* The built-in values are the ones live today, so a Core hiccup does not stop a publish. It
+       WOULD be wrong if the chain ever moved its anchor while Core was unreachable — hence the
+       log, rather than a silent default. */
+    console.warn('[spiff] pay-period config unavailable, using the built-in anchor: '
+                 + ((e && e.message) || e));
+  }
+  PP_CFG = { anchor: anchor, days: days };
+  return PP_CFG;
+}
+
+/* Which pay period a date falls in, as that period's START. Day arithmetic in UTC and formatted
+ * back, the same rule as everywhere else here: a local Date constructor shifts the day across a
+ * DST boundary, and an anchor an hour before PT midnight formats as the day before. */
+function periodStartFor_(ymd) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ymd || ''))) return '';
+  var c = payPeriodCfg_();
+  var a = String(c.anchor).split('-'), b = String(ymd).split('-');
+  var diff = Math.round((Date.UTC(+b[0], +b[1] - 1, +b[2]) - Date.UTC(+a[0], +a[1] - 1, +a[2])) / 864e5);
+  var idx = Math.floor(diff / c.days);           // floor, so dates BEFORE the anchor go backwards
+  var d = new Date(Date.UTC(+a[0], +a[1] - 1, +a[2] + idx * c.days));
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0')
+       + '-' + String(d.getUTCDate()).padStart(2, '0');
+}
+
+/* Publish every pay period the cache currently covers. Returns what it did, per period, so the
+ * trigger log and the manual route say the same thing. */
+/* The manual entry point. DRY BY DEFAULT, like rollStatuses and sweepOrphanProgress: this writes
+ * per-employee money into a tab two other apps are about to read, so "show me what you would send"
+ * has to be the cheap default and publishing the deliberate one. */
+function publishToCore_(p) {
+  if (String(p.secret || '') !== PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP)) {
+    return { ok: false, error: 'Unauthorized' };
+  }
+  if (String(p.apply || '') !== '1') {
+    var preview = previewSpiffPublish_();
+    preview.dry = true;
+    preview.note = 'Nothing was published. Re-run with apply=1 to send these to Core.';
+    return preview;
+  }
+  var res = publishSpiffToCore_({ notes: String(p.notes || 'manual publish') });
+  res.dry = false;
+  return res;
+}
+
+/* What publishSpiffToCore_ WOULD send, computed by the same grouping so the preview cannot
+ * disagree with the write. */
+function previewSpiffPublish_() {
+  var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  var all = spiffProgress_({ secret: secret });
+  if (!all || !all.ok) {
+    return { ok: false, error: 'progress unavailable, nothing to publish: '
+                             + ((all && all.error) || 'unknown') };
+  }
+  var byPeriod = Object.create(null), undated = [];
+  (all.rows || []).forEach(function (r) {
+    var scope = periodStartFor_(textDate_(r.start_date));
+    if (!scope) { undated.push(r.program_id); return; }
+    (byPeriod[scope] || (byPeriod[scope] = [])).push(r);
+  });
+  return {
+    ok: true,
+    would_publish: Object.keys(byPeriod).sort().map(function (scope) {
+      var rows = byPeriod[scope];
+      return { scope: scope, rows: rows.length,
+               people: byEmployee_(rows).length,
+               earned: rows.reduce(function (n, r) { return n + (Number(r.earned) || 0); }, 0),
+               /* The window each row CLAIMS, so a scope that looks wrong can be traced back to the
+                  program that produced it rather than to this function. */
+               programs: dedupe_(rows.map(function (r) { return r.program_id; })) };
+    }),
+    /* Named, not silently dropped — a program with no usable window is a record to fix, and it is
+       the one case where this cannot decide which fortnight the money belongs to. */
+    undated_program_ids: dedupe_(undated),
+    orphan_rows: all.orphan_rows || 0,
+    orphan_program_ids: all.orphan_program_ids || []
+  };
+}
+
+function publishSpiffToCore_(opts) {
+  opts = opts || {};
+  var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  if (!secret) return { ok: false, error: 'GX_DEPLOY_SECRET is not set on this script' };
+
+  /* Read through the SAME function every consumer reads, unfiltered. Publishing a separately
+     assembled payload would be a second code path to the same numbers, and the two would drift
+     the first time one was edited. */
+  var all = spiffProgress_({ secret: secret });
+  /* A REFUSAL IS NOT AN EMPTY FORTNIGHT. spiffProgress_ returns ok:false when it could not read
+     the programs tab, precisely so a failure cannot be mistaken for "nobody earned anything" —
+     publishing that would freeze the mistake into Core for every consumer. */
+  if (!all || !all.ok) {
+    return { ok: false, error: 'progress unavailable, nothing published: '
+                             + ((all && all.error) || 'unknown') };
+  }
+
+  /* Group by DERIVED period start — see the header. A row whose window gives no usable date is
+     counted and named rather than filed under a guessed period. */
+  var byPeriod = Object.create(null), undated = [];
+  (all.rows || []).forEach(function (r) {
+    var scope = periodStartFor_(textDate_(r.start_date));
+    if (!scope) { undated.push(r.program_id); return; }
+    (byPeriod[scope] || (byPeriod[scope] = [])).push(r);
+  });
+
+  var scopes = Object.keys(byPeriod).sort();
+  if (!scopes.length) {
+    return { ok: true, published: [], skipped: 'the cache holds no rows with a usable window',
+             undated_program_ids: dedupe_(undated) };
+  }
+
+  var done = [], failed = [];
+  scopes.forEach(function (scope) {
+    var rows = byPeriod[scope];
+    var payload = {
+      /* Same keys ?action=progress returns, so a consumer can switch source without a rewrite.
+         `pay_period` carries the DERIVED scope — the one field that is more trustworthy here than
+         on the row it came from. */
+      ok: true, pay_period: scope, status: null,
+      rows: rows,
+      by_employee: byEmployee_(rows),
+      refreshed_at: rows.reduce(function (n, r) {
+        var t = String(r.refreshed_at || ''); return t > n ? t : n;
+      }, ''),
+      /* Carried through verbatim: they describe the whole cache, not this slice, and a consumer
+         that wants to refuse a payload with orphans needs to see them. */
+      orphan_rows: all.orphan_rows || 0,
+      orphan_program_ids: all.orphan_program_ids || [],
+      /* WHO said so and WHEN, inside the payload as well as on Core's row. A consumer holding a
+         payload out of context should not have to trust the envelope it arrived in. */
+      published_by: 'spiff', published_at: nowStamp_()
+    };
+    try {
+      var r = GXCore.publishSpiffProgress(secret, scope, payload, {
+        by: 'spiff', notes: opts.notes || 'hourly refresh'
+      });
+      if (r && r.ok) done.push({ scope: scope, rows: rows.length, bytes: r.bytes });
+      else failed.push({ scope: scope, error: (r && r.error) || 'unknown' });
+    } catch (e) {
+      failed.push({ scope: scope, error: (e && e.message) || String(e) });
+    }
+  });
+
+  return { ok: !failed.length, published: done, failed: failed,
+           undated_program_ids: dedupe_(undated) };
+}
+
+/* One line per person for a slice of rows. Same rule as spiffProgress_: keyed on employee_id where
+ * the connector gave us one, on name only as a fallback — two people can share a first name but
+ * not an id, and Crew joins on id everywhere else. */
+function byEmployee_(rows) {
+  var by = Object.create(null);
+  rows.forEach(function (r) {
+    var key = String(r.employee_id || ('name:' + r.name));
+    var e = by[key] || (by[key] = { employee_id: r.employee_id || '', name: r.name,
+                                    display_name: r.display_name || '',
+                                    earned: 0, programs: [] });
+    e.earned += Number(r.earned) || 0;
+    e.programs.push({ program_id: r.program_id, vendor: r.vendor, name: r.program_name,
+                      status: r.status, units: r.units, target: r.target,
+                      hit: r.hit, earned: r.earned });
+  });
+  return Object.keys(by).map(function (k) { return by[k]; });
+}
+
+function dedupe_(a) {
+  var seen = Object.create(null), out = [];
+  (a || []).forEach(function (x) { var k = String(x); if (!seen[k]) { seen[k] = 1; out.push(x); } });
+  return out;
+}
+
 function refreshSpiffProgressTrigger() {
   try { rollProgramStatuses_(); }
   catch (e) { console.warn('[spiff] status roll failed: ' + ((e && e.message) || e)); }
@@ -1701,6 +1944,20 @@ function refreshSpiffProgressTrigger() {
     }
   } catch (e) { console.warn('[spiff] snapshot failed: ' + ((e && e.message) || e)); }
   refreshSpiffProgress_();
+  /* PUBLISH LAST, after the cache has this hour's numbers in it. Wrapped so a Core outage costs
+     the publish and not the refresh: the cache is this app's own source of truth and must land
+     even when the hand-off cannot. A consumer sees the age go up, which is exactly what
+     age_minutes is for. */
+  try {
+    var pub = publishSpiffToCore_({ notes: 'hourly refresh' });
+    if (pub.ok) {
+      console.log('[spiff] published ' + pub.published.length + ' pay period(s) to Core: '
+                  + pub.published.map(function (x) { return x.scope + ' (' + x.rows + ' rows)'; }).join(', '));
+    } else {
+      console.warn('[spiff] publish to Core failed: '
+                   + (pub.error || JSON.stringify(pub.failed || [])));
+    }
+  } catch (e) { console.warn('[spiff] publish to Core threw: ' + ((e && e.message) || e)); }
 }
 
 /* Is anybody likely to be using the app? Los Angeles, not UTC and not the script's idea of local
