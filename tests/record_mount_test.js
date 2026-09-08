@@ -86,12 +86,29 @@ const render = grab('renderRecord');
 ok('no Program name field — the Calculator owns it', render.indexOf("'program_name'") < 0);
 ok('no vendor field either', render.indexOf('rVendorMenu') < 0);
 ok('but Status IS here, because the Calculator has no view of it', /selField\('Status'/.test(render));
-/* One select since v1.354 — "First"/"Last" collapsed to a single "Pay period", and the start and
-   end dates it derives ride in hidden inputs rather than as fields restating it. */
-ok('and so is the pay-period window', /selField\('Pay period'/.test(render));
+/* ── THE WINDOW MOVED UP TO "THE DEAL" (2026-09-07) ───────────────────────────────────────────
+   It is painted by renderWhen into a second host, #calcWhenHost, because the record mounts ONLY
+   for a program that already exists — so a NEW program had no window control anywhere on screen,
+   was created with no dates, and could not be rolled, measured or reported until somebody saved
+   it, found it again and edited it. One renderer, one collector, two hosts. */
+ok('the window is no longer painted into the record body',
+   !/selField\('Program date'/.test(render) && !/data-key="start_date"/.test(render));
+const when = grab('renderWhen');
+ok('renderWhen owns it, as a single pay-period select', /selField\('Program date'/.test(when));
 ok('  …with the derived dates hidden, not shown as three fields for one fact',
-   /data-key="start_date"/.test(render) && /type="hidden"/.test(render)
-   && !/roDateField/.test(render));
+   /data-key="start_date"/.test(when) && /type="hidden"/.test(when)
+   && !/roDateField/.test(when));
+ok('  …and it paints into the deal host, not the record body',
+   /\$\(REC\.when\)/.test(when) && when.indexOf('REC.body') < 0);
+ok('a NEW program still gets a window — the whole reason it moved',
+   /periodByIndex\(Number\(sel\)\)/.test(when) && /p \? \(toISODate/.test(when));
+ok('  …and the mount paints it whether or not a saved program is open',
+   sync.indexOf('renderWhen(p)') >= 0 && sync.indexOf('renderWhen(p)') < sync.indexOf("body.innerHTML = ''"));
+ok('the collector reads BOTH hosts, so a moved field cannot stop saving',
+   /REC\.hosts\s*=\s*\[REC\.body, REC\.when\]/.test(js)
+   && /recFields\(\)\.forEach/.test(grab('collectPatch')));
+ok('  …and a create carries the window, since it has no record half to save it',
+   /start_date: \(recField\$\('start_date'\)/.test(grab('saveCalcProgram')));
 ok('and the contact, the actuals and the vendor link',
    /contact_email/.test(render) && /rPullActuals/.test(render) && /btnShare/.test(render));
 

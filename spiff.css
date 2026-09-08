@@ -1230,6 +1230,11 @@ body.is-gated .workspace { display: none !important; }
 #calcRecordBody .sp-flds { margin-bottom: 4px; }
 #calcRecordBody .sp-h4 { margin-top: 20px; }
 #calcRecordBody .sp-h4-row { margin-top: 20px; align-items: center; }
+/* The pay-period control lives on "The deal" now, but it is painted by renderWhen into a host
+   element. `display:contents` dissolves that host so the select and its note are direct children
+   of .sp-flds — otherwise the whole block collapses into one grid cell and the note loses its
+   full-width span. */
+#calcWhenHost { display: contents; }
 .sp-fld-note { grid-column: span 2; font-size: 11px; color: var(--gx-text-mute); margin: -4px 0 2px; line-height: 1.45; }
 .sp-fld select.sp-in { color-scheme: dark; }
 /* A date input's picker glyph is near-black on the dark surface by default. */

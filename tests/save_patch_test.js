@@ -148,7 +148,16 @@ const save = grab('saveCalcProgram');
 ok('update posts the patch, not the whole payload',
    /patch: JSON\.stringify\(patch\)/.test(save));
 ok('create still posts the whole payload — there is nothing to compare against',
-   /program: JSON\.stringify\(payload\)/.test(save));
+   /program: JSON\.stringify\(Object\.assign\(\{\}, payload,/.test(save));
+/* The window rides along on a CREATE and only on a create: an existing program's dates are
+   saved by the record half, and sending them from both would be two writers for one fact. A new
+   program has no record half, so without this it is created with no window at all — which means
+   no status roll, no progress and no actuals until somebody reopens it. */
+ok('  …with the pay-period window folded in, since a new program has no record half',
+   /start_date: \(recField\$\('start_date'\)/.test(save)
+   && /end_date:\s*\(recField\$\('end_date'\)/.test(save));
+ok('  …and an UPDATE does not also send them, which would be two writers for one fact',
+   !/start_date/.test(save.slice(0, save.indexOf('createProgram'))));
 /* The model save now RETURNS an empty result rather than posting; the one button reports
    "Nothing changed" once, for both halves together. */
 ok('a model patch with nothing in it is never posted',

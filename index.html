@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.366"/>
-<link rel="stylesheet" href="spiff.css?v=1.366"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.367"/>
+<link rel="stylesheet" href="spiff.css?v=1.367"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -170,16 +170,36 @@
           <div>
             <h4 class="sp-h4">The deal</h4>
             <div class="sp-flds">
-              <label class="sp-fld is-wide"><span>Program name</span>
-                <input id="cName" placeholder="Wyld 10pc"></label>
-              <div class="sp-fld sp-pick"><span>Vendor</span>
-                <!-- Brands come from live Dutchie stock, so this can only ever offer a vendor
-                     we actually carry — and the product picker below is scoped by it. -->
+              <!-- ── VENDOR FIRST ──────────────────────────────────────────────────────────
+                   Sky, 2026-09-07: "Vendor is first (since it pulls the data that populates
+                   the rest)". It is not a preference about tidiness — the product picker below
+                   is SCOPED by the brand and stays disabled until one is chosen, cost per unit
+                   arrives with the product, and last month's volume is measured against the
+                   brand. Program name led the form, so the first thing the screen asked for was
+                   a label for something it knew nothing about yet.
+                   Brands come from live Dutchie stock, so this can only ever offer a vendor we
+                   actually carry. -->
+              <div class="sp-fld is-wide sp-pick"><span>Vendor</span>
                 <div class="sp-pick-input">
                   <input id="cVendor" placeholder="Start typing a brand&hellip;" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="cVendorMenu">
                 </div>
                 <div class="sp-pick-menu" id="cVendorMenu" role="listbox" hidden></div>
               </div>
+              <!-- ── THE PROGRAM NAME IS THE DETAIL ONLY ───────────────────────────────────
+                   Sky, 2026-09-07: "should the Program name just have the details and we can
+                   append the Vendor name: ie Hellavated - Cloud Bars is [Vendor] - [Program
+                   Name]". So this box holds "Cloud Bars" and the vendor is joined on for
+                   display — DERIVED, never stored, for the reason this app already learned the
+                   hard way with the record warnings: a stored composite goes stale the moment
+                   the vendor is corrected, and re-saving one would double the prefix.
+                   programLabel() is the single place that joins them. -->
+              <label class="sp-fld"><span>Program name</span>
+                <input id="cName" placeholder="Cloud Bars">
+                <span class="sp-hint" id="cNameHint">The vendor is added in front.</span></label>
+              <!-- ── WHEN IT RUNS, PAINTED HERE ────────────────────────────────────────────
+                   Host only; renderWhen fills it. `display:contents` so the select and its note
+                   sit in THIS grid rather than inside a cell of their own. -->
+              <div id="calcWhenHost"></div>
               <!-- STAYS EDITABLE ON A CLOSED PROGRAM, unlike every other model field — see
                    applyCalcLock. The lock protects the numbers that were promised to a vendor;
                    which products those numbers were measured against is not one of them, and a
@@ -428,6 +448,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="spiff.js?v=1.366"></script>
+<script src="spiff.js?v=1.367"></script>
 </body>
 </html>

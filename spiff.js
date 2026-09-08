@@ -415,6 +415,31 @@
       + rows.map(listRow).join('') + '</div>';
   }
 
+  /* ── [VENDOR] - [PROGRAM NAME], JOINED AT READ TIME ───────────────────────────────────────
+     Sky, 2026-09-07: "should the Program name just have the details and we can append the Vendor
+     name: ie Hellavated - Cloud Bars is [Vendor] - [Program Name]".
+
+     DERIVED, NEVER STORED, and this app has already paid for the alternative twice — the record
+     warnings froze because they were columns, and the display-name drift upstream happened for
+     the same reason. A stored "Hellavated - Cloud Bars" is a second copy of the vendor that stops
+     agreeing the moment somebody corrects the vendor field, and re-saving one doubles the prefix.
+     `program_name` stays the detail alone; `vendor` stays its own column; this is the only place
+     they are joined.
+
+     THE SEEDED HISTORY ALREADY CARRIES THE VENDOR IN THE NAME — "Wyld 10pc", "Drops Jellies
+     Spiff", "Freshy Cart & AIO Spiff" — because the SPIF docs were titled that way. Prefixing
+     those would read "Wyld - Wyld 10pc". So a name that already begins with its vendor is left
+     exactly as it is: no migration, no rewrite of 25 rows whose names went to vendors, and new
+     programs typed the new way get the join. */
+  function programLabel(p) {
+    var name = String((p && (p.program_name || p.title)) || '').trim();
+    var vendor = String((p && p.vendor) || '').trim();
+    if (!vendor) return name;
+    if (!name) return vendor;
+    if (name.toLowerCase().indexOf(vendor.toLowerCase()) === 0) return name;
+    return vendor + ' - ' + name;
+  }
+
   function newProgram() {
     calc.name = ''; calc.vendor = ''; calc.cost = 10; calc.spiff = 25;
     calc.target = 0; calc.model = 'flat';
@@ -436,13 +461,18 @@
     $$('#cModel button').forEach(function (x) { x.classList.toggle('is-on', x.dataset.model === 'flat'); });
     $$('#cTarget, #cGrowth').forEach(function (x) { x.classList.remove('sp-driving'); });
     if (calcPicker) { calcPicker.setChosen(null); calcPicker.setVendorSilently(''); }
+    /* Emptied so renderWhen defaults to the current period. It deliberately PRESERVES a live
+       pick across incidental repaints, and "start a new program" is the one moment that is
+       wrong — otherwise the last program's fortnight follows the next one in. */
+    var wh = $(REC.when); if (wh) wh.innerHTML = '';
     renderCalcEditing();
     applyCalcLock();
     applyStatusView();
     syncRecordMount();
     showTab('calculator');
     recalc();
-    $('#cName').focus();
+    /* Vendor leads the form now, and it is what unlocks the product picker below it. */
+    $('#cVendor').focus();
   }
 
   function statTile(v, label, cls) {
@@ -564,7 +594,7 @@
       + '<div class="sp-hero" data-id="' + esc(p.program_id) + '">'
       +   '<div class="sp-hero-top">'
       +     '<div class="sp-hero-id">'
-      +       '<div class="sp-hero-title"><h3>' + esc(p.program_name || p.title) + '</h3>'
+      +       '<div class="sp-hero-title"><h3>' + esc(programLabel(p)) + '</h3>'
       +         '<span class="sp-chip is-active">active</span></div>'
       +       '<div class="sp-hero-meta"><span>' + esc(p.vendor) + '</span><span class="sp-sep">&middot;</span>'
       +         '<span class="sp-num">' + esc(prettyRange(p)) + '</span><span class="sp-sep">&middot;</span>'
@@ -773,7 +803,7 @@
 
     return '<div class="sp-row' + (dupe ? ' is-suspect' : rate ? ' is-flagged' : '')
       + '" data-id="' + esc(p.program_id) + '" tabindex="0" role="button">'
-      + '<div><div class="sp-row-name">' + esc(p.program_name || p.title) + '</div>'
+      + '<div><div class="sp-row-name">' + esc(programLabel(p)) + '</div>'
       +   '<div class="sp-row-sub">' + esc(p.vendor) + ' &middot; ' + esc(prettyRange(p)) + '</div>'
       +   (dupe ? '<span class="sp-flag is-bad" title="Identical units sold, budtenders hit and investment as '
                   + esc(a.duplicate_of.join(', ')) + ' — likely a copied tab, verify before it reaches a vendor">'
@@ -1056,7 +1086,31 @@
      pull all read this form back by selector — four literals to keep in step is how they drift. */
   /* No `save` here any more: ONE button saves both halves (saveEverything), so the record has
      no button of its own to hide or show. */
-  var REC = { body: '#calcRecordBody', msg: '#calcRecordMsg', signIn: '#calcRecordSignIn' };
+  /* `when` is the SECOND host, up in "The deal" (index.html #calcWhenHost). One renderer and one
+     collector still — this is the same form painted into two places, not two forms. `hosts` is
+     what collectPatch and every read-back iterate: a field that lived in only one of them would
+     be a field that silently stops saving, which is the exact failure mode the single-host move
+     in v1.338 was undoing. Add a host here or it does not exist. */
+  var REC = { body: '#calcRecordBody', when: '#calcWhenHost',
+              msg: '#calcRecordMsg', signIn: '#calcRecordSignIn' };
+  REC.hosts = [REC.body, REC.when];
+
+  /* Every [data-key] across both hosts, in one list. */
+  function recFields() {
+    var out = [];
+    REC.hosts.forEach(function (h) {
+      $$(h + ' [data-key]').forEach(function (el) { out.push(el); });
+    });
+    return out;
+  }
+  /* One named field, wherever it is mounted. */
+  function recField$(key) {
+    for (var i = 0; i < REC.hosts.length; i++) {
+      var el = $(REC.hosts[i] + ' [data-key="' + key + '"]');
+      if (el) return el;
+    }
+    return null;
+  }
 
   /* Show the record under the Calculator while it is editing a real program; take it away
      otherwise. EMPTIED, not hidden — the form is read back by id, and a hidden copy still answers
@@ -1067,6 +1121,10 @@
     var p = calc.editingId
       ? (state.programs || []).filter(function (x) { return x.program_id === calc.editingId; })[0]
       : null;
+    /* The WHEN host is painted either way — it belongs to "The deal", which is on screen whether
+       or not a saved program is open. That is the whole point of moving it: a new program needs
+       a window before it exists, not after. */
+    renderWhen(p);
     if (!p) {
       body.innerHTML = '';
       wrap.hidden = true;
@@ -1137,6 +1195,102 @@
       + '" type="' + (type || 'text') + '" value="' + esc(value == null ? '' : value) + '"' + ro + '></label>';
   }
 
+  /* ── WHEN IT RUNS — ON "THE DEAL", NOT IN THE RECORD ──────────────────────────────────────
+     Moved here 2026-09-07 (Sky: the calculator should read Vendor, Program Name, Program Date
+     (PP), Featured Products, Payout, The goal).
+
+     IT IS NOT ONLY A REORDER, and that is the part worth keeping. The record mounts only when a
+     SAVED program is open (syncRecordMount), so a brand-new program had no window control
+     anywhere on screen — calcModelPayload sent no dates and createProgram_ defaults none, so
+     every program was born windowless and had to be saved, found again and edited before it had
+     a date at all. A program with no window measures nothing: `progress` resolves status from
+     the dates, the hourly roll skips rows with no window, and pullActuals refuses outright.
+     Putting the control on the deal is what lets a program be created with its window.
+
+     PAY PERIODS, NOT FREE DATES (Sky, 2026-08-31: "remove custom dates option, only allow PPs").
+     A SPIFF is settled against payroll, so a window ending mid-period is a payout landing in a
+     fortnight nobody can reconcile it to. The dates are DERIVED from the period picked and ride
+     in hidden inputs, so every consumer that reads a window still gets one.
+
+     `p` is null for a new program: it defaults to the current period, which is the only sane
+     guess and is visibly labeled "current" rather than silently assumed. */
+  function renderWhen(p) {
+    var host = $(REC.when);
+    if (!host) return;
+    p = p || null;
+
+    var ppNow = periodIndexOf(today());
+    var startD = p ? p.start_date : '';
+    var endD   = p ? p.end_date : '';
+    var pps = payPeriodOptions(p ? (p.pay_period_start || startD) : '');
+    var span = periodSpanOf(startD, endD);
+    /* "Off grid" means "not exactly ONE pay period" — a two-period program is as much an
+       exception as a seven-day one once the control only offers a single period. */
+    var offGrid = !!(startD && endD && (!span || span.from !== span.to));
+
+    /* ── A RECORD THAT IS NOT ONE PAY PERIOD KEEPS ITS OWN WINDOW ───────────────────────────
+       Three exist and they are history, not a shape to support: Buddies ran 2026-06-22 →
+       2026-07-19, two whole periods; green-cross-2025-08-11 is seven days; the wyld-0626 draft
+       is a calendar month. Two are CLOSED and were reported to the vendor against exactly those
+       dates.
+       Sky, 2026-09-02: "buddies is an edge case, can we preserve that history without having to
+       build it into our current UI". So there is no extra control — the window becomes the
+       SELECTED OPTION, written out as itself, and nothing snaps until somebody deliberately
+       picks a real period. A shape the UI can no longer create, it can still show. */
+    var opts = pps.map(function (x) {
+      var rel = x.index === ppNow ? ' · current' : (x.index > ppNow ? ' · upcoming' : '');
+      return { v: String(x.index), l: periodLabel(x) + rel };
+    });
+    if (offGrid) {
+      opts.unshift({ v: '', l: prettyDay(startD) + ' → ' + prettyDay(endD)
+                              + ', ' + String(endD || '').slice(0, 4) + '  (as recorded)' });
+    }
+    var selIdx = span ? span.from : null;
+    if (selIdx !== null && !opts.some(function (o) { return o.v === String(selIdx); })) {
+      opts.push({ v: String(selIdx), l: periodLabel(periodByIndex(selIdx)) });
+    }
+    var sel = span ? String(span.from) : (offGrid ? '' : String(ppNow));
+
+    /* ── A NEW PROGRAM'S PICK SURVIVES A REPAINT ────────────────────────────────────────────
+       syncRecordMount runs on sign-in, sign-out, tab switches and after every save, and a fresh
+       program has no stored row to read the period back from. Defaulting to "current" every
+       time would quietly undo a period Tawny had chosen for a program starting next fortnight —
+       and she would only find out after it saved against the wrong dates. */
+    var live = $('#rPPFrom');
+    if (!p && live && live.value !== '') sel = live.value;
+
+    /* A NEW program's hidden dates are pre-filled from the selected period. Leaving them blank
+       would create the very windowless program this control exists to prevent. */
+    var per = periodByIndex(Number(sel));
+    var hidStart = p ? (toISODate(startD) || '') : per.start;
+    var hidEnd   = p ? (toISODate(endD)   || '') : per.end;
+
+    host.innerHTML =
+        selField('Program date', '', sel, opts).replace('data-key=""', 'id="rPPFrom"')
+      + (offGrid
+          ? '<span class="sp-fld-note">This program ran ' + esc(prettyDay(startD)) + ' → '
+            + esc(prettyDay(endD)) + ', which does not line up with payroll. It is kept exactly '
+            + 'as it is — picking a period below replaces these dates.</span>'
+          : '<span class="sp-fld-note">A SPIFF is settled against payroll, so its window is a '
+            + 'whole pay period. The start and end dates follow from this.</span>')
+      + '<input type="hidden" data-key="start_date" value="' + esc(hidStart) + '">'
+      + '<input type="hidden" data-key="end_date" value="' + esc(hidEnd) + '">';
+
+    /* One select, and the hidden dates follow it. An empty value is the "keep what is there"
+       option a legacy record gets — it must not write anything. */
+    var ppFrom = $('#rPPFrom');
+    if (ppFrom) ppFrom.addEventListener('change', function () {
+      if (ppFrom.value === '') return;
+      var chosen = periodByIndex(Number(ppFrom.value));
+      var a = recField$('start_date'), b = recField$('end_date');
+      if (a) a.value = chosen.start;
+      if (b) b.value = chosen.end;
+      /* The editing bar reads calc.window, so it would keep showing the old dates until a
+         reload otherwise. */
+      if (calc.editingId) { calc.window = { start: chosen.start, end: chosen.end }; renderCalcEditing(); }
+    });
+  }
+
   function renderRecord(p) {
     var a = p.actual_json || {};
     var warn = '';
@@ -1163,58 +1317,6 @@
         + '. Re-importing the Calculator will not overwrite this record.</div>';
     }
 
-    /* ── WHEN IT RUNS: PAY PERIODS, NOT FREE DATES ──
-       Sky, 2026-08-31: "remove custom dates option, only allow PPs". A SPIFF is settled against
-       payroll, so a window that ends mid-period is a program whose payout lands in a fortnight
-       nobody can reconcile it to. The dates are now DERIVED from the periods picked and shown
-       read-only, rather than typed beside a dropdown that also filled them — two controls for
-       one fact, where the looser one silently won.
-       TWO selects, not one, because a program may run longer than a fortnight: Buddies ran
-       2026-06-22 → 2026-07-19, which is two whole periods. One select could only have expressed
-       that by rounding it down to fourteen days. */
-    var pps = payPeriodOptions(p.pay_period_start || p.start_date);
-    var ppNow = periodIndexOf(today());
-    var span = periodSpanOf(p.start_date, p.end_date);
-    /* "Off grid" now means "not exactly ONE pay period" — a two-period programme is as much an
-       exception as a seven-day one once the control only offers a single period. */
-    var offGrid = !!(p.start_date && p.end_date && (!span || span.from !== span.to));
-
-    function ppOptsFor(selIdx) {
-      var out = pps.map(function (x) {
-        var rel = x.index === ppNow ? ' · current' : (x.index > ppNow ? ' · upcoming' : '');
-        return { v: String(x.index), l: periodLabel(x) + rel };
-      });
-      /* ── A RECORD THAT IS NOT ONE PAY PERIOD KEEPS ITS OWN WINDOW ─────────────────────────
-         Three exist and they are history, not a shape to support: Buddies ran 2026-06-22 →
-         2026-07-19, two whole periods; green-cross-2025-08-11 is seven days; the wyld-0626 draft
-         is a calendar month. Two are CLOSED and were reported to the vendor against exactly those
-         dates.
-
-         Sky, 2026-09-02: "buddies is an edge case, can we preserve that history without having
-         to build it into our current UI". So there is no extra control and no warning — the
-         window becomes the SELECTED OPTION, written out as itself. The record reads true, the
-         control stays a single select, and nothing changes until somebody deliberately picks a
-         real period. A shape the UI can no longer create, it can still show. */
-      if (offGrid) {
-        out.unshift({ v: '', l: prettyDay(p.start_date) + ' → ' + prettyDay(p.end_date)
-                                + ', ' + String(p.end_date || '').slice(0, 4) + '  (as recorded)' });
-      }
-      if (selIdx !== null && !out.some(function (o) { return o.v === String(selIdx); })) {
-        out.push({ v: String(selIdx), l: periodLabel(periodByIndex(selIdx)) });
-      }
-      return out;
-    }
-    /* A multi-period record (Buddies) selects its FIRST period, and the note beside it says what
-       the window really is. Nothing snaps until somebody chooses. */
-    var fromSel = span ? String(span.from) : (offGrid ? '' : String(ppNow));
-
-    if (offGrid) {
-      warn += '<div class="sp-notice is-warn"><span class="sp-notice-l">Window is not a pay period</span>'
-        + 'This program runs ' + esc(prettyDay(p.start_date)) + ' → ' + esc(prettyDay(p.end_date))
-        + ', which does not line up with payroll. It is kept exactly as it is — new programs are '
-        + 'set by pay period. Picking periods below will replace these dates.</div>';
-    }
-
     $(REC.body).innerHTML = warn
       + '<h4 class="sp-h4">The program</h4>'
       + '<div class="sp-flds">'
@@ -1229,21 +1331,9 @@
           ])
       + '</div>'
 
-      /* ONE PERIOD, and the dates follow from it (Sky, 2026-09-02: "the only date range that
-         matters is First Pay Period, which we can shorten to Pay Period"). A SPIFF is settled
-         against payroll, so a programme IS a pay period — showing a start and an end date beside
-         the control that derives them was three fields restating one fact.
-         The dates are still SAVED: they ride in hidden inputs so the collector picks them up
-         exactly as before, and every consumer that reads a window still gets one. */
-      + '<h4 class="sp-h4">When it runs</h4>'
-      + '<div class="sp-flds">'
-      +   selField('Pay period', '', fromSel, ppOptsFor(span ? span.from : null))
-            .replace('data-key=""', 'id="rPPFrom"')
-      +   '<span class="sp-fld-note">A SPIFF is settled against payroll, so its window is a '
-      +     'whole pay period. The dates follow from this.</span>'
-      +   '<input type="hidden" data-key="start_date" value="' + esc(toISODate(p.start_date) || '') + '">'
-      +   '<input type="hidden" data-key="end_date" value="' + esc(toISODate(p.end_date) || '') + '">'
-      + '</div>'
+      /* WHEN IT RUNS IS NOT HERE ANY MORE. It moved up to "The deal" on 2026-09-07 — see
+         renderWhen — because the record only mounts for a SAVED program, so a new one had no
+         window control anywhere on the screen. Same renderer, same collector, second host. */
 
       /* NO READ-ONLY PLAN BLOCK EITHER. It restated six figures — product, payout, cost, target,
          last month, budtenders — that are live controls a few inches up the same screen, under a
@@ -1275,17 +1365,6 @@
        else, instead of needing its own save path that could disagree about what changed. */
     $(REC.body).insertAdjacentHTML('beforeend',
       '<input type="hidden" data-key="match_json" value="' + esc(JSON.stringify(p.match_json || {})) + '">');
-
-    /* One select, and the hidden dates follow it. An empty value is the "keep what is there"
-       option a legacy record gets — it must not write anything. */
-    var ppFrom = $('#rPPFrom');
-    if (ppFrom) ppFrom.addEventListener('change', function () {
-      if (ppFrom.value === '') return;
-      var per = periodByIndex(Number(ppFrom.value));
-      var a = $(REC.body + ' [data-key="start_date"]'), b = $(REC.body + ' [data-key="end_date"]');
-      if (a) a.value = per.start;
-      if (b) b.value = per.end;
-    });
 
     var pull = $('#rPullActuals');
     if (pull) pull.addEventListener('click', function () { pullActuals(p, pull); });
@@ -1323,6 +1402,10 @@
               + 'delete is recoverable — but it disappears from Programs, History, the vendor '
               + 'link and the Progress feed that GX Crew and the kiosks read.</p>'
               + '<div class="share-row">'
+              /* THE RAW NAME, not programLabel(). The engine re-checks this string against the
+                 stored program_name on arrival, so asking for the joined label would produce a
+                 confirmation the server can never accept. The placeholder quotes exactly what
+                 has to be typed, so the two agree on screen. */
               +   '<input class="gx-input" id="delConfirm" placeholder="Type &quot;'
               +     esc(p.program_name || p.title || '') + '&quot; to confirm" autocomplete="off">'
               +   '<button class="gx-btn" id="btnDelete" disabled>Delete this program</button>'
@@ -1565,7 +1648,7 @@
   // the rest of the record.
   function collectPatch(p) {
     var patch = Object.create(null), nested = Object.create(null);
-    $$(REC.body + ' [data-key]').forEach(function (el) {
+    recFields().forEach(function (el) {
       var key = el.dataset.key, raw = el.value.trim();
       var val = el.type === 'number' ? (raw === '' ? null : Number(raw)) : raw;
       var parts = key.split('.');
@@ -1647,8 +1730,8 @@
      reads them before they are committed. */
   async function pullActuals(p, btn) {
     var stores = p.stores_json || [];
-    var from = ($(REC.body + ' [data-key="start_date"]') || {}).value || p.start_date;
-    var to   = ($(REC.body + ' [data-key="end_date"]')   || {}).value || p.end_date;
+    var from = (recField$('start_date') || {}).value || p.start_date;
+    var to   = (recField$('end_date')   || {}).value || p.end_date;
     var note = $('#rActualsNote');
     if (!from || !to) { note.textContent = 'set a start and end date first'; return; }
     if (!stores.length) { note.textContent = 'this program has no stores'; return; }
@@ -1720,7 +1803,7 @@
   }
 
   function setRecField(key, v) {
-    var el = $(REC.body + ' [data-key="' + key + '"]');
+    var el = recField$(key);
     if (!el) return;
     el.value = v;
     el.classList.remove('sp-changed');
@@ -3282,7 +3365,7 @@
       ? prettyDay(calc.window.start) + ' → ' + prettyDay(calc.window.end || '?')
       : 'no dates set';
     bar.innerHTML = (calc.locked ? '<span class="sp-lock-dot" aria-hidden="true"></span>Closed &middot; ' : 'Editing ')
-      + '<b>' + esc(calc.name || 'this program') + '</b> &middot; ' + esc(win)
+      + '<b>' + esc(programLabel({ program_name: calc.name, vendor: calc.vendor }) || 'this program') + '</b> &middot; ' + esc(win)
       /* The button says what is still SHUT, not what the screen is. The featured product is
          editable without it now, so "Unlock to re-model" over a live product field read as a
          contradiction — you were already editing the thing it claimed to be guarding. */
@@ -3471,7 +3554,7 @@
      and it is never automatic — a settled record must not change quietly under a vendor invoice. */
   async function remeasure(rec, btn) {
     if (!rec) return;
-    if (!confirm('Re-measure ' + (rec.program_name || 'this program') + '?\n\n'
+    if (!confirm('Re-measure ' + (programLabel(rec) || 'this program') + '?\n\n'
                + 'It closed on ' + prettyDay(rec.end_date) + ' and these numbers were reported to '
                + 'the vendor. Re-measuring replaces them with what Dutchie says today.')) return;
     var was = btn.textContent;
@@ -3860,7 +3943,16 @@
           })
         : await ENG.jsonp('createProgram', {
             token: (session() || {}).token,
-            program: JSON.stringify(payload)
+            /* ── THE WINDOW RIDES ALONG ON A CREATE, AND ONLY ON A CREATE ──────────────────
+               An existing program's dates are saved by the record half (collectPatch →
+               editProgram), so adding them to the model payload as well would be two writers
+               for one fact — the failure this file keeps paying for. A NEW program has no
+               record half yet, so this is the only path its window can travel, and without it
+               every program is created windowless: no status roll, no progress, no actuals. */
+            program: JSON.stringify(Object.assign({}, payload, {
+              start_date: (recField$('start_date') || {}).value || '',
+              end_date:   (recField$('end_date')   || {}).value || ''
+            }))
           });
       if (!r || !r.ok) throw new Error((r && r.error) || 'save failed');
       /* A create has no editingId until now — adopt it, or the next press would fork a second
@@ -3900,7 +3992,7 @@
     if (!sel) return;
     sel.innerHTML = '<option value="">Start from scratch…</option>'
       + sortPrograms(state.programs).map(function (p) {
-        return '<option value="' + esc(p.program_id) + '">' + esc(p.program_name || p.title) + '</option>';
+        return '<option value="' + esc(p.program_id) + '">' + esc(programLabel(p)) + '</option>';
       }).join('');
   }
 
@@ -3982,7 +4074,7 @@
     var closed = sortPrograms(state.programs.filter(function (p) { return p.actual_json; }));
     sel.innerHTML = closed.map(function (p) {
       return '<option value="' + esc(p.program_id) + '">'
-        + esc(p.program_name || p.title) + ' · ' + esc(prettyRangeY(p)) + '</option>';
+        + esc(programLabel(p)) + ' · ' + esc(prettyRangeY(p)) + '</option>';
     }).join('');
     if (was && closed.some(function (p) { return p.program_id === was; })) sel.value = was;
     if (closed.length) renderReport();
@@ -4008,7 +4100,7 @@
        seconds against a cold engine. Sky, 2026-09-03. Painted BEFORE the await, and it names the
        program being opened so the screen and the picker agree the moment you change it. */
     host.innerHTML = '<div class="sp-rep-loading" aria-busy="true">'
-      + '<div class="sp-rep-loading-h">Opening <b>' + esc(p.program_name || p.title) + '</b>&hellip;</div>'
+      + '<div class="sp-rep-loading-h">Opening <b>' + esc(programLabel(p)) + '</b>&hellip;</div>'
       + '<div class="sp-sk sp-sk-hero"></div>'
       + '<div class="sp-sk sp-sk-row"></div>'
       + '<div class="sp-sk sp-sk-row"></div>'
@@ -4097,7 +4189,7 @@
       +     '<div class="sp-paper" id="printArea">'
       +       '<div class="sp-paper-h">'
       +         '<img class="sp-paper-mark" src="' + LOGO_ONLIGHT + '" alt="Green Cross">'
-      +         '<div class="sp-paper-t"><h3>' + esc(p.program_name || p.title) + ' &mdash; SPIFF results</h3>'
+      +         '<div class="sp-paper-t"><h3>' + esc(programLabel(p)) + ' &mdash; SPIFF results</h3>'
       +           '<p>Green Cross Cannabis Emporium &middot; ' + esc(prettyDay(p.start_date)) + ' &ndash; '
       +             esc(prettyDay(p.end_date || '')) + '</p></div>'
       +         '<div class="sp-paper-credit"><div class="sp-paper-credit-l">Credit requested</div>'
@@ -4335,7 +4427,7 @@
 
     return '<div class="sp-hist-row' + (dupe ? ' is-suspect' : p.edited_by ? ' is-edited' : '')
       + '" data-id="' + esc(p.program_id) + '" tabindex="0" role="button">'
-      + '<div><div class="sp-hist-n">' + esc(p.program_name || p.title)
+      + '<div><div class="sp-hist-n">' + esc(programLabel(p))
       +   (p.edited_by ? '<span class="sp-tag-edited">corrected by ' + esc(p.edited_by) + '</span>' : '') + '</div>'
       +   '<div class="sp-hist-s">' + esc(p.vendor) + ' &middot; '
       +     esc(p.start_date ? prettyDay(p.start_date) : '—') + ' &rarr; '
@@ -4384,7 +4476,7 @@
        question being asked. */
     sel.innerHTML = list.map(function (p) {
       return '<option value="' + esc(p.program_id) + '">'
-        + esc(p.program_name || p.title) + ' · ' + esc(prettyRangeY(p)) + '</option>';
+        + esc(programLabel(p)) + ' · ' + esc(prettyRangeY(p)) + '</option>';
     }).join('');
     /* Default to the RUNNING program, not whatever sorts first. sortPrograms already puts
        active ahead of draft and closed, but being explicit keeps this true if that order ever

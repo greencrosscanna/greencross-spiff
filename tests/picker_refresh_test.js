@@ -73,10 +73,23 @@ ok('  …and restores it when the program is still listed',
    /closed\.some\(function \(p\) \{ return p\.program_id === was; \}\)/.test(rep));
 
 /* ── the names themselves ── */
+/* The name is joined with its vendor at read time now (2026-09-07, "[Vendor] - [Program Name]"),
+   so the pickers name a program through programLabel rather than reaching for the columns
+   themselves. The old rule is not gone — it moved INSIDE that one function, which is the point:
+   ten call sites cannot disagree about what a program is called if only one of them decides. */
 [['fillProgressPicker', pg], ['fillReportPicker', rep], ['fillCalcLoad', grab('fillCalcLoad')]].forEach(([n, src]) => {
-  ok(n + ' shows the editable program_name, falling back to the fixed title',
-     /program_name \|\| p\.title/.test(src));
+  ok(n + ' names the program through the one shared label',
+     /programLabel\(p\)/.test(src));
 });
+const label = grab('programLabel');
+ok('programLabel still prefers the editable program_name over the fixed title',
+   /program_name \|\| p\.title/.test(label));
+ok('  …and joins the vendor in front of it',
+   /vendor \+ ' - ' \+ name/.test(label));
+ok('  …but never twice, so a seeded "Wyld 10pc" does not become "Wyld - Wyld 10pc"',
+   /indexOf\(vendor\.toLowerCase\(\)\) === 0/.test(label));
+ok('  …and it is DERIVED — nothing writes a joined label back into program_name',
+   !/program_name\s*[:=]\s*[^,;\n]*programLabel/.test(js));
 /* Both program dropdowns carry the window, because vendors repeat: Meraki, Mule and Hellavated
    each ran more than once, and Portland Heights now twice. */
 ok('Progress labels carry the date range', /prettyRangeY\(p\)/.test(pg));
