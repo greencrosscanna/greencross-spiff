@@ -42,11 +42,22 @@ function grab(name) {
 /* ── the column exists, round-trips, and does not disturb the others ── */
 const HEADERS = new Function('return ' + (gs.match(/var PROGRAM_HEADERS = (\[[\s\S]*?\]);/) || [])[1])();
 ok('progress_json is a column', HEADERS.indexOf('progress_json') >= 0);
-ok('  …appended LAST, so no existing column shifts',
-   HEADERS[HEADERS.length - 1] === 'progress_json');
+/* The rule is APPEND, not "progress_json is last" — pitch_json went on after it on 2026-09-08.
+   What must hold is that nothing before it moved, so every column added since keeps its index
+   and the read side agrees. Pinning the literal last name made a correct append look like a
+   regression. */
+const PROGRESS_AT = HEADERS.indexOf('progress_json');
+ok('  …appended after every column that predates it, so none of them shifted',
+   PROGRESS_AT === HEADERS.indexOf('doc_json') + 1);
 ok('  …and it is written', /p\.progress_json \? JSON\.stringify\(p\.progress_json\) : ''/.test(grab('programToRow_')));
 ok('  …and read back at the matching index',
-   new RegExp('progress_json: parseJson_\\(r\\[' + (HEADERS.length - 1) + '\\], null\\)').test(grab('rowToProgram_')));
+   new RegExp('progress_json: parseJson_\\(r\\[' + PROGRESS_AT + '\\], null\\)').test(grab('rowToProgram_')));
+/* Every column reads back from the index it occupies. One check for the whole row beats one
+   assertion per column, and it is what actually breaks if somebody inserts rather than appends. */
+const r2p = grab('rowToProgram_');
+ok('  …and so does every other column in the row',
+   HEADERS.every((h, i) => !new RegExp('\\b' + h + ':\\s*(?:parseJson_\\()?r\\[(\\d+)\\]').test(r2p)
+     || Number(new RegExp('\\b' + h + ':\\s*(?:parseJson_\\()?r\\[(\\d+)\\]').exec(r2p)[1]) === i));
 /* migrateHeaders_ remaps by NAME, which is what makes appending safe on a live sheet. */
 ok('adding a column is safe because rows are remapped by name',
    /remapped BY NAME|rather than trusted to line up/.test(gs));

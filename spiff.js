@@ -87,6 +87,15 @@
     return 'subnav' + tab.charAt(0).toUpperCase() + tab.slice(1);
   }
 
+  /* Loaded on FIRST OPEN, not at boot. Six kiosk links are set up once and then looked at
+     roughly never, and this app already pays for a stores call and a programs call before it can
+     paint anything — Apps Script serializes per script, so a third one on every load would be a
+     tax on every visit for a panel almost nobody opens. */
+  function wireKioskFold() {
+    var f = $('#kioskFold');
+    if (f) f.addEventListener('toggle', function () { if (f.open) loadKioskLinks(); });
+  }
+
   function wireTabs() {
     var bar = $('#tabs');
     if (bar) bar.addEventListener('click', function (e) {
@@ -1435,6 +1444,54 @@
       if (first) first.focus();
     });
 
+    /* ── WHAT THE KIOSK SAYS ──────────────────────────────────────────────────────────────────
+       Sky, 2026-09-08: "for Staff to be able to click a SPIFF button from the Kiosk and see the
+       details (payout out, goal, etc) plus a few Selling tips writen by Tawny, hence the request
+       for bullet points."
+
+       ONLY THE TIPS ARE TYPED HERE. The to-do also listed active products, store goal, BT goal
+       and the incentive amount and type — all four already exist on this program, and Sky chose
+       to have the kiosk read them LIVE rather than let them be retyped. So the kiosk cannot
+       promise $25 on a program that was since re-modeled to $20, and there is no second copy of
+       a goal to go stale. The panel says which is which, so it does not read as missing fields.
+
+       Editable on a CLOSED program, like the featured product and unlike the goals: correcting a
+       typo in a selling tip cannot change what anybody was paid. */
+    if (canEdit() || (p.pitch_json && (p.pitch_json.tips || []).length)) {
+      var tips = (p.pitch_json && p.pitch_json.tips) || [];
+      var ro = canEdit() ? '' : ' readonly';
+      $(REC.body).insertAdjacentHTML('beforeend',
+        '<h4>Selling tips &mdash; what budtenders see</h4>'
+        + '<p class="hint">Up to five, one per line. These show on the kiosk under '
+        + '<b>How to sell it</b>, beside the goal and the bounty. The product, the goals and the '
+        + 'payout come off this program automatically &mdash; you do not type those here, so '
+        + 'changing the model changes the kiosk.</p>'
+        /* ONE TEXTAREA, NOT FIVE BOXES. Tawny is writing prose, and five numbered inputs make
+           her decide which slot a thought belongs in and then re-type the lot to reorder them.
+           Newline-separated is how a person writes a short list; the engine splits, trims,
+           drops blanks and caps at five. */
+        + '<textarea class="gx-input sp-tips-in" id="rTips" rows="5"'
+        +   ' placeholder="Lead with the terpene profile&#10;Pair it with a pre-roll&#10;Mention the price break"'
+        +   ro + '>' + esc(tips.join('\n')) + '</textarea>'
+        + '<span class="hint" id="rTipsCount"></span>'
+        /* The stored value rides in a hidden field so collectPatch sends it with everything
+           else, rather than needing its own save path that could disagree about what changed. */
+        + '<input type="hidden" data-key="pitch_json" value="' + esc(JSON.stringify(p.pitch_json || { tips: [] })) + '">');
+
+      var ta = $('#rTips'), hidden = $(REC.body + ' [data-key="pitch_json"]');
+      function syncTips() {
+        var lines = String(ta.value || '').split('\n')
+          .map(function (x) { return x.replace(/\s+/g, ' ').trim(); })
+          .filter(Boolean).slice(0, 5);
+        if (hidden) hidden.value = JSON.stringify({ tips: lines });
+        var c = $('#rTipsCount');
+        if (c) c.textContent = lines.length
+          ? lines.length + ' of 5 · the kiosk shows them in this order'
+          : 'none yet — the kiosk will show the goal and payout only';
+      }
+      if (ta) { ta.addEventListener('input', syncTips); syncTips(); }
+    }
+
     // Minting a vendor link exposes this program to an outside party, so it sits behind
     // the same role gate as editing and says plainly what it does.
     if (canEdit()) {
@@ -1494,6 +1551,102 @@
     $(REC.msg).textContent = s
       ? 'Signed in as ' + s.user + (canEdit() ? ' (' + s.role + ')' : ' — role ' + s.role + ' cannot edit')
       : 'Read-only. Sign in to correct this record.';
+  }
+
+  /* ── THE KIOSK LINKS ──────────────────────────────────────────────────────────────────────
+     One permanent link per store, listed together. Set up once, then not thought about again —
+     which is exactly why they are minted for EVERY store in one call rather than one button per
+     store: six presses is six chances to stop at five, and the store that gets missed shows a
+     blank kiosk that nobody is standing next to.
+
+     A ROTATE, NOT A REVOKE, in the normal case. A store with no link is a dead screen, so
+     "replace this link" mints the new one in the same call that retires the old. Revoking
+     outright is available for a link that got somewhere it should not have been, and then the
+     kiosk deliberately shows nothing until somebody makes a new one. */
+  function storeUrl(tok) {
+    return location.origin + location.pathname.replace(/[^/]*$/, '') + 'store.html?t=' + tok;
+  }
+
+  var kioskLoaded = false;
+
+  function renderKioskLinks(links) {
+    var host = $('#kioskBody');
+    if (!host) return;
+    if (!canEdit()) {
+      host.innerHTML = '<p class="hint">Kiosk links are managed by an editor.</p>';
+      return;
+    }
+    host.innerHTML =
+      '<p class="hint">Paste a store&rsquo;s link into that store&rsquo;s kiosk. It is permanent: '
+      + 'it shows whatever SPIFF is running there that day, and says so plainly when nothing is. '
+      + 'The page shows the goal, the payout and the selling tips &mdash; never a person&rsquo;s '
+      + 'name, units or earnings.</p>'
+      + '<table class="sp-klinks"><thead><tr><th>Store</th><th>Link</th><th></th></tr></thead><tbody>'
+      + links.map(function (l) {
+          return '<tr data-store="' + esc(l.store_id) + '">'
+            + '<td>' + esc(l.display_name || l.store_id) + '</td>'
+            + '<td>' + (l.token
+                ? '<input class="gx-input sp-klink-u" readonly value="' + esc(storeUrl(l.token)) + '">'
+                : '<span class="sp-klink-none">no link &mdash; revoked</span>') + '</td>'
+            + '<td>'
+            +   (l.token ? '<button type="button" class="gx-btn" data-kcopy="' + esc(l.token) + '">Copy</button>' : '')
+            +   '<button type="button" class="gx-btn" data-krotate="' + esc(l.store_id) + '">'
+            +     (l.token ? 'Replace' : 'Create') + '</button>'
+            + '</td></tr>';
+        }).join('')
+      + '</tbody></table>'
+      + '<span class="hint" id="kioskMsg"></span>';
+
+    host.querySelectorAll('[data-kcopy]').forEach(function (b) {
+      b.addEventListener('click', async function () {
+        var okc = await copyText(storeUrl(b.dataset.kcopy));
+        b.textContent = okc ? 'Copied' : 'Copy failed';
+        setTimeout(function () { b.textContent = 'Copy'; }, 1800);
+      });
+    });
+    host.querySelectorAll('[data-krotate]').forEach(function (b) {
+      b.addEventListener('click', function () { rotateKioskLink(b.dataset.krotate, b); });
+    });
+  }
+
+  async function loadKioskLinks(force) {
+    var host = $('#kioskBody');
+    if (!host || (kioskLoaded && !force)) return;
+    if (!canEdit()) { renderKioskLinks([]); kioskLoaded = true; return; }
+    host.innerHTML = '<p class="hint">Loading kiosk links&hellip;</p>';
+    try {
+      var r = await ENG.jsonp('storeLinks', { token: (session() || {}).token }, { timeoutMs: 25000, retries: 1 });
+      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+      kioskLoaded = true;
+      renderKioskLinks(r.links || []);
+    } catch (err) {
+      /* Says what failed rather than showing an empty table — an empty list here reads as
+         "this company has no stores", which is never the true answer. */
+      host.innerHTML = '<p class="hint">Could not load kiosk links: ' + esc(String(err.message || err))
+        + ' <button type="button" class="gx-btn" id="kioskRetry">Try again</button></p>';
+      var rt = $('#kioskRetry');
+      if (rt) rt.addEventListener('click', function () { loadKioskLinks(true); });
+    }
+  }
+
+  async function rotateKioskLink(storeId, btn) {
+    var replacing = btn.textContent === 'Replace';
+    if (replacing && !confirm('Replace the kiosk link for this store?\n\n'
+          + 'The old link stops working immediately, so any kiosk still holding it shows nothing '
+          + 'until the new one is pasted in.')) return;
+    btn.disabled = true;
+    var was = btn.textContent;
+    btn.textContent = replacing ? 'Replacing…' : 'Creating…';
+    try {
+      var r = await ENG.jsonp('storeLinkRotate', { token: (session() || {}).token, store: storeId });
+      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+      await loadKioskLinks(true);
+    } catch (err) {
+      btn.textContent = 'Failed';
+      var m = $('#kioskMsg');
+      if (m) m.textContent = String(err.message || err);
+      setTimeout(function () { btn.textContent = was; btn.disabled = false; }, 2000);
+    }
   }
 
   function clientUrl(tok) {
@@ -1723,10 +1876,15 @@
          default comparison stringifies the stored object to "[object Object]", which never
          equals the JSON text, so the field would be reported dirty on every save and overwrite
          a hand-tuned filter with itself. */
-      if (key === 'match_json') {
+      /* pitch_json travels the same way and for the same reason. Without the structural
+         compare, the default branch would stringify the stored OBJECT to "[object Object]",
+         never match the JSON text, and report the field dirty on every single save — so every
+         press would rewrite Tawny's tips with themselves and stamp edited_by on a record
+         nobody touched. */
+      if (key === 'match_json' || key === 'pitch_json') {
         var parsed;
         try { parsed = JSON.parse(raw || '{}'); } catch (e) { return; }
-        if (JSON.stringify(parsed) !== JSON.stringify(p.match_json || {})) patch.match_json = parsed;
+        if (JSON.stringify(parsed) !== JSON.stringify(p[key] || {})) patch[key] = parsed;
         return;
       }
       /* Never turn a date that HAD a value into an empty one. The dates are derived from the
@@ -5237,6 +5395,7 @@
     wireReports();
     wireHistory();
     wireProgress();
+    wireKioskFold();
     showTab('programs');
     initBugReport();
     /* PARALLEL, and the chain it replaces is why this screen took thirty seconds.

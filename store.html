@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>SPIFF — Green Cross</title>
+<meta name="robots" content="noindex, nofollow"/>
+<link rel="icon" type="image/png" href="https://greencrosscanna.github.io/greencross-gx-theme/gc-icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="https://greencrosscanna.github.io/greencross-gx-theme/gc-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.370"/>
+<link rel="stylesheet" href="flyer.css?v=1.370"/>
+<link rel="stylesheet" href="store.css?v=1.370"/>
+</head>
+<body class="flyer store">
+
+<!-- ── THE KIOSK VIEW ────────────────────────────────────────────────────────────────────────
+     Sky, 2026-09-08: "for Staff to be able to click a SPIFF button from the Kiosk and see the
+     details (payout out, goal, etc) plus a few Selling tips writen by Tawny."
+
+     A SHARED SCREEN, so this page has no sign-in and shows no person. What is running here,
+     what the goal is, what it pays, and how to sell it. Nothing about who has sold what — a
+     kiosk faces the room, and one budtender's numbers are not the room's business. It also
+     shows no cost and no ROI, because a customer can read it over the counter.
+
+     The personal view is flyer.html and keeps its own sign-in. These two answer different
+     questions on purpose; merging them would put earnings on a wall. -->
+<main class="fl-main st-main" id="main">
+  <div class="fl-boot" id="boot">Loading&hellip;</div>
+</main>
+
+<script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-client.js"></script>
+<!-- Shared maintenance gate. Anything unreadable counts as UP, so a bad minute of GitHub's CDN
+     cannot manufacture an outage on a shop-floor screen. -->
+<script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-maintenance.js"></script>
+<script>
+  GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
+</script>
+<script src="store.js?v=1.370"></script>
+</body>
+</html>

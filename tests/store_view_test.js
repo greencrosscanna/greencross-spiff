@@ -1,0 +1,174 @@
+#!/usr/bin/env node
+/* ─── The kiosk board: no session, and no person on it ────────────────────────────────────────────
+ *
+ *   RUN:  node tests/store_view_test.js
+ *
+ * Sky, 2026-09-07/08: "We need unique store links for each store. We will then wire these to
+ * Leaderboard so that BTs can open a window with the SPIFF details from their Kiosk." … "for Staff
+ * to be able to click a SPIFF button from the Kiosk and see the details (payout out, goal, etc)
+ * plus a few Selling tips writen by Tawny, hence the request for bullet points."
+ *
+ * THIS IS THE ONE ROUTE IN THE APP WITH NO CREDENTIAL OF ITS OWN. A kiosk is a shared screen in a
+ * shop and nobody signs into it, so the token in the URL is the whole credential. That makes two
+ * things worth a test rather than a comment:
+ *
+ *   1. IT MUST NOT CARRY A PERSON. A screen facing the sales floor cannot show one budtender's
+ *      units or earnings to the room, and a customer at the counter cannot be shown what we pay
+ *      for the product. `flyer` is the personal view and keeps its sign-in; these two answer
+ *      different questions and merging them would put earnings on a wall.
+ *
+ *   2. THE LINK IS PER STORE AND PERMANENT. Minted per program it would need re-pasting into six
+ *      kiosks every time a SPIFF ended, and the first time somebody forgot, a kiosk would show a
+ *      finished program as though it were live.
+ *
+ * And the reason only TIPS are editable: four of the six things the to-do listed already exist on
+ * the program — the featured product, the store goal, the per-BT goal, the payout and its model.
+ * Sky chose to read those live, so the kiosk cannot promise $25 on a program since re-modeled to
+ * $20. A goal with two homes is the failure this repo keeps paying for.
+ */
+'use strict';
+const fs = require('fs');
+
+let fail = 0;
+const ok = (l, c) => c ? console.log('  ✓ ' + l) : (fail++, console.log('  ✗ ' + l));
+
+const gs    = fs.readFileSync(__dirname + '/../apps-script/Code.gs', 'utf8');
+const js    = fs.readFileSync(__dirname + '/../spiff.js', 'utf8');
+const sjs   = fs.readFileSync(__dirname + '/../store.js', 'utf8');
+const shtml = fs.readFileSync(__dirname + '/../store.html', 'utf8');
+
+function grab(src, name) {
+  const i = src.search(new RegExp('\\n\\s*(?:async\\s+)?function ' + name + '\\s*\\('));
+  if (i < 0) throw new Error('missing ' + name);
+  let d = 0;
+  for (let k = src.indexOf('{', i); k < src.length; k++) {
+    if (src[k] === '{') d++; else if (src[k] === '}') { d--; if (!d) return src.slice(i, k + 1); }
+  }
+  throw new Error('unbalanced ' + name);
+}
+
+/* ══════════════════ 1. NO PERSON, NO MARGIN ══════════════════ */
+const view = grab(gs, 'storeView_');
+
+/* AN ALLOWLIST, read off the keys the route actually emits — not a substring hunt. The first cut
+   of this test searched the function text for "name" and "rows" and failed on `program_name` and
+   `storeLinkRows_`, which is the wrong kind of wrong: a check that cries about safe code teaches
+   you to loosen it. Reading the emitted keys means a NEW leak fails this, and a rename does not. */
+function emittedKeys(block) {
+  return (block.match(/(?:^|[\s{,])([a-z_][a-z0-9_]*)\s*:/gi) || [])
+    .map(m => m.replace(/[\s{,]/g, '').replace(/:$/, ''));
+}
+const perProgram = view.slice(view.indexOf('out.push({'), view.indexOf('});', view.indexOf('out.push({')));
+const envelope   = view.slice(view.lastIndexOf('return { ok: true'));
+
+const PROGRAM_ALLOWED = ['program_id', 'vendor', 'program_name', 'start_date', 'end_date',
+                         'product', 'store_goal', 'bt_goal', 'payout', 'payout_type', 'tips'];
+const ENVELOPE_ALLOWED = ['ok', 'store_id', 'store_name', 'today', 'programs'];
+
+const progKeys = emittedKeys(perProgram);
+ok('each program on the board emits only the agreed fields',
+   progKeys.length > 0 && progKeys.every(k => PROGRAM_ALLOWED.indexOf(k) >= 0));
+ok('  …and the envelope around them likewise',
+   emittedKeys(envelope).every(k => ENVELOPE_ALLOWED.indexOf(k) >= 0));
+/* Named individually so a future reader sees WHICH leaks were being guarded against. */
+['full_name', 'employee', 'nameKey', 'user_id', 'earned', 'bts_hit', 'units_sold', 'hit']
+  .forEach(k => ok('no `' + k + '` reaches the kiosk', progKeys.indexOf(k) < 0));
+ok('  …and no vendor cost or ROI — a customer can read this over the counter',
+   view.indexOf('cost_json') < 0 && view.indexOf('roi') < 0 && view.indexOf('actual_json') < 0);
+ok('  …and no progress snapshot, which is per budtender',
+   view.indexOf('progress_json') < 0);
+/* What it DOES carry is exactly the detail Sky asked for. */
+['store_goal', 'bt_goal', 'payout', 'payout_type', 'tips', 'product']
+  .forEach(k => ok('it does carry `' + k + '`', progKeys.indexOf(k) >= 0));
+
+/* The page cannot render what it was not sent, but it must not ask for it either. */
+ok('the kiosk page never reads the personal route',
+   sjs.indexOf("'flyer'") < 0 && /jsonp\('storeView'/.test(sjs));
+ok('  …and has no sign-in of any kind',
+   !/spiff_session/.test(sjs) && !/renderGate/.test(sjs) && !/password/i.test(sjs));
+ok('  …and says so in the markup, so the next reader does not add one',
+   /no sign-in and shows no person/.test(shtml));
+
+/* ══════════════════ 2. THE TOKEN IS THE CREDENTIAL, AND IT IS CHECKED ══════════════════ */
+ok('a missing token is refused', /if \(!tok\) return \{ ok: false/.test(view));
+ok('the token is matched against a LIVE row, never trusted from the caller',
+   /r\.token === tok && !r\.revoked_at/.test(view));
+ok('  …and a revoked link says the LINK is dead, not the store',
+   /no longer active/.test(view));
+/* Minting and rotating are writes and need a real session, like everything else here. */
+['storeLinks_', 'storeLinkRotate_'].forEach(fn => {
+  const f = grab(gs, fn);
+  ok(fn + ' needs a signed-in session', /gxAuth_\(p\.token\)/.test(f) && /needsAuth: true/.test(f));
+  ok('  …and an editing role', /EDIT_ROLES\.indexOf\(String\(auth\.role\)\) < 0/.test(f));
+});
+/* A deploy secret must not be a way in, and storeView must not be a way to enumerate. */
+ok('the kiosk read is not secret-gated either — the URL token is the whole credential',
+   view.indexOf('GX_SECRET_PROP') < 0);
+
+/* ══════════════════ 3. ONE LINK PER STORE, PERMANENT ══════════════════ */
+const links = grab(gs, 'storeLinks_');
+ok('links are keyed on the store, not on a program',
+   /STORE_LINK_HEADERS = \['store_id', 'token'/.test(gs) && links.indexOf('program_id') < 0);
+ok('  …so the page resolves the program at READ time, from today',
+   /var today = nowStamp_\(\)\.slice\(0, 10\)/.test(view) && /a <= today && today <= b/.test(view));
+ok('  …and a closed program never shows on a kiosk',
+   /st === 'closed'/.test(view));
+ok('  …and only programs that actually run at THIS store',
+   /pr\.stores_json \|\| \[\]\)\.some/.test(view));
+ok('the soonest to end is listed first — that is the one worth pushing today',
+   /localeCompare/.test(view));
+/* An empty store registry is not an empty company. */
+ok('a registry that did not answer refuses rather than minting against nothing',
+   /if \(!stores\.length\)/.test(links) && /Nothing was changed/.test(links));
+ok('every store is minted in ONE call, so none gets missed',
+   /stores\.forEach/.test(links) && /made\.push\(id\)/.test(links));
+ok('replacing a link retires the old one and mints in the same call',
+   /revoked_at\b/.test(grab(gs, 'storeLinkRotate_'))
+   && /sh\.appendRow\(\[id, tok/.test(grab(gs, 'storeLinkRotate_')));
+
+/* ══════════════════ 4. ONLY THE TIPS ARE TYPED ══════════════════ */
+const norm = grab(gs, 'normalizePitch_');
+ok('the stored shape is tips and nothing else', /return \{ tips: out \}/.test(norm));
+ok('  …capped server-side, because a kiosk has no operator watching it',
+   /out\.length < PITCH_MAX_TIPS/.test(norm) && /PITCH_MAX_TIPS = 5/.test(gs));
+ok('  …each one length-bounded', /slice\(0, PITCH_MAX_LEN\)/.test(norm));
+ok('  …blank entries dropped rather than rendered as stray dots', /if \(t\) out\.push/.test(norm));
+ok('  …and the two-field shape it briefly shipped as still reads back',
+   /src\.bullets/.test(norm) && /src\.talking_points/.test(norm));
+/* The four that already exist must NOT have become typeable copies. */
+const editor = js.slice(js.indexOf('Selling tips &mdash; what budtenders see'),
+                        js.indexOf('Minting a vendor link'));
+ok('the editor offers tips only — no goal, payout or product boxes',
+   editor.indexOf("data-key=\"pitch_json\"") > 0
+   && editor.indexOf('target_json') < 0 && editor.indexOf('payout_json') < 0
+   && editor.indexOf('match_json') < 0);
+ok('  …and says the rest comes off the program automatically',
+   /come off this program automatically/.test(editor));
+ok('pitch_json is accepted by the engine, or the save would be a silent no-op',
+   /'contact_name', 'contact_email', 'pitch_json'/.test(gs));
+/* The structural compare — without it every save rewrites the tips with themselves. */
+ok('collectPatch compares tips structurally, not as "[object Object]"',
+   /key === 'match_json' \|\| key === 'pitch_json'/.test(grab(js, 'collectPatch')));
+
+/* ══════════════════ 5. THE KIOSK LOOKS AFTER ITSELF ══════════════════ */
+ok('the board refreshes on its own — nobody reloads a kiosk by hand',
+   /setInterval\(load, REFRESH_MS\)/.test(sjs));
+ok('  …and immediately when the screen wakes, so the morning shift sees today',
+   /visibilitychange/.test(sjs));
+ok('  …at a gentle interval, since nothing on it moves by the minute',
+   /REFRESH_MS = 10 \* 60 \* 1000/.test(sjs));
+ok('a failure says the plain thing rather than showing a stack trace on the floor',
+   /Can’t reach the SPIFF board/.test(sjs));
+ok('nothing running is stated, not left blank',
+   /No SPIFF running right now/.test(sjs));
+/* Dates are TEXT here too — a Date constructor on YYYY-MM-DD renders the day before in LA. */
+ok('dates are formatted from text, never through Date()',
+   /never coerces a Date|parses as UTC and renders the day before/.test(sjs));
+ok('days left is inclusive of the end date, like the operator app',
+   /\+ 1;/.test(grab(sjs, 'daysLeft')));
+/* One name for a program across both screens. */
+ok('the kiosk joins vendor and name the same way the operator app does',
+   /name\.toLowerCase\(\)\.indexOf\(vendor\.toLowerCase\(\)\) === 0/.test(sjs));
+
+console.log(fail ? '\n' + fail + ' FAILED' : '\nstore view: all passed');
+process.exit(fail ? 1 : 0);

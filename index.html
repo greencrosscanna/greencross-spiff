@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.369"/>
-<link rel="stylesheet" href="spiff.css?v=1.369"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.370"/>
+<link rel="stylesheet" href="spiff.css?v=1.370"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -148,6 +148,26 @@
            Calculator sheet and SPIF-doc importers were retired once History was seeded.</p>
       </div>
       <div id="programsList" hidden></div>
+
+      <!-- ── KIOSK LINKS ──────────────────────────────────────────────────────────────────────
+           Sky, 2026-09-07: "We need unique store links for each store. We will then wire these
+           to Leaderboard so that BTs can open a window with the SPIFF details from their Kiosk."
+
+           APP-LEVEL, NOT PER PROGRAM, which is why it lives down here rather than on a program's
+           record. One permanent link per store: the token identifies the SCREEN, and the page
+           resolves at read time to whatever is running at that store today. Minted per program
+           they would need re-pasting into six kiosks every time a SPIFF ended, and the first
+           time somebody forgot, a kiosk would show a finished program as though it were live.
+
+           Collapsed by default because it is set up once and then not thought about again. -->
+      <details class="sp-fold" id="kioskFold">
+        <summary class="sp-fold-h">
+          <span class="sp-fold-t">Kiosk links</span>
+          <span class="sp-fold-n">one permanent link per store, for the SPIFF button on the kiosks</span>
+          <span class="sp-fold-chev" aria-hidden="true">&#9656;</span>
+        </summary>
+        <div class="sp-fold-b" id="kioskBody"></div>
+      </details>
     </section>
 
     <!-- ============ CALCULATOR ============ -->
@@ -469,6 +489,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="spiff.js?v=1.369"></script>
+<script src="spiff.js?v=1.370"></script>
 </body>
 </html>

@@ -87,7 +87,19 @@ var PROGRAM_HEADERS = [
      Crew fetches that tab whole and unfiltered, so adding 23 closed programs to it would take one
      response from 23KB to ~343KB against a 95KB cache ceiling, and Crew would silently stop
      caching and re-fetch the lot on every page load. History is SPIFF's own business. */
-  'progress_json'
+  'progress_json',
+  /* ── WHAT THE BUDTENDERS ARE TOLD (2026-09-08) ────────────────────────────────────────────
+     Tawny's selling tips for the kiosk: { tips: [] }. PROSE ONLY, and that is
+     the whole design. Sky listed six things he wanted her able to edit — bullets, active
+     products, store goal, BT goal, incentive amount and type, three talking points — and four
+     of them already exist as real data on this row: the featured product is match_json, the
+     store and per-budtender goals are target_json, the bounty and its model are payout_json
+     and payout_type. Sky, 2026-09-08, chose to read those LIVE rather than let her retype
+     them, so the kiosk cannot drift from the program the vendor agreed to. Duplicating a goal
+     into a display field is how the kiosk ends up promising $25 on a program that was
+     re-modeled to $20.
+     So this column holds only what has no other home: the words. */
+  'pitch_json'
 ];
 
 // Shared passphrase for vendor-facing links. Set it from the script editor:
@@ -129,7 +141,7 @@ var EDITABLE_FIELDS = [
   'vendor', 'program_name', 'status', 'start_date', 'end_date', 'pay_period',
   'match_json', 'stores_json', 'payout_type',
   'payout_json', 'cost_json', 'target_json', 'baseline_json', 'actual_json',
-  'contact_name', 'contact_email'
+  'contact_name', 'contact_email', 'pitch_json'
 ];
 
 /* Which GXCore version THIS DEPLOYMENT is bound to, over HTTP. Requested by inventory, and it
@@ -322,6 +334,14 @@ function doGet(e) {
       case 'giftCards':   out = giftCardList_(p);                                   break;
       case 'clientView':  out = clientView_(p);                                     break;
       case 'shareLink':   out = shareLink_(p);                                      break;
+      /* ── THE KIOSK LINKS ───────────────────────────────────────────────────────────────────
+         `storeView` is the only route in this app with NO credential of its own: the token in
+         the URL is the credential, matched against a live row. It answers with the program,
+         the goals and Tawny's tips and carries no person, no cost and no ROI — see storeView_.
+         Minting and rotating them needs a real session, like every other write here. */
+      case 'storeView':   out = storeView_(p);                                      break;
+      case 'storeLinks':  out = storeLinks_(p);                                     break;
+      case 'storeLinkRotate': out = storeLinkRotate_(p);                            break;
       case 'sellthrough': out = sellthrough_(p);                                    break;
       case 'catalog':     out = catalog_(p);                                        break;
       case 'refunits':    out = refUnits_(p);                                       break;
@@ -534,6 +554,40 @@ function parseCalcTab_(sheet, stores) {
 var DERIVED_ACTUALS = ['duplicate_of', 'rate_changed'];
 
 /* A copy of actual_json fit to store: whatever a reader computed is removed again. */
+/* ── TAWNY'S SELLING TIPS, NORMALIZED ON THE WAY IN AND OUT ───────────────────────────────────
+ * { tips: [string] } and nothing else. Both directions go through here, so a row read back is
+ * the same shape a row was written from and no reader has to guess whether it got a string, an
+ * array, a null, or the {} every pre-2026-09-08 row holds.
+ *
+ * ONE LIST, NOT TWO. The to-do asked for "bullets" and "3 bullet talking points" and this was
+ * briefly built as two separate fields. Sky, 2026-09-08: "for Staff to be able to click a SPIFF
+ * button from the Kiosk and see the details (payout out, goal, etc) plus a few Selling tips
+ * writen by Tawny, hence the request for bullet points." They are the same thing said twice —
+ * the details come from the program itself, and the bullets ARE the selling tips. Two boxes
+ * would have made Tawny decide which kind of bullet each thought was, a question with no answer.
+ *
+ * THIS TEXT IS RENDERED ON A KIOSK, so it is bounded here rather than only in the browser: the
+ * screen has no operator watching it and a pasted essay would push the goal off the display it
+ * exists to show. Empty entries are dropped — a blank tip renders as a stray dot, and "she left
+ * the last box empty" and "there is no last tip" are the same fact.
+ */
+var PITCH_MAX_TIPS = 5, PITCH_MAX_LEN = 240;
+
+function normalizePitch_(v) {
+  var src = v && typeof v === 'object' ? v : {};
+  /* `bullets` and `talking_points` are read as fallbacks so a row written during the hour this
+     shipped as two fields still renders, rather than losing whatever was typed into it. */
+  var raw = Array.isArray(src.tips) ? src.tips
+          : (Array.isArray(src.bullets) ? src.bullets : []).concat(
+             Array.isArray(src.talking_points) ? src.talking_points : []);
+  var out = [];
+  for (var i = 0; i < raw.length && out.length < PITCH_MAX_TIPS; i++) {
+    var t = String(raw[i] == null ? '' : raw[i]).replace(/\s+/g, ' ').trim();
+    if (t) out.push(t.slice(0, PITCH_MAX_LEN));
+  }
+  return { tips: out };
+}
+
 function stripDerivedActuals_(a) {
   if (!a) return a;
   var out = {}, k;
@@ -1045,7 +1099,8 @@ function programToRow_(p, audit) {
     p.actual_json ? JSON.stringify(stripDerivedActuals_(p.actual_json)) : '',
     p.source || '', nowStamp_(), by, at, p.share_token || '',
     p.contact_name || '', p.contact_email || '', JSON.stringify(p.doc_json || {}),
-    p.progress_json ? JSON.stringify(p.progress_json) : ''
+    p.progress_json ? JSON.stringify(p.progress_json) : '',
+    JSON.stringify(normalizePitch_(p.pitch_json))
   ];
 }
 
@@ -1064,7 +1119,8 @@ function rowToProgram_(r) {
     source: r[16], updated_at: textDate_(r[17]),
     edited_by: r[18] || '', edited_at: textDate_(r[19]), share_token: r[20] || '',
     contact_name: r[21] || '', contact_email: r[22] || '', doc_json: parseJson_(r[23], {}),
-    progress_json: parseJson_(r[24], null)
+    progress_json: parseJson_(r[24], null),
+    pitch_json: normalizePitch_(parseJson_(r[25], null))
   };
 }
 
@@ -2633,6 +2689,181 @@ function sumVals_(o) {
 
 /* Mint (or reuse) a program's share token. Admin-gated — creating a link that exposes
    a program to an outside party is a write, not a read. */
+/* ═══════════════════ THE KIOSK LINK, ONE PER STORE ═══════════════════
+ * Sky, 2026-09-07: "We need unique store links for each store. We will then wire these to
+ * Leaderboard so that BTs can open a window with the SPIFF details from their Kiosk."
+ *
+ * ONE PERMANENT LINK PER STORE, NOT PER PROGRAM, and that is the load-bearing decision. A link
+ * minted against a program would have to be re-minted and re-pasted into six kiosks every time a
+ * SPIFF ends — which means the day somebody forgets, a kiosk shows a finished program as though
+ * it were running. Keyed on the STORE, the link is a fact about a screen on a wall: it resolves at
+ * read time to whatever is running there today, and to a plain "nothing running" when nothing is.
+ *
+ * NO SESSION, BY DESIGN. A kiosk is a shared screen in a shop; nobody signs into it. So this route
+ * is deliberately the narrowest thing that answers "what should this store be selling": the
+ * program, its window, this store's goal, the per-budtender goal, the bounty, and Tawny's copy.
+ *
+ * IT CARRIES NO PERSON. No names, no per-budtender sell-through, no earnings, no cost and no ROI —
+ * a shared screen must not show one budtender's numbers to the room, and a customer standing at
+ * the counter must not see what we pay for the product. `flyer` remains the personal view and
+ * keeps its sign-in. The two answer different questions and it would be a mistake to merge them.
+ *
+ * The token is an unguessable per-store uuid (Sky's choice over a passphrase: a kiosk that has to
+ * be typed into on every reload is a kiosk showing a login screen). Revocable, and revoking mints
+ * nothing — a revoked store simply has no link until somebody makes a new one.
+ */
+var STORE_LINK_TAB = 'store_links';
+var STORE_LINK_HEADERS = ['store_id', 'token', 'created_by', 'created_at', 'revoked_at'];
+
+function storeLinkSheet_() {
+  var sh = dataSheet_().getParent().getSheetByName(STORE_LINK_TAB);
+  if (!sh) {
+    sh = dataSheet_().getParent().insertSheet(STORE_LINK_TAB);
+    sh.getRange(1, 1, 1, STORE_LINK_HEADERS.length).setValues([STORE_LINK_HEADERS]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function storeLinkRows_() {
+  var sh = storeLinkSheet_();
+  if (sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, STORE_LINK_HEADERS.length).getValues()
+    .map(function (r, i) {
+      return { row: i + 2, store_id: String(r[0] || ''), token: String(r[1] || ''),
+               created_by: String(r[2] || ''), created_at: textDate_(r[3]),
+               revoked_at: String(r[4] || '') };
+    });
+}
+
+/* List every store's link, minting for any store that has none. One call fills the panel and
+ * leaves every kiosk with a URL, rather than making somebody press a button six times. */
+function storeLinks_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) {
+    return { ok: false, error: 'Your role (' + auth.role + ') cannot manage kiosk links' };
+  }
+
+  var stores = [];
+  try { stores = gxStores_() || []; } catch (e) { stores = []; }
+  /* A REGISTRY THAT DID NOT ANSWER IS NOT AN EMPTY CHAIN. Minting against [] would quietly
+     revoke nothing and return nothing, and the panel would show "no stores" as though the
+     company had closed. Same refusal the progress read makes for an empty programs tab. */
+  if (!stores.length) {
+    return { ok: false, error: 'The store registry did not answer, so this cannot tell which '
+                             + 'stores exist. Nothing was changed — try again.' };
+  }
+
+  var sh = storeLinkSheet_(), rows = storeLinkRows_();
+  var live = Object.create(null);
+  rows.forEach(function (r) { if (!r.revoked_at) live[r.store_id] = r; });
+
+  var made = [];
+  stores.forEach(function (st) {
+    var id = slug_(st.store_id || '');
+    if (!id || live[id]) return;
+    var tok = Utilities.getUuid().replace(/-/g, '');
+    sh.appendRow([id, tok, auth.user, nowStamp_(), '']);
+    live[id] = { store_id: id, token: tok };
+    made.push(id);
+  });
+
+  return { ok: true, minted: made,
+           links: stores.map(function (st) {
+             var id = slug_(st.store_id || '');
+             return { store_id: id, display_name: st.display_name || id,
+                      token: (live[id] || {}).token || '' };
+           }).filter(function (x) { return x.store_id; }) };
+}
+
+/* Revoke one store's link and mint its replacement in the same call — a kiosk with no link is a
+ * blank screen, so "revoke" in practice always means "rotate". */
+function storeLinkRotate_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) {
+    return { ok: false, error: 'Your role (' + auth.role + ') cannot manage kiosk links' };
+  }
+  var id = slug_(p.store || '');
+  if (!id) return { ok: false, error: 'store required' };
+
+  var sh = storeLinkSheet_(), rows = storeLinkRows_();
+  var stamp = nowStamp_();
+  rows.forEach(function (r) {
+    if (r.store_id === id && !r.revoked_at) sh.getRange(r.row, 5).setValue(stamp);
+  });
+  if (String(p.revoke || '') === '1') return { ok: true, store_id: id, token: '', revoked: true };
+
+  var tok = Utilities.getUuid().replace(/-/g, '');
+  sh.appendRow([id, tok, auth.user, stamp, '']);
+  return { ok: true, store_id: id, token: tok };
+}
+
+/* THE KIOSK READ. No token in the GX sense and no session — the URL token IS the credential, so
+ * it is matched against a live row and nothing else is trusted from the caller. */
+function storeView_(p) {
+  var tok = String(p.t || '').trim();
+  if (!tok) return { ok: false, error: 'This link is missing its code.' };
+
+  var hit = null;
+  storeLinkRows_().forEach(function (r) { if (r.token === tok && !r.revoked_at) hit = r; });
+  /* Says the link is dead, not that the store is — a kiosk showing "no such store" would send
+     somebody looking for a problem with the shop rather than with the URL. */
+  if (!hit) return { ok: false, error: 'This link is no longer active. Ask Tawny for a new one.' };
+
+  var store = hit.store_id, storeLabel = store;
+  try {
+    (gxStores_() || []).forEach(function (x) {
+      if (slug_(x.store_id) === store && x.display_name) storeLabel = x.display_name;
+    });
+  } catch (e) { /* the slug is a poor label, but better than none */ }
+
+  /* Dates are TEXT and compared as text — lexicographic order IS chronological for YYYY-MM-DD,
+     so this never coerces a Date and never trips the timezone shift. Same rule as flyer_. */
+  var today = nowStamp_().slice(0, 10);
+  var out = [];
+  listPrograms_().forEach(function (pr) {
+    var st = String(pr.status || '').toLowerCase();
+    var a = pr.start_date || '', b = pr.end_date || '';
+    if (st === 'closed' || !a || !b) return;
+    if (!(a <= today && today <= b)) return;
+    var mine = (pr.stores_json || []).some(function (x) { return slug_(x && x.store_id ? x.store_id : x) === store; });
+    if (!mine) return;
+
+    var tgt = pr.target_json || {};
+    var pitch = normalizePitch_(pr.pitch_json);
+    out.push({
+      program_id: pr.program_id,
+      /* The joined label is built in the browser from vendor + name, exactly as the operator app
+         does it — one rule, not two that agree by luck. */
+      vendor: pr.vendor || '', program_name: pr.program_name || pr.title || '',
+      start_date: a, end_date: b,
+      product: productLabelOf_(pr),
+      store_goal: Number((tgt.by_store || {})[store]) || 0,
+      bt_goal:    Number((tgt.per_bt   || {})[store]) || 0,
+      payout:     Number((pr.payout_json || {}).amount) || 0,
+      payout_type: payoutModelOf_(pr),
+      tips: pitch.tips
+    });
+  });
+
+  /* Soonest to end first — the one closest to its deadline is the one worth pushing today. */
+  out.sort(function (x, y) { return String(x.end_date).localeCompare(String(y.end_date)); });
+  return { ok: true, store_id: store, store_name: storeLabel, today: today, programs: out };
+}
+
+/* What the SPIFF is ON, in words, for a screen that cannot show a filter. Mirrors the operator
+ * app's productFromMatch: brand alone means the vendor's whole range. */
+function productLabelOf_(pr) {
+  var m = pr.match_json || {};
+  var prods = (m.products || []).filter(Boolean);
+  if (prods.length) return prods.join(' + ');
+  if (m.filter_text) return (m.brand ? m.brand + ' ' : '') + m.filter_text;
+  if (m.brand) return 'All ' + m.brand + ' products';
+  return '';
+}
+
 function shareLink_(p) {
   var auth = gxAuth_(p.token);
   if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };

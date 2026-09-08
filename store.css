@@ -1,0 +1,105 @@
+/* GX SPIFF — the kiosk view.
+   Built on flyer.css (same tokens, same card language) and only adds what a WALL SCREEN needs
+   that a phone does not: bigger type, more than one program at a time, and a tip list.
+
+   Every color here is a token that EXISTS in gx-theme.css. flyer.css spent weeks rendering on
+   --gx-panel / --gx-line / --gx-bg-soft, none of which are real, so each silently fell through
+   to a literal fallback a shade off the rest of the suite. An undefined var() does not warn. */
+
+body.flyer.store { display: block; }
+
+.st-main { align-items: flex-start; padding: 22px 18px 40px; }
+
+.st-wrap { width: 100%; max-width: 900px; margin: 0 auto; }
+
+.st-top {
+  display: flex; align-items: baseline; gap: 12px;
+  margin: 0 0 14px; padding: 0 2px;
+}
+.st-store {
+  font-family: Montserrat, Inter, system-ui, sans-serif;
+  font-weight: 800; font-size: 20px; letter-spacing: .01em;
+  color: var(--gx-text);
+}
+.st-count { font-size: 12px; color: var(--gx-text-mute); }
+
+.st-card {
+  background: var(--gx-surface);
+  border: 1px solid var(--gx-border);
+  border-radius: 16px;
+  padding: 20px 22px;
+  margin-bottom: 14px;
+}
+
+.st-head { margin-bottom: 16px; }
+.st-vendor {
+  font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--gx-text-mute); margin-bottom: 4px;
+}
+.st-name {
+  font-family: Montserrat, Inter, system-ui, sans-serif;
+  font-weight: 900; font-size: 26px; line-height: 1.15; margin: 0 0 8px;
+  color: var(--gx-text);
+}
+.st-when { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.st-dates { font-size: 12px; color: var(--gx-text-mute); }
+
+.st-product {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 11px 14px; margin-bottom: 14px;
+  background: var(--gx-bg); border: 1px solid var(--gx-border); border-radius: 10px;
+  font-size: 15px; color: var(--gx-text);
+}
+.st-product-l {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--gx-text-mute);
+}
+
+/* The numbers a budtender acts on. Two at most, deliberately — this is read from a few feet
+   away between customers, and a strip of six figures is a dashboard, not an instruction. */
+.st-figs { display: flex; gap: 12px; flex-wrap: wrap; }
+.st-fig {
+  flex: 1 1 160px;
+  padding: 14px 16px;
+  background: var(--gx-bg); border: 1px solid var(--gx-border); border-radius: 12px;
+}
+.st-fig-v {
+  font-family: Montserrat, Inter, system-ui, sans-serif;
+  font-weight: 900; font-size: 34px; line-height: 1; color: var(--gx-text);
+}
+.st-fig-l { margin-top: 5px; font-size: 12px; color: var(--gx-text-mute); }
+/* What it pays is the one figure worth color. */
+.st-fig.is-pay { border-color: var(--gx-green-line, var(--gx-border-strong)); }
+.st-fig.is-pay .st-fig-v { color: var(--gx-green); }
+
+.st-store-goal { margin-top: 12px; font-size: 12.5px; color: var(--gx-text-mute); }
+.st-store-goal b { color: var(--gx-text); }
+
+.st-tips { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--gx-border); }
+.st-tips-h {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--gx-text-mute); margin-bottom: 9px;
+}
+.st-tip-list { margin: 0; padding-left: 20px; }
+.st-tip-list li {
+  font-size: 15px; line-height: 1.5; color: var(--gx-text);
+  margin-bottom: 7px;
+}
+.st-tip-list li::marker { color: var(--gx-green); }
+
+.st-foot { margin: 18px 2px 0; font-size: 12px; color: var(--gx-text-mute); }
+.st-foot b { color: var(--gx-text); }
+
+/* A kiosk is a big screen in landscape; a phone still has to work, because Tawny will open this
+   link to check what a store is showing. */
+@media (max-width: 560px) {
+  .st-name { font-size: 22px; }
+  .st-fig-v { font-size: 28px; }
+  .st-figs { flex-direction: column; }
+}
+/* Wall screens: two programs side by side rather than one very wide card. */
+@media (min-width: 1100px) {
+  .st-wrap { max-width: 1180px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .st-top, .st-foot { grid-column: 1 / -1; }
+  .st-card { margin-bottom: 0; }
+}
