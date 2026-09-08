@@ -38,3 +38,32 @@ jobs:
       - name: Run the gate
         working-directory: greencross-spiff
         run: sh ./gx-preflight.sh
+
+      # Say what did NOT run. A green tick reports that every test EXITED 0, which is not the same
+      # as every test having COVERED something: a suite that skips prints a pass line and looks
+      # identical to one that ran.
+      #
+      # The patterns are anchored deliberately. Three suites here carry assertion LABELS containing
+      # the word "skipped" ("a nameless row is skipped") — those are passes, and a looser grep would
+      # flag them until the ⚠️ meant nothing. secret_leak_test.js does skip one comparison in CI,
+      # against the live .gx_deploy_secret, which is gitignored and stays that way; the checks that
+      # matter (the file is ignored, no credential literals are committed) run regardless — but it
+      # is a skip, so its exact wording is in the pattern too. Written without it, this step showed
+      # that file a green ✅ in CI while one of its comparisons had not run: a reporter that hides a
+      # skip is worse than no reporter, because it is the thing you check INSTEAD of looking.
+      - name: Report coverage honestly
+        if: always()
+        working-directory: greencross-spiff
+        run: |
+          {
+            echo "### Coverage"
+            echo ""
+            for t in tests/*_test.js; do
+              out="$(node "$t" 2>&1 || true)"
+              if printf '%s' "$out" | grep -qiE '^SKIP|not a sibling|checkout not present|live-value check skipped'; then
+                echo "- ⚠️ \`$t\` — **SKIPPED**: $(printf '%s' "$out" | grep -iE '^SKIP|not a sibling|checkout not present|live-value check skipped' | head -1)"
+              else
+                echo "- ✅ \`$t\` — $(printf '%s' "$out" | tail -1)"
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
