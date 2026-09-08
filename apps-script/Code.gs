@@ -254,7 +254,15 @@ function login_(p) {
    load that file. */
 var LOGO_ONLIGHT = 'https://greencrosscanna.github.io/greencross-spiff/gx-logo-onlight.png';
 
-var PUBLIC_ACTIONS = ['ping', 'diag', 'libversion', 'clientView', 'flyer', 'login'];
+/* `storeView` is public for the same reason `clientView` is: the caller has no GX Core account
+   to sign in with. A kiosk is a shared screen on a shop floor and nobody signs into it, so its
+   per-store URL token IS the credential — matched against a live, non-revoked row in
+   store_links, and nothing else about the request is trusted. It answers with the program, the
+   goals, the bounty and Tawny's selling tips and carries NO person, no cost and no ROI, so an
+   open link cannot leak a budtender's numbers or our margin. That narrowness is what makes it
+   safe to list here; see storeView_. Minting and rotating those links are separate routes and
+   both need a real session with an editing role. */
+var PUBLIC_ACTIONS = ['ping', 'diag', 'libversion', 'clientView', 'flyer', 'login', 'storeView'];
 
 /* Actions that additionally need an editor role. The rest of the write surface checks its own
    role after this, because each has its own message about what the role cannot do.

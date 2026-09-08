@@ -104,6 +104,17 @@ ok('  …and a revoked link says the LINK is dead, not the store',
 /* A deploy secret must not be a way in, and storeView must not be a way to enumerate. */
 ok('the kiosk read is not secret-gated either — the URL token is the whole credential',
    view.indexOf('GX_SECRET_PROP') < 0);
+/* ── AND IT HAS TO BE REACHABLE, which is a separate fact from being safe ────────────────────
+   The router is private-by-default: PUBLIC_ACTIONS is a short closed list and anything absent
+   from it is answered "Not signed in" BEFORE its handler runs. So the first deploy of this route
+   returned auth_required to every kiosk — the handler was correct and simply never reached,
+   which reads as a broken route rather than a missing line. That failure direction is the point
+   of the list, and this pins the entry so a later tidy-up cannot silently take the kiosks down. */
+ok('storeView is on the public list, or no kiosk can reach it',
+   /var PUBLIC_ACTIONS = \[[^\]]*'storeView'/.test(gs));
+ok('  …and it is the ONLY new name on it — minting still needs a session',
+   !/PUBLIC_ACTIONS = \[[^\]]*storeLinks/.test(gs)
+   && !/PUBLIC_ACTIONS = \[[^\]]*storeLinkRotate/.test(gs));
 
 /* ══════════════════ 3. ONE LINK PER STORE, PERMANENT ══════════════════ */
 const links = grab(gs, 'storeLinks_');
