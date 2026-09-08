@@ -62,22 +62,26 @@
   }
 
   /* ------------------------------------------------------------------ tabs */
+  /* ── WHICH TAB LIGHTS UP FOR A PANEL THAT NO LONGER HAS ONE ───────────────────────────────
+     The Calculator panel is still a panel; what it stopped being is a destination. With no
+     button carrying data-tab="calculator", the plain toggle below matched nothing and the nav
+     went completely unlit the moment you opened a program — which reads as a broken page, not
+     as a deliberate absence. A program belongs to Programs, so Programs stays lit while you are
+     inside one. */
+  var NAV_OWNER = { calculator: 'programs', progress: 'programs' };
+
   function showTab(name) {
     state.tab = name;
-    $$('#tabs .gx-topnav-tab').forEach(function (b) { b.classList.toggle('is-active', b.dataset.tab === name); });
+    var lit = NAV_OWNER[name] || name;
+    $$('#tabs .gx-topnav-tab').forEach(function (b) { b.classList.toggle('is-active', b.dataset.tab === lit); });
     $$('.panel').forEach(function (p) { p.classList.toggle('is-active', p.id === 'panel-' + name); });
     /* Each tab filters different things, so each owns its own sub-nav bar and only the
        active one is in the layout. Hidden with [hidden] so it takes no height. */
     $$('.sp-subnav').forEach(function (b) { b.hidden = b.id !== subnavIdFor(name); });
 
-    /* Progress pulls itself. Making someone press Refresh to see the thing the tab is named
-       after is a step that exists only because the fetch is slow — and the fetch being slow is
-       the reason to start it the moment the tab is opened, not a reason to wait for a click.
-       Only ONCE per program though: re-entering the tab must not restart six ~9s pulls. */
-    if (name === 'progress' && $('#pgProgram') && $('#pgProgram').value
-        && (!pgRun || pgRun.id !== $('#pgProgram').value)) {
-      loadProgress();
-    }
+    /* The progress auto-pull moved with the tab it belonged to. It now fires from
+       applyStatusView when a RUNNING program is opened, which is the same trigger expressed
+       against the thing that actually decides it: the program, not the navigation. */
   }
   function subnavIdFor(tab) {
     return 'subnav' + tab.charAt(0).toUpperCase() + tab.slice(1);
@@ -611,9 +615,11 @@
       +   '</div>'
       +   '<div class="sp-hero-bar">' + paceBar(pace) + '</div>'
       +   '<div class="sp-hero-foot">' + verdict
+      /* ONE button. "Open progress" and "Edit record" now land on the identical screen —
+         progress is a section of the program, not a tab beside it — so two buttons were two
+         names for one action, and the one that said "Edit" understated what it opens. */
       +     '<span class="sp-hero-actions">'
-      +       '<button class="gx-btn" data-goto="progress">Open progress</button>'
-      +       '<button class="gx-btn" data-edit="' + esc(p.program_id) + '">Edit record</button>'
+      +       '<button class="gx-btn" data-edit="' + esc(p.program_id) + '">Open program</button>'
       +     '</span>'
       +   '</div>'
       + '</div>';
@@ -3494,6 +3500,25 @@
       ? 'collapsed — this program is settled'
       : 'product, cost, payout, goal and the per-store table';
 
+    /* ── LIVE WHILE IT RUNS, FROZEN ONCE IT IS DONE ────────────────────────────────────────
+       Two grids, never both. The frozen one is read off the program's own row and needs no
+       Dutchie call; the live one pulls, which is why it is started here rather than on every
+       repaint — see the guard. A DRAFT gets neither: it has not started, so there is nothing
+       to measure and a grid of zeros would read as "nobody sold anything".
+
+       This is the trigger that used to live in showTab. It moved because the question is about
+       the PROGRAM, not about which tab you are on — and once Progress stopped being a tab there
+       was no tab to hang it off. */
+    var live = $('#calcLive');
+    var running = v.status === 'active';
+    if (live) {
+      live.hidden = !running;
+      /* ONLY ONCE PER PROGRAM. applyStatusView runs on every save, sign-in and repaint, and a
+         pull is six stores at ~9s — restarting it on each would keep the grid permanently
+         mid-pull and hammer Dutchie for numbers already on screen. */
+      if (running && (!pgRun || pgRun.id !== v.rec.program_id)) loadProgress();
+    }
+
     if (!v.snap) { results.hidden = true; return; }
     results.hidden = false;
     renderFrozen(v.rec, v.snap);
@@ -3984,7 +4009,7 @@
      returning the new name; four <select> elements were simply never rebuilt.
      One function so the next list added here cannot be the one somebody forgets. */
   function fillProgramPickers() {
-    fillCalcLoad(); fillReportPicker(); fillHistoryFilters(); fillProgressPicker();
+    fillCalcLoad(); fillReportPicker(); fillHistoryFilters();
   }
 
   function fillCalcLoad() {
@@ -4446,10 +4471,15 @@
    *
    * The budtender matrix the SPIFF_Sales Report builds by hand — six Dutchie exports
    * pasted into six tabs. Here it is one call.
+   *
+   * NOT A TAB SINCE 2026-09-08. It renders into #calcLive on the Calculator, scoped to the
+   * program open there. The machinery below is unchanged — per-store parallel pulls, windowed
+   * to stay under the 60s /exec ceiling, progressive paint, per-store retry — because none of
+   * that had anything to do with being a tab. What went is the picker asking which program.
    */
 
   function wireProgress() {
-    $('#pgProgram').addEventListener('change', loadProgress);
+    /* No picker to wire any more — the section follows the program on screen. */
     /* Refresh means REFRESH: it goes past the cache, or the one control that exists to get newer
        numbers would hand back the same ones it just showed. */
     $('#pgRefresh').addEventListener('click', function () { loadProgress({ force: true }); });
@@ -4462,32 +4492,6 @@
     });
   }
 
-  function fillProgressPicker() {
-    var sel = $('#pgProgram');
-    if (!sel) return;
-    /* Refilling must not move you. This runs after every save now, and rebuilding the options
-       drops the selection — so saving a rename while looking at one program's grid would silently
-       swing Progress onto the running program instead. */
-    var was = sel.value;
-    var list = sortPrograms(state.programs);
-    /* The date range rides along with the name. Programs repeat — Meraki Gardens, Mule and
-       Hellavated each ran more than once — so the name alone made the picker a guess about
-       which one you were opening, and Progress is exactly the screen where the window IS the
-       question being asked. */
-    sel.innerHTML = list.map(function (p) {
-      return '<option value="' + esc(p.program_id) + '">'
-        + esc(programLabel(p)) + ' · ' + esc(prettyRangeY(p)) + '</option>';
-    }).join('');
-    /* Default to the RUNNING program, not whatever sorts first. sortPrograms already puts
-       active ahead of draft and closed, but being explicit keeps this true if that order ever
-       changes — Progress is a screen about the program happening now. */
-    if (was && list.some(function (p) { return p.program_id === was; })) {
-      sel.value = was;
-      return;
-    }
-    var running = list.filter(function (p) { return p.status === 'active'; })[0];
-    if (running) sel.value = running.program_id;
-  }
 
   // Cost is per store AND per volume: measured 9s for a quiet store across a whole
   // month, 49s for a busy one, and Google terminates /exec near 60s. So: stores run in
@@ -4598,14 +4602,16 @@
     } catch (e) { /* a cache that cannot be written is not an error worth showing anybody */ }
   }
 
+  /* THE PROGRAM ON SCREEN, not a picker. The picker was the Progress tab's whole reason to
+     exist — a tab has to ask which program it is about; a section of one does not. */
   async function loadProgress(opts) {
-    var id = $('#pgProgram').value;
+    var id = calc.editingId;
     if (!id) return;
     var prog = state.programs.filter(function (x) { return x.program_id === id; })[0];
     if (!prog) return;
     if (!prog.start_date || !prog.end_date) {
       $('#pgBody').innerHTML = '<div class="sp-notice is-warn"><span class="sp-notice-l">No dates</span>'
-        + 'This program has no date range. Set start and end dates on its record first.</div>';
+        + 'This program has no date range. Pick a program date above and save.</div>';
       $('#pgStats').innerHTML = ''; $('#pgNote').textContent = '';
       return;
     }

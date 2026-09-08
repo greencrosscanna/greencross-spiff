@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.367"/>
-<link rel="stylesheet" href="spiff.css?v=1.367"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.368"/>
+<link rel="stylesheet" href="spiff.css?v=1.368"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -48,9 +48,22 @@
       <span class="gx-topnav-sub">SPIFF</span>
     </div>
     <nav class="gx-topnav-tabs" id="tabs">
+      <!-- ── THREE TABS, NOT FIVE (Sky, 2026-09-07) ──────────────────────────────────────────
+           CALCULATOR was never a place, it was a step: "do we need the calculator tab? or is it
+           just a step invoked by the clicking on a program?" Every route into it already went
+           through a program — a list row, Edit, a History row, "model from a past program" — and
+           openInCalculator ends in showTab('calculator') regardless. The tab was a fifth door
+           into a room you always entered through one of the other four, and pressing it landed
+           you on whichever program happened to be loaded, or an empty model.
+
+           PROGRESS was never a place either: "now that we've pulled progress into the calculator
+           screen, do we need it as a tab? we can see it live in the current program and the
+           summary in the historicals." It is a fact ABOUT a program, so it is a section OF one
+           now — see #calcLive.
+
+           The panels both still exist and showTab still reaches them; what is gone is the
+           navigation that implied they were destinations. -->
       <button class="gx-topnav-tab is-active" data-tab="programs">Programs</button>
-      <button class="gx-topnav-tab" data-tab="calculator">Calculator</button>
-      <button class="gx-topnav-tab" data-tab="progress">Progress</button>
       <button class="gx-topnav-tab" data-tab="reports">Reports</button>
       <button class="gx-topnav-tab" data-tab="history">History</button>
       <!-- The budtender flyer is a separate PAGE, not a panel: its own credentialed session and a
@@ -100,15 +113,6 @@
     <div class="sp-subnav-right">
       <button class="gx-btn" id="calcSave">Save as program</button>
       <button class="sp-btn-gold" id="calcPresent" title="Full-screen, no chrome — what the vendor sees">&#9656; Present to vendor</button>
-    </div>
-  </div>
-
-  <div class="sp-subnav" id="subnavProgress" hidden>
-    <select class="sp-in sp-progpick" id="pgProgram" title="Which program to track"></select>
-    <span id="pgLive"></span>
-    <div class="sp-subnav-right">
-      <span class="sp-pg-pulled" id="pgPulled"></span>
-      <button class="gx-btn" id="pgRefresh">&#8635; Refresh</button>
     </div>
   </div>
 
@@ -303,6 +307,31 @@
         </div>
       </details>
 
+      <!-- ---- WHAT IS SELLING (LIVE) ----
+           The budtender matrix that used to be its own tab. Same machinery, same cards — it is
+           scoped to the program on screen instead of asking which one, because the screen already
+           knows. That picker was the tab's only reason to exist.
+
+           IT SHOWS FOR A RUNNING PROGRAM, and that is the gap this had to close before the tab
+           could go. A snapshot is only ever written for a CLOSED program (snapshotReasonFor_ in
+           the engine returns nothing for `active`), so "What sold" below is empty for the whole
+           time a program is actually running — exactly when Tawny is watching to see who is
+           about to hit their number. Deleting the tab without this would have removed the only
+           view of it. -->
+      <div id="calcLive" hidden>
+        <div class="sp-h4-row">
+          <h4 class="sp-h4">What&rsquo;s selling</h4>
+          <span class="sp-h4-note" id="pgLive"></span>
+          <span class="sp-pg-pulled" id="pgPulled"></span>
+          <!-- Refresh means REFRESH: it goes past the cache, or the one control that exists to
+               get newer numbers hands back the ones it just showed. -->
+          <button class="gx-btn" id="pgRefresh" style="margin-left:auto">&#8635; Refresh</button>
+        </div>
+        <div class="sp-pg-stats" id="pgStats"></div>
+        <p class="sp-pg-note" id="pgNote"></p>
+        <div id="pgBody"></div>
+      </div>
+
       <!-- ---- WHAT SOLD ----
            The frozen per-budtender grid, read straight off the program's own row. No Dutchie
            calls, no waiting: a finished programme was measured once, when it stopped moving. -->
@@ -333,14 +362,6 @@
           <button class="gx-btn" id="calcRecordSignIn" hidden>Sign in to edit</button>
         </div>
       </div>
-    </section>
-
-    <!-- ============ PROGRESS ============ -->
-    <!-- The budtender matrix, fed from Dutchie directly — no per-store Excel export/paste. -->
-    <section class="panel" id="panel-progress">
-      <div class="sp-pg-stats" id="pgStats"></div>
-      <p class="sp-pg-note" id="pgNote"></p>
-      <div id="pgBody"></div>
     </section>
 
     <!-- ============ REPORTS ============ -->
@@ -448,6 +469,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="spiff.js?v=1.367"></script>
+<script src="spiff.js?v=1.368"></script>
 </body>
 </html>

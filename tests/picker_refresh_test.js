@@ -37,9 +37,14 @@ function grab(name) {
 
 /* ── one function fills them all ── */
 const all = grab('fillProgramPickers');
-['fillCalcLoad', 'fillReportPicker', 'fillHistoryFilters', 'fillProgressPicker'].forEach(fn => {
+/* THREE, not four, since 2026-09-08: Progress stopped being a tab, so its picker went with it —
+   a section of a program does not have to ask which program it is about. The rule this file
+   exists to protect is unchanged, and now has one fewer place to be forgotten. */
+['fillCalcLoad', 'fillReportPicker', 'fillHistoryFilters'].forEach(fn => {
   ok(fn + ' is refilled by the shared function', all.indexOf(fn + '()') >= 0);
 });
+ok('the Progress picker is gone entirely, not merely unwired',
+   !/function fillProgressPicker/.test(js) && !/#pgProgram/.test(js));
 
 /* ── and it runs after every save, not only at boot ── */
 /* saveRecord is gone — ONE button saves both halves now (v1.354), so the refill lives there. */
@@ -60,12 +65,17 @@ ok('the Calculator save no longer refreshes only its own list',
    !/renderPrograms\(\);\s*\n\s*fillCalcLoad\(\);/.test(js));
 
 /* ── a refill must not move you ── */
-const pg = grab('fillProgressPicker');
-ok('Progress remembers what was selected before the refill', /var was = sel\.value/.test(pg));
-ok('  …and restores it when that program still exists',
-   /list\.some\(function \(p\) \{ return p\.program_id === was; \}\)/.test(pg));
-ok('  …and only falls back to the running program otherwise',
-   pg.indexOf('sel.value = was') < pg.indexOf("status === 'active'"));
+/* ── PROGRESS NO LONGER PICKS, SO IT CANNOT BE MOVED BY A REFILL ──────────────────────────────
+   The bug this file was written for — a refill silently swinging Progress onto the running
+   program — is now structurally impossible rather than guarded against: there is no selection to
+   drop. It follows calc.editingId, which a refill does not touch. */
+const lp = grab('loadProgress');
+ok('the live grid follows the program on screen, not a picker',
+   /var id = calc\.editingId/.test(lp) && !/#pgProgram/.test(lp));
+ok('  …so a refill has no Progress selection left to lose',
+   !/fillProgressPicker/.test(js));
+ok('  …and a pull only starts when the open program is actually running',
+   /running && \(!pgRun \|\| pgRun\.id !== v\.rec\.program_id\)/.test(grab('applyStatusView')));
 
 const rep = grab('fillReportPicker');
 ok('Reports keeps its selection the same way', /var was = sel\.value/.test(rep));
@@ -77,7 +87,7 @@ ok('  …and restores it when the program is still listed',
    so the pickers name a program through programLabel rather than reaching for the columns
    themselves. The old rule is not gone — it moved INSIDE that one function, which is the point:
    ten call sites cannot disagree about what a program is called if only one of them decides. */
-[['fillProgressPicker', pg], ['fillReportPicker', rep], ['fillCalcLoad', grab('fillCalcLoad')]].forEach(([n, src]) => {
+[['fillReportPicker', rep], ['fillCalcLoad', grab('fillCalcLoad')]].forEach(([n, src]) => {
   ok(n + ' names the program through the one shared label',
      /programLabel\(p\)/.test(src));
 });
@@ -92,8 +102,8 @@ ok('  …and it is DERIVED — nothing writes a joined label back into program_n
    !/program_name\s*[:=]\s*[^,;\n]*programLabel/.test(js));
 /* Both program dropdowns carry the window, because vendors repeat: Meraki, Mule and Hellavated
    each ran more than once, and Portland Heights now twice. */
-ok('Progress labels carry the date range', /prettyRangeY\(p\)/.test(pg));
-ok('and so does Reports — the same names repeat there',  /prettyRangeY\(p\)/.test(rep));
+ok('Reports labels carry the date range — the same names repeat there',
+   /prettyRangeY\(p\)/.test(rep));
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\npicker refresh: all passed');
 process.exit(fail ? 1 : 0);
