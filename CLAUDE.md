@@ -317,7 +317,24 @@ the seed finished.
 windows and real per-budtender goals. The 21 Calculator-era rows they replaced had their cost,
 baseline and reconciled actuals merged forward onto the corrected window and were then deleted.
 `programs` ended at **25 rows**: those 23, plus `wyld-0626` (a Calculator program with no doc — the
-docs were never a superset) and `green-cross-test-202608` (Sky's test row).
+docs were never a superset) and one row this file called "Sky's test row".
+
+*Corrected 2026-09-08: `green-cross-test-202608` was NOT a test row.* It is the real Portland
+Heights fortnight — Aug 17 → Aug 30, 242 units, $181.50 paid, closed and reported to the vendor. It
+carried a test-shaped id because ids are minted from `program_name` at creation
+(`slug_(name) + YYYYMM`) and never change, and it was created while named "Green Cross test". Sky
+asked for the id to say what the program is, and it is now
+**`portland-heights-2026-08-17-2026-08-30`**, matching how the other windowed programs are keyed.
+
+**Re-key through `?action=renameProgramId`, never by editing the cell.** `program_id` is a foreign
+key: `spiff_progress` keys every measurement row on it, `?action=progress` drops any cached row
+whose program is missing from `programs`, and Crew's incentive column, the Leaderboard kiosks and
+Core's published payload all read that. Editing the cell alone would have stranded 38 rows carrying
+$181.50 — the BeGOAT failure exactly. The route moves the measurements first, then the row, then
+republishes to Core, tombstones the old row to `deleted_programs`, refuses an id already in use,
+wants a real session plus the program name typed back, and is dry by default. A **closed** program
+IS renameable, unlike deletable: a delete removes money that was reported and paid, a rename moves
+the same money to a key that tells the truth.
 
 Two gaps it could not fill, both known and neither a bug: `green-cross-2025-08-11-2025-08-17` is a
 real program Sky confirmed, but the Calculator never held it, so it has goals and **no
