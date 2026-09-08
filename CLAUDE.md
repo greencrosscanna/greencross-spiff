@@ -187,7 +187,38 @@ Google's consent HTML instead of JSON until the owner has authorized.
   `flat` and `blended`.
 - **SPIFF reads the roster, never writes it.** `employees` and `stores` come from GX Core; don't
   re-hardcode store names — Command Center edits must flow through on the next load.
-- **SPIFF has no cross-app write contract.** *Corrected 2026-08-25: this bullet used to say "SPIFF
+- **SPIFF PUBLISHES TO CORE NOW — the write contract exists as of 2026-09-08 (v1.374).** After every
+  hourly refresh SPIFF pushes its finished per-employee sell-through and payout into GX Core's
+  **`spiff_publications`** tab, one publication per pay period, via
+  `GXCore.publishSpiffProgress(secret, scope, payload)`. Leaderboard and Crew read it back with
+  `publishedSpiffProgress` / `?action=published_spiff_progress` instead of calling this engine's
+  `/exec`. That is **step 2 of 4** in the hub's `GX_CONSOLIDATION_MAP.md`; steps 3 and 4 are
+  Leaderboard deleting its `spiff.gs` and Crew reading Core on the incentive screen. **Requires
+  GXCore v306** — the routes exist only in that snapshot.
+
+  **SPIFF still owns the numbers.** Core stores the payload verbatim and recomputes nothing; the
+  vendor is paid SPIFF's figure, and a second computation would be a second answer. The payload is
+  the same shape `?action=progress` already served, deliberately, so a consumer changes its source
+  and not its parser.
+
+  **Two things that bite.** The new failure mode is **silent staleness** — nothing throws if
+  publishing stops, the payload just ages — so every read must check `age_minutes`. And the
+  **`pay_period` column is unusable as a scope**: live rows hold `"2026-08-17 - 2026-08-30"` (a
+  range) and `"2026-09-18"` (a date after its own window), despite a schema comment claiming
+  `YYYY-MM-DD`. The scope is **derived** from the program's `start_date` against
+  `cfg.payPeriodAnchor` (read via `GXCore.getKv` — there is no `getConfig()`). The column is left
+  alone on purpose.
+
+  **The documented exception:** Crew's `incentiveApprove_` and `incentiveSend_` keep reading SPIFF
+  **live**, because they freeze vendor money into `crew_incentive_history` where it can never be
+  recomputed — a stale figure frozen there is silent and permanent, where a live read that fails is
+  loud and recoverable in front of the person who just clicked Approve. Not an oversight to tidy.
+
+  Publish on demand with `?action=publishToCore` (deploy-secret gated, **dry by default**,
+  `apply=1` to write).
+
+  *Superseded the note below, kept because the lesson stands:*
+- **SPIFF once had a cross-app write contract that did not exist.** *Corrected 2026-08-25: this bullet used to say "SPIFF
   writes `spiff_payouts`… GX Crew consumes these payouts for its bonus calc." **No such tab exists** —
   it is not in `GX_TABS`, nothing writes it and nothing reads it. SPIFF's only GX Core calls are READS:
   `getEmployees`, `getStores`, `getProducts`, `libVersion`. Payout data lives in SPIFF's own sheet.*
