@@ -97,9 +97,12 @@ body.flyer.store { display: block; }
   .st-fig-v { font-size: 28px; }
   .st-figs { flex-direction: column; }
 }
-/* Wall screens: two programs side by side rather than one very wide card. */
+/* Wall screens: two programs side by side rather than one very wide card — but ONLY when there
+   are two. Applied unconditionally, a single running program got one column of a two-column grid
+   and rendered at half width with an empty half beside it, which reads as a card that failed to
+   load rather than a chain running one SPIFF. `is-multi` is set by store.js from the count. */
 @media (min-width: 1100px) {
-  .st-wrap { max-width: 1180px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  .st-top, .st-foot { grid-column: 1 / -1; }
-  .st-card { margin-bottom: 0; }
+  .st-wrap.is-multi { max-width: 1180px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .st-wrap.is-multi .st-top, .st-wrap.is-multi .st-foot { grid-column: 1 / -1; }
+  .st-wrap.is-multi .st-card { margin-bottom: 0; }
 }

@@ -130,7 +130,10 @@
       return;
     }
     $('#main').innerHTML =
-      '<div class="st-wrap">'
+      /* Two columns only when there are two programs — see store.css. One program in a
+         two-column grid rendered at half width beside an empty half, which reads as a card that
+         failed to load rather than a chain running one SPIFF. */
+      '<div class="st-wrap' + (list.length > 1 ? ' is-multi' : '') + '">'
       + '<div class="st-top">'
       +   '<span class="st-store">' + esc(d.store_name || d.store_id) + '</span>'
       +   '<span class="st-count">' + list.length + (list.length === 1 ? ' program' : ' programs') + ' running</span>'
