@@ -74,6 +74,20 @@ ok('GXCore is pinned at or past @133, where the decoration landed',
 ok('  …and not in developmentMode, which would make the pin a fiction',
    manifest.dependencies.libraries.every(l => l.developmentMode === false));
 
+/* ── AND ONLY ONE PLACE STILL SAYS IT ─────────────────────────────────────────────────────────
+   The false claim was written twice — gxRosterFull_ and gxEmployees_ — which is how a wrong
+   comment survives being corrected: somebody fixes the copy they were looking at. The only
+   remaining mention is the history note explaining the retraction. */
+ok('no live comment still claims the library returns undecorated rows',
+   (gs.match(/undecorated rows/g) || []).length <= 2);
+const emp = grab(gs, 'gxEmployees_');
+ok('the employees route reads the one cached source',
+   /gxRosterFull_\(\) \|\| \[\]/.test(emp));
+ok('  …and no longer "falls back" to the identical library call',
+   emp.indexOf('GXCore.getEmployees()') < 0);
+ok('  …reporting the outage instead of retrying a request that already threw',
+   /roster is unavailable/.test(emp));
+
 /* ══════════════════ 3. THE RULE IS NOT COPIED HERE ══════════════════ */
 const map = grab(gs, 'displayNameMap_');
 ok('the map reads display_name rather than deriving one',

@@ -3188,19 +3188,18 @@ function reportBug_(p) {
    for per-budtender targets and what payouts will need for attribution. */
 function gxEmployees_(opts) {
   opts = opts || {};
+  /* ONE SOURCE, CACHED. This used to read the HTTP roster first and fall back to the bound
+     library, on the belief that the library returned undecorated rows — false since 2026-08-19,
+     see gxRosterFull_. Both branches now resolve to the same library call, so the fallback was
+     retrying an identical request: if getEmployees() throws it throws twice, and the only thing
+     the second attempt added was a second failure to report. */
   var rows;
-  /* Prefer the HTTP roster: GX Core DERIVES display_name / short_name there, and the bound
-     library returns rows undecorated. See gxRosterFull_. Falls back to the library, which carries
-     every stored column but none of the computed ones. */
   try {
     rows = gxRosterFull_() || [];
   } catch (e0) { rows = []; }
   if (!rows.length) {
-    try {
-      rows = GXCore.getEmployees() || [];
-    } catch (e) {
-      return { ok: false, error: 'GXCore library unavailable: ' + scrubSecrets_(e && e.message || e) };
-    }
+    return { ok: false, error: 'The GX Core roster is unavailable, so employee names cannot be '
+                             + 'resolved right now.' };
   }
 
   /* Null-prototype, and these are the ones I MISSED on the first sweep: pricecards found the
