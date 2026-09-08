@@ -1194,6 +1194,22 @@
       + '</select></label>';
   }
 
+  /* ── ONE ACTUALS FIELD ────────────────────────────────────────────────────────────────────
+     recField's readonly follows canEdit(), which is a question about the USER. These six also
+     have to answer a question about the RECORD — has anyone deliberately opened them — so they
+     get their own builder rather than a fifth argument on the shared one. Still an <input>
+     when locked, deliberately: pullActuals writes through setRecField and collectPatch reads
+     back by [data-key], and a readonly input does both while refusing the keyboard. Swapping
+     in a <span> would have silently cut the measured figures out of the save. */
+  function actField(label, key, value, open) {
+    return '<label class="sp-fld sp-act' + (open ? '' : ' is-locked') + '"><span>' + esc(label) + '</span>'
+      + '<input class="sp-in sp-num-in" data-key="' + esc(key) + '" type="number"'
+      + ' value="' + esc(value == null ? '' : value) + '"'
+      + (open && canEdit() ? '' : ' readonly')
+      + (open ? '' : ' tabindex="-1" title="Measured, not typed — press Correct by hand to edit"')
+      + '></label>';
+  }
+
   function recField(label, key, value, type, cls) {
     var ro = canEdit() ? '' : ' readonly';
     return '<label class="sp-fld ' + (cls || '') + '"><span>' + esc(label) + '</span>'
@@ -1300,6 +1316,8 @@
   function renderRecord(p) {
     var a = p.actual_json || {};
     var warn = '';
+    /* Per PROGRAM, so unlocking one record does not leave the next one open. */
+    var actualsOpen = canEdit() && calc.actualsOpenFor === p.program_id;
 
     if (a.duplicate_of && a.duplicate_of.length) {
       warn += '<div class="sp-notice is-bad"><span class="sp-notice-l">Actuals look copied</span>'
@@ -1354,17 +1372,43 @@
       +   recField('Contact email', 'contact_email', p.contact_email)
       + '</div>'
 
+      /* ── ACTUALS ARE MEASURED, NOT TYPED (Sky, 2026-09-08: "remove actuals from edit mode") ──
+         These six are what the vendor was told and what the budtenders were paid against, and
+         they sat here as six open number boxes on every record — including a CLOSED one whose
+         figures had already gone out on a report. The model above locks itself on a closed
+         program for exactly that reason (applyCalcLock); the actuals, which ARE the money, did
+         not. Portland Heights showed 242 units and $181.50 in fields you could retype by
+         landing in one and pressing a key.
+
+         SO THEY ARE READ-ONLY, NOT GONE. Hand entry is a real capability that is really used:
+         `green-cross-2025-08-11-2025-08-17` is a confirmed program the Calculator never held,
+         so it has goals and no actuals and is the one row meant to be filled in by hand, and
+         Sky is separately correcting the records whose actuals were copied. Removing the boxes
+         outright would have deleted work in progress.
+
+         What changes is the DEFAULT. Measuring fills them — "Pull live from Dutchie" writes
+         straight through, because a readonly input still takes a value from the app and still
+         reads back to collectPatch. Typing needs one deliberate click, the same shape as
+         "Unlock the goals too" on a closed model, so the pattern is one somebody has already
+         met. */
       + '<div class="sp-h4-row"><h4 class="sp-h4">Actuals</h4>'
-      +   '<span class="sp-h4-note" id="rActualsNote">what was really sold in the window above</span>'
+      +   '<span class="sp-h4-note" id="rActualsNote">'
+      +     (actualsOpen
+              ? 'open for hand correction &mdash; these are the figures the vendor was sent'
+              : 'measured, not typed &mdash; pull them from Dutchie, or unlock to correct by hand')
+      +   '</span>'
+      +   (canEdit() && !actualsOpen
+              ? '<button type="button" class="gx-btn" id="rUnlockActuals">Correct by hand</button>'
+              : '')
       +   '<button type="button" class="gx-btn" id="rPullActuals" style="margin-left:auto">Pull live from Dutchie</button>'
       + '</div>'
-      + '<div class="sp-flds" id="rActuals">'
-      +   recField('Units sold', 'actual_json.units_sold', a.units_sold, 'number')
-      +   recField('Budtenders hitting goal', 'actual_json.bts_hit', a.bts_hit, 'number')
-      +   recField('Rate paid', 'actual_json.spiff_amount', a.spiff_amount, 'number')
-      +   recField('Investment', 'actual_json.investment', a.investment, 'number')
-      +   recField('ROI $', 'actual_json.roi', a.roi, 'number')
-      +   recField('ROI % (decimal)', 'actual_json.roi_pct', a.roi_pct, 'number')
+      + '<div class="sp-flds' + (actualsOpen ? ' is-unlocked' : '') + '" id="rActuals">'
+      +   actField('Units sold', 'actual_json.units_sold', a.units_sold, actualsOpen)
+      +   actField('Budtenders hitting goal', 'actual_json.bts_hit', a.bts_hit, actualsOpen)
+      +   actField('Rate paid', 'actual_json.spiff_amount', a.spiff_amount, actualsOpen)
+      +   actField('Investment', 'actual_json.investment', a.investment, actualsOpen)
+      +   actField('ROI $', 'actual_json.roi', a.roi, actualsOpen)
+      +   actField('ROI % (decimal)', 'actual_json.roi_pct', a.roi_pct, actualsOpen)
       + '</div>';
 
     /* The saved match travels in a hidden field so collectPatch picks it up with everything
@@ -1374,6 +1418,22 @@
 
     var pull = $('#rPullActuals');
     if (pull) pull.addEventListener('click', function () { pullActuals(p, pull); });
+
+    /* ONE DELIBERATE CLICK, and a confirm on a CLOSED program only. A draft or a running
+       program's actuals have not been reported to anybody, so guarding those would be a dialog
+       that teaches people to dismiss dialogs. A closed one has been paid and invoiced. */
+    var unlock = $('#rUnlockActuals');
+    if (unlock) unlock.addEventListener('click', function () {
+      var closed = String(p.status || '').toLowerCase() === 'closed';
+      if (closed && !confirm('Correct the actuals on ' + (programLabel(p) || 'this program') + ' by hand?\n\n'
+            + 'It closed on ' + prettyDay(p.end_date) + '. These are the figures the vendor was '
+            + 'sent and the budtenders were paid against.\n\n'
+            + 'Pull live from Dutchie re-measures them instead, without typing.')) return;
+      calc.actualsOpenFor = p.program_id;
+      renderRecord(p);
+      var first = $(REC.body + ' .sp-act input');
+      if (first) first.focus();
+    });
 
     // Minting a vendor link exposes this program to an outside party, so it sits behind
     // the same role gate as editing and says plainly what it does.
@@ -1848,6 +1908,10 @@
     window: null,    // that program's dates, carried for display only — the record owns them
     product: null,   // {label, brand, filter_text, products[], skus, qty} — the SPIFF's subject
     refRun: null,    // identity of the in-flight reference pull, so a stale one can be dropped
+    /* WHICH PROGRAM'S ACTUALS ARE UNLOCKED, by id -- never a bare boolean. A boolean survives
+       switching programs, so unlocking one record and opening the next would hand you six live
+       money fields you never asked to open. Compared against editingId on every paint. */
+    actualsOpenFor: null,
     stores: []       // [{ store_id, name, baseline, bts, refState, refUnits }]
   };
 
@@ -3899,6 +3963,11 @@
     var modelRes = await saveCalcProgram({ silent: true });
     if (modelRes && modelRes.error) failed.push('the model');
     else if (modelRes && modelRes.changed) changed = changed.concat(modelRes.changed);
+
+    /* THE UNLOCK IS SPENT ON SAVE. Leaving it open would mean a record stayed hand-editable for
+       the rest of the session after one correction, which is the state this change exists to
+       stop being the default. */
+    calc.actualsOpenFor = null;
 
     await loadPrograms();
     renderPrograms();

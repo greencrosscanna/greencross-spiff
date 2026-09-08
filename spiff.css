@@ -1241,6 +1241,18 @@ body.is-gated .workspace { display: none !important; }
 .sp-fld input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(.7); cursor: pointer; }
 /* The whole actuals block dims while it is being refetched, so nobody reads a half-updated
    set of figures as final. */
+/* ── ACTUALS, LOCKED BY DEFAULT ───────────────────────────────────────────────────────────────
+   The six money fields have to LOOK unavailable, not merely refuse the keyboard. A normal-looking
+   number box that silently swallows typing is worse than a visibly locked one: the first reads as
+   a broken field, the second as a deliberate rule. Muted value, no focus ring, and a cursor that
+   says so — while the label stays full-strength, because the figure itself must still be easy to
+   read off. This is the one place in the app where "you cannot edit this" protects a number that
+   has already been invoiced. */
+.sp-act.is-locked { border-style: dashed; }
+.sp-act.is-locked input { opacity: .7; cursor: default; background: transparent; border-color: transparent; }
+.sp-act.is-locked input:focus { border-color: transparent; outline: none; }
+/* Unlocked reads as live and slightly alarming, on purpose. */
+.sp-flds.is-unlocked .sp-act input { border-color: var(--gx-amber, var(--gx-gold)); }
 #rActuals.is-busy { opacity: .45; pointer-events: none; transition: opacity .12s ease; }
 /* The record scrolls with the page now rather than inside a fixed-height modal body, so the
    picker-menu height cap that kept a dropdown from escaping that box is gone with it — as is the
