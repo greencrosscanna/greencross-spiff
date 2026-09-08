@@ -3357,11 +3357,78 @@ function shareLink_(p) {
  * vendor a blank grid.
  * ==================================================================== */
 
+/* ── WHAT THE VENDOR IS OWED, IN ONE PLACE ────────────────────────────────────────────────────
+ * Found 2026-09-08 by running the close-out against a real closed program. All three outputs —
+ * the vendor PDF, the drafted email and the gift-card buy list — computed the credit as
+ *
+ *     owed = bts_hit × rate
+ *
+ * which is the FLAT formula, applied unconditionally. Portland Heights is per_unit: 242 units at
+ * $0.75 is $181.50, and it is $181.50 in the record, on the screen and in what Core publishes.
+ * The three close-out paths said $28.50 — 38 earners × $0.75. Tawny would have asked the vendor
+ * for $153 less than we were owed, on a document titled "Credit due Green Cross", and the buy
+ * list would have been short by the same amount.
+ *
+ * THE SAME BUG WAS ALREADY FOUND AND FIXED TWICE, in the progress stats strip and in pullActuals,
+ * both of which carry a comment about it. It survived here because the formula was written out by
+ * hand in three more places, and fixing the two that were noticed did not touch them. That is the
+ * argument for this function existing at all: the rule now has ONE home, and a fourth output
+ * cannot get it wrong by being written later.
+ *
+ * THE RECONCILED FIGURE WINS. `actual_json.investment` is the number a human verified — pulled
+ * from Dutchie or corrected by hand — and it is what every screen already shows. The model
+ * computation is the fallback for a record that has no investment recorded yet.
+ *
+ * A DISAGREEMENT IS REPORTED, NEVER SILENTLY RESOLVED. If the stored figure and the model
+ * computation differ, something is wrong with one of them, and this is a document that goes to a
+ * vendor. The callers surface it rather than printing whichever number happened to win.
+ */
+function payoutFactsOf_(prog) {
+  var a = prog.actual_json || {};
+  var perUnit = payoutModelOf_(prog) === 'per_unit';
+  /* The SETTLED rate first — a program can be modeled at one rate and settle at another, which is
+     what the record's rate_changed warning is about. */
+  var rate    = Number(a.spiff_amount) || payoutRateOf_(prog);
+  var units   = Number(a.units_sold) || 0;
+  var earners = Number(a.bts_hit) || 0;
+
+  /* PER-UNIT PAYS ON VOLUME. `earners` counts people who cleared an individual target, and a
+     per-unit program sets none — everyone who sold anything earned — so rate × earners is not a
+     smaller version of the right answer, it is a different quantity. */
+  var computed = perUnit ? rate * units : rate * earners;
+
+  var hasStored = a.investment != null && a.investment !== '';
+  var stored = Number(a.investment) || 0;
+  var owed = hasStored ? stored : computed;
+
+  return {
+    per_unit: perUnit, rate: rate, units: units, earners: earners, owed: owed,
+    /* HOW the total was arrived at, in words, so a vendor document can show its working and a
+       reader can check it without knowing the payout model. */
+    basis: perUnit
+      ? units.toLocaleString() + ' units × ' + moneyStr_(rate) + ' a unit'
+      : earners + ' budtender' + (earners === 1 ? '' : 's') + ' × ' + moneyStr_(rate),
+    /* Labels follow the model. "SPIFF per budtender" on a per-unit program is wrong twice over:
+       it is per unit, and there is no per-budtender bonus to name. */
+    rate_label:   perUnit ? 'SPIFF per unit sold' : 'SPIFF per budtender',
+    earner_label: perUnit ? 'Budtenders who earned' : 'Budtenders who hit their target',
+    /* Rounded to the cent before comparing — floating point makes 181.5 and 181.49999 the same
+       number in every sense a vendor cares about. */
+    mismatch: hasStored && Math.round(stored * 100) !== Math.round(computed * 100)
+      ? { stored: stored, computed: computed } : null
+  };
+}
+
+function moneyStr_(n) {
+  return '$' + (Number(n) || 0).toLocaleString('en-US',
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function reportHtml_(p, matrix) {
   var a    = p.actual_json || {};
   var t    = p.target_json || {};
-  var rate = a.spiff_amount || (p.payout_json || {}).amount || 0;
-  var owed = (a.bts_hit || 0) * rate;
+  var f    = payoutFactsOf_(p);
+  var rate = f.rate, owed = f.owed;
   var esc  = function (s) { return String(s == null ? '' : s).replace(/[&<>]/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); };
   var money = function (n) { return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
@@ -3405,11 +3472,22 @@ function reportHtml_(p, matrix) {
     + '<div class="stats">'
     +   '<div class="stat"><b>' + (a.units_sold || 0).toLocaleString() + '</b><span>Units sold</span></div>'
     +   '<div class="stat"><b>' + (t.units || 0).toLocaleString() + '</b><span>Target</span></div>'
-    +   '<div class="stat"><b>' + (a.bts_hit || 0) + '</b><span>Budtenders hit</span></div>'
-    +   '<div class="stat"><b>' + money(rate) + '</b><span>SPIFF each</span></div>'
+    +   '<div class="stat"><b>' + f.earners + '</b><span>' + esc(f.earner_label) + '</span></div>'
+    +   '<div class="stat"><b>' + money(rate) + '</b><span>'
+    +     esc(f.per_unit ? 'SPIFF per unit' : 'SPIFF each') + '</span></div>'
     + '</div>'
+    /* THE BASIS IS PRINTED BESIDE THE TOTAL. This line used to read "38 budtenders × $0.75" under
+       a total of $28.50 on a program that owed $181.50 — the working was as wrong as the figure,
+       so it confirmed itself. It now comes from payoutFactsOf_, which knows the payout model. */
     + '<div class="owed"><span>Credit due Green Cross</span><br><b>' + money(owed) + '</b>'
-    +   '<br><span>' + (a.bts_hit || 0) + ' budtenders × ' + money(rate) + '</span></div>'
+    +   '<br><span>' + esc(f.basis) + '</span></div>'
+    /* A stored figure that disagrees with the model computation is shown ON the document rather
+       than resolved behind it. This is what the vendor is being asked to credit. */
+    + (f.mismatch
+        ? '<p class="note" style="color:#b00">The recorded total (' + money(f.mismatch.stored)
+          + ') does not match ' + esc(f.basis) + ' = ' + money(f.mismatch.computed)
+          + '. Verify before sending.</p>'
+        : '')
     + '<h2>By store</h2><table><tr><th>Store</th><th class="n">Target</th><th class="n">Sold</th></tr>' + storeRows + '</table>'
     + matrixHtml
     + '<p class="note">Generated by Green Cross SPIFF on ' + today_() + '.</p>'
@@ -3447,9 +3525,9 @@ function emailDraft_(p) {
   var res = getProgram_(p.id);
   if (!res.ok) return res;
   var prog = res.program, a = prog.actual_json || {}, t = prog.target_json || {};
-  var rate = a.spiff_amount || (prog.payout_json || {}).amount || 0;
-  var owed = (a.bts_hit || 0) * rate;
-  var m    = function (n) { return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  var f    = payoutFactsOf_(prog);
+  var rate = f.rate, owed = f.owed;
+  var m    = moneyStr_;
 
   var period = prog.start_date ? prog.start_date + ' through ' + (prog.end_date || '') : 'the program period';
   var hitPct = t.units ? Math.round((a.units_sold || 0) / t.units * 100) : null;
@@ -3462,36 +3540,113 @@ function emailDraft_(p) {
       'Here are the final numbers for the ' + (prog.program_name || prog.title) + ' SPIFF, ' + period + '.\n\n' +
       '  Units sold:        ' + (a.units_sold || 0).toLocaleString() +
         (t.units ? '  (target ' + t.units.toLocaleString() + (hitPct != null ? ', ' + hitPct + '% of goal' : '') + ')' : '') + '\n' +
-      '  Budtenders who hit their target: ' + (a.bts_hit || 0) + '\n' +
-      '  SPIFF per budtender: ' + m(rate) + '\n' +
-      '  Total credit due:  ' + m(owed) + '\n\n' +
+      '  ' + f.earner_label + ': ' + f.earners + '\n' +
+      '  ' + f.rate_label + ': ' + m(rate) + '\n' +
+      '  Total credit due:  ' + m(owed) + '  (' + f.basis + ')\n\n' +
       'The full report is attached. Please apply ' + m(owed) + ' as a credit against our next order.\n\n' +
       'Thanks for supporting the team —\n\n' +
       'Tawny\nGreen Cross Cannabis Emporium\n',
-    attach_hint: 'Attach the PDF saved to the SPIFF close-out folder in Drive.'
+    attach_hint: 'Attach the PDF saved to the SPIFF close-out folder in Drive.',
+    /* Surfaced, not buried in the body. Nothing sends from here — a human does — so the warning
+       belongs where the UI can refuse to present the draft as ready. */
+    warning: f.mismatch
+      ? 'The recorded total (' + m(f.mismatch.stored) + ') does not match ' + f.basis + ' = '
+        + m(f.mismatch.computed) + '. Verify the actuals before sending this.'
+      : undefined
   };
 }
 
 /* Who gets a gift card, and for how much. Needs per-budtender sell-through, so for
    aggregate-only historical programs it reports the total and says what is missing
    rather than inventing a split. */
+/* ── THE GIFT-CARD BUY LIST ───────────────────────────────────────────────────────────────────
+ * This returned `lines: []` with a note saying per-budtender names "require sell-through detail
+ * (Progress)". That detail has existed since 2026-08-27 — it is on the program's own frozen
+ * snapshot and in the spiff_progress cache — and the list was simply never wired to it. So the
+ * one output whose entire job is "who do we buy a gift card for, and for how much" named nobody,
+ * and its total used the flat formula on a per-unit program besides (see payoutFactsOf_).
+ *
+ * NAMES COME FROM THE FROZEN SNAPSHOT FIRST. A closed program was measured once, when it stopped
+ * moving, and that is the measurement the vendor was invoiced against — re-deriving the list from
+ * today's cache could hand a different set of people a different set of amounts than the report
+ * already sent. The live cache is the fallback for a program with no snapshot yet.
+ *
+ * IT LISTS WHO EARNED, not who sold. On a flat program that is whoever cleared their target; on
+ * per-unit it is everyone with a unit, because there is no target to clear. `earned` on the row
+ * is already computed per person by the measurement, so this sums rather than re-deriving.
+ */
 function giftCardList_(p) {
   var res = getProgram_(p.id);
   if (!res.ok) return res;
   var prog = res.program, a = prog.actual_json || {};
-  var rate = a.spiff_amount || (prog.payout_json || {}).amount || 0;
+  var f = payoutFactsOf_(prog);
+
+  var snap = prog.progress_json && prog.progress_json.stores ? prog.progress_json : null;
+  var people = [], source = '';
+
+  if (snap) {
+    source = 'the frozen snapshot, measured ' + String(snap.at || '').slice(0, 10);
+    /* A SNAPSHOT ROW HOLDS ONLY THE NAME DUTCHIE REPORTED — the frozen grid on screen decorates
+       it in the browser. This list is handed to a person buying cards, so it is decorated here
+       the same way every other surface does, and BOTH names travel: the friendly one goes on the
+       card, and the legal one is what Tawny reconciles against a Dutchie export. Added, never
+       substituted — the same rule spiffProgress_ follows. */
+    var nameMap = displayNameMap_();
+    (snap.stores || []).forEach(function (st) {
+      (st.rows || []).forEach(function (e) {
+        var amt = Number(e.earned) || 0;
+        if (amt <= 0) return;
+        var legal = String(e.name || '').trim();
+        var friendly = friendlyName_(nameMap, e.employee_id, legal);
+        people.push({ name: friendly || legal, legal_name: legal, store: st.store_id,
+                      units: Number(e.units) || 0, amount: amt });
+      });
+    });
+  } else {
+    /* No snapshot: read the live cache through the same function every consumer reads. */
+    var live = spiffProgress_({ program: prog.program_id,
+                                secret: PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP) });
+    if (live && live.ok) {
+      source = 'the live progress cache, refreshed ' + String(live.refreshed_at || '').slice(0, 16);
+      (live.rows || []).forEach(function (r) {
+        var amt = Number(r.earned) || 0;
+        if (amt <= 0) return;
+        /* spiffProgress_ has already decorated these — display_name is present only when it
+           differs, so `display_name || name` is the whole rule. */
+        people.push({ name: r.display_name || r.name, legal_name: r.name, store: r.store_id,
+                      units: Number(r.units) || 0, amount: amt });
+      });
+    }
+  }
+
+  /* Biggest first — it is a shopping list, and the amounts are what someone loads onto cards. */
+  people.sort(function (x, y) { return y.amount - x.amount || String(x.name).localeCompare(String(y.name)); });
+  var listed = people.reduce(function (n, x) { return n + x.amount; }, 0);
 
   return {
     ok: true,
     program: prog.program_name || prog.title,
-    rate: rate,
-    count: a.bts_hit || 0,
-    total: (a.bts_hit || 0) * rate,
-    lines: [],   // filled from Progress once per-budtender sell-through is available
-    note: 'Per-budtender names require sell-through detail (Progress). This program recorded '
-        + (a.bts_hit || 0) + ' budtenders at ' + rate + ' each.'
+    vendor: prog.vendor || '',
+    per_unit: f.per_unit, rate: f.rate,
+    count: people.length,
+    /* The AUTHORITATIVE total stays the record's, the same figure the vendor is invoiced. */
+    total: f.owed,
+    listed_total: Math.round(listed * 100) / 100,
+    lines: people,
+    source: source || 'no measurements found',
+    /* SAY SO WHEN THE LIST DOES NOT ADD UP TO THE TOTAL, rather than letting someone buy cards
+       against one number and bill the vendor another. A gap means the measurement behind the list
+       is not the one the record was reconciled from. */
+    warning: (!people.length && f.owed > 0)
+      ? 'This program owes ' + moneyStr_(f.owed) + ' but no per-person measurement was found, so '
+        + 'nobody can be named. Re-measure the program before buying cards.'
+      : (people.length && Math.round(listed * 100) !== Math.round(f.owed * 100)
+          ? 'The names below add up to ' + moneyStr_(listed) + ', but the record says '
+            + moneyStr_(f.owed) + '. Reconcile before buying cards.'
+          : undefined)
   };
 }
+
 
 /* Is the GXCore library reachable, and what does it actually see from here? Libraries run
    in the CALLER's context, so this distinguishes "we can't read GX Core" from "the tab is
