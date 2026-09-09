@@ -1984,7 +1984,8 @@ function installSpiffProgressTrigger() {
  *
  * ── SCOPE IS DERIVED, NOT READ OFF THE ROW, and this is the part worth reading ──
  * Core keys a publication on (producer, scope) and documents scope as the pay-period START as
- * YYYY-MM-DD. The obvious source is each cached row's `pay_period` column. IT IS NOT USABLE, and
+ * YYYY-MM-DD. The obvious source is each cached row's `pay_period` column. IT WAS NOT USABLE when
+ * this was written, and
  * this was checked against live data on 2026-09-08 rather than assumed:
  *
  *     38 rows  pay_period "2026-08-17 - 2026-08-30"   <- a RANGE, not a date
@@ -1995,6 +1996,13 @@ function installSpiffProgressTrigger() {
  * already in spiffProgress_ — "the pay_period parameter was unusable when Crew built against it,
  * so Crew passes nothing and takes the whole payload." Now confirmed: unusable because the data
  * is inconsistent, not because the filter was wrong.
+ *
+ * FIXED 2026-09-08, one commit later: the column held the PAY DATE (window end + 5 days, across
+ * all 23 seeded programs) in a field named and documented as the period start. It is now derived
+ * from start_date on every write and the existing rows were backfilled, so it agrees with the
+ * scope this function computes. The derivation below STAYS anyway: it is the same computation from
+ * the same source, it does not depend on a backfill having been run, and a publish that derives
+ * its own key cannot be broken by a bad value arriving in a column.
  *
  * So the scope is computed from the program's START DATE against the chain's pay-period grid,
  * which the record panel already enforces as whole pay periods. Building a MONEY contract on a
