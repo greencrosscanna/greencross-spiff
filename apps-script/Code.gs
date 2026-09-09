@@ -134,7 +134,7 @@ var EDIT_ROLES = ['admin', 'editor', 'director'];
    match_json and stores_json were missing, and that is not a small omission: match_json is WHAT
    THE SPIFF IS ON. Sky changed Portland Heights from the Green Cross house brand to "all Portland
    Heights products" twice on 2026-09-02, the app said Updated both times, and the record kept
-   measuring the wrong catalogue — 3,514 units of house brand against a real 242. The Calculator
+   measuring the wrong catalog — 3,514 units of house brand against a real 242. The Calculator
    is the only screen that can set either field, and its patch was the one the engine ignored.
 
    Both belong here for the same reason payout_json does: the Calculator owns them, and every
@@ -4856,6 +4856,26 @@ function catalog_(p) {
 var REF_DAYS    = 28;
 var REF_DIVISOR = 2;
 
+/* The reference window, as its own function so the rule has one home and a test can execute it
+ * rather than grep for it. Returns the 28 (or `days`) day span the baseline is measured over.
+ *
+ * ANCHORED to the day before `before` when that is a real date — see the long note in refUnits_
+ * for why a program's baseline has to be the run-up to that program and not the last four weeks.
+ * Falls back to `today` for a program with no window yet, where the recent period IS the honest
+ * reference and refusing would block modeling a new program.
+ *
+ * ENDS THE DAY BEFORE in both branches. Unanchored that excludes today, a partial day that drags
+ * the average down by however early someone opened the Calculator. Anchored it excludes the
+ * program's own first day, whose sales belong to the program rather than to its baseline.
+ */
+function refWindow_(before, days, today) {
+  var n = Math.max(1, Math.min(90, Number(days) || REF_DAYS));
+  var b = textDate_(before || '');
+  var anchored = /^\d{4}-\d{2}-\d{2}$/.test(b);
+  var to = addDaysLocal_(anchored ? b : textDate_(today), -1);
+  return { anchored: anchored, from: addDaysLocal_(to, -(n - 1)), to: to, days: n };
+}
+
 function refUnits_(p) {
   var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
   if (!secret) return { ok: false, error: 'GX_DEPLOY_SECRET is not set on this script — reference units cannot be read.' };
@@ -4874,10 +4894,29 @@ function refUnits_(p) {
   }
 
   var days = Math.max(1, Math.min(90, Number(p.days) || REF_DAYS));
-  /* Ends YESTERDAY. Today is a partial day, and including it drags the average down by
-     however early in the afternoon someone happens to open the Calculator. */
-  var to   = addDaysLocal_(today_(), -1);
-  var from = addDaysLocal_(to, -(days - 1));
+
+  /* ── THE REFERENCE ENDS WHERE THE PROGRAM BEGINS ────────────────────────────────────────────
+     `before` is the program's start date, and the 28 days are counted back from the day before
+     it. Sky, 2026-09-09: "the re-measure function should pull the sales from the 28 days before
+     the period in which the program is set to run."
+
+     It used to always end yesterday, which is right for modeling a program that starts
+     tomorrow and wrong for every other case. Reconciling Hapy Kitchen's February window, or
+     Buddies' June one, compared them against the last four weeks of trade — months after the
+     program ended, a different season, and for a brand we may not even carry now (Hapy Kitchen
+     is absent from the live catalog today). That figure is the baseline: it sets ROI, the
+     per-store targets and the per-budtender goals, so an unanchored reference does not just
+     mislabel a caption, it re-prices the whole model against the wrong period.
+
+     ANCHORED IS OPTIONAL, not required. A brand-new program being modelled may have no window
+     yet, and there the honest reference IS the most recent four weeks. So no `before` keeps the
+     old behavior rather than refusing.
+
+     ENDS THE DAY BEFORE, in both branches, and for the same reason each time: a partial day
+     drags the average down. Unanchored that partial day is today; anchored it is the program's
+     own first day, whose sales belong to the program and not to its baseline. */
+  var win = refWindow_(p.before, days, today_());
+  var anchored = win.anchored, from = win.from, to = win.to;
 
   var r = gxSalesByEmployee_(secret, from, to, store, match);
   if (!r || !r.ok) return { ok: false, error: (r && r.error) || 'sell-through fetch failed', store: store };
@@ -4902,7 +4941,10 @@ function refUnits_(p) {
   }
 
   return {
-    ok: true, store: store, from: from, to: to, days: days,
+    /* `anchored` travels back so the caption can say WHICH 28 days it measured. A reference is
+       argued over in front of a vendor; "1,234 in 28d" that silently means a different month
+       than the one on screen is the kind of number that cannot be defended on the spot. */
+    ok: true, store: store, from: from, to: to, days: days, anchored: anchored,
     units: Math.round(units * 1000) / 1000,
     revenue: Math.round(revenue * 100) / 100,
     /* The figure the Calculator seeds a store's reference with. Returned ALONGSIDE the raw

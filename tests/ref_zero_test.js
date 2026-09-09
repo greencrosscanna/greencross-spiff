@@ -51,6 +51,17 @@ function runRef(totals, errors) {
       return d.toISOString().slice(0, 10);
     },
     gxSalesByEmployee_: () => ({ ok: true, totals, rows: [], errors }),
+    /* THE REAL ONE, not a stub. refUnits_ delegates its window to refWindow_ as of 2026-09-09
+       (the baseline is now the 28 days before the PROGRAM, not before today), and this harness
+       runs refUnits_ for real — so it needs the real collaborator. Stubbing it here would leave
+       the refusal rule tested against a window nothing else uses. Its own behavior is covered
+       by tests/reference_window_test.js. */
+    refWindow_: new Function('addDaysLocal_', 'textDate_', 'REF_DAYS',
+                             grab(gs, 'refWindow_') + '; return refWindow_;')(
+      (ymd, n) => { const q = String(ymd).split('-');
+                    return new Date(Date.UTC(+q[0], +q[1] - 1, +q[2] + n)).toISOString().slice(0, 10); },
+      (v) => String(v == null ? '' : v).trim(),
+      28),
     REF_DAYS: 28, REF_DIVISOR: 2
   };
   const names = Object.keys(env);

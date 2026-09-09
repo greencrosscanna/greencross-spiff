@@ -2785,13 +2785,24 @@
       var r = await ENG.jsonp('refunits', {
         token: (session() || {}).token, store: st.store_id,
         brand: p.brand, filter_text: p.filter_text,
-        products: (p.products || []).join(',')
+        products: (p.products || []).join(','),
+        /* ANCHOR THE REFERENCE TO THE PROGRAM, not to today. The 28 days are counted back from
+           the day before the window starts, so reconciling February measures February's run-up
+           rather than the last four weeks. Empty on a program with no window yet — a fresh
+           model has nothing to anchor to and the recent four weeks is the honest answer there.
+           See refUnits_ in the engine for why this is the baseline and not a caption. */
+        before: (calc.window && calc.window.start) || ''
       }, { timeoutMs: 65000, retries: 1 });
       if (calc.refRun !== run) return;            // a newer product was picked mid-flight
       if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
       if (typeof r.reference !== 'number') throw new Error('engine returned no reference figure');
       st.baseline = r.reference;
       st.refUnits = typeof r.units === 'number' ? r.units : null;
+      /* Kept so the cell can say WHICH 28 days this is. The engine decides the window — it owns
+         the partial-day rule — and the caption repeats its answer rather than recomputing one
+         that could disagree. */
+      st.refTo = r.to || '';
+      st.refAnchored = !!r.anchored;
       st.refState = 'ok';
     } catch (e) {
       if (calc.refRun !== run) return;
@@ -2819,8 +2830,15 @@
        merely expected to be a number, and reading .toLocaleString() off undefined throws
        inside a .map() that builds every row — one absent field took the whole table down. */
     if (st.refState === 'ok') {
+      /* SAY WHICH 28 DAYS. Anchored to a program's window this is the run-up to that program;
+         unanchored it is the last four weeks. Those are different claims about a vendor's
+         baseline, and the cell used to read "in 28d" for both. */
+      var when = st.refAnchored && st.refTo ? ' to ' + prettyDay(st.refTo) : '';
       return input + (typeof st.refUnits === 'number'
-        ? '<div class="sp-ref-src">' + st.refUnits.toLocaleString() + ' in 28d \u00f7 2</div>'
+        ? '<div class="sp-ref-src" title="' + esc(st.refAnchored
+              ? 'the 28 days ending ' + prettyDay(st.refTo) + ', the day before this program started'
+              : 'the last 28 days — this program has no window set, so there is nothing to anchor to')
+          + '">' + st.refUnits.toLocaleString() + ' in 28d' + esc(when) + ' \u00f7 2</div>'
         : '<div class="sp-ref-src">pulled from Dutchie</div>');
     }
     return input;
@@ -3641,7 +3659,7 @@
 
      It is also the right thing to MATCH on. GX Core matches products[] as a case-insensitive
      substring of the product name, so "Tank" swept up all 41; the tail selects one family and
-     nothing else. Verified across the whole Mule catalogue: 12 groups, every tail appears
+     nothing else. Verified across the whole Mule catalog: 12 groups, every tail appears
      literally in every one of its members, and none of them catches a product from another
      group.
 
