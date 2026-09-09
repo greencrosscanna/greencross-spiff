@@ -250,8 +250,35 @@ ok('per-unit credits everyone who sold; flat credits who hit',
 const rem = grabJs('remeasure');
 ok('re-measuring is behind a confirm that names the vendor risk',
    /confirm\(/.test(rem) && /reported to '/.test(rem));
-ok('  …and it is the only thing that passes force', /force: '1'/.test(rem));
 ok('  …offered only to someone who can edit', /canEdit\(\) \? ' · <button/.test(froz));
+
+/* ── RE-MEASURE HAS TO MEASURE ─────────────────────────────────────────────────────────────────
+ * It used to call snapshotProgress for the whole program — program=, force=1, no store= — and
+ * treat the reply as a result. Called that way the route writes NOTHING: it returns the list of
+ * program/store pairs still to do, and says so in its own response, because six stores at ~9s is
+ * ~54s against a 60s /exec ceiling. So the button read ok:true off a plan, reloaded, repainted an
+ * unchanged record, and reported success. It never measured anything from the day it shipped.
+ *
+ * Sky found it on Hapy Kitchen Feb 16 (2026-09-09) — the one program with no cached snapshot at
+ * all, so there were no stale numbers left on screen to look like fresh ones.
+ *
+ * THE OLD TEST HERE IS WHY IT SURVIVED. It asserted `force: '1'` was present, which was true of
+ * a call that did nothing. A parameter on a request is not an effect. These pin the loop instead.
+ */
+ok('  …and it calls snapshotProgress once PER STORE, which is the only form that writes',
+   /store: st\b/.test(rem) && /stores_json/.test(rem));
+ok('  …no longer asking for the whole program and calling the plan a result',
+   !/program: rec\.program_id, force/.test(rem));
+ok('  …bounded to the same lanes and retries as the actuals pull',
+   /Math\.min\(PULL_LANES, queue\.length\)/.test(rem)
+   && /attempt <= PULL_RETRIES && missing\.length/.test(rem));
+ok('  …and a sweep that measured nothing is an error, not a silent success',
+   /if \(!got\) throw new Error/.test(rem));
+/* Deliberately NOT all-or-nothing, unlike the actuals pull: each store's call has already
+   written its own slice, so the honest report is on the snapshot itself. */
+ok('a short sweep is reported on the snapshot, not only on a button about to be repainted',
+   /snap\.partial = /.test(fs.readFileSync(__dirname + '/../apps-script/Code.gs', 'utf8'))
+   && /these totals undercount/.test(froz));
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nsnapshot: all passed');
 process.exit(fail ? 1 : 0);

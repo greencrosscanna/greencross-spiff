@@ -3994,13 +3994,71 @@
     var was = btn.textContent;
     btn.disabled = true; btn.textContent = 'Measuring…';
     try {
-      var r = await ENG.jsonp('snapshotProgress',
-        { token: (session() || {}).token, program: rec.program_id, force: '1', max: 1 },
-        { timeoutMs: 120000, retries: 0 });
-      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+      /* ── THE PLAN IS NOT THE WORK ────────────────────────────────────────────────────────────
+         This asked snapshotProgress for the whole program — no `store` — and treated the reply as
+         a result. Called that way the route MEASURES NOTHING: it returns the list of
+         program/store pairs still to do, and says so in its own response
+         ("Call snapshotProgress with program= and store= for each pair"), because six stores at
+         ~9s is ~54s against a 60s /exec ceiling and the first cut of it died at 60.15s.
+
+         So the button read ok:true off a plan, reloaded, repainted an unchanged record and
+         reported success. Re-measure has never measured anything. Sky found it on Hapy Kitchen
+         Feb 16, 2026-09-09: "i click re-measure and it's returning no results" — a program with
+         no cached snapshot at all, so there was nothing already on screen to mask it.
+
+         `max: 1` went with it: this route never reads `max`. That belongs to snapshotPending_,
+         which is the trigger's path, not this one.
+
+         The stores come from the record rather than from a plan call. A break-glass re-measure
+         means all of them by definition, which is the whole of what `force` was asking the plan
+         for, and each per-store call re-checks the window server-side anyway. */
+      var stores = (rec.stores_json || []).slice();
+      if (!stores.length) throw new Error('this program has no stores');
+
+      /* TWO LANES AND A BACKOFF, as the actuals pull uses, and for the same reason: six of these
+         in flight at once is what makes stores refuse. Each call writes its own store's slice and
+         snapshotStore_ replaces that store rather than appending, so a retry is safe and the
+         sweep is resumable. */
+      var missing = stores, got = 0;
+      async function sweep() {
+        var queue = missing;
+        missing = [];
+        var next = 0;
+        async function lane() {
+          while (next < queue.length) {
+            var st = queue[next++];
+            try {
+              var r = await ENG.jsonp('snapshotProgress',
+                { token: (session() || {}).token, program: rec.program_id, store: st },
+                { timeoutMs: 90000, retries: 0 });
+              if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+              got++;
+            } catch (e) { missing.push(st); }
+            btn.textContent = 'Measuring ' + got + ' of ' + stores.length + '…';
+          }
+        }
+        var lanes = [];
+        for (var i = 0; i < Math.min(PULL_LANES, queue.length); i++) lanes.push(lane());
+        await Promise.all(lanes);
+      }
+      await sweep();
+      for (var attempt = 1; attempt <= PULL_RETRIES && missing.length; attempt++) {
+        btn.textContent = 'Retrying ' + missing.length + '…';
+        await new Promise(function (r) { setTimeout(r, 1500 * attempt); });
+        await sweep();
+      }
+
+      /* NOTHING MEASURED IS A FAILURE, not a quiet no-op — that is the bug above. */
+      if (!got) throw new Error('no store answered');
+
       await loadPrograms();
       renderPrograms();
       applyStatusView();
+      /* A PARTIAL NEEDS NO MESSAGE HERE, and could not carry one anyway: applyStatusView repaints
+         the stamp and replaces this very button, so anything set on it now is discarded. It is
+         reported where it belongs instead — snapshotStore_ records the stores it has not reached
+         in the snapshot's own `partial`, and the stamp above the grid prints them in red beside
+         the totals they undercount. */
     } catch (err) {
       btn.disabled = false; btn.textContent = 'Re-measure failed';
       console.error('[spiff] re-measure failed:', err);
