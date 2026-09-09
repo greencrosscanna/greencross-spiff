@@ -107,8 +107,14 @@ ok('  …and NEVER an active one — so a frozen grid cannot cover a running pro
 const asv = grab('applyStatusView');
 ok('so the live section shows precisely while the program is running',
    /var running = v\.status === 'active'/.test(asv) && /live\.hidden = !running/.test(asv));
-ok('  …and the frozen one only once there is a snapshot to show',
-   /if \(!v\.snap\) \{ results\.hidden = true; return; \}/.test(asv));
+/* Was: `if (!v.snap) { results.hidden = true; return; }`. That line is gone, because it hid the
+   section for a program that had never been measured — and the only control able to measure one
+   lived inside the section it hid. The section now also shows when a measurement CAN be made;
+   what must still never happen is showing it beside the live grid, which is the line below. */
+ok('  …and the frozen one when there is a snapshot, or a measurement to be made',
+   /results\.hidden = !v\.canMeasure/.test(asv) && /renderUnmeasured\(v\)/.test(asv));
+ok('  …with an ACTIVE program excluded from that, so it can never be offered both',
+   /st === 'closed' \|\| \(st === 'draft'/.test(grab('statusView')));
 ok('  …never both, and a draft gets neither',
    asv.indexOf('live.hidden = !running') < asv.indexOf('if (!v.snap)'));
 /* The pull is six stores at ~9s. applyStatusView runs on every save, sign-in and repaint. */

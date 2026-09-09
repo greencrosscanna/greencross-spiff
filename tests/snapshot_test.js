@@ -224,19 +224,88 @@ ok('  …open by default, so an unsettled program is unaffected',
 ok('the frozen results have a home', html.indexOf('id="calcResults"') >= 0);
 ok('  …hidden until there is something to show', /id="calcResults" hidden/.test(html));
 
-const view = grabJs('statusView');
-ok('"settled" means finished AND measured, not merely closed',
-   /st === 'closed' && snap && snap\.stores && snap\.stores\.length/.test(view));
-/* A closed program with no snapshot must keep its model open — folding it away to reveal an empty
-   space is worse than not folding at all. */
-ok('  …so a closed program with no snapshot still shows its model',
-   /settled: !!\(st === 'closed'/.test(view));
+/* ── statusView, RUN rather than grepped ───────────────────────────────────────────────────────
+ * This used to assert the text of the expression inside it. That is how the section came to be
+ * unreachable: the old grep was satisfied by `if (!v.snap) { results.hidden = true` — the exact
+ * line that hid the only control able to fill the section. A program with no measurement had no
+ * way to get one, and the test said everything was fine. So drive the real function.
+ */
+const statusView = new Function('calc', 'state', 'today', [
+  grabJs('statusView'), 'return statusView;',
+].join('\n'));
+const SNAP = { stores: [{ store_id: 'bend', units: 5, rows: [] }] };
+function view(rec, todayStr) {
+  return statusView({ editingId: rec && rec.program_id },
+                    { programs: rec ? [rec] : [] },
+                    () => todayStr || '2026-09-09')();
+}
+const base = { program_id: 'p1', start_date: '2026-02-16', end_date: '2026-03-01',
+               stores_json: ['bend', 'center'] };
+
+let v = view(Object.assign({}, base, { status: 'closed', progress_json: SNAP }));
+ok('"settled" means finished AND measured', v.settled === true && !!v.snap);
+ok('  …and a measured program is not offered a first measurement', v.canMeasure === false);
+
+/* Hapy Kitchen Feb 16: closed, real window, real stores, never measured. */
+v = view(Object.assign({}, base, { status: 'closed' }));
+ok('a CLOSED program with no snapshot is measurable', v.canMeasure === true);
+ok('  …reports no snapshot', v.snap === null);
+ok('  …and is NOT settled, so its model stays open rather than folding to an empty space',
+   v.settled === false);
+ok('  …with no blocking reason', v.noWindow === false && v.noStores === false);
+
+/* Same rule the engine uses in snapshotReasonFor_ — a draft that never ran still finished. */
+v = view(Object.assign({}, base, { status: 'draft' }));
+ok('a DRAFT whose window has passed is measurable', v.canMeasure === true);
+v = view(Object.assign({}, base, { status: 'draft', end_date: '2026-12-31' }));
+ok('  …but one still to come is not', v.canMeasure === false);
+
+/* An active program has the LIVE grid; offering a frozen measurement beside it is two answers. */
+v = view(Object.assign({}, base, { status: 'active' }));
+ok('an ACTIVE program is not offered a frozen measurement', v.canMeasure === false);
+
+/* Blocked for a reason, and the reason is the actionable part. */
+v = view({ program_id: 'p1', status: 'closed', stores_json: ['bend'] });
+ok('a closed program with no window says so', v.canMeasure === true && v.noWindow === true);
+v = view(Object.assign({}, base, { status: 'closed', stores_json: [] }));
+ok('  …and one with no stores says that instead', v.noStores === true);
+
+/* An empty stores array on the snapshot is not a snapshot — it is what a half-written one looks
+   like, and treating it as measured is what would hide the button again. */
+v = view(Object.assign({}, base, { status: 'closed', progress_json: { stores: [] } }));
+ok('a snapshot with no stores counts as unmeasured', v.snap === null && v.canMeasure === true);
+
+ok('nothing open at all yields nothing to show', view(null).canMeasure === false);
 
 const apply = grabJs('applyStatusView');
 ok('the fold follows settled-ness', /fold\.open = !v\.settled/.test(apply));
-ok('the results appear only when a snapshot exists', /if \(!v\.snap\) \{ results\.hidden = true/.test(apply));
+ok('the section shows when there is a snapshot OR one can be made',
+   /results\.hidden = !v\.canMeasure/.test(apply) && /renderUnmeasured\(v\)/.test(apply));
 ok('  …and it is only set on load, never on every repaint',
    /never on every repaint/.test(apply));
+
+/* The empty state has to carry the button, or this is all decoration. */
+const un = grabJs('renderUnmeasured');
+ok('the empty state offers the first measurement', /id="resMeasure"/.test(un)
+   && /remeasure\(rec, mb\)/.test(un));
+ok('  …only to someone who can edit', /!canEdit\(\)/.test(un));
+ok('  …not when there is no window or no stores to measure',
+   /v\.noWindow \|\| v\.noStores/.test(un));
+/* Checked on what it ASSIGNS, not on the source text: the first cut of this asserted the source
+   merely lacked "0 units", and failed on the comment above the line explaining why it must. */
+const notes = [...un.matchAll(/'([^']*)'/g)].map(m => m[1])
+  .filter(t => /measure|window|store/i.test(t) && !/^[#.]/.test(t) && !t.includes('<'));
+ok('  …and every phrasing says NOT MEASURED rather than quoting a number',
+   notes.length >= 3 && notes.some(t => /not measured yet/.test(t))
+   && notes.every(t => !/\d/.test(t)));
+
+/* A first measurement replaces nothing, so it must not warn about replacing vendor numbers —
+   that dialog is a reason not to press the only button that can fill the section. */
+const rem0 = grabJs('remeasure');
+ok('the vendor warning is only shown when numbers are actually being replaced',
+   /var replacing = /.test(rem0) && /replacing\n?\s*\?/.test(rem0.replace(/\s+/g, m => m)));
+ok('  …and a first measurement says it replaces nothing',
+   /replaces nothing/.test(rem0));
 
 const froz = grabJs('renderFrozen');
 ok('the frozen grid reads the snapshot, it does not re-measure',

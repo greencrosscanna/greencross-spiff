@@ -3908,8 +3908,24 @@
     var snap = rec && rec.progress_json;
     /* Settled means "finished AND measured". A closed program with no snapshot yet still shows the
        model — folding it away to reveal an empty space would be worse than not folding at all. */
-    return { rec: rec, status: st, snap: (snap && snap.stores && snap.stores.length) ? snap : null,
-             settled: !!(st === 'closed' && snap && snap.stores && snap.stores.length) };
+    var has = !!(snap && snap.stores && snap.stores.length);
+    /* ── FINISHED BUT NEVER MEASURED IS ITS OWN STATE ────────────────────────────────────────
+       Mirrors the engine's snapshotReasonFor_: a CLOSED program, or a DRAFT whose window has
+       passed, is something that can be measured. Held apart from `snap` because the Re-measure
+       button used to live inside the measured grid, so a program with no measurement had no way
+       to get one — the section was hidden, and the only control that could fill it was inside the
+       section. Sky, 2026-09-09: "the what sold / re-measure section is not showing in the Hapy
+       Kitchen program." An active program is excluded: it has the LIVE grid instead. */
+    var end = (rec && rec.end_date) || '';
+    var canMeasure = !!rec && !has
+      && (st === 'closed' || (st === 'draft' && end && end < today()));
+    return { rec: rec, status: st, snap: has ? snap : null,
+             /* Why it cannot be measured matters more than that it cannot: a missing window is a
+                thing to go and fix, and is the only reason the engine refuses outright. */
+             canMeasure: canMeasure,
+             noWindow: canMeasure && !(rec.start_date && rec.end_date),
+             noStores: canMeasure && !((rec.stores_json || []).length),
+             settled: !!(st === 'closed' && has) };
   }
 
   function applyStatusView() {
@@ -3946,9 +3962,40 @@
       if (running && (!pgRun || pgRun.id !== v.rec.program_id)) loadProgress();
     }
 
-    if (!v.snap) { results.hidden = true; return; }
+    /* The section shows for a program that HAS been measured, and for one that can be but has
+       not — those are the two cases where "What sold" is a question worth putting on screen. */
+    if (!v.snap) {
+      results.hidden = !v.canMeasure;
+      if (v.canMeasure) renderUnmeasured(v);
+      return;
+    }
     results.hidden = false;
     renderFrozen(v.rec, v.snap);
+  }
+
+  /* ── NOTHING MEASURED YET ──────────────────────────────────────────────────────────────────
+     The empty half of renderFrozen, and the only place the first measurement can be started
+     from. Same three slots so the section does not change shape when it fills. */
+  function renderUnmeasured(v) {
+    var rec = v.rec;
+    var title = $('#resTitle'), note = $('#resNote'), stamp = $('#resStamp'), grid = $('#resGrid');
+    if (title) title.textContent = 'What sold';
+    /* NOT "0 units". Nothing has been asked, which is a different claim from nothing having been
+       sold — the same distinction the reference pull and the orphan guard both turn on. */
+    if (note) note.textContent = v.noWindow
+      ? 'no window set — this program has no dates to measure over'
+      : v.noStores ? 'no stores on this program — nothing to measure'
+      : 'not measured yet — nothing has been pulled from Dutchie for this window';
+    if (grid) grid.innerHTML = '';
+    if (!stamp) return;
+    /* Blocked for a real reason gets no button: pressing it would fail server-side anyway
+       (snapshotStore_ refuses a program with no window), and an offer that cannot work is worse
+       than none. */
+    if (v.noWindow || v.noStores || !canEdit()) { stamp.textContent = ''; return; }
+    stamp.innerHTML = esc(prettyDay(rec.start_date)) + ' → ' + esc(prettyDay(rec.end_date))
+      + ' · <button type="button" class="sp-remeasure" id="resMeasure">Measure now</button>';
+    var mb = $('#resMeasure');
+    if (mb) mb.addEventListener('click', function () { remeasure(rec, mb); });
   }
 
   /* The frozen grid. Same shape as Progress, and deliberately so — it is the same information,
@@ -4006,9 +4053,19 @@
      and it is never automatic — a settled record must not change quietly under a vendor invoice. */
   async function remeasure(rec, btn) {
     if (!rec) return;
-    if (!confirm('Re-measure ' + (programLabel(rec) || 'this program') + '?\n\n'
-               + 'It closed on ' + prettyDay(rec.end_date) + ' and these numbers were reported to '
-               + 'the vendor. Re-measuring replaces them with what Dutchie says today.')) return;
+    /* THE WARNING IS ABOUT REPLACING NUMBERS, so a FIRST measurement must not carry it. There is
+       nothing on the record to overwrite and nothing has gone to a vendor from it, and a dialog
+       warning about both is a reason not to press the only button that can fill the section. */
+    var replacing = !!(rec.progress_json && rec.progress_json.stores
+                       && rec.progress_json.stores.length);
+    if (!confirm(replacing
+          ? 'Re-measure ' + (programLabel(rec) || 'this program') + '?\n\n'
+            + 'It closed on ' + prettyDay(rec.end_date) + ' and these numbers were reported to '
+            + 'the vendor. Re-measuring replaces them with what Dutchie says today.'
+          : 'Measure ' + (programLabel(rec) || 'this program') + '?\n\n'
+            + 'Nothing has been measured for it yet, so this replaces nothing. It reads '
+            + prettyDay(rec.start_date) + ' → ' + prettyDay(rec.end_date) + ' from Dutchie, one '
+            + 'store at a time — about a minute.')) return;
     var was = btn.textContent;
     btn.disabled = true; btn.textContent = 'Measuring…';
     try {
