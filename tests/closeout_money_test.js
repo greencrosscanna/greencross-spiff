@@ -172,6 +172,13 @@ ok('  …and the budtender table names them too', /storeNameOf\[slug_\(r\.store_
 /* "242 UNITS SOLD / 0 TARGET" on a program that set no target reads as a miss. */
 ok('a per-unit program prints no Target column at all',
    /var showTarget = !f\.per_unit/.test(rh) && /showTarget \? '<th class="n">Target/.test(rh));
+/* HEADER AND CELLS MUST DROP TOGETHER. Making only the <td> conditional left a TARGET heading
+   over two cells, so every store's SOLD figure rendered under it — a vendor document labelling
+   242 units of sell-through as targets, worse than the zeros it replaced. Both tables. */
+ok('  …in the by-store HEADER as well as its cells, or the numbers shift a column',
+   /<th>Store<\/th>'\s*\n\s*\+\s*\(showTarget \? '<th class="n">Target<\/th>' : ''\)/.test(rh));
+ok('  …and the two conditionals are the same flag, so they cannot disagree',
+   (rh.match(/showTarget/g) || []).length >= 5);
 ok('  …nor a zero Target in the headline strip',
    /showTarget\s*\n?\s*\? '<div class="stat"><b>' \+ \(t\.units/.test(rh));
 ok('  …and shows what each person EARNED where Target and Hit would have been',
