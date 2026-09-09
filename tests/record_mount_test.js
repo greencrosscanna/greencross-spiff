@@ -109,6 +109,13 @@ ok('the collector reads BOTH hosts, so a moved field cannot stop saving',
    && /recFields\(\)\.forEach/.test(grab('collectPatch')));
 ok('  …and a create carries the window, since it has no record half to save it',
    /start_date: \(recField\$\('start_date'\)/.test(grab('saveCalcProgram')));
+/* Found by creating a program end-to-end in Chrome: the record saved Sep 14 → Sep 27 correctly and
+   the editing bar said "no dates set", because calc.window is null on a fresh model and only ever
+   filled by openInCalculator. The record was right and the screen said the one thing that would
+   make somebody re-enter it. Read back from the same hidden fields the create posted, so the bar
+   cannot disagree with what was sent. */
+ok('  …and adopts it into the editing bar, which used to read "no dates set" after a create',
+   /calc\.window = \{ start: \(sd && sd\.value\)/.test(grab('saveCalcProgram')));
 ok('and the contact, the actuals and the vendor link',
    /contact_email/.test(render) && /rPullActuals/.test(render) && /btnShare/.test(render));
 

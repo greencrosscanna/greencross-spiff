@@ -82,6 +82,34 @@ ok('Reports keeps its selection the same way', /var was = sel\.value/.test(rep))
 ok('  …and restores it when the program is still listed',
    /closed\.some\(function \(p\) \{ return p\.program_id === was; \}\)/.test(rep));
 
+/* ── THE VENDOR LIST HAS TO ARRIVE, AND SAY SO WHILE IT IS ARRIVING ───────────────────────────
+   Found 2026-09-08 while creating a program end-to-end in Chrome. Only `focus` loaded the brand
+   catalog; `input` rendered from whatever pick.brands held at that instant and never looked again.
+   A cold catalog build measures ~14s across six stores, and the first thing anybody does in a new
+   program is click Vendor and type — so the first action in the app painted an empty menu reading
+   "No vendor in stock matches that." and, when the brands landed, repainted nothing. The menu sat
+   on that lie until you blurred the field and came back. The catalog route was answering 137
+   brands in 2 seconds throughout.
+
+   Three different facts had one message. An unloaded list is not an empty one. */
+const src0 = js;
+ok('typing loads the catalog, not only focusing the field',
+   /vEl\.addEventListener\('input', async function/.test(js) && /await loadBrands\(\)/.test(js));
+ok('  …and a load that lands repaints, instead of leaving the empty menu up',
+   /if \(document\.activeElement === vEl \|\| !vMenu\.hidden\) renderVendors\(vEl\.value\)/.test(js));
+ok('  …re-reading the box AFTER the await, so a late resolve paints the current query',
+   /renderVendors\(vEl\.value\);\s*$/m.test(js));
+ok('a list still loading says so rather than claiming nothing matched',
+   /pick\.loading/.test(js) && /Loading the product list from Dutchie/.test(js));
+ok('  …and the flag is cleared however the fetch ends',
+   /pick\.loading = false;\s*\n\s*return pick\.brands;/.test(js));
+ok('a real read error still wins over both', /pick\.catErr\s*\n?\s*\? esc\(pick\.catErr\)/.test(js));
+/* A falsy reply used to fall through BOTH branches — `if (r && r.ok)` set no brands and
+   `if (r && !r.ok)` set no error — leaving the picker holding nothing and saying nothing. That is
+   what "no vendor in stock matches that" was actually reporting. */
+ok('a falsy catalog reply is treated as a failure, not as an empty shop',
+   /if \(!r\) throw new Error\('the product list came back empty'\)/.test(js));
+
 /* ── the names themselves ── */
 /* The name is joined with its vendor at read time now (2026-09-07, "[Vendor] - [Program Name]"),
    so the pickers name a program through programLabel rather than reaching for the columns

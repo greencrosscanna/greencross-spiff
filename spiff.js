@@ -3036,6 +3036,7 @@
      stays inside the cap. Getting this backwards would silently under-count a program. */
 
   var pick = {
+    loading: false,    // the catalog fetch is in flight — NOT the same as "nothing matched"
     brands: [],        // [{name, count}] from live in-stock Dutchie
     products: [],      // this vendor's in-stock products
     brand: '',         // the loaded brand, so we don't refetch per keystroke
@@ -3079,9 +3080,17 @@
               + '<div class="sp-pick-1"><span class="sp-pick-name">' + esc(b.name) + '</span></div></div>'
               + '<span class="sp-pick-cost">' + b.count + '</span></div>';
           }).join('')
+        /* ── AN EMPTY LIST IS THREE DIFFERENT FACTS ──────────────────────────────────────────
+           It said "No vendor in stock matches that." for all of them, including the one where
+           the catalog simply had not arrived yet. A cold build measures ~14 seconds across six
+           stores, and the first thing anybody does in a new program is click Vendor and start
+           typing — so the very first action in the app confidently reported that the vendor they
+           were typing does not exist. */
         : '<div class="sp-pick-empty">' + (pick.catErr
             ? esc(pick.catErr)
-            : 'No vendor in stock matches that.') + '</div>';
+            : pick.loading
+              ? 'Loading the product list from Dutchie&hellip;'
+              : 'No vendor in stock matches that.') + '</div>';
       if (pick.stale) vMenu.innerHTML += '<div class="sp-pick-empty">Dutchie is not answering &mdash; '
         + 'this is the last product list that read cleanly, so stock and cost may be out of date.</div>';
     }
@@ -3341,6 +3350,9 @@
       renderChosen();
       pEl.disabled = false;
       pEl.placeholder = 'Search ' + name + '’s products…';
+      /* The hint is static markup reading "Pick a vendor first." — true before a vendor is
+         chosen and stale advice the moment one is, which is exactly when somebody reads it. */
+      if (hintEl) hintEl.textContent = 'Or leave it blank to cover everything from ' + name + '.';
       if (cfg.onVendor) cfg.onVendor(name);
       await loadBrandProducts(name);
       pEl.focus();
@@ -3348,9 +3360,21 @@
     }
 
     vEl.addEventListener('focus', async function () { await loadBrands(); renderVendors(vEl.value); });
-    vEl.addEventListener('input', function () {
+    /* ── TYPING LOADS THE LIST TOO ─────────────────────────────────────────────────────────────
+       This used to render from whatever pick.brands held at that instant and never look again.
+       Only `focus` loaded — so typing within the ~14s of a cold catalog build painted an empty
+       menu, and when the brands landed NOTHING repainted: the menu sat on "no vendor matches"
+       until you blurred the field and came back. Reproduced on 2026-09-08 while creating a
+       program end-to-end, with the catalog route answering 137 brands in 2s the whole time.
+
+       loadBrands is memoized, so this costs one call ever and returns immediately after. It
+       re-reads vEl.value AFTER the await rather than closing over the old query, so a late
+       resolve paints what is in the box now instead of what was typed 14 seconds ago. */
+    vEl.addEventListener('input', async function () {
       if (cfg.onVendor) cfg.onVendor(vEl.value);
-      renderVendors(vEl.value);
+      renderVendors(vEl.value);          // paint immediately: shows "Loading…" on a cold list
+      await loadBrands();
+      if (document.activeElement === vEl || !vMenu.hidden) renderVendors(vEl.value);
     });
     vMenu.addEventListener('mousedown', function (e) {
       var row = e.target.closest('[data-b]');
@@ -3409,6 +3433,9 @@
       vEl.value = name || '';
       if (!hasProduct) return;
       pEl.disabled = !name;
+      if (hintEl) hintEl.textContent = name
+        ? 'Or leave it blank to cover everything from ' + name + '.'
+        : 'Pick a vendor first.';
       if (!name) return;
       pEl.placeholder = 'Search ' + name + '’s products…';
       /* Await, then paint if the menu is open by the time it lands. The mount callback above
@@ -3428,11 +3455,18 @@
 
   async function loadBrands() {
     if (pick.brands.length) return pick.brands;
+    pick.loading = true;
     try {
       /* 40s, not GXClient's 8s default. A cold catalog build measured ~14 SECONDS across six
          stores, so the default guaranteed a timeout on the first call after the six-hour cache
          expired — and a timeout here reads to the user as "this vendor has no products". */
       var r = await ENG.jsonp('catalog', { token: (session() || {}).token }, { timeoutMs: 40000, retries: 1 });
+      /* A FALSY REPLY IS A FAILURE, not an empty shop. `if (r && r.ok)` set the brands and
+         `if (r && !r.ok)` set the error, so a reply that was neither — null from a JSONP callback
+         that fired with nothing, which the /exec second hop does — fell through BOTH and left the
+         picker holding no brands and no error. Indistinguishable from "nothing in stock", and
+         observed doing exactly that on 2026-09-08 while the route answered 137 brands in 2s. */
+      if (!r) throw new Error('the product list came back empty');
       if (r && r.ok) pick.brands = r.brands || [];
       /* `stale` means the engine kept the last catalog that read cleanly because the rebuild
          reached no store at all. The list is real but may be out of date, and a vendor picker
@@ -3443,6 +3477,7 @@
       pick.catErr = 'the product list could not be read';
       console.error('[spiff] catalog brands failed:', e);
     }
+    pick.loading = false;
     return pick.brands;
   }
 
@@ -4270,7 +4305,16 @@
       if (!r || !r.ok) throw new Error((r && r.error) || 'save failed');
       /* A create has no editingId until now — adopt it, or the next press would fork a second
          copy of the programme just saved. */
-      if (!calc.editingId && r.program_id) calc.editingId = r.program_id;
+      if (!calc.editingId && r.program_id) {
+        calc.editingId = r.program_id;
+        /* ADOPT THE WINDOW TOO. `calc.window` is null on a fresh model and only ever filled by
+           openInCalculator, so after a create the editing bar read "no dates set" on a program
+           that had just saved Sep 14 → Sep 27 — the record was right and the screen said the one
+           thing that would make somebody re-enter it. Read back from the same hidden fields the
+           create posted, so the bar cannot disagree with what was sent. */
+        var sd = recField$('start_date'), ed = recField$('end_date');
+        calc.window = { start: (sd && sd.value) || '', end: (ed && ed.value) || '' };
+      }
       if (opts.silent) return { changed: r.changed || Object.keys(patch || payload) };
 
       btn.textContent = calc.editingId ? 'Updated' : 'Saved';
