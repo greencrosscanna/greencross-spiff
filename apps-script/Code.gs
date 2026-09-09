@@ -398,11 +398,39 @@ function doGet(e) {
             })()
           : snapshotPlan_({ force: String(p.force || '') === '1', program: p.program || '' });
         break;
+      /* ── A MANUAL RE-MEASURE PUBLISHES TOO ──────────────────────────────────────────────────
+         Crew asked, 2026-09-09: its "Re-measure now" button sweeps SPIFF store by store and then
+         clears Crew's own cache so the manager sees what they just re-measured. On the Core path
+         that promise depends on THIS route publishing — and it did not. Only the hourly trigger
+         published, so a manager could re-measure, watch Crew clear its cache, and still be shown
+         the previously published figures for up to an hour with nothing looking wrong.
+
+         Crew's age display made that visible rather than silent, which is why they raised it as a
+         question and not a bug. Closing it here is the right side to fix it on: the app that owns
+         the numbers should publish whenever the numbers move, not only on a clock.
+
+         Published even for a SINGLE-STORE call. That is more Core writes than strictly needed for
+         a six-store sweep, but this route is only ever driven by a human pressing a button, and
+         correctness on a manual action beats saving five round trips. */
       case 'refreshProgress':
-        out = (String(p.secret || '') !== PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP))
-              ? { ok: false, error: 'Unauthorized' }
-              : (p.store ? refreshSpiffProgress_(p.program || '', p.store)
-                         : refreshProgressPlan_(p.program || ''));
+        if (String(p.secret || '') !== PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP)) {
+          out = { ok: false, error: 'Unauthorized' };
+          break;
+        }
+        out = p.store ? refreshSpiffProgress_(p.program || '', p.store)
+                      : refreshProgressPlan_(p.program || '');
+        /* Wrapped, and attached to the reply rather than thrown: the refresh itself succeeded and
+           the caller asked for a refresh. A Core outage must not turn a good sweep into an error,
+           and Crew checks age_minutes on every read, so an unpublished sweep degrades to a
+           visibly stale figure rather than a wrong one. */
+        try {
+          var rpub = publishSpiffToCore_({ notes: 'after a manual re-measure' });
+          out.published = rpub.ok ? (rpub.published || []) : null;
+          if (!rpub.ok) out.publish_error = rpub.error || 'publish failed';
+        } catch (e) {
+          out.published = null;
+          out.publish_error = scrubSecrets_(e && e.message || e);
+        }
         break;
       /* Manual run of the same roll the hourly trigger does. Secret-gated because it WRITES, and
          `dry=1` reports what it would change without touching a row -- the safe way to see what a

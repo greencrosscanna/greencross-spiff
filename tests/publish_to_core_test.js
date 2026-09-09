@@ -139,7 +139,24 @@ ok('the hourly trigger publishes after refreshing',
 ok('  …and a Core outage costs the publish, not the refresh',
    /catch \(e\) \{ console\.warn\('\[spiff\] publish to Core threw/.test(trig));
 
-/* ══════════════════ 6. THE MANUAL ROUTE IS DRY BY DEFAULT ══════════════════ */
+/* ══════════════════ 6. A MANUAL RE-MEASURE PUBLISHES TOO ══════════════════
+   Crew asked on 2026-09-09: its "Re-measure now" button sweeps SPIFF store by store then clears
+   Crew's own cache so the manager sees what they just re-measured. Only the hourly trigger
+   published, so the manager could re-measure and still be shown the previously published figures
+   for up to an hour with nothing looking wrong. The app that owns the numbers should publish
+   whenever they move, not only on a clock. */
+const router = gs.slice(gs.indexOf("case 'refreshProgress':"), gs.indexOf("case 'installProgressTrigger'"));
+ok('the manual refresh route publishes after sweeping',
+   /publishSpiffToCore_\(\{ notes: 'after a manual re-measure' \}\)/.test(router));
+ok('  …including a single-store call, since a human drove it',
+   router.indexOf('p.store ?') < router.indexOf('publishSpiffToCore_'));
+ok('  …and a Core outage does not turn a good sweep into an error',
+   /out\.publish_error/.test(router) && /try \{/.test(router));
+ok('  …with the failure reported on the reply, not swallowed',
+   /publish_error = rpub\.error/.test(router));
+ok('the secret gate still comes first', router.indexOf('Unauthorized') < router.indexOf('publishSpiffToCore_'));
+
+/* ══════════════════ 7. THE MANUAL PUBLISH ROUTE IS DRY BY DEFAULT ══════════════════ */
 const man = grab('publishToCore_');
 ok('publishToCore is secret-gated', /GX_SECRET_PROP/.test(man));
 ok('  …and listed as a secret action, or the router would refuse it first',
