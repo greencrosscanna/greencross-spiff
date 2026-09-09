@@ -40,7 +40,9 @@
  *   status         draft | active | closed
  *   start_date     TEXT 'YYYY-MM-DD'   (dates are TEXT, never Date objects)
  *   end_date       TEXT 'YYYY-MM-DD'
- *   pay_period     TEXT 'YYYY-MM-DD'   (pay-period start — joins to Leaderboard)
+ *   pay_period     TEXT 'YYYY-MM-DD'   (pay-period START, derived from start_date on every write
+ *                                       in programToRow_ — joins to Leaderboard's period_start.
+ *                                       Held the PAY DATE, end+5, until 2026-09-08.)
  *   match_json     { brand, category, filter_text, products[] }  ← mirrors the
  *                  Sales Report's Brand + Category + Filter Text + up to 4 Products
  *   stores_json    [store_id, …]        participating stores (GX Core store_ids)
@@ -138,7 +140,11 @@ var EDIT_ROLES = ['admin', 'editor', 'director'];
    Both belong here for the same reason payout_json does: the Calculator owns them, and every
    other field it sends was already accepted. */
 var EDITABLE_FIELDS = [
-  'vendor', 'program_name', 'status', 'start_date', 'end_date', 'pay_period',
+  /* `pay_period` is NOT here any more: it is derived from start_date in programToRow_, so
+     accepting a patch for it would let a caller write a value the next save overwrites — the
+     shape of bug that made this column meaningless in the first place. Move the window instead
+     and the period follows. */
+  'vendor', 'program_name', 'status', 'start_date', 'end_date',
   'match_json', 'stores_json', 'payout_type',
   'payout_json', 'cost_json', 'target_json', 'baseline_json', 'actual_json',
   'contact_name', 'contact_email', 'pitch_json'
@@ -286,7 +292,7 @@ var GATED_WRITES = [];
    (~57s measured) and installProgressTrigger changes the schedule. A deploy secret still opens
    all three; see guard_. */
 var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses', 'snapshotProgress',
-                      'sweepOrphanProgress', 'publishToCore'];
+                      'sweepOrphanProgress', 'publishToCore', 'backfillPayPeriods'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -339,6 +345,9 @@ function doGet(e) {
          a foreign key into spiff_progress and into Core's published payload — see
          renameProgramId_. Dry by default; apply=1 to move it. */
       case 'renameProgramId': out = renameProgramId_(p);                            break;
+      /* One-time correction of the pay-period column on rows that predate the derivation.
+         Secret-gated, dry by default — see backfillPayPeriods_. */
+      case 'backfillPayPeriods': out = backfillPayPeriods_(p);                      break;
       case 'employees':   out = gxEmployees_();                                     break;
       case 'diag':        out = diag_();                                            break;
       case 'buildReport': out = buildReport_(p);                                    break;
@@ -532,7 +541,7 @@ function parseCalcTab_(sheet, stores) {
     status:        actual ? 'closed' : 'draft',
     start_date:    period.start_date,
     end_date:      period.end_date,
-    pay_period:    '',            // set when a program is tied to a Leaderboard pay period
+    pay_period:    '',            // derived from start_date on write — see programToRow_
     match_json:    { brand: period.vendor, category: '', filter_text: '', products: [] },
     stores_json:   storeIds,
     cost_json:     { mode: blended ? 'blended' : 'flat', per_unit: costPerUnit, source_label: blended || 'Cost Per Unit' },
@@ -1016,6 +1025,90 @@ function deletedSheet_() {
 
 var DELETED_HEADERS = PROGRAM_HEADERS.concat(['deleted_by', 'deleted_at', 'deleted_reason']);
 
+/* ── BACKFILLING THE PAY-PERIOD COLUMN ────────────────────────────────────────────────────────
+ * programToRow_ derives it on every write from 2026-09-08, so anything saved after that is right.
+ * The 25 rows already on the sheet are not, and nothing rewrites a row that nobody edits — so a
+ * closed program from last September would carry its pay date forever.
+ *
+ * ONLY THE ONE CELL, on both sheets. Re-saving each program through programToRow_ would pick up
+ * the derivation and also rewrite every other column and stamp updated_at, on 24 settled records,
+ * to fix one field. The rename route takes the same care for the same reason.
+ *
+ * THE PROGRESS CACHE HOLDS ITS OWN COPY, written from the program at snapshot time, and
+ * payPeriodMatches_ compares against it — so fixing `programs` alone would leave the filter
+ * matching nothing for exactly the rows a consumer asks about. Both or neither.
+ *
+ * Dry by default. It touches 25 money-adjacent records and the correct first move is to read what
+ * it would do.
+ */
+function backfillPayPeriods_(p) {
+  if (String(p.secret || '') !== PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP)) {
+    return { ok: false, error: 'Unauthorized' };
+  }
+  var apply = String(p.apply || '') === '1';
+
+  var sh = dataSheet_(), last = sh.getLastRow();
+  if (last < 2) return { ok: false, error: 'no programs' };
+  var idCol = PROGRAM_HEADERS.indexOf('program_id');
+  var sdCol = PROGRAM_HEADERS.indexOf('start_date');
+  var ppCol = PROGRAM_HEADERS.indexOf('pay_period');
+  var vals = sh.getRange(2, 1, last - 1, PROGRAM_HEADERS.length).getValues();
+
+  var changes = [], already = 0, noWindow = [];
+  for (var i = 0; i < vals.length; i++) {
+    var id = String(vals[i][idCol]);
+    var sd = textDate_(vals[i][sdCol]);
+    var was = String(vals[i][ppCol] == null ? '' : vals[i][ppCol]).trim();
+    var want = periodStartFor_(sd);
+    if (!want) { if (id) noWindow.push(id); continue; }
+    if (was === want) { already++; continue; }
+    changes.push({ program_id: id, from: was, to: want, start_date: sd, row: i + 2 });
+  }
+
+  /* The cached copies, keyed by program so the two sheets cannot disagree. */
+  var psh = progressSheet_(), pvals = psh.getLastRow() < 2 ? [] : psh.getDataRange().getValues();
+  var wantBy = Object.create(null);
+  changes.forEach(function (c) { wantBy[c.program_id] = c.to; });
+  vals.forEach(function (v) {
+    var id = String(v[idCol]), w = periodStartFor_(textDate_(v[sdCol]));
+    if (id && w) wantBy[id] = w;                      // every program, not only the changed ones
+  });
+  var rowFixes = [];
+  for (var j = 1; j < pvals.length; j++) {
+    var pid = String(pvals[j][0]);
+    var cur = String(pvals[j][1] == null ? '' : pvals[j][1]).trim();
+    var tgt = wantBy[pid];
+    if (!tgt || cur === tgt) continue;
+    rowFixes.push({ row: j + 1, program_id: pid, from: cur, to: tgt });
+  }
+
+  if (!apply) {
+    return { ok: true, dry: true,
+             programs_to_fix: changes.length, programs_already_correct: already,
+             progress_rows_to_fix: rowFixes.length,
+             programs_with_no_window: noWindow,
+             changes: changes.map(function (c) {
+               return { program_id: c.program_id, from: c.from || '(blank)', to: c.to }; }),
+             note: 'Nothing was changed. Re-run with apply=1.' };
+  }
+
+  changes.forEach(function (c) { sh.getRange(c.row, ppCol + 1).setValue(c.to); });
+  rowFixes.forEach(function (r) { psh.getRange(r.row, 2).setValue(r.to); });
+  /* Both sheets pin these columns to text; re-assert it, because setValue on a date-looking
+     string is exactly where Sheets coerces one back into a Date object. */
+  /* forceTextDates_ — the programs sheet's own pinner. An earlier draft called a
+     forceProgramTextDates_ that does not exist, behind a `&&` guard, which would have quietly
+     skipped the pinning: the same silent-no-op shape as the getConfig() slip earlier today. Both
+     were caught by checking the symbol rather than trusting the name it ought to have had. */
+  if (changes.length) forceTextDates_(sh);
+  if (rowFixes.length) forceProgressTextDates_(psh);
+  invalidatePrograms_();
+
+  return { ok: true, dry: false, programs_fixed: changes.length,
+           progress_rows_fixed: rowFixes.length,
+           programs_with_no_window: noWindow };
+}
+
 /* ── RENAMING A PROGRAM'S ID ──────────────────────────────────────────────────────────────────
  * Sky, 2026-09-08: "update id green-cross-test-202608 to reflect the Portland Heights program."
  *
@@ -1261,7 +1354,30 @@ function programToRow_(p, audit) {
   var at = audit ? (audit.edited_at || '') : '';
   return [
     p.program_id, p.vendor || '', p.program_name || '', p.title || '', p.status || 'draft',
-    p.start_date || '', p.end_date || '', p.pay_period || '',
+    p.start_date || '', p.end_date || '',
+    /* ── DERIVED, NOT TAKEN FROM THE CALLER (2026-09-08) ────────────────────────────────────
+       Enforced here for the same reason stripDerivedActuals_ is a few lines down: every write
+       funnels through this function, and a rule enforced in one place cannot be forgotten by the
+       next writer. Which is exactly how the column got into the state it was in.
+
+       WHAT IT HELD. All 23 seeded programs stored their window's END + 5 days — consistently, to
+       the day. That is the PAY DATE, when payroll for the fortnight runs. Real data, in a column
+       whose name, whose schema comment ("pay-period start — joins to Leaderboard") and whose only
+       consumers all mean the period START. It joined to nothing: Leaderboard keys periods on
+       `period_start`, so every join on this column missed by a fortnight and five days. The one
+       app-created program held the range string "2026-08-17 - 2026-08-30" instead, which is not a
+       date at all.
+
+       That is why spiffProgress_ already carries a note saying Crew found the pay_period filter
+       unusable and passes nothing, taking the whole payload. This is the cause.
+
+       THE PAY DATE IS NOT LOST — it is end_date + 5, derivable whenever anybody wants it, and
+       nothing in the suite reads it today. Keeping a second column for a value nothing consumes
+       would be the worse trade.
+
+       Blank start_date leaves this blank rather than guessing a period for a program that has no
+       window yet. */
+    periodStartFor_(textDate_(p.start_date)) || '',
     JSON.stringify(p.match_json    || {}),
     JSON.stringify(p.stores_json   || []),
     JSON.stringify(p.cost_json     || {}),
