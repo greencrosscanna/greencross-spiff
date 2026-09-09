@@ -131,7 +131,8 @@ Google's consent HTML instead of JSON until the owner has authorized.
   and a LAST pay period; start/end dates are derived from that and shown read-only. Two selects,
   not one, because a program can run longer than a fortnight — Buddies ran 2026-06-22 → 2026-07-19,
   two whole periods. **Three live records are off the grid and must stay there**: that Buddies row,
-  `green-cross-2025-08-11-2025-08-17` (seven days) and the `wyld-0626` draft (a calendar month).
+  `green-cross-2025-08-11-2025-08-17` (seven days). *(The third was the `wyld-0626` draft, a
+  calendar month — deleted, see below, so **two** off-grid records remain.)*
   Two are CLOSED and were reported to the vendor against the dates they hold, so the panel warns
   and keeps them rather than snapping them onto the grid. `periodSpanOf()` is the test for "is this
   window a run of whole periods"; it refuses the half-open cases, which is how a closed program's
@@ -318,6 +319,17 @@ windows and real per-budtender goals. The 21 Calculator-era rows they replaced h
 baseline and reconciled actuals merged forward onto the corrected window and were then deleted.
 `programs` ended at **25 rows**: those 23, plus `wyld-0626` (a Calculator program with no doc — the
 docs were never a superset) and one row this file called "Sky's test row".
+
+*`wyld-0626` IS GONE (confirmed 2026-09-09).* Sky: "wyld 10pc was never real, delete it." It was
+already absent — the engine answers `not found: wyld-0626` — so it was deleted at some point after
+`?action=deleteProgram` shipped on 2026-09-06, which was built for this program specifically ("Wyld
+10pc is a draft"). Exactly when and by whom is in the engine sheet's `deleted_programs` tab; there
+is no route to read that, so this file does not guess. It had no cached progress rows, so nothing
+was stranded. `programs` still reads 25 because two rows were added since — the Hellavated draft
+and the second Portland Heights.
+
+**It is still listed as one of four programs to reconcile** in `bug_mtkt4a4l_bpor` and its brain
+note. That scope is now **three**: Drops, Buddies and Freshy. core-admin has been told.
 
 *Corrected 2026-09-08: `green-cross-test-202608` was NOT a test row.* It is the real Portland
 Heights fortnight — Aug 17 → Aug 30, 242 units, $181.50 paid, closed and reported to the vendor. It
