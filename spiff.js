@@ -2067,29 +2067,77 @@
     $('#rActuals').classList.add('is-busy');
 
     var windows = dateWindows(from, to, PROGRESS_WINDOW_DAYS);
-    var got = 0, failed = [];
-    /* `sellers` is everyone who sold at least one unit. On a per-unit program that IS the number
-       who earned, because there is no target to clear — `hit` counts against a threshold the
-       program never set and is therefore always zero. */
-    var units = 0, hit = 0, bts = 0, sellers = 0;
 
-    await Promise.all(stores.map(async function (st) {
-      try {
-        var r = await pullStore(p.program_id, st, windows, null);
-        units += r.units; hit += r.hit; bts += r.budtenders;
-        sellers += (r.rows || []).filter(function (x) { return (x.units || 0) > 0; }).length;
-        got++;
-        note.textContent = 'pulled ' + got + ' of ' + stores.length + ' stores…';
-      } catch (e) { failed.push(storeName(st)); }
-    }));
+    /* ── TWO LANES, NOT SIX ────────────────────────────────────────────────────────────────────
+       This fanned all six stores out at once with Promise.all. Each store is a separate Apps
+       Script execution that calls GX Core, which calls Dutchie, and six of those in flight
+       together is where they start refusing — Sky got two of six on Buddies, 2026-09-09, and one
+       of six refused on a terminal run of the same program minutes earlier. Nothing was wrong
+       with the data either time; it was the burst.
+
+       Results are collected per store id rather than summed as they land, so a retry replaces a
+       store's figures instead of adding a second copy of them. */
+    var done = Object.create(null);
+    var missing = stores.slice();
+
+    async function sweep() {
+      var queue = missing;
+      missing = [];
+      var next = 0;
+      async function lane() {
+        while (next < queue.length) {
+          var st = queue[next++];
+          try { done[st] = await pullStore(p.program_id, st, windows, null); }
+          catch (e) { missing.push(st); }
+          note.textContent = 'pulled ' + Object.keys(done).length + ' of ' + stores.length + ' stores…';
+        }
+      }
+      var lanes = [];
+      for (var i = 0; i < Math.min(PULL_LANES, queue.length); i++) lanes.push(lane());
+      await Promise.all(lanes);
+    }
+
+    await sweep();
+    /* A refusal under load is usually the load, so ask again before calling it an outage —
+       backing off further each time rather than hammering the thing that just said no. */
+    for (var attempt = 1; attempt <= PULL_RETRIES && missing.length; attempt++) {
+      note.textContent = 'retrying ' + missing.length + ' store'
+        + (missing.length === 1 ? '' : 's') + '…';
+      await new Promise(function (r) { setTimeout(r, 1500 * attempt); });
+      await sweep();
+    }
 
     $('#rActuals').classList.remove('is-busy');
     btn.disabled = false; btn.textContent = label;
 
-    if (!got) {
-      note.innerHTML = '<span style="color:var(--gx-red)">nothing came back &mdash; fields left alone</span>';
+    /* ── ALL OF THEM, OR NONE ──────────────────────────────────────────────────────────────────
+       A partial pull used to fill every field and print a red warning beside them, which left
+       one line of prose standing between a refused store and an undercount saved onto a closed
+       program. It is the failure that manufactured the Buddies bug: Portland Rd refused during a
+       measurement, its 197 units were counted as nothing, and the five-store total of 854 was
+       written up as a 183-unit shortfall against a filter that was correct all along. Six days
+       of phantom scope out of one dropped request.
+
+       A store that refuses is not a store that sold nothing — the same rule the reference pull
+       already holds to. So nothing is filled unless every store answered. */
+    if (missing.length) {
+      note.innerHTML = '<span style="color:var(--gx-red)">'
+        + esc(missing.map(storeName).join(', '))
+        + ' did not answer&nbsp;&mdash; nothing filled. A store that refuses is not a store that sold nothing, so '
+        + 'these totals would undercount every figure below. Press Pull live from Dutchie '
+        + 'again.</span>';
       return;
     }
+
+    /* `sellers` is everyone who sold at least one unit. On a per-unit program that IS the number
+       who earned, because there is no target to clear — `hit` counts against a threshold the
+       program never set and is therefore always zero. */
+    var units = 0, hit = 0, bts = 0, sellers = 0;
+    stores.forEach(function (st) {
+      var r = done[st];
+      units += r.units; hit += r.hit; bts += r.budtenders;
+      sellers += (r.rows || []).filter(function (x) { return (x.units || 0) > 0; }).length;
+    });
 
     /* THE RATE, THE COST AND THE BASELINE COME FROM THE PROGRAM, not from fields in this form.
        They used to be read out of the record's own inputs — and those inputs moved to the
@@ -2119,12 +2167,9 @@
 
     /* Says WHAT IT COVERS, always. A partial pull that reports a total without naming the gap
        is how a vendor gets invoiced against four stores' sales as though it were six. */
+    /* No partial branch any more: a partial returned above, so reaching here means all of them. */
     note.innerHTML = 'pulled ' + prettyDay(from) + ' → ' + prettyDay(to)
-      + ' · ' + got + ' of ' + stores.length + ' stores · ' + bts + ' budtenders'
-      + (failed.length
-          ? ' · <span style="color:var(--gx-red)">missing ' + esc(failed.join(', '))
-            + ' — these totals undercount</span>'
-          : '')
+      + ' · all ' + stores.length + ' stores · ' + bts + ' budtenders'
       + ' · nothing saved until you press ' + saveBtnLabel();
   }
 
@@ -4902,6 +4947,11 @@
   // parallel, each walking its own date windows sequentially, and the grid fills in as
   // results land instead of blocking on the slowest store.
   var PROGRESS_WINDOW_DAYS = 10;
+  /* How many stores a pull has in flight at once, and how many times it re-asks the ones that
+     refuse. Six-wide was the default because Promise.all makes it the easy thing to write, not
+     because anything measured it. */
+  var PULL_LANES = 2;
+  var PULL_RETRIES = 2;
 
   function dateWindows(from, to, days) {
     var out = [], cur = from;

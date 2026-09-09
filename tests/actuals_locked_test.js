@@ -126,6 +126,45 @@ ok('  …naming it from the one helper that also labels the button',
 ok('  …so no caller hardcodes a label beside it',
    js.indexOf("'Save changes'") < 0);
 
+/* ══════════ 3b. A REFUSED STORE IS NOT A STORE THAT SOLD NOTHING ══════════
+ *
+ * The pull used to fan all six stores out with Promise.all, fill every field from whatever came
+ * back, and print a red warning beside the numbers. So one line of prose stood between a dropped
+ * request and an undercount saved onto a closed program — figures that have already gone to a
+ * vendor and been paid out.
+ *
+ * It is not hypothetical. Portland Rd refused during a measurement of Buddies; its 197 units
+ * were read as nothing; the remaining five stores summed to 854; and that was filed as a
+ * 183-unit shortfall against a product filter that was correct the whole time. Six days of
+ * scope on the reconcile bug, out of one dropped request. Sky then hit the same thing live —
+ * two stores of six — which is what prompted both halves of this.
+ *
+ * BOTH HALVES MATTER AND THE TEST PINS BOTH. Refusing a partial without cutting the burst just
+ * converts a wrong number into a button that never works.
+ */
+ok('the pull no longer fans every store out at once',
+   !/Promise\.all\(stores\.map/.test(pull));
+ok('  …it runs a bounded number of lanes',
+   /Math\.min\(PULL_LANES, queue\.length\)/.test(pull) && /var PULL_LANES = 2;/.test(js));
+ok('  …and re-asks the ones that refused before giving up',
+   /attempt <= PULL_RETRIES && missing\.length/.test(pull) && /var PULL_RETRIES = 2;/.test(js));
+
+/* Per-store, not a running sum: a retry has to REPLACE a store's figures, never add a second
+   copy of them to a total that already counted it. */
+ok('  …collecting per store, so a retry cannot double-count',
+   /done\[st\] = await pullStore\(/.test(pull));
+
+/* THE ORDER IS THE TEST. Filling first and returning later is the bug with extra steps. */
+const bail  = pull.indexOf('if (missing.length)');
+const fills = pull.indexOf("setRecField('actual_json.");
+ok('a partial pull fills nothing at all', bail >= 0 && fills >= 0 && bail < fills);
+ok('  …and says which store did not answer, not just that something failed',
+   /missing\.map\(storeName\)/.test(pull));
+ok('  …naming it as a refusal rather than a measured zero',
+   /is not a store that sold nothing/.test(pull));
+ok('  …and no longer offers undercounted totals as a result',
+   !/these totals undercount</.test(pull));
+
 /* ══════════════════ 4. A CLOSED PROGRAM ASKS FIRST ══════════════════ */
 ok('unlocking a CLOSED program confirms, naming what those figures are',
    /closed && !confirm\(/.test(render)
