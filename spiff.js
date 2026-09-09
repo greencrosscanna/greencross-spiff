@@ -2117,7 +2117,7 @@
           ? ' · <span style="color:var(--gx-red)">missing ' + esc(failed.join(', '))
             + ' — these totals undercount</span>'
           : '')
-      + ' · nothing saved until you press Save changes';
+      + ' · nothing saved until you press ' + saveBtnLabel();
   }
 
   function setRecField(key, v) {
@@ -3709,12 +3709,17 @@
     syncRecordMount();
   }
 
+  /* WHAT THE SAVE BUTTON SAYS, in one place. pullActuals' hint has to name this button, and it
+     used to name "Save changes" — a label the button has never carried in either state. A
+     correct pull therefore sat unsaved on screen pointing at a control that does not exist. */
+  function saveBtnLabel() { return calc.editingId ? 'Update this program' : 'Save as program'; }
+
   /* The Calculator has to say WHICH program it is editing, or "Save as program" silently forks
      a duplicate off a record Tawny thought she was updating. */
   function renderCalcEditing() {
     var btn = $('#calcSave'), bar = $('#calcEditing');
     var editing = !!calc.editingId;
-    if (btn) btn.textContent = editing ? 'Update this program' : 'Save as program';
+    if (btn) btn.textContent = saveBtnLabel();
     if (!bar) return;
     bar.hidden = !editing;
     if (!editing) return;
@@ -4260,6 +4265,14 @@
     renderPrograms();
     renderHistory();
     fillProgramPickers();
+    /* REPAINT THE STAT STRIP. Everything above refreshes the LISTS; the four cards at the top of
+       the Calculator are painted only by recalc, and it was never called here — so a correction
+       saved to the row went on showing the old figures until the page was reloaded or the program
+       re-opened. Found on Drops, 2026-09-09: "You funded" sat at $1,300 after a save that had
+       already written $275 to the sheet, which reads as a save that did not take. It has to run
+       AFTER loadPrograms, because recalc reads the settled actuals back out of state.programs.
+       PULSE_ALL is exactly this strip, so the cards that changed say so. */
+    recalc(PULSE_ALL);
     syncRecordMount();
     applyStatusView();
 

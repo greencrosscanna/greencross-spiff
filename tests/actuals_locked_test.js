@@ -101,8 +101,20 @@ const pull = grab('pullActuals');
 ok('  …and still writes all six figures through setRecField',
    ['units_sold','bts_hit','spiff_amount','investment','roi','roi_pct']
      .every(k => pull.indexOf("setRecField('actual_json." + k + "'") >= 0));
-ok('  …and still says nothing is saved until Save is pressed',
-   /nothing saved until you press Save changes/.test(pull));
+/* IT MUST NAME THE BUTTON THAT EXISTS. This asserted the literal 'Save changes' for a year, and
+   the button has never said that in either state — it is 'Save as program' on a new program and
+   'Update this program' on an existing one. Sky hit it on Drops, 2026-09-09: a correct pull sat on
+   screen telling him to press a control that is not on the page. So the note now names the button
+   through the same helper that LABELS the button, and the test pins that they share it rather than
+   pinning a string that can drift out from under the UI again. */
+ok('  …and still says nothing is saved until the save button is pressed',
+   /nothing saved until you press ' \+ saveBtnLabel\(\)/.test(pull));
+const lbl = grab('saveBtnLabel');
+ok('  …naming it from the one helper that also labels the button',
+   /calc\.editingId \? 'Update this program' : 'Save as program'/.test(lbl)
+   && /btn\.textContent = saveBtnLabel\(\)/.test(js));
+ok('  …so no caller hardcodes a label beside it',
+   js.indexOf("'Save changes'") < 0);
 
 /* ══════════════════ 4. A CLOSED PROGRAM ASKS FIRST ══════════════════ */
 ok('unlocking a CLOSED program confirms, naming what those figures are',

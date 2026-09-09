@@ -227,5 +227,24 @@ ok('neither still divides last month by its rounded per-BT',
    !/Math\.max\(1, Math\.round\(\(b \|\| 0\) \/ perBt\)\)/.test(grab('openInCalculator'))
    && !/Math\.max\(1, Math\.round\(\(b \|\| 0\) \/ perBt\)\)/.test(grab('loadIntoCalc')));
 
+/* ── A SAVE HAS TO REPAINT THE FOUR CARDS IT JUST CHANGED ─────────────────────────────────────
+   saveEverything refreshed the LISTS after a write — programs, history, the pickers — but the
+   stat strip at the top of the Calculator is painted only by recalc, and nothing called it. So a
+   correction that had already reached the sheet went on showing the old figures until the page
+   was reloaded, which reads as a save that did not take.
+
+   Found on Drops, 2026-09-09: the record held $275 and "You funded" still said $1,300.
+
+   ORDER IS THE WHOLE TEST. recalc reads the settled actuals back out of state.programs, so
+   calling it before loadPrograms would repaint from the stale list and look identical to the
+   bug. */
+const saveAll = grab('saveEverything');
+ok('a save repaints the stat strip, not just the lists',
+   /recalc\(PULSE_ALL\)/.test(saveAll));
+ok('  …after the programs are reloaded, or it repaints the stale row',
+   saveAll.indexOf('recalc(PULSE_ALL)') > saveAll.indexOf('await loadPrograms()'));
+ok('  …and PULSE_ALL is that strip, so the changed cards say so',
+   /var PULSE_ALL = \['#calcStats'\]/.test(js));
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nsave patch: all passed');
 process.exit(fail ? 1 : 0);
