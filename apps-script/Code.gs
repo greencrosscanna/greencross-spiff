@@ -3612,18 +3612,56 @@ function reportHtml_(p, matrix) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); };
   var money = function (n) { return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
 
+  /* ── DISPLAY NAMES, NOT SLUGS ────────────────────────────────────────────────────────────
+     This printed the internal store_id, so a document sent to a vendor listed "bend",
+     "hillsboro", "portland-rd" and "river-rd" — four of the six differ from what anybody calls
+     the shop. giftCardList_ and the kiosk both resolve them; the one output that leaves the
+     building did not. Falls back to the slug when the registry cannot be read, which is a poor
+     label but better than a blank row. */
+  var storeNameOf = Object.create(null);
+  try {
+    (gxStores_() || []).forEach(function (x) {
+      storeNameOf[slug_(x.store_id)] = x.display_name || x.store_id;
+    });
+  } catch (e) { /* fall through to slugs */ }
+
+  /* A PER-UNIT PROGRAM HAS NO TARGET, so printing 0 is not a smaller number — it is a claim that
+     one existed and was zero. "242 UNITS SOLD / 0 TARGET" on a vendor report reads as a miss
+     against a goal nobody set. Same reasoning as the payout labels: the column follows the
+     model, and on per-unit it is dropped rather than zeroed. */
+  var showTarget = !f.per_unit;
+
+  /* "Portland Heights · Portland Heights · 2026-08-17 to 2026-08-30" — the program name and the
+     vendor are the same string on several programs, and printing both is a stutter on the title
+     line of a document going to that vendor. Same rule programLabel() follows in the browser. */
+  var heading = String(p.program_name || p.title || '').trim();
+  var vend = String(p.vendor || '').trim();
+  var titleLine = (!vend || heading.toLowerCase().indexOf(vend.toLowerCase()) === 0)
+    ? (heading || vend) : (vend + ' · ' + heading);
+
   var storeRows = (p.stores_json || []).map(function (s) {
+    var key = slug_(s);
     var tgt = (t.by_store || {})[s] || 0;
-    var act = matrix && matrix.by_store ? (matrix.by_store[s] || 0) : null;
-    return '<tr><td>' + esc(s) + '</td><td class="n">' + tgt + '</td><td class="n">'
-      + (act == null ? '&mdash;' : act) + '</td></tr>';
+    var act = matrix && matrix.by_store ? (matrix.by_store[key] || 0) : null;
+    return '<tr><td>' + esc(storeNameOf[key] || s) + '</td>'
+      + (showTarget ? '<td class="n">' + tgt + '</td>' : '')
+      + '<td class="n">' + (act == null ? '&mdash;' : act) + '</td></tr>';
   }).join('');
 
   var matrixHtml = matrix && matrix.rows && matrix.rows.length
-    ? '<h2>By budtender</h2><table><tr><th>Budtender</th><th>Store</th><th class="n">Units</th><th class="n">Target</th><th>Hit</th></tr>'
+    ? '<h2>By budtender</h2><table><tr><th>Budtender</th><th>Store</th><th class="n">Units</th>'
+      + (showTarget ? '<th class="n">Target</th><th>Hit</th>' : '<th class="n">Earned</th>')
+      + '</tr>'
       + matrix.rows.map(function (r) {
-          return '<tr><td>' + esc(r.name) + '</td><td>' + esc(r.store_id) + '</td><td class="n">' + r.units
-            + '</td><td class="n">' + r.target + '</td><td>' + (r.hit ? '✓' : '') + '</td></tr>';
+          return '<tr><td>' + esc(r.name) + '</td>'
+            + '<td>' + esc(storeNameOf[slug_(r.store_id)] || r.store_id) + '</td>'
+            + '<td class="n">' + r.units + '</td>'
+            /* On per-unit, Target and Hit were a column of zeros and 38 blank cells. What the
+               person actually earned is the fact that row is missing. */
+            + (showTarget
+                ? '<td class="n">' + r.target + '</td><td>' + (r.hit ? '✓' : '') + '</td>'
+                : '<td class="n">' + money(r.earned) + '</td>')
+            + '</tr>';
         }).join('') + '</table>'
     : '<p class="note">Per-budtender breakdown is not included: this program\'s sell-through was '
       + 'recorded in aggregate. Programs tracked in SPIFF carry the full budtender matrix.</p>';
@@ -3646,11 +3684,13 @@ function reportHtml_(p, matrix) {
     + '</style></head><body>'
     + '<img class="mark" src="' + LOGO_ONLIGHT + '" alt="Green Cross">'
     + '<h1>Green Cross SPIFF Performance Report</h1>'
-    + '<p class="sub">' + esc(p.program_name || p.title) + ' &middot; ' + esc(p.vendor)
+    + '<p class="sub">' + esc(titleLine)
     +   (p.start_date ? ' &middot; ' + esc(p.start_date) + ' to ' + esc(p.end_date || '') : '') + '</p>'
     + '<div class="stats">'
     +   '<div class="stat"><b>' + (a.units_sold || 0).toLocaleString() + '</b><span>Units sold</span></div>'
-    +   '<div class="stat"><b>' + (t.units || 0).toLocaleString() + '</b><span>Target</span></div>'
+    +   (showTarget
+            ? '<div class="stat"><b>' + (t.units || 0).toLocaleString() + '</b><span>Target</span></div>'
+            : '')
     +   '<div class="stat"><b>' + f.earners + '</b><span>' + esc(f.earner_label) + '</span></div>'
     +   '<div class="stat"><b>' + money(rate) + '</b><span>'
     +     esc(f.per_unit ? 'SPIFF per unit' : 'SPIFF each') + '</span></div>'

@@ -160,5 +160,28 @@ ok('  …reporting what actually went on the document',
 ok('the PDF still says so plainly when there IS nothing to include',
    /Per-budtender breakdown is not included/.test(grab('reportHtml_')));
 
+/* ── AND IT READS LIKE A DOCUMENT SOMEBODY SENDS A VENDOR ─────────────────────────────────────
+   Read off the first PDF ever generated end-to-end (Portland Heights, 2026-09-08). The money and
+   the matrix were right; the presentation was not, in four ways that all only show on the page. */
+const rh = grab('reportHtml_');
+ok('stores are named, not slugged — this document leaves the building',
+   /storeNameOf\[key\] \|\| s/.test(rh) && /x\.display_name \|\| x\.store_id/.test(rh));
+ok('  …falling back to the slug if the registry cannot be read',
+   /catch \(e\) \{ \/\* fall through to slugs/.test(rh));
+ok('  …and the budtender table names them too', /storeNameOf\[slug_\(r\.store_id\)\]/.test(rh));
+/* "242 UNITS SOLD / 0 TARGET" on a program that set no target reads as a miss. */
+ok('a per-unit program prints no Target column at all',
+   /var showTarget = !f\.per_unit/.test(rh) && /showTarget \? '<th class="n">Target/.test(rh));
+ok('  …nor a zero Target in the headline strip',
+   /showTarget\s*\n?\s*\? '<div class="stat"><b>' \+ \(t\.units/.test(rh));
+ok('  …and shows what each person EARNED where Target and Hit would have been',
+   /money\(r\.earned\)/.test(rh));
+/* A flat program keeps both, since there the target is the whole point. */
+ok('a flat program still gets Target and Hit',
+   /'<td class="n">' \+ r\.target \+ '<\/td><td>' \+ \(r\.hit \? '✓' : ''\)/.test(rh));
+ok('the title line does not print the vendor twice when it IS the program name',
+   /heading\.toLowerCase\(\)\.indexOf\(vend\.toLowerCase\(\)\) === 0/.test(rh)
+   && /esc\(titleLine\)/.test(rh));
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\ncloseout money: all passed');
 process.exit(fail ? 1 : 0);
