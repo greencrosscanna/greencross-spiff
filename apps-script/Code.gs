@@ -885,13 +885,21 @@ function dropProgressRows_(programId) {
  * with no filter_text means that vendor's whole range. So one wrong character makes a program
  * match nothing, silently, and the first sign of it is a number that is wrong somewhere else.
  *
- * FOUND 2026-09-08, checking all 25 programs against the live catalog: "National Cannabis SPIF"
- * (Aug 2025) matches brand "National Cannabis Co" while the products are "National Cannabis Co."
- * WITH A TRAILING PERIOD. Its sibling program uses the correct spelling. No money was lost there —
- * that program's actuals were recorded, not derived from the live match — but the mechanism is the
- * point: SPIFF's numbers reach GX Crew's incentive column, which is what people are PAID on, and
- * a bad match has already published a wrong figure once (Portland Heights, 2026-09-02: 3,514 units
- * reported against a real 242, and Crew had no way to know better).
+ * IT TESTS THE PAYOUT RULE, NOT THE PICKER'S. Two different matchers exist and they do not agree:
+ * catalog_ above compares brands with === (deliberately, so picking "Mule" cannot drag in "Mule
+ * Extracts"), while the rule that actually moves money — gxSalesByEmployee_ in GX Core's
+ * gx_dutchie.gs — is a case-insensitive SUBSTRING: String(meta.brand).indexOf(brand) < 0. A guard
+ * written against the stricter one would refuse programs that pay out perfectly well.
+ *
+ * That is not hypothetical. Checking all 25 programs on 2026-09-08 turned up "National Cannabis
+ * SPIF" (Aug 2025) matching brand "National Cannabis Co" while the products read "National Cannabis
+ * Co." with a trailing period. Against === that program looks broken; against the substring rule
+ * that actually paid it, it matched fine and its 267 units were real. So the check below is
+ * indexOf, same as the money path.
+ *
+ * WHY IT MATTERS AT ALL: SPIFF's numbers reach GX Crew's incentive column, which is what people are
+ * PAID on, and a bad match has already published a wrong figure once — Portland Heights, 2026-09-02:
+ * 3,514 units reported against a real 242, and Crew had no way to know better.
  *
  * WHY THIS WARNS RATHER THAN FORBIDS. A program written before its product lands is a real thing —
  * a new vendor, stock not yet received, brand not yet in the catalog. Refusing that outright would
@@ -916,8 +924,9 @@ function brandMatchCheck_(matchJson) {
                                 .filter(Boolean);
   if (!names.length) return { checked: false, why: 'catalog carried no brands' };
 
+  /* Substring, case-insensitive — the same test gxSalesByEmployee_ applies when it counts units. */
   var lower = brand.toLowerCase();
-  if (names.some(function (n) { return n.toLowerCase() === lower; })) return { checked: true, ok: true };
+  if (names.some(function (n) { return n.toLowerCase().indexOf(lower) >= 0; })) return { checked: true, ok: true };
 
   /* Only punctuation/case near-misses are offered. That is the failure this guard is named after —
      a trailing period, a missing space — and it is the one case where naming a suggestion is safe.
@@ -943,8 +952,8 @@ function saveProgram_(p, opts) {
         code: 'brand_no_match',
         brand: bm.brand,
         suggest: bm.suggest,
-        error: 'No product in the catalog has the brand "' + bm.brand + '", so this program would '
-             + 'measure nothing.'
+        error: 'No product in the catalog has a brand containing "' + bm.brand + '", so this program '
+             + 'would measure nothing.'
              + (bm.suggest.length ? ' Did you mean "' + bm.suggest.join('" or "') + '"?' : '')
              + ' If the brand is correct and not stocked yet, save again to confirm.'
       };
