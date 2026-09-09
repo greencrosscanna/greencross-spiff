@@ -177,21 +177,23 @@
         state.stores = rows;
         conn('GX Core', 'connected');
       } else if (!cached.length) {
-        /* SAY WHAT WE ACTUALLY KNOW. This used to read "and nothing cached", which is a claim this
-           function is not in a position to make and which was FALSE both times it was reported
-           (2026-09-08): localStorage held gx_stores_v1 with all six rows, display names included,
-           while the screen rendered every store as its slug -- "bend" instead of Century.
+        /* SAY WHAT WE ACTUALLY KNOW. This read "and nothing cached" until 2026-09-09 — a claim
+           this function is in no position to make, and false both times it was reported: the six
+           stores were sitting in localStorage under gx_stores_v1 while the screen rendered every
+           one of them as its slug, "bend" instead of Century.
 
-           What is empty is GXStores, not the cache. GXStores.readCache() DISCARDS an entry older
-           than its 6h TTL and returns null, so the rows stay in localStorage and never reach us.
-           Since GXStores.load() always attempts a refresh anyway, that TTL only ever throws data
-           away at the one moment the cache exists for -- a failed fetch. Reproduced against the
-           real gx-stores.js: at 5.9h old the names render, at 6.1h they become slugs and we land
-           here. That is gx-theme's to fix and core-admin has the note; what is ours is not
-           misdirecting the next reader to an empty localStorage they will not find. */
+           The cause was gx-theme discarding a cache older than 6h, and core-admin has since fixed
+           it (stale-while-revalidate; the age is disclosed through GXStores.cacheAge()/isStale()
+           rather than deciding whether you get rows). That sentence was in this message for one
+           afternoon and is now gone with the bug — a comment confidently explaining behavior that
+           no longer exists is the same failure as the wording it replaced.
+
+           WHAT IS LEFT IS STILL REACHABLE, just for duller reasons: no cache at all on a first
+           load in a fresh browser, an unreadable entry, or a stored rows array that is empty. So
+           this still names GXStores rather than localStorage — that is the part we can see — and
+           still names the key, so the rows can be looked for by hand. */
         throw new Error('stores: GX Core returned no rows and GXStores is holding none ' +
-                        '(note: GXStores discards its localStorage cache past 6h, so rows may ' +
-                        'still be sitting in gx_stores_v1)');
+                        '(nothing usable in localStorage under gx_stores_v1 either)');
       }
 
       // NOTE: the roster is NOT fetched here. GX Core exposes no public `employees`
@@ -1706,15 +1708,32 @@
 
   async function rotateKioskLink(storeId, btn) {
     var replacing = btn.textContent === 'Replace';
+    /* NOBODY PASTES ANYTHING ANY MORE. This used to warn that a kiosk shows nothing "until the new
+       one is pasted in" — true when six tokens lived in a settings form, and wrong since the engine
+       started writing them to GX Core itself at mint and rotate.
+       What replaced it is a real instruction, not reassurance. Leaderboard traced the propagation
+       for us: their kiosk header is only built during a FULL render, and their 60-second poll is a
+       delta that never rebuilds it. A nightly reload after 04:00 PT does rebuild it, so a parked
+       screen self-heals overnight — but a whole trading day fits inside that window, most of it in
+       front of customers. Hence a real instruction rather than "it will sort itself out". */
     if (replacing && !confirm('Replace the kiosk link for this store?\n\n'
-          + 'The old link stops working immediately, so any kiosk still holding it shows nothing '
-          + 'until the new one is pasted in.')) return;
+          + 'The old link stops working immediately. The new one reaches the Command Center by '
+          + 'itself — nothing to copy — but that store\'s kiosk keeps showing the old button until '
+          + 'the screen reloads.\n\n'
+          + 'Reload it from Leaderboard afterwards (Settings \u2192 Reload kiosk screens).')) return;
     btn.disabled = true;
     var was = btn.textContent;
     btn.textContent = replacing ? 'Replacing…' : 'Creating…';
     try {
       var r = await ENG.jsonp('storeLinkRotate', { token: (session() || {}).token, store: storeId });
       if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+      /* The link can be correct here and still not have reached GX Core. Saying nothing would leave
+         a kiosk showing a button onto the link this call just killed, with the screen that caused
+         it reporting success. */
+      if (r.published === false) {
+        var pm = $('#kioskMsg');
+        if (pm) pm.textContent = r.publish_note || 'The new link did not reach the Command Center.';
+      }
       await loadKioskLinks(true);
     } catch (err) {
       btn.textContent = 'Failed';

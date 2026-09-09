@@ -49,7 +49,7 @@ const ok = (l, c) => c ? console.log('  ✓ ' + l) : (fail++, console.log('  ✗
 async function main() {
 
 /* ── 1. run the real shared client and watch the cache get thrown away ── */
-console.log('\n1. GXStores discards a usable cache past its TTL (the reported failure)');
+console.log('\n1. a failed fetch on top of a populated cache still serves store NAMES');
 
 const THEME = path.join(__dirname, '..', '..', 'greencross-gx-theme', 'gx-stores.js');
 if (!fs.existsSync(THEME)) {
@@ -105,6 +105,10 @@ if (!fs.existsSync(THEME)) {
         : 'past the TTL, GXStores serves none of them and "bend" renders as the slug '
           + '— STILL PRESENT in the sibling repo, core-admin holds the note',
        fixed);
+  if (!fixed) {
+    console.log('    (this was the reported bug, fixed in gx-theme 2026-09-09 — a ⏸ here means it '
+              + 'came back, or you are on an older sibling checkout.)');
+  }
 }
 
 /* ── 2. SPIFF no longer asserts something it cannot know ── */
@@ -119,8 +123,11 @@ ok('the false "nothing cached" claim is gone from the code',
    !/nothing cached/.test(code));
 ok('it says GXStores is empty, which is the part this app can see',
    /GXStores is holding none/.test(code));
-ok('it names the 6h discard, so the next reader looks in the right place',
-   /discards its localStorage cache past 6h/.test(code));
+/* The 6h discard was named here for one afternoon, while it was the live cause. core-admin fixed
+   it the same day, so asserting the message still explains it would pin an explanation of
+   behavior that no longer exists — the same failure as the "nothing cached" wording it replaced. */
+ok('it does NOT still blame the 6h discard, which core-admin has since removed',
+   !/discards its localStorage cache past 6h/.test(code));
 ok('it still names gx_stores_v1, so the rows can be found by hand',
    /gx_stores_v1/.test(code));
 

@@ -292,7 +292,8 @@ var GATED_WRITES = [];
    (~57s measured) and installProgressTrigger changes the schedule. A deploy secret still opens
    all three; see guard_. */
 var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses', 'snapshotProgress',
-                      'sweepOrphanProgress', 'publishToCore', 'backfillPayPeriods'];
+                      'sweepOrphanProgress', 'publishToCore', 'backfillPayPeriods',
+                      'publishKioskTokens'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -364,6 +365,10 @@ function doGet(e) {
       case 'storeLinks':  out = storeLinks_(p);                                     break;
       case 'storeLinkMintAll': out = storeLinkMintAll_(p);                          break;
       case 'storeLinkRotate': out = storeLinkRotate_(p);                            break;
+      /* Backfill/repair the kiosk tokens Leaderboard reads out of GX Core kv. Secret-gated and DRY
+         BY DEFAULT; `apply=1` writes. A machine route on purpose — it is what a failed publish in
+         mint/rotate tells you to run, and that can be from a terminal with no session. */
+      case 'publishKioskTokens': out = publishKioskTokens_(p);                      break;
       case 'sellthrough': out = sellthrough_(p);                                    break;
       case 'catalog':     out = catalog_(p);                                        break;
       case 'refunits':    out = refUnits_(p);                                       break;
@@ -3432,6 +3437,74 @@ function storeLinks_(p) {
            missing: links.filter(function (x) { return !x.token; }).length };
 }
 
+/* ═════════ PUBLISH THE KIOSK TOKEN TO GX CORE, AT MINT AND AT ROTATE ═════════
+ * Leaderboard asked for this on 2026-09-09 and it is the right shape, so it is worth writing down
+ * WHY rather than just doing it.
+ *
+ * Their first cut had Sky paste six tokens into a settings form. He asked why a human is involved
+ * in one app handing keys to another, and they threw the form away. The deeper reason is that a
+ * COPY of a rotatable credential goes stale silently: rotate a token here and the pasted copy still
+ * points at the old one, so that kiosk quietly falls back to "This SPIFF board is unavailable — ask
+ * Tawny for a new one", on a screen facing the sales floor, discovered by a budtender rather than
+ * by us. Writing the key at mint/rotate time means there is no copy to go stale.
+ *
+ * DIRECTION: this goes through GX Core, not app-to-app. Leaderboard considered asking us to expose
+ * storeLinks to SECRET_ACTIONS so their kiosk could read it directly — which would work, and which
+ * is the exact app-to-app coupling the publish-to-Core step just unwound. Core is the one hop.
+ *
+ * set_config, NOT GXCore.setKv. The library's setKv enforces GX_LIB_WRITABLE_KV and
+ * cfg.spiffKiosk.* is not on it, so a library call is REFUSED ("not a library-writable kv key").
+ * The HTTP route has no allowlist. Anyone tidying this into a library call will find it fails
+ * closed and the kiosk button silently stops appearing, so: leave it as the HTTP call.
+ *
+ * SENSITIVITY. These tokens open store.html, which carries no person, no cost and no margin by
+ * construction. The per-employee earnings we already publish to Core are strictly more sensitive.
+ *
+ * AN EMPTY VALUE IS THE OFF SWITCH, and that is Leaderboard's contract, not our invention:
+ * spiffKioskUrl_ returns '' for an empty token and no token means no button. So a revoke writes
+ * '' rather than deleting the key — a revoked link whose key lingers is a kiosk button onto a dead
+ * page, the same failure as a stale copy arriving a different way.
+ */
+function gxPublishKioskToken_(storeId, token) {
+  var id = slug_(storeId || '');
+  if (!id) return { ok: false, store_id: String(storeId || ''), error: 'store required' };
+
+  var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  if (!secret) {
+    return { ok: false, store_id: id,
+             error: 'GX_DEPLOY_SECRET is not set on this script — the kiosk token cannot reach GX Core.' };
+  }
+
+  /* notes= is sent on purpose. gxWrite_ replaces the whole kv row and Core backfills a missing note
+     from its own allowlist, which does not cover this key — so without one, the row that explains a
+     bare 32-character hex string to the next person reading the kv tab would be blank. */
+  var url = GXCORE_URL + '?action=set_config'
+    + '&secret=' + encodeURIComponent(secret)
+    + '&key='    + encodeURIComponent('cfg.spiffKiosk.' + id)
+    + '&value='  + encodeURIComponent(String(token == null ? '' : token))
+    + '&notes='  + encodeURIComponent(
+        'SPIFF kiosk link token for ' + id + '. Written by the SPIFF engine at mint/rotate and '
+      + 'blanked on revoke; empty means no token and no kiosk button. Do not edit by hand — '
+      + 'the value here must match the live row in SPIFF store_links or the button opens a dead page.');
+
+  try {
+    var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+    var body = resp.getContentText();
+    /* Apps Script serves the consent page as HTML when authorization has lapsed; JSON.parse on it
+       throws something unreadable, so name the real cause. */
+    if (body.indexOf('<') === 0) {
+      return { ok: false, store_id: id, error: 'GX Core returned HTML (auth or redirect issue)' };
+    }
+    var j = JSON.parse(body);
+    if (!j || !j.ok) return { ok: false, store_id: id, error: (j && j.error) || 'GX Core refused the write' };
+    return { ok: true, store_id: id, published: String(token || '') !== '' };
+  } catch (e) {
+    /* scrubSecrets_ because UrlFetchApp puts the WHOLE url — deploy secret included — into its
+       exception message, and this one is rendered into the kiosk-links panel. */
+    return { ok: false, store_id: id, error: 'GX Core unreachable: ' + scrubSecrets_(e && e.message || e) };
+  }
+}
+
 /* Mint for every store that has none, in ONE call. One press rather than one per store: six
  * presses is six chances to stop at five, and the store that gets missed shows a blank kiosk
  * nobody is standing next to. Idempotent — a store that already has a live link is skipped. */
@@ -3453,18 +3526,64 @@ function storeLinkMintAll_(p) {
   var live = Object.create(null);
   storeLinkRows_().forEach(function (r) { if (!r.revoked_at) live[r.store_id] = r; });
 
-  var made = [];
+  var made = [], published = [], failed = [];
   stores.forEach(function (st) {
     var id = slug_(st.store_id || '');
     if (!id || live[id]) return;
-    sh.appendRow([id, Utilities.getUuid().replace(/-/g, ''), auth.user, nowStamp_(), '']);
+    var tok = Utilities.getUuid().replace(/-/g, '');
+    sh.appendRow([id, tok, auth.user, nowStamp_(), '']);
     made.push(id);
+
+    /* PUBLISH AFTER THE SHEET WRITE, NOT BEFORE. The sheet is the system of record; Core's kv is a
+       copy of it kept for Leaderboard's benefit. Publishing first would mean a failed appendRow
+       leaves a kiosk pointing at a token no store_links row will ever match — a live button onto a
+       dead page, which is worse than no button. This order makes the failure recoverable instead:
+       the link exists and works in SPIFF, and republishing is one call. */
+    var r = gxPublishKioskToken_(id, tok);
+    (r.ok ? published : failed).push(r.ok ? id : { store_id: id, error: r.error });
   });
-  return { ok: true, minted: made };
+
+  /* A PARTIAL PUBLISH IS REPORTED, NEVER SWALLOWED. If Core is unreachable the links are still
+     minted and still correct here, but no kiosk will show a button — and the panel saying a
+     cheerful "minted 6" over that is how a person concludes the job is done and stops looking. */
+  return { ok: true, minted: made, published: published, publish_failed: failed,
+           publish_note: failed.length
+             ? 'Minted, but ' + failed.length + ' token(s) did not reach GX Core, so those kiosks '
+               + 'will show no SPIFF button. Re-run ?action=publishKioskTokens&apply=1 once Core '
+               + 'is reachable — nothing needs re-minting.'
+             : '' };
 }
 
 /* Revoke one store's link and mint its replacement in the same call — a kiosk with no link is a
- * blank screen, so "revoke" in practice always means "rotate". */
+ * blank screen, so "revoke" in practice always means "rotate".
+ *
+ * ── A ROTATION DOES NOT REACH A PARKED KIOSK UNTIL IT RELOADS ────────────────────────────────
+ * ROTATE, THEN RELOAD THAT STORE'S SCREEN. Leaderboard traced this for us on 2026-09-09 when we
+ * asked how fast a rotation propagates, and the answer decided the design here:
+ *
+ *     Core          effectively immediate — set_config invalidates its own config cache
+ *     their server  up to ~55s — the composed URL rides a 55s CacheService entry
+ *     their client  up to the NEXT 04:00 PT — worst case ~24h
+ *
+ * The kiosk header is built only during a FULL render, and their 60s poll is a delta that updates
+ * numbers in place without rebuilding it. What saves it is a nightly reload armed on every page
+ * load, which fires once per day after 04:00 PT and rebuilds everything. So a parked kiosk
+ * self-heals overnight rather than staying wrong forever — but a whole TRADING DAY fits inside the
+ * window. Rotate at 10am Tuesday and that screen is wrong until 4am Wednesday, most of it in front
+ * of customers. (A slideshow kiosk repaints on every store rotation, which is why this looks fine
+ * wherever it gets tested and lingers on the single-store screens.)
+ *
+ * WE DELIBERATELY DID NOT PAPER OVER IT. The obvious accommodation is to keep the old token alive
+ * alongside the new one for a grace period, and we offered to. It is the wrong trade at 24h just as
+ * it was at "forever": no overlap anyone would be willing to build covers a trading day, and
+ * weakening a revocation to compensate for a stale render leaves a credential we were asked to
+ * retire usable while it is still on the wall. Rotation stays ATOMIC — the old token dies the
+ * instant the new one is minted, which is what revoking a credential has to mean.
+ *
+ * The real fix is Leaderboard's and they own it (carry the kiosk URL on the delta response, which
+ * bounds it at one ~60s poll). Until that lands: after rotating, reload that store's screen from
+ * Leaderboard's Settings tray — "Reload all kiosk screens", or one store at a time.
+ */
 function storeLinkRotate_(p) {
   var auth = gxAuth_(p.token);
   if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
@@ -3479,11 +3598,106 @@ function storeLinkRotate_(p) {
   rows.forEach(function (r) {
     if (r.store_id === id && !r.revoked_at) sh.getRange(r.row, 5).setValue(stamp);
   });
-  if (String(p.revoke || '') === '1') return { ok: true, store_id: id, token: '', revoked: true };
+
+  /* REVOKE: blank the key rather than leaving it. Leaderboard treats an empty value as "no token,
+     no button", so this takes the button off the kiosk instead of leaving one that opens the
+     "ask Tawny for a new one" page. A revoked link whose kv key lingers is the same failure as a
+     stale pasted copy, arriving a different way. */
+  if (String(p.revoke || '') === '1') {
+    var cleared = gxPublishKioskToken_(id, '');
+    return { ok: true, store_id: id, token: '', revoked: true,
+             published: cleared.ok,
+             publish_error: cleared.ok ? '' : cleared.error,
+             publish_note: cleared.ok ? ''
+               : 'The link is revoked HERE, but GX Core still holds the old token, so that kiosk '
+                 + 'will keep showing a SPIFF button that opens a dead page. Re-run '
+                 + '?action=publishKioskTokens&apply=1 to clear it.' };
+  }
 
   var tok = Utilities.getUuid().replace(/-/g, '');
   sh.appendRow([id, tok, auth.user, stamp, '']);
-  return { ok: true, store_id: id, token: tok };
+
+  var pub = gxPublishKioskToken_(id, tok);
+  return { ok: true, store_id: id, token: tok,
+           published: pub.ok,
+           publish_error: pub.ok ? '' : pub.error,
+           publish_note: pub.ok ? ''
+             : 'The new link works HERE, but GX Core still holds the OLD token — which this call '
+               + 'just revoked — so that kiosk shows a button onto a dead page until it is '
+               + 'republished. Re-run ?action=publishKioskTokens&apply=1.' };
+}
+
+/* ═══ BACKFILL / REPAIR: push every live kiosk token to GX Core in one call ═══
+ * Two jobs, and they are the same job.
+ *
+ * BACKFILL, once: six links already existed in store_links before any of this was written. They
+ * were never waiting on Sky or Tawny to paste them anywhere — they simply never left this app,
+ * which is why every kiosk shows no SPIFF button today. Nothing reaches Leaderboard until this runs.
+ *
+ * REPAIR, from then on: mint and rotate publish as they go, but a publish can fail while the sheet
+ * write succeeds — Core unreachable, a lapsed authorization, a bad minute on the second hop. Those
+ * paths say so rather than swallowing it, and this is what they tell you to run. It is idempotent,
+ * so running it when nothing is wrong costs six writes and changes nothing.
+ *
+ * IT ALSO CLEARS REVOKED STORES, which is why it walks the STORE REGISTRY rather than the live
+ * rows. Iterating live links alone would republish the good ones and leave a revoked store's stale
+ * token sitting in Core forever — a kiosk button onto a dead page, and the one case where doing
+ * nothing looks identical to success.
+ *
+ * DRY BY DEFAULT, like sweepOrphanProgress and publishToCore. It reports exactly what it would
+ * write, per store, without writing — because the honest way to check this is to look first, and
+ * because writes ride on GET here, so a URL gets pasted and re-fetched.
+ */
+function publishKioskTokens_(p) {
+  var apply = String((p && p.apply) || '') === '1';
+
+  var stores = [];
+  try { stores = gxStores_() || []; } catch (e) { stores = []; }
+  /* Same refusal as storeLinks_ and the progress read: a registry that did not answer is not an
+     empty company. Walking [] here would report "nothing to publish" — which reads as success and
+     is the one answer that must never be produced by a failed lookup. */
+  if (!stores.length) {
+    return { ok: false, error: 'The store registry did not answer, so this cannot tell which '
+                             + 'stores exist. Nothing was published — try again.' };
+  }
+
+  var live = Object.create(null);
+  storeLinkRows_().forEach(function (r) { if (!r.revoked_at) live[r.store_id] = r; });
+
+  var plan = [], failed = [];
+  stores.forEach(function (st) {
+    var id = slug_(st.store_id || '');
+    if (!id) return;
+    var tok = (live[id] || {}).token || '';
+    var act = tok ? 'publish' : 'clear';   // clear covers revoked AND never-minted; both mean no button
+    var row = { store_id: id, display_name: st.display_name || id, action: act,
+                has_link: !!tok, key: 'cfg.spiffKiosk.' + id };
+
+    if (apply) {
+      var r = gxPublishKioskToken_(id, tok);
+      row.ok = r.ok;
+      if (!r.ok) { row.error = r.error; failed.push(row); }
+    }
+    plan.push(row);
+  });
+
+  /* The token VALUES are deliberately not in this response. It is reachable with the deploy secret
+     and gets read in a terminal and pasted into chats; the store and the action are what a person
+     checking this needs, and the value adds nothing they cannot get from the links panel. */
+  return {
+    ok: !failed.length,
+    dry: !apply,
+    stores: plan.length,
+    publishing: plan.filter(function (x) { return x.action === 'publish'; }).length,
+    clearing:   plan.filter(function (x) { return x.action === 'clear'; }).length,
+    failed: failed,
+    plan: plan,
+    note: apply
+      ? (failed.length
+          ? failed.length + ' store(s) did not reach GX Core; those kiosks are unchanged. Re-run once Core is reachable.'
+          : 'Published. Leaderboard reads cfg.spiffKiosk.<store_id> and needs no change.')
+      : 'DRY RUN — nothing was written. Add &apply=1 to publish.'
+  };
 }
 
 /* THE KIOSK READ. No token in the GX sense and no session — the URL token IS the credential, so
