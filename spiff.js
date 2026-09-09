@@ -1463,6 +1463,13 @@
       + '</div>'
       + '<div class="sp-flds' + (actualsOpen ? ' is-unlocked' : '') + '" id="rActuals">'
       +   actField('Units sold', 'actual_json.units_sold', a.units_sold, actualsOpen)
+      /* SEVENTH, and it was the one that got left behind. setRecField writes by [data-key]
+         and silently does nothing when the field is not on the panel — so revenue was the
+         only figure a pull could not reach, and it kept whatever the row already held. Drops
+         corrected to 698 units on 2026-09-09 and its revenue stayed at 2537.42, which is
+         289 units of a program it was never part of. Dead today (nothing reads it; the vendor
+         report derives added_revenue fresh), and that is exactly why it rotted unnoticed. */
+      +   actField('Revenue (units × cost)', 'actual_json.revenue', a.revenue, actualsOpen)
       +   actField('Budtenders hitting goal', 'actual_json.bts_hit', a.bts_hit, actualsOpen)
       +   actField('Rate paid', 'actual_json.spiff_amount', a.spiff_amount, actualsOpen)
       +   actField('Investment', 'actual_json.investment', a.investment, actualsOpen)
@@ -2103,6 +2110,7 @@
     var roi     = (units - base) * cost - invest;    // same identity the Calculator models on
 
     setRecField('actual_json.units_sold', units);
+    setRecField('actual_json.revenue', Math.round(units * cost * 100) / 100);
     setRecField('actual_json.bts_hit', earners);
     setRecField('actual_json.spiff_amount', rate);
     setRecField('actual_json.investment', Math.round(invest * 100) / 100);

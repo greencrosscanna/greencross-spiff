@@ -98,9 +98,19 @@ ok('Pull live from Dutchie is offered whether or not the fields are unlocked',
    /id="rPullActuals"/.test(render)
    && render.indexOf('rPullActuals') > render.indexOf('actualsOpen'));
 const pull = grab('pullActuals');
-ok('  …and still writes all six figures through setRecField',
-   ['units_sold','bts_hit','spiff_amount','investment','roi','roi_pct']
+ok('  …and still writes every figure through setRecField',
+   ['units_sold','revenue','bts_hit','spiff_amount','investment','roi','roi_pct']
      .every(k => pull.indexOf("setRecField('actual_json." + k + "'") >= 0));
+/* THE PULL CAN ONLY REACH A FIELD THE PANEL RENDERS. setRecField looks the input up by
+   [data-key] and returns silently when it is absent, so a figure the pull sets but the panel
+   omits is not written and nothing says so. revenue was exactly that: stranded on Drops at
+   2537.42 — 289 units of a different program — through a correction to 698. Pin both halves
+   together, because either one alone re-creates the bug. */
+ok('  …and every one of them is a field on the panel, or the write is silently dropped',
+   ['units_sold','revenue','bts_hit','spiff_amount','investment','roi','roi_pct']
+     .every(k => render.indexOf("'actual_json." + k + "'") >= 0));
+ok('  …with revenue derived as units × cost, the identity the model documents',
+   /setRecField\('actual_json\.revenue', Math\.round\(units \* cost \* 100\) \/ 100\)/.test(pull));
 /* IT MUST NAME THE BUTTON THAT EXISTS. This asserted the literal 'Save changes' for a year, and
    the button has never said that in either state — it is 'Save as program' on a new program and
    'Update this program' on an existing one. Sky hit it on Drops, 2026-09-09: a correct pull sat on
