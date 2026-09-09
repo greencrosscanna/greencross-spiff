@@ -107,10 +107,51 @@ ok('only ONE cell is written; a measurement is not a human edit',
 
 /* ── how it is reached ── */
 const SECRET = new Function('return ' + (gs.match(/var SECRET_ACTIONS = (\[[\s\S]*?\]);/) || [])[1])();
-ok('snapshotProgress is secret-gated — it is expensive and it writes',
-   SECRET.indexOf('snapshotProgress') >= 0);
+/* ── snapshotProgress IS REACHABLE FROM A BROWSER, BY AN EDITOR ────────────────────────────────
+ * It was secret-gated, and this test asserted that as a virtue. It is not one for THIS route: the
+ * deploy secret is server-side and must stay there, so a secret-gated route can never be pressed
+ * by a person — and snapshotProgress was the only way to measure a program. Re-measure was refused
+ * at the gate on every press since it shipped, whatever the code behind the button did.
+ *
+ * The cost argument does not survive contact either: the work is one store's sell-through, the
+ * very same Dutchie read `sellthrough` performs, and that has always been token-gated and open to
+ * anyone signed in.
+ *
+ * What must remain true is that a VIEWER cannot press it, and that the machine paths still work.
+ */
+const GATED = new Function('return ' + (gs.match(/var GATED_WRITES = (\[[\s\S]*?\]);/) || [])[1])();
+ok('snapshotProgress is an editor-gated write, not a secret-only one',
+   GATED.indexOf('snapshotProgress') >= 0 && SECRET.indexOf('snapshotProgress') < 0);
 const PUBLIC = new Function('return ' + (gs.match(/var PUBLIC_ACTIONS = (\[[\s\S]*?\]);/) || [])[1])();
 ok('  …and never public', PUBLIC.indexOf('snapshotProgress') < 0);
+
+/* The three that stay secret-only all do something a person at a button cannot supervise. */
+for (const a of ['refreshProgress', 'rollStatuses', 'installProgressTrigger']) {
+  ok('  …while ' + a + ' stays secret-only', SECRET.indexOf(a) >= 0 && GATED.indexOf(a) < 0);
+}
+
+/* guard_, RUN. The ordering inside it is the whole bug: SECRET_ACTIONS is answered before a
+   session is ever looked at, so listing a route there makes it unreachable by any browser no
+   matter what role the person holds. */
+const guard_ = new Function('SECRET_ACTIONS', 'PUBLIC_ACTIONS', 'GATED_WRITES', 'EDIT_ROLES',
+                            'PropertiesService', 'GX_SECRET_PROP', 'gxAuth_',
+                            grab('guard_') + '; return guard_;')(
+  SECRET, PUBLIC, GATED, ['admin', 'editor', 'director'],
+  { getScriptProperties: () => ({ getProperty: () => 'SEKRIT' }) }, 'GX_DEPLOY_SECRET',
+  (token) => token === 'editor-token' ? { ok: true, user: 'sky', role: 'editor' }
+           : token === 'viewer-token' ? { ok: true, user: 'tawny', role: 'viewer' }
+           : { ok: false, error: 'Not signed in', code: 'auth_required' });
+
+ok('a signed-in EDITOR may measure from the browser',
+   guard_('snapshotProgress', { token: 'editor-token' }) === null);
+ok('  …a viewer may not', !!guard_('snapshotProgress', { token: 'viewer-token' }));
+ok('  …someone signed out may not', !!guard_('snapshotProgress', {}));
+ok('  …and the deploy secret still opens it, so the trigger and CLI are unaffected',
+   guard_('snapshotProgress', { secret: 'SEKRIT' }) === null);
+ok('  …but a WRONG secret does not', !!guard_('snapshotProgress', { secret: 'nope' }));
+/* The regression itself: an editor pressing the button used to be refused before auth ran. */
+ok('  …and the refusal is by ROLE, not by a secret the browser can never hold',
+   (guard_('snapshotProgress', { token: 'viewer-token' }) || {}).error !== 'Unauthorized');
 
 const trig = grab('refreshSpiffProgressTrigger');
 ok('the hourly trigger freezes whole programs, capped per run',

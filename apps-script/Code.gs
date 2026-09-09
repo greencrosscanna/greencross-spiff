@@ -275,7 +275,31 @@ var PUBLIC_ACTIONS = ['ping', 'diag', 'libversion', 'clientView', 'flyer', 'logi
    EMPTY since 2026-08-30: its only member was `importCalc`, and the Calculator-sheet import was
    removed with the rest of the seed machinery. The gate stays because the next editor-only write
    will want it, and re-deriving it from the auth flow is harder than leaving one empty list. */
-var GATED_WRITES = [];
+/* Writes a signed-in EDITOR may make from the browser. Checked AFTER authentication, so a viewer
+   is refused by role rather than by secret.
+
+   `snapshotProgress` moved here from SECRET_ACTIONS on 2026-09-09, because it was the only way to
+   measure a program and no browser can ever call a secret-gated route: the deploy secret is
+   server-side and must stay that way. Re-measure was refused at the gate on every press since it
+   shipped — guard_ answers SECRET_ACTIONS before it ever looks at a session — so the button could
+   not work whatever the code behind it did. Sky, 2026-09-09: "i clicked measure now and got no
+   results", on the release that had just fixed a DIFFERENT bug in the same button.
+
+   IT IS NOT A LOOSENING OF THE RULE IT WAS UNDER. That rule guards COST, and the cost here is one
+   store's sell-through — the very same Dutchie read `sellthrough` performs, which has always been
+   token-gated and callable by anyone signed in. The write it adds is the result of that read,
+   onto a program an editor may already edit by hand. What stays secret-only is what a person
+   cannot supervise: refreshProgress walks every store (~57s), rollStatuses moves every program's
+   status, installProgressTrigger changes the schedule.
+
+   A deploy secret still opens it — guard_ accepts the secret for token-gated routes too — so the
+   hourly trigger and the CLI are unaffected.
+
+   Declared with its list inline. The first cut of this put the array in a separate `var` above and
+   assigned it here, which reads fine and is broken: top-level statements run in order, so this
+   line would have taken the value before the other had one, and every gated call would have
+   thrown on undefined.indexOf. */
+var GATED_WRITES = ['snapshotProgress'];
 
 /* Returns null when the call may proceed, or the response to send when it may not. Forwards
    GX Core's stable `code` untouched so the browser can tell "no grant" from "expired". */
@@ -291,7 +315,7 @@ var GATED_WRITES = [];
    that stay secret-only both COST something: refreshProgress walks every store's date windows
    (~57s measured) and installProgressTrigger changes the schedule. A deploy secret still opens
    all three; see guard_. */
-var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses', 'snapshotProgress',
+var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses',
                       'sweepOrphanProgress', 'publishToCore', 'backfillPayPeriods',
                       'publishKioskTokens'];
 
@@ -318,7 +342,7 @@ function guard_(action, p) {
              code: auth.code || 'auth_required', needsAuth: true };
   }
   if (GATED_WRITES.indexOf(action) >= 0 && EDIT_ROLES.indexOf(String(auth.role)) < 0) {
-    return { ok: false, error: 'Your role (' + auth.role + ') cannot import SPIFF programs' };
+    return { ok: false, error: 'Your role (' + auth.role + ') cannot change SPIFF programs' };
   }
   return null;
 }
