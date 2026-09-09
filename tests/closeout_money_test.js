@@ -102,36 +102,63 @@ ok('  …and carries a warning field the UI can gate on',
 ok('the PDF shows a mismatch ON the document',
    /Verify before sending/.test(grab('reportHtml_')));
 
-/* ══════════════════ 3. THE BUY LIST NAMES PEOPLE ══════════════════ */
+/* ══════════════════ 3. WHO SOLD WHAT, IN ONE PLACE ══════════════════
+   The source selection used to live inside giftCardList_. It now lives in measuredRowsFor_,
+   because the vendor PDF needs the identical answer — a buy list and the report sent alongside it
+   naming different people would be worse than either being wrong alone. Same argument
+   payoutFactsOf_ settles for the money. */
 const gc = grab('giftCardList_');
+const mr = grab('measuredRowsFor_');
+
 ok('the buy list is no longer hardcoded empty', !/lines: \[\],/.test(gc));
-ok('  …and reads the frozen snapshot first, which is what the vendor was invoiced against',
-   gc.indexOf('progress_json') < gc.indexOf('spiffProgress_'));
-ok('  …falling back to the live cache through the same function consumers read',
-   /spiffProgress_\(\{ program: prog\.program_id/.test(gc));
-ok('  …listing only people who actually earned', /if \(amt <= 0\) return;/.test(gc));
-ok('  …biggest amount first, because it is a shopping list', /y\.amount - x\.amount/.test(gc));
-/* Names: a snapshot row holds only what Dutchie reported. */
+ok('the frozen snapshot wins — it is what the vendor was invoiced against',
+   mr.indexOf('progress_json') < mr.indexOf('spiffProgress_'));
+ok('  …with the live cache as the fallback, read through the same function consumers read',
+   /spiffProgress_\(\{ program: prog\.program_id/.test(mr));
+ok('  …carrying per-store units, so the PDF\'s Sold column stops printing an em dash',
+   /byStore\[st\.store_id\] = Number\(st\.units\)/.test(mr) && /by_store: byStore/.test(mr));
+/* A snapshot row holds only what Dutchie reported. */
 ok('snapshot names are decorated the way every other surface decorates them',
-   /friendlyName_\(nameMap, e\.employee_id, legal\)/.test(gc));
+   /friendlyName_\(nameMap, e\.employee_id, legal\)/.test(mr));
 ok('  …and BOTH names travel — the card needs one, reconciling needs the other',
-   /legal_name: legal/.test(gc));
+   /legal_name: legal/.test(mr));
+
+ok('the buy list lists only people who actually EARNED, not who sold',
+   /\(Number\(r\.earned\) \|\| 0\) > 0/.test(gc));
+ok('  …biggest amount first, because it is a shopping list', /y\.amount - x\.amount/.test(gc));
+ok('  …and it no longer carries its own copy of the source selection',
+   gc.indexOf('progress_json') < 0 && gc.indexOf('displayNameMap_') < 0);
 /* The list and the invoice must agree, or somebody buys cards against the wrong number. */
 ok('a list that does not add up to the recorded total is flagged',
    /Reconcile before buying cards/.test(gc));
-ok('  …and owing money with nobody named is flagged too',
-   /nobody can be named/.test(gc));
+ok('  …and owing money with nobody named is flagged too', /nobody can be named/.test(gc));
 ok('the authoritative total stays the record\'s, the figure the vendor is invoiced',
    /total: f\.owed/.test(gc));
-ok('  …with what the names sum to reported separately',
-   /listed_total/.test(gc));
-/* The stale note claiming the detail does not exist must be gone. */
-/* Checked as an EMITTED note, not a substring: the comment above giftCardList_ quotes the old
-   wording to explain what changed, and flagging that is a test crying about prose. */
+ok('  …with what the names sum to reported separately', /listed_total/.test(gc));
+ok('  …and it reports where its numbers came from', /source: measured\.source/.test(gc));
+/* The stale note claiming the detail does not exist must be gone. Checked as an EMITTED note:
+   the comments quote the old wording to explain what changed. */
 ok('the note claiming per-budtender detail is unavailable is no longer returned',
    !/note:\s*'Per-budtender names require/.test(gs));
-ok('  …and the list reports where its numbers came from instead',
-   /source: source \|\| 'no measurements found'/.test(gc));
+
+/* ══════════════════ 4. THE VENDOR PDF GETS THE MATRIX TOO ══════════════════
+   The FOURTH output in this family wired to nothing. buildReport_ called reportHtml_(prog, null)
+   unconditionally, so the PDF printed "Per-budtender breakdown is not included: this program's
+   sell-through was recorded in aggregate" on programs carrying exactly that matrix — Portland
+   Heights has 38 budtenders across six stores, frozen since 2026-09-02 — and an em dash in the
+   per-store Sold column for every one. The report format this app replaces IS the matrix. */
+const br = grab('buildReport_');
+ok('the vendor PDF is built WITH the measurements',
+   /reportHtml_\(prog, measured\)/.test(br));
+/* Checked as a CALL — the comment above buildReport_ quotes the old line to explain the fix. */
+ok('  …and reportHtml_ is never CALLED with a hardcoded null again',
+   !/Utilities\.newBlob\(reportHtml_\(prog, null\)/.test(gs));
+ok('  …from the shared source selection, not a third copy',
+   /measuredRowsFor_\(prog\)/.test(br));
+ok('  …reporting what actually went on the document',
+   /budtenders: measured\.rows\.length/.test(br) && /measured_from: measured\.source/.test(br));
+ok('the PDF still says so plainly when there IS nothing to include',
+   /Per-budtender breakdown is not included/.test(grab('reportHtml_')));
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\ncloseout money: all passed');
 process.exit(fail ? 1 : 0);

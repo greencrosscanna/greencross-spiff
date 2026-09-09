@@ -3481,6 +3481,61 @@ function shareLink_(p) {
  * vendor a blank grid.
  * ==================================================================== */
 
+/* ── WHAT EACH PERSON SOLD, IN ONE PLACE ──────────────────────────────────────────────────────
+ * Found 2026-09-08, and it is the FOURTH output in this family wired to nothing. buildReport_
+ * called reportHtml_(prog, null) unconditionally, so the vendor PDF printed
+ *
+ *     "Per-budtender breakdown is not included: this program's sell-through was recorded in
+ *      aggregate. Programs tracked in SPIFF carry the full budtender matrix."
+ *
+ * …on programs that carry exactly that matrix. Portland Heights has 38 budtenders measured across
+ * six stores, frozen on its own record since 2026-09-02, and its per-store "Sold" column printed
+ * an em dash for every store. The report format this app exists to replace — "SPIFF_Sales Report -
+ * Gron - 092925.pdf" — IS the budtender matrix; that is the document, not an appendix to it.
+ *
+ * Same shape of miss as the gift-card list: written when per-budtender detail genuinely did not
+ * exist, left alone after it arrived in August. So the source selection lives here once rather
+ * than a third time, for the same reason payoutFactsOf_ exists.
+ *
+ * THE FROZEN SNAPSHOT WINS. It is the measurement the vendor was invoiced against; re-deriving
+ * from today's cache could put different numbers on a report than the one already sent. The live
+ * cache is the fallback for a program still running.
+ */
+function measuredRowsFor_(prog) {
+  var snap = prog.progress_json && prog.progress_json.stores ? prog.progress_json : null;
+  var rows = [], byStore = Object.create(null), source = '';
+
+  if (snap) {
+    source = 'frozen snapshot, measured ' + String(snap.at || '').slice(0, 10);
+    var nameMap = displayNameMap_();
+    (snap.stores || []).forEach(function (st) {
+      byStore[st.store_id] = Number(st.units) || 0;
+      (st.rows || []).forEach(function (e) {
+        var legal = String(e.name || '').trim();
+        rows.push({ name: friendlyName_(nameMap, e.employee_id, legal) || legal,
+                    legal_name: legal, store_id: st.store_id,
+                    units: Number(e.units) || 0, target: Number(e.target) || 0,
+                    hit: !!e.hit, earned: Number(e.earned) || 0 });
+      });
+    });
+  } else {
+    var live = spiffProgress_({ program: prog.program_id,
+                                secret: PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP) });
+    if (live && live.ok) {
+      source = 'live cache, refreshed ' + String(live.refreshed_at || '').slice(0, 16);
+      (live.rows || []).forEach(function (r) {
+        byStore[r.store_id] = (byStore[r.store_id] || 0) + (Number(r.units) || 0);
+        rows.push({ name: r.display_name || r.name, legal_name: r.name, store_id: r.store_id,
+                    units: Number(r.units) || 0, target: Number(r.target) || 0,
+                    hit: !!r.hit, earned: Number(r.earned) || 0 });
+      });
+    }
+  }
+  /* Most sold first — the vendor reads the top of this table. */
+  rows.sort(function (a, b) { return b.units - a.units || String(a.name).localeCompare(String(b.name)); });
+  return { rows: rows, by_store: byStore, source: source };
+}
+
 /* ── WHAT THE VENDOR IS OWED, IN ONE PLACE ────────────────────────────────────────────────────
  * Found 2026-09-08 by running the close-out against a real closed program. All three outputs —
  * the vendor PDF, the drafted email and the gift-card buy list — computed the credit as
@@ -3634,10 +3689,17 @@ function buildReport_(p) {
   var name = 'SPIFF_Sales Report - ' + (prog.vendor || prog.title) + ' - ' + mmddyy + '.pdf';
 
   try {
-    var blob   = Utilities.newBlob(reportHtml_(prog, null), 'text/html', 'r.html').getAs('application/pdf').setName(name);
+    /* The matrix, not null. See measuredRowsFor_: this argument was hardcoded null, so every
+       vendor PDF printed "per-budtender breakdown is not included" and an em dash per store on
+       programs that had both. */
+    var measured = measuredRowsFor_(prog);
+    var blob   = Utilities.newBlob(reportHtml_(prog, measured), 'text/html', 'r.html').getAs('application/pdf').setName(name);
     var folder = DriveApp.getFolderById(REPORT_FOLDER_ID);
     var file   = folder.createFile(blob);
-    return { ok: true, name: name, file_id: file.getId(), url: file.getUrl(), by: auth.user };
+    return { ok: true, name: name, file_id: file.getId(), url: file.getUrl(), by: auth.user,
+             /* What went ON the document, so a caller can tell a full report from one that had
+                no measurements to include — the PDF says so too, but silently. */
+             budtenders: measured.rows.length, measured_from: measured.source };
   } catch (e) {
     return { ok: false, error: 'Could not write to the reports folder: ' + scrubSecrets_(e && e.message || e) };
   }
@@ -3702,47 +3764,18 @@ function emailDraft_(p) {
 function giftCardList_(p) {
   var res = getProgram_(p.id);
   if (!res.ok) return res;
-  var prog = res.program, a = prog.actual_json || {};
+  var prog = res.program;
   var f = payoutFactsOf_(prog);
 
-  var snap = prog.progress_json && prog.progress_json.stores ? prog.progress_json : null;
-  var people = [], source = '';
-
-  if (snap) {
-    source = 'the frozen snapshot, measured ' + String(snap.at || '').slice(0, 10);
-    /* A SNAPSHOT ROW HOLDS ONLY THE NAME DUTCHIE REPORTED — the frozen grid on screen decorates
-       it in the browser. This list is handed to a person buying cards, so it is decorated here
-       the same way every other surface does, and BOTH names travel: the friendly one goes on the
-       card, and the legal one is what Tawny reconciles against a Dutchie export. Added, never
-       substituted — the same rule spiffProgress_ follows. */
-    var nameMap = displayNameMap_();
-    (snap.stores || []).forEach(function (st) {
-      (st.rows || []).forEach(function (e) {
-        var amt = Number(e.earned) || 0;
-        if (amt <= 0) return;
-        var legal = String(e.name || '').trim();
-        var friendly = friendlyName_(nameMap, e.employee_id, legal);
-        people.push({ name: friendly || legal, legal_name: legal, store: st.store_id,
-                      units: Number(e.units) || 0, amount: amt });
-      });
+  /* Through measuredRowsFor_ — the same source selection the vendor PDF uses, so a buy list and
+     the report sent alongside it can never name different people or different amounts. */
+  var measured = measuredRowsFor_(prog);
+  var people = measured.rows
+    .filter(function (r) { return (Number(r.earned) || 0) > 0; })   // who EARNED, not who sold
+    .map(function (r) {
+      return { name: r.name, legal_name: r.legal_name, store: r.store_id,
+               units: r.units, amount: Number(r.earned) || 0 };
     });
-  } else {
-    /* No snapshot: read the live cache through the same function every consumer reads. */
-    var live = spiffProgress_({ program: prog.program_id,
-                                secret: PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP) });
-    if (live && live.ok) {
-      source = 'the live progress cache, refreshed ' + String(live.refreshed_at || '').slice(0, 16);
-      (live.rows || []).forEach(function (r) {
-        var amt = Number(r.earned) || 0;
-        if (amt <= 0) return;
-        /* spiffProgress_ has already decorated these — display_name is present only when it
-           differs, so `display_name || name` is the whole rule. */
-        people.push({ name: r.display_name || r.name, legal_name: r.name, store: r.store_id,
-                      units: Number(r.units) || 0, amount: amt });
-      });
-    }
-  }
-
   /* Biggest first — it is a shopping list, and the amounts are what someone loads onto cards. */
   people.sort(function (x, y) { return y.amount - x.amount || String(x.name).localeCompare(String(y.name)); });
   var listed = people.reduce(function (n, x) { return n + x.amount; }, 0);
@@ -3753,11 +3786,11 @@ function giftCardList_(p) {
     vendor: prog.vendor || '',
     per_unit: f.per_unit, rate: f.rate,
     count: people.length,
-    /* The AUTHORITATIVE total stays the record's, the same figure the vendor is invoiced. */
+    /* The AUTHORITATIVE total stays the record's — the same figure the vendor is invoiced. */
     total: f.owed,
     listed_total: Math.round(listed * 100) / 100,
     lines: people,
-    source: source || 'no measurements found',
+    source: measured.source || 'no measurements found',
     /* SAY SO WHEN THE LIST DOES NOT ADD UP TO THE TOTAL, rather than letting someone buy cards
        against one number and bill the vendor another. A gap means the measurement behind the list
        is not the one the record was reconciled from. */
