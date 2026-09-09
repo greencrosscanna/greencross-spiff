@@ -4284,13 +4284,20 @@
          parameters" route silently forked a duplicate off the program Tawny thought she was
          updating, leaving two records with the same name and different numbers — and the
          close-out would have been run against whichever one got opened. */
-      var r = calc.editingId
+      /* The engine refuses the FIRST save of a program whose brand matches no product in the
+         catalog, because that program would measure nothing and nothing else would say so. It is a
+         question, not a wall: a brand that is real but not stocked yet is a legitimate program, so
+         confirming re-sends the same save with confirm_brand=1. Both save paths go through here so
+         a create and an edit ask it the same way. */
+      var confirmBrand = '';
+      var send = async function () {
+        return calc.editingId
         ? await ENG.jsonp('editProgram', {
             token: (session() || {}).token, id: calc.editingId,
-            patch: JSON.stringify(patch)
+            patch: JSON.stringify(patch), confirm_brand: confirmBrand
           })
         : await ENG.jsonp('createProgram', {
-            token: (session() || {}).token,
+            token: (session() || {}).token, confirm_brand: confirmBrand,
             /* ── THE WINDOW RIDES ALONG ON A CREATE, AND ONLY ON A CREATE ──────────────────
                An existing program's dates are saved by the record half (collectPatch →
                editProgram), so adding them to the model payload as well would be two writers
@@ -4302,6 +4309,17 @@
               end_date:   (recField$('end_date')   || {}).value || ''
             }))
           });
+      };
+      var r = await send();
+      if (r && r.code === 'brand_no_match') {
+        if (!window.confirm(r.error + '\n\nSave anyway?')) {
+          btn.disabled = false;
+          btn.textContent = calc.editingId ? 'Update program' : 'Save program';
+          return;
+        }
+        confirmBrand = '1';
+        r = await send();
+      }
       if (!r || !r.ok) throw new Error((r && r.error) || 'save failed');
       /* A create has no editingId until now — adopt it, or the next press would fork a second
          copy of the programme just saved. */

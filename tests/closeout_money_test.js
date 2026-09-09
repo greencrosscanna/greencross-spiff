@@ -184,6 +184,13 @@ ok('  …nor a zero Target in the headline strip',
 ok('  …and shows what each person EARNED where Target and Hit would have been',
    /money\(r\.earned\)/.test(rh));
 /* A flat program keeps both, since there the target is the whole point. */
+/* A snapshot row is {name, employee_id, units, hit, earned} — no target, because `hit` was
+   already resolved against one when it ran. So the flat report printed TARGET 0 beside 18 ticked
+   HIT cells: eighteen people shown hitting a target of zero, on the document asking for $450. */
+ok('the per-budtender target comes off the program, not the snapshot row',
+   /var perBt = \(prog\.target_json \|\| \{\}\)\.per_bt/.test(mr)
+   && /target: Number\(e\.target\) \|\| goal/.test(mr));
+ok('  …per store, since the goal differs by store', /perBt\[st\.store_id\]/.test(mr));
 ok('a flat program still gets Target and Hit',
    /'<td class="n">' \+ r\.target \+ '<\/td><td>' \+ \(r\.hit \? '✓' : ''\)/.test(rh));
 ok('the title line does not print the vendor twice when it IS the program name',

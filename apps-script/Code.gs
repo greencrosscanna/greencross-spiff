@@ -879,9 +879,77 @@ function dropProgressRows_(programId) {
   return gone;
 }
 
+
+/* ── DOES THIS PROGRAM'S BRAND MATCH ANYTHING? ────────────────────────────────────────────────
+ * A program is matched to products by EXACT brand name (see the filter in catalog_), and a brand
+ * with no filter_text means that vendor's whole range. So one wrong character makes a program
+ * match nothing, silently, and the first sign of it is a number that is wrong somewhere else.
+ *
+ * FOUND 2026-09-08, checking all 25 programs against the live catalog: "National Cannabis SPIF"
+ * (Aug 2025) matches brand "National Cannabis Co" while the products are "National Cannabis Co."
+ * WITH A TRAILING PERIOD. Its sibling program uses the correct spelling. No money was lost there —
+ * that program's actuals were recorded, not derived from the live match — but the mechanism is the
+ * point: SPIFF's numbers reach GX Crew's incentive column, which is what people are PAID on, and
+ * a bad match has already published a wrong figure once (Portland Heights, 2026-09-02: 3,514 units
+ * reported against a real 242, and Crew had no way to know better).
+ *
+ * WHY THIS WARNS RATHER THAN FORBIDS. A program written before its product lands is a real thing —
+ * a new vendor, stock not yet received, brand not yet in the catalog. Refusing that outright would
+ * block legitimate work to prevent a typo. So an unmatched brand stops the FIRST save and says what
+ * it thinks you meant; saving again with confirm_brand=1 goes through.
+ *
+ * AND WHY IT FAILS OPEN. catalog_ reads Dutchie, which goes down — it 401'd on all six stores on
+ * 2026-08-31. A guard that turned an outage into "no program can be saved" would be worse than the
+ * bug it prevents, so anything short of a confident "that brand is not there" lets the save pass.
+ */
+function brandMatchCheck_(matchJson) {
+  var match = matchJson;
+  if (typeof match === 'string') { try { match = JSON.parse(match || 'null'); } catch (e) { match = null; } }
+  var brand = String((match && match.brand) || '').trim();
+  if (!brand) return { checked: false };            // no brand — other filters carry the match
+
+  var cat;
+  try { cat = catalog_({}); } catch (e) { return { checked: false, why: 'catalog threw: ' + e.message }; }
+  if (!cat || !cat.ok) return { checked: false, why: (cat && cat.error) || 'catalog unavailable' };
+
+  var names = (cat.brands || []).map(function (b) { return typeof b === 'string' ? b : String(b && b.name || ''); })
+                                .filter(Boolean);
+  if (!names.length) return { checked: false, why: 'catalog carried no brands' };
+
+  var lower = brand.toLowerCase();
+  if (names.some(function (n) { return n.toLowerCase() === lower; })) return { checked: true, ok: true };
+
+  /* Only punctuation/case near-misses are offered. That is the failure this guard is named after —
+     a trailing period, a missing space — and it is the one case where naming a suggestion is safe.
+     A fuzzier match would start proposing a different vendor's brand, which is worse than silence. */
+  var squash = function (x) { return String(x).toLowerCase().replace(/[^a-z0-9]/g, ''); };
+  var target = squash(brand);
+  var near = names.filter(function (n) { return squash(n) === target; });
+
+  return { checked: true, ok: false, brand: brand, suggest: near };
+}
+
 function saveProgram_(p, opts) {
   if (!p || !p.program_id) return { ok: false, error: 'program_id required' };
   opts = opts || {};
+
+  /* An import is a replay of records that already exist; re-litigating their brands would block a
+     restore over history nobody is editing. Only a human save is checked. */
+  if (!opts.fromImport && !opts.confirmBrand) {
+    var bm = brandMatchCheck_(p.match_json);
+    if (bm.checked && !bm.ok) {
+      return {
+        ok: false,
+        code: 'brand_no_match',
+        brand: bm.brand,
+        suggest: bm.suggest,
+        error: 'No product in the catalog has the brand "' + bm.brand + '", so this program would '
+             + 'measure nothing.'
+             + (bm.suggest.length ? ' Did you mean "' + bm.suggest.join('" or "') + '"?' : '')
+             + ' If the brand is correct and not stocked yet, save again to confirm.'
+      };
+    }
+  }
   var sh   = dataSheet_();
   var last = sh.getLastRow();
 
@@ -952,7 +1020,7 @@ function editProgram_(p) {
   });
   if (!changed.length) return { ok: true, program_id: p.id, unchanged: true };
 
-  var res = saveProgram_(merged, { editedBy: auth.user });
+  var res = saveProgram_(merged, { editedBy: auth.user, confirmBrand: String(p.confirm_brand || '') === '1' });
   res.changed = changed;
   res.edited_by = auth.user;
   return res;
@@ -979,7 +1047,7 @@ function createProgram_(p) {
   draft.source     = 'calculator-app:' + auth.user;
   draft.match_json = draft.match_json || { brand: draft.vendor || '', category: '', filter_text: '', products: [] };
 
-  var res = saveProgram_(draft, { editedBy: auth.user });
+  var res = saveProgram_(draft, { editedBy: auth.user, confirmBrand: String(p.confirm_brand || '') === '1' });
   res.program_id = id;
   return res;
 }
@@ -3508,13 +3576,27 @@ function measuredRowsFor_(prog) {
   if (snap) {
     source = 'frozen snapshot, measured ' + String(snap.at || '').slice(0, 10);
     var nameMap = displayNameMap_();
+    /* ── THE PER-BUDTENDER TARGET IS ON THE PROGRAM, NOT ON THE ROW ────────────────────────
+       A snapshot row is {name, employee_id, units, hit, earned} — it never stored a target,
+       because `hit` was already resolved against one when the measurement ran. So the vendor
+       report printed "TARGET 0" beside 18 ticked HIT cells: eighteen people shown as having hit
+       a target of zero, on the document asking the vendor for $450.
+
+       The real figure is target_json.per_bt, per store, which is what the Calculator computed and
+       what the record holds — 5 units at Commercial and 3 everywhere else on BeGOAT. Read from
+       there rather than re-derived, so the report cannot disagree with the goals the vendor
+       agreed to. */
+    var perBt = (prog.target_json || {}).per_bt || {};
     (snap.stores || []).forEach(function (st) {
       byStore[st.store_id] = Number(st.units) || 0;
+      var goal = Number(perBt[st.store_id]) || 0;
       (st.rows || []).forEach(function (e) {
         var legal = String(e.name || '').trim();
         rows.push({ name: friendlyName_(nameMap, e.employee_id, legal) || legal,
                     legal_name: legal, store_id: st.store_id,
-                    units: Number(e.units) || 0, target: Number(e.target) || 0,
+                    units: Number(e.units) || 0,
+                    /* The row's own value wins if a future snapshot ever carries one. */
+                    target: Number(e.target) || goal,
                     hit: !!e.hit, earned: Number(e.earned) || 0 });
       });
     });
