@@ -177,7 +177,21 @@
         state.stores = rows;
         conn('GX Core', 'connected');
       } else if (!cached.length) {
-        throw new Error('stores: no rows from GX Core and nothing cached');
+        /* SAY WHAT WE ACTUALLY KNOW. This used to read "and nothing cached", which is a claim this
+           function is not in a position to make and which was FALSE both times it was reported
+           (2026-09-08): localStorage held gx_stores_v1 with all six rows, display names included,
+           while the screen rendered every store as its slug -- "bend" instead of Century.
+
+           What is empty is GXStores, not the cache. GXStores.readCache() DISCARDS an entry older
+           than its 6h TTL and returns null, so the rows stay in localStorage and never reach us.
+           Since GXStores.load() always attempts a refresh anyway, that TTL only ever throws data
+           away at the one moment the cache exists for -- a failed fetch. Reproduced against the
+           real gx-stores.js: at 5.9h old the names render, at 6.1h they become slugs and we land
+           here. That is gx-theme's to fix and core-admin has the note; what is ours is not
+           misdirecting the next reader to an empty localStorage they will not find. */
+        throw new Error('stores: GX Core returned no rows and GXStores is holding none ' +
+                        '(note: GXStores discards its localStorage cache past 6h, so rows may ' +
+                        'still be sitting in gx_stores_v1)');
       }
 
       // NOTE: the roster is NOT fetched here. GX Core exposes no public `employees`
