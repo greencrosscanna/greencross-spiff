@@ -4378,6 +4378,14 @@ function diag_() {
   try { d.stores    = (GXCore.getStores()    || []).length; } catch (e) { d.stores    = 'ERR ' + e.message; }
   try { d.employees = (GXCore.getEmployees() || []).length; } catch (e) { d.employees = 'ERR ' + e.message; }
   try { d.products  = (GXCore.getProducts()  || []).length; } catch (e) { d.products  = 'ERR ' + e.message; }
+  /* THE ONE CASE THE BUG-MAIL FALLBACK CANNOT COVER. A library call runs in the CALLING project,
+     so GX Core's bug email spends THIS project's mail quota — if that is exhausted, the fallback
+     notice cannot get through either, and the failure looks identical to everything working. This
+     reads the quota WITHOUT sending anything, which also makes it the standing check that the
+     send_mail scope is actually granted: SPIFF declared it from the scaffold commit and did not
+     call MailApp once until 2026-09-10, so "declared" had never been tested against "granted". */
+  try { d.mailQuota = MailApp.getRemainingDailyQuota(); }
+  catch (e) { d.mailQuota = 'ERR ' + ((e && e.message) || e); }
   // Reports write into a folder this script did not create, which needs the full drive
   // scope — drive.file would silently only cover our own files.
   try { d.reportFolder = DriveApp.getFolderById(REPORT_FOLDER_ID).getName(); }
@@ -4486,11 +4494,158 @@ function reportBug_(p) {
       context:  String(p.context || '')
     });
   } catch (e) {
+    bugUnfiled_(auth.user, p, title, desc,
+                'GX Core could not be reached: ' + String((e && e.message) || e));
     return { ok: false, error: 'Could not reach the central bug log: ' +
                               String((e && e.message) || e) };
   }
-  if (!res || !res.ok) return { ok: false, error: (res && res.error) || 'GX Core refused the report' };
+  if (!res || !res.ok) {
+    bugUnfiled_(auth.user, p, title, desc,
+                'GX Core refused the report: ' + ((res && res.error) || 'no reason given'));
+    return { ok: false, error: (res && res.error) || 'GX Core refused the report' };
+  }
+
+  /* FILED, BUT WAS ANYBODY TOLD? Core owns the email as of v310 and swallows its own mail failure
+     on purpose — a filed report HAS succeeded, and failing the call would throw away a good row
+     over a notification. So nothing else anywhere mentions it, and `mail_error` / `mail_skipped`
+     (v312) are the only trace. Reading them is a reason this engine is pinned to v315.
+
+     `mail_skipped` is the one that reads as fine and is not: no watch address configured and a
+     reporter with no address on file means nothing FAILED and nobody was mailed. Still silent.
+
+     TRUTHINESS, NEVER `in`. The fields are ABSENT when they do not apply, not empty. */
+  bugUnannounced_(auth.user, p, title, desc, res);
   return { ok: true, id: res.id };
+}
+
+/* ─── THE TWO WAYS A BUG REPORT GOES QUIET, AND THE ONLY NOTICE THAT WILL MENTION EITHER ──────────
+ *
+ * SPIFF HAD NEVER SENT AN EMAIL AT ALL before this — no MailApp call anywhere in the file. The
+ * scope was declared in the manifest from the scaffold commit, so this needs no re-authorize; that
+ * is luck rather than planning, and worth stating so nobody removes an "unused" scope.
+ *
+ * WHAT IS AND IS NOT SHARED WITH LEADERBOARD'S VERSION, because copying it wholesale would be wrong
+ * here. Leaderboard returns ok:true no matter what happens, so a refused report there reaches no
+ * board AND tells the reporter it worked — its unfiled notice is the only record that anyone tried.
+ * SPIFF has always returned the failure to the browser, and gx-bugreport.js shows it, so OUR
+ * reporter is not misled. That is a real difference and the wording below reflects it: this notice
+ * does not tell Sky to re-file something the reporter thinks succeeded.
+ *
+ * SO WHY SEND IT AT ALL. The typed report exists in exactly one place — a browser modal — and the
+ * likeliest response to "could not reach the central bug log" is to close it and get on with the
+ * job. The text is then gone and nobody ever knew a problem was hit. This preserves the content and
+ * the fact that somebody tried; acting on it is Sky's call, not an instruction.
+ *
+ * `deduped` IS RELIABLE IN THIS APP, unlike the general warning core-admin circulated on
+ * 2026-09-10. That caveat is about spokes that file through BOTH the library call and HTTP
+ * ingest_bug, where the two take different locks — a library call takes the CALLING script's, an
+ * HTTP ingest takes Core's. Verified here on 2026-09-10: SPIFF has exactly one transport, the
+ * GXCore.gxIngestBug call above, and no `ingest_bug` route anywhere in the repo. If a second
+ * transport is ever added, this comment stops being true and bugMailOnce_ becomes the only guard.
+ *
+ * WHETHER THIS MAIL CAN SUCCEED WHERE CORE'S FAILED is not guaranteed, and saying so shapes what it
+ * is for. A library call runs in the CALLING project, so Core's send spent THIS project's quota —
+ * an exhausted quota refuses this send too. What it covers is everything else: a missing or bad
+ * recipient (all of `mail_skipped`), a transient failure, a Core-side config problem. ?action=diag
+ * reports the remaining quota so that case is visible rather than guessed at.
+ *
+ * MAIL IS THE ENHANCEMENT; THE REPORT IS THE THING. Every send here is wrapped and non-fatal, and
+ * none of it may change what reportBug_ returns to the browser. */
+var BUG_WATCH_EMAIL = 'sky@greencrosscanna.com';
+
+function bugUnfiled_(user, p, title, desc, why) {
+  if (!bugMailOnce_(user, title, desc, 'unfiled')) return;
+  bugNotify_('⚠️ UNFILED SPIFF bug [' + String(p.priority || 'normal') + ']: ' + title, [
+    'THIS REPORT IS NOT ON THE BUG BOARD. ' + why + ',',
+    'so nothing was recorded anywhere and this email is the only copy of it.',
+    '',
+    'The reporter WAS shown the error — unlike Leaderboard, SPIFF returns the failure rather',
+    'than a receipt — so they may retry on their own. This is here so the text below is not',
+    'lost if they simply close the box instead.',
+  ], user, p, title, desc);
+}
+
+function bugUnannounced_(user, p, title, desc, res) {
+  /* A DEDUPED REPEAT CARRIES NO MAIL FIELDS AT ALL. gxIngestBug returns at its `priorBug` branch
+     ABOVE the send, so a repeat inside Core's dedupe window has neither `mailed` nor an error —
+     and reading "no mailed field" as a failure would turn every /exec redirect chain (measured
+     re-executing one request up to three times) into three mail-failure notices. That is the exact
+     bug this kind of fix has caused elsewhere. Check `deduped` FIRST. */
+  if (!res || res.deduped) return;
+  var why = res.mail_error || res.mail_skipped;
+  if (!why) return;
+  if (!bugMailOnce_(user, title, desc, 'unannounced')) return;
+  bugNotify_('🔕 UNANNOUNCED SPIFF bug [' + String(p.priority || 'normal') + ']: ' + title, [
+    'THIS REPORT IS ON THE BUG BOARD — do NOT re-file it — but GX Core could not email anyone',
+    'about it, so this notice is standing in. The reporter got no receipt either.',
+    '',
+    'Bug id     : ' + String(res.id || '(none returned)'),
+    'Mail ' + (res.mail_error ? 'failed  : ' : 'skipped : ') + why,
+  ], user, p, title, desc);
+}
+
+/* The body both notices share — same fields, same order, in one place. They differ only in the
+   paragraph at the top saying which failure this was and what to do about it. */
+function bugNotify_(subject, lead, user, p, title, desc) {
+  try {
+    MailApp.sendEmail({
+      to: BUG_WATCH_EMAIL,
+      subject: subject,
+      body: lead.concat([
+        '',
+        'Reporter : ' + String(user || ''),
+        'Priority : ' + String(p.priority || 'normal'),
+        'Screen   : spiff',
+        'Version  : ' + String(p.appVer || ''),
+        'Time     : ' + nowStamp_() + ' (America/Los_Angeles)',
+        '',
+        title || '(no title)',
+        '',
+        desc || '(no details provided)',
+        '',
+        /* The captured JS errors and route, exactly as gx-bugreport.js snapshotted them. Sales's
+           defer bug was reported three times before anyone diagnosed it, and the cause was a single
+           boot ReferenceError sitting in this field. Truncated because it can be long, and a mail
+           nobody finishes reading is its own failure. */
+        '--- context ---',
+        String(p.context || '(none captured)').slice(0, 4000),
+      ]).join('\n'),
+    });
+  } catch (e) { /* non-fatal, on purpose — see the header */ }
+}
+
+/* True the FIRST time a given report asks to be emailed AS `kind`, false for a repeat inside three
+ * minutes — the same window gxIngestBug dedupes on, so the email and the board agree about what
+ * "the same report" is. A fourth minute is somebody filing again because nothing happened, which
+ * SHOULD mail.
+ *
+ * `kind` NAMESPACES THE MARK because the two notices carry contradictory instructions ("this is not
+ * on the board" vs "this IS on the board, do not re-file"). One report can legitimately raise both
+ * — a submit that never reaches Core, then a retry that files and cannot mail — and one shared key
+ * would drop whichever came second, leaving the earlier, now-wrong instruction standing alone.
+ *
+ * FAILS OPEN, deliberately: a cache or lock that is unavailable must never be the reason a bug
+ * report goes unread. Better a duplicate email than a silent one. */
+function bugMailOnce_(user, title, desc, kind) {
+  var lock = null;
+  try {
+    var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5,
+      String(user || '') + '\u0000' + String(title || '') + '\u0000' + String(desc || ''),
+      Utilities.Charset.UTF_8);
+    var key = 'bugmail:' + kind + ':' + Utilities.base64EncodeWebSafe(digest);
+    lock = LockService.getScriptLock();
+    /* Atomic check-and-set. A redirect chain can re-enter fast enough that three executions read an
+       empty cache at once, and three simultaneous misses is precisely the duplicate-email bug. */
+    try { lock.waitLock(5000); } catch (e) { lock = null; }   // busy → fall through and send
+    var cache = CacheService.getScriptCache();
+    if (cache.get(key)) return false;
+    cache.put(key, '1', 180);   // seconds — 3 min, matching gxIngestBug's dedupe window
+    return true;
+  } catch (e) {
+    return true;
+  } finally {
+    if (lock) { try { lock.releaseLock(); } catch (e2) {} }
+  }
 }
 
 /* The roster. GX Core exposes NO public `employees` HTTP action — it lives behind the
