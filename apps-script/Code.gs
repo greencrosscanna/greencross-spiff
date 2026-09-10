@@ -1970,6 +1970,82 @@ function snapshotPlan_(opts) {
  * for: not the norm, and never automatic, because a settled record should not quietly change after
  * a vendor has been invoiced against it.
  */
+/* ── A REFUSAL THAT WILL NOT CHANGE MUST NOT BE RETRIED FOREVER ────────────────────────────────
+ * snapshotProgram_ refuses a program that measures 0 against a non-zero record, because that is a
+ * broken Dutchie filter and not a fortnight nobody sold anything in. That guard is right and stays.
+ * What was wrong is that the refusal is DETERMINISTIC — the same program refuses identically the
+ * next hour, and the hour after — while the sweep counted it against the run's budget. Twelve such
+ * programs sat at the head of the queue and the sweep did not write a single snapshot between
+ * 2026-09-02 and 2026-09-09, with nothing but a console.warn to say so.
+ *
+ * So a refusal is REMEMBERED, against a fingerprint of everything that decides whether the program
+ * can be measured at all. Edit the filter, the window or the store list and the fingerprint moves,
+ * the memory no longer applies, and the program is tried again on the next sweep with no one having
+ * to remember to clear anything. That is the whole point of fingerprinting it rather than storing a
+ * bare "skip me" flag.
+ *
+ * ScriptProperties rather than a column: this is scheduler bookkeeping, not a fact about the
+ * program, and a `programs` column would travel to every consumer of a row and invite a second
+ * meaning for "measured". One JSON blob, a dozen small entries, far inside the 9KB value limit.
+ */
+var SNAPSHOT_REFUSALS_PROP = 'SNAPSHOT_REFUSALS';
+
+function snapshotFingerprint_(prog) {
+  var m = prog.match_json || {};
+  /* JSON, not join('|'). REAL DUTCHIE PRODUCT NAMES CONTAIN A PIPE — "Disposable AIO | 1g",
+     "Live Resin Dank Tank | 2g" — so joining on one lets ["Carts","Dabs"] and ["Carts|Dabs"]
+     produce the same fingerprint. The cost of that collision is a program silently still counted
+     as unmeasurable after its filter was fixed, which is the exact failure this memory exists to
+     avoid. Caught by tests/snapshot_queue_test.js on the first run. */
+  return JSON.stringify([
+    String(m.brand || ''), String(m.category || ''), String(m.filter_text || ''),
+    (m.products || []).map(String),
+    textDate_(prog.start_date), textDate_(prog.end_date),
+    (prog.stores_json || []).map(function (x) {
+      return slug_(x && x.store_id ? x.store_id : x);
+    })
+  ]);
+}
+
+function snapshotRefusals_() {
+  try {
+    return JSON.parse(PropertiesService.getScriptProperties()
+      .getProperty(SNAPSHOT_REFUSALS_PROP) || '{}') || {};
+  } catch (e) { return {}; }
+}
+
+function saveSnapshotRefusals_(map) {
+  try {
+    PropertiesService.getScriptProperties()
+      .setProperty(SNAPSHOT_REFUSALS_PROP, JSON.stringify(map || {}));
+  } catch (e) {
+    console.warn('[spiff] could not persist snapshot refusals: ' + ((e && e.message) || e));
+  }
+}
+
+/* What the sweep is carrying, for anything that wants to REPORT rather than measure. Cheap: reads
+   the sheet, calls no Dutchie. This is the number whose absence let a stuck sweep run for a week —
+   snapshotPending_ has always returned `failed` and `remaining` and nothing ever read either. */
+function snapshotBacklog_() {
+  var out = { eligible: 0, measured: 0, never_measured: 0, refused: 0, programs: [] };
+  var refused = snapshotRefusals_();
+  listPrograms_().forEach(function (prog) {
+    if (!snapshotReasonFor_(prog)) return;
+    out.eligible++;
+    if (prog.progress_json && prog.progress_json.stores && prog.progress_json.stores.length) {
+      out.measured++; return;
+    }
+    out.never_measured++;
+    var r = refused[prog.program_id];
+    var stuck = !!(r && r.fp === snapshotFingerprint_(prog));
+    if (stuck) out.refused++;
+    out.programs.push({ program_id: prog.program_id, refused: stuck,
+                        reason: stuck ? (r.reason || 'refused') : 'not reached yet',
+                        since: stuck ? r.at : '' });
+  });
+  return out;
+}
+
 function snapshotPending_(opts) {
   opts = opts || {};
   var max = Math.max(1, Math.min(20, Number(opts.max) || 1));
@@ -1981,18 +2057,48 @@ function snapshotPending_(opts) {
   var vals = sh.getRange(2, 1, sh.getLastRow() - 1, PROGRAM_HEADERS.length).getValues();
   var pCol = PROGRAM_HEADERS.indexOf('progress_json');
 
-  var done = [], failed = [], eligible = 0;
+  /* ── TIME, NOT ATTEMPTS, IS THE REAL BUDGET ──────────────────────────────────────────────────
+     A trigger gets six minutes and a program is ~54s, so the run has to stop on the clock however
+     the attempts went. The old guard `done.length + failed.length >= max` made a FAILURE cost a
+     success's worth of budget, which is how twelve unmeasurable programs held the head of the
+     queue for a week: max is 1 in working hours, so the first refusal ended every run. Now `max`
+     counts what was actually WRITTEN, and the clock stops the run. */
+  var t0 = Date.now();
+  var BUDGET_MS = 4 * 60 * 1000;
+
+  var refused = snapshotRefusals_(), refusalsMoved = false;
+  var done = [], failed = [], eligible = 0, stuck = 0, ranOut = false;
   for (var i = 0; i < vals.length; i++) {
     var prog = rowToProgram_(vals[i]);
     if (only && String(prog.program_id) !== only) continue;
     var why = snapshotReasonFor_(prog);
     if (!why) continue;
     if (prog.progress_json && !force) continue;
+
+    /* Known unmeasurable, and nothing about it has changed since — skip without spending a
+       Dutchie call on an answer we already have. `force` and an edited fingerprint both override,
+       so correcting a filter re-arms it with nobody having to remember to clear anything. */
+    var fp = snapshotFingerprint_(prog);
+    var prior = refused[prog.program_id];
+    if (prior && prior.fp === fp && !force) { stuck++; continue; }
+
     eligible++;
-    if (done.length + failed.length >= max) continue;      // counted, not measured — see `remaining`
+    if (done.length >= max || Date.now() - t0 > BUDGET_MS) { ranOut = true; continue; }
 
     var res = snapshotProgram_(prog);
-    if (!res.ok) { failed.push({ program_id: prog.program_id, error: res.error }); continue; }
+    if (!res.ok) {
+      failed.push({ program_id: prog.program_id, error: res.error, refused: res.refused || '' });
+      /* Only a DETERMINISTIC refusal is remembered. A store that would not answer is a transient
+         failure and must be retried next hour — writing it off here would turn one bad afternoon
+         at Dutchie into a program that is never measured again. */
+      if (res.refused) {
+        refused[prog.program_id] = { fp: fp, at: nowStamp_(), reason: res.refused,
+                                     error: String(res.error || '').slice(0, 200) };
+        refusalsMoved = true;
+      }
+      continue;
+    }
+    if (prior) { delete refused[prog.program_id]; refusalsMoved = true; }
     /* Writes ONE cell. edited_by records the human who last corrected a record, and a measurement
        is not an edit by that person — the same rule the status roll follows. */
     sh.getRange(i + 2, pCol + 1).setValue(JSON.stringify(res.snapshot));
@@ -2005,8 +2111,13 @@ function snapshotPending_(opts) {
      reason as writeSnapshot_ — without this the overnight backfill fills the sheet while every
      screen watching it keeps showing the empty grids it is there to fix. */
   if (done.length) invalidatePrograms_();
+  if (refusalsMoved) saveSnapshotRefusals_(refused);
   return { ok: true, done: done, failed: failed,
-           remaining: Math.max(0, eligible - done.length - failed.length) };
+           /* `remaining` is what a further run would still TRY. `refused_skipped` is what it never
+              will until a human changes something — kept apart, because a backlog that shrinks to a
+              floor and stops is the shape this whole bug hid behind. */
+           remaining: Math.max(0, eligible - done.length - failed.length),
+           refused_skipped: stuck, out_of_budget: ranOut };
 }
 
 /* ===================== SCHEDULED STATUS ROLL =====================
@@ -2364,6 +2475,16 @@ function refreshSpiffProgressTrigger() {
       console.log('[spiff] froze ' + snap.done.length + ' program(s), '
                   + snap.remaining + ' still to freeze'
                   + (quietHours_() ? ' (quiet hours)' : ''));
+    }
+    /* SAY IT EVEN WHEN NOTHING WAS DONE. The old line logged only successes, so a sweep that
+       wrote nothing for a week logged nothing for a week — the silence read exactly like "no work
+       to do". A refusal that will not clear on its own is the one thing here a human must act on. */
+    if (snap.refused_skipped) {
+      console.warn('[spiff] ' + snap.refused_skipped + ' program(s) SKIPPED as unmeasurable — '
+                 + 'their filter matches nothing and will not fix itself. See ?action=diag.');
+    }
+    if (!snap.done.length && !snap.failed.length && snap.remaining) {
+      console.warn('[spiff] froze nothing this run with ' + snap.remaining + ' still eligible.');
     }
   } catch (e) { console.warn('[spiff] snapshot failed: ' + ((e && e.message) || e)); }
   refreshSpiffProgress_();
@@ -4235,6 +4356,22 @@ function diag_() {
     d.hourlyTrigger = installed ? 'installed'
       : 'MISSING - statuses will not roll and progress will not refresh';
   } catch (e) { d.hourlyTrigger = 'ERR ' + ((e && e.message) || e); }
+  /* ── WHETHER IT IS INSTALLED IS NOT WHETHER IT IS GETTING ITS WORK DONE ──────────────────────
+     `hourlyTrigger: installed` answers whether the trigger EXISTS and reads as whether it RUNS.
+     Between 2026-09-02 and 2026-09-09 both were true and the sweep still wrote nothing: it was
+     stuck on twelve programs it can never measure, and the only trace was a console.warn nobody
+     reads. So the backlog is reported HERE, beside the trigger, where the question is asked.
+     `refused` is the number that matters — a backlog that stops shrinking and never empties.
+     Counts only, no program ids: this route is ANYONE_ANONYMOUS. */
+  try {
+    var b = snapshotBacklog_();
+    d.snapshotBacklog = { measured: b.measured, never_measured: b.never_measured,
+                          refused: b.refused, eligible: b.eligible };
+    if (b.refused) {
+      d.snapshotStuck = b.refused + ' program(s) cannot be measured and are being skipped — '
+                      + 'their Dutchie filter matches nothing. Fix the filter to re-arm them.';
+    }
+  } catch (e) { d.snapshotBacklog = 'ERR ' + ((e && e.message) || e); }
   return d;
 }
 

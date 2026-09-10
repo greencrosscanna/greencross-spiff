@@ -98,8 +98,13 @@ ok('the rate and model are recorded with the numbers, so a later rate change can
 const pend = grab('snapshotPending_');
 ok('the work is capped per call', /Math\.max\(1, Math\.min\(20, Number\(opts\.max\) \|\| 1\)\)/.test(pend));
 ok('  …and reports what is LEFT, so a caller can finish the job', /remaining:/.test(pend));
+/* The budget guard changed on 2026-09-09 and this assertion pinned the old one verbatim. It was
+   `done.length + failed.length >= max`, which made a FAILURE cost a success's worth of budget —
+   with max at 1 in working hours, the first unmeasurable program ended every run, and the sweep
+   wrote nothing for a week. `max` now counts what was WRITTEN and the clock bounds the run.
+   Full coverage of the new behavior lives in tests/snapshot_queue_test.js. */
 ok('  …counting eligible programs it did not get to, rather than reporting zero',
-   /eligible\+\+/.test(pend) && /if \(done\.length \+ failed\.length >= max\) continue/.test(pend));
+   /eligible\+\+/.test(pend) && /if \(done\.length >= max \|\| Date\.now\(\) - t0 > BUDGET_MS\)/.test(pend));
 ok('a program that already has a snapshot is skipped', /if \(prog\.progress_json && !force\) continue/.test(pend));
 ok('force re-measures it — the break-glass', /var force = !!opts\.force/.test(pend));
 ok('only ONE cell is written; a measurement is not a human edit',
