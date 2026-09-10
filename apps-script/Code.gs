@@ -4510,8 +4510,19 @@ function reportBug_(p) {
      over a notification. So nothing else anywhere mentions it, and `mail_error` / `mail_skipped`
      (v312) are the only trace. Reading them is a reason this engine is pinned to v315.
 
-     `mail_skipped` is the one that reads as fine and is not: no watch address configured and a
+     `mail_skipped` is the one that reads as fine and is not: no watch address configured AND a
      reporter with no address on file means nothing FAILED and nobody was mailed. Still silent.
+
+     IT CANNOT FIRE FOR SPIFF TODAY, and the reason is worth writing down because it is not obvious
+     and it will change. Core takes `to = reporterEmail || watchEmail`, and gxBugWatchEmail_ falls
+     back to a HARDCODED default when cfg.bugWatchEmail is unset — checked live 2026-09-10, the key
+     is unset, so the watch address is never empty and there is always a recipient. Leaderboard
+     warned us on 2026-09-10 that mail_skipped would be our NORMAL path rather than an edge case,
+     reasoning that SPIFF reporters are user_id slugs (`tawny`) and not addresses. That half is
+     true — gxAuth_ returns Core's `validate` payload, whose `user` is the slug — but it takes BOTH
+     halves to skip, and the second cannot happen while the default stands. Setting
+     cfg.bugWatchEmail to `off` is what would make their warning correct overnight, which is exactly
+     why the branch below is kept rather than dropped as dead.
 
      TRUTHINESS, NEVER `in`. The fields are ABSENT when they do not apply, not empty. */
   bugUnannounced_(auth.user, p, title, desc, res);
