@@ -4563,10 +4563,18 @@ function reportBug_(p) {
  * instead of silently.
  *
  * WHETHER THIS MAIL CAN SUCCEED WHERE CORE'S FAILED is not guaranteed, and saying so shapes what it
- * is for. A library call runs in the CALLING project, so Core's send spent THIS project's quota —
- * an exhausted quota refuses this send too. What it covers is everything else: a missing or bad
- * recipient (all of `mail_skipped`), a transient failure, a Core-side config problem. ?action=diag
- * reports the remaining quota so that case is visible rather than guessed at.
+ * is for. A library call runs in the CALLING project, so Core's send already came out of the same
+ * pool this one draws on — an exhausted quota refuses this send too.
+ *
+ * AND THE POOL IS WIDER THAN "THIS SCRIPT". Apps Script meters mail per USER ACCOUNT per day, not
+ * per project, and every GX engine deploys as the same owner — so Inventory, Sales, Leaderboard and
+ * Core itself all drain the same allowance. Observed 2026-09-10: diag read 1447 and then 1417
+ * within the hour, with SPIFF having sent nothing at all in between. Do not read a falling number
+ * as evidence this app is mailing.
+ *
+ * What the fallback DOES cover is everything short of exhaustion: a missing or bad recipient (all
+ * of `mail_skipped`), a transient failure, a Core-side config problem. ?action=diag reports the
+ * remaining quota so the one uncovered case is visible rather than guessed at.
  *
  * MAIL IS THE ENHANCEMENT; THE REPORT IS THE THING. Every send here is wrapped and non-fatal, and
  * none of it may change what reportBug_ returns to the browser. */
