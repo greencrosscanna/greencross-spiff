@@ -4535,11 +4535,19 @@ function reportBug_(p) {
          role=admin      5 rows    4 hold a user_id    4 contactable   0 gaps
          viewer / editor / director — no rows at all
 
-     Holding a user_id is what it takes to sign in and file at all, so everyone who can reach this
-     function is covered. NOTE THE ROW-VS-USER DISTINCTION, which is why the sweep is written out
-     rather than summarized: this reached us as "17 hold a user_id, 17 of 17 contactable" — the right
-     conclusion off the wrong numbers. 17 is the ROW count; 13 of those rows carry a user_id. The
-     remainder are staff with no login, which is why they are not four more gaps.
+     THE TWO SLICES ARE DISJOINT and union to exactly 17 distinct user_ids, all contactable:
+     chris, dean, drew, mariana, mike, noah, pamela, samuel, scott, shawn, sky, skyler, tawny, tj,
+     tyler, tyson, zach. Holding a user_id is what it takes to sign in and file at all, so everyone
+     who can reach this function is covered and there are no gaps.
+
+     BEWARE THE TWO SEVENTEENS, because one of them cost a wrong correction. `role=manager` returns
+     17 ROWS carrying 13 user_ids; the union across roles is 17 USER_IDS. Same number, different
+     things, and they are unrelated — the row count is Assistant Manager 10 + Store Manager 7, since
+     getEmployeeContacts substring-matches role_title and "manager" catches both. Leaderboard
+     reported 17 contactable user_ids from a different sweep entirely (single-letter needles unioned
+     by employee_id, 76 distinct rows); this file briefly recorded that as a row count misread for a
+     user count, which was wrong. Reconciled by taking the union above and finding their list exactly.
+     Anyone re-deriving this should union the SLICES and compare NAMES, never compare a 17 to a 17.
 
      TRUTHINESS, NEVER `in`. The fields are ABSENT when they do not apply, not empty. */
   bugUnannounced_(auth.user, p, title, desc, res);
