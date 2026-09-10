@@ -726,6 +726,42 @@ function annotateActuals_(programs) {
   });
 }
 
+/* ── WHY A PROGRAM WILL NEVER MEASURE, ON THE PROGRAM ITSELF ──────────────────────────────────
+   DERIVED, NEVER STORED — same rule as `duplicate_of` and `rate_changed` above, and for the same
+   reason. The refusal memory is keyed on a FINGERPRINT of the filter that caused it, so fixing the
+   filter clears this on the next read. A stored column would keep claiming "unmeasurable" after
+   the thing that made it so was corrected, and there would be no way to clear it.
+
+   It needs no entry in DERIVED_ACTUALS: this hangs off the PROGRAM, not off actual_json, and
+   programToRow_ builds its row from an explicit column list, so an extra top-level property is
+   already unwritable. Do not "tidy" it into actual_json, which IS written back.
+
+   WHAT IT IS FOR. Twelve closed programs carry prose Dutchie filters from the 2026-08-30 seed and
+   can never match anything. The record panel was offering them a "Measure now" button: a minute of
+   Dutchie calls across six stores, ending in the zero-vs-record refusal, with nothing on screen
+   saying why. renderUnmeasured already withholds the button for a program with no window or no
+   stores, on the stated principle that an offer that cannot work is worse than none. This is the
+   same case — it just took a week of a stuck sweep to learn that it was one.
+
+   IT FILLS IN AS THE SWEEP GOES. A program is only known-refused once the sweep has actually tried
+   it, so this reads empty for a program the sweep has not reached yet. That is the honest state:
+   "we have not tried" and "we tried and it cannot work" are different claims, and only the second
+   one earns taking a button away. */
+function snapshotRefusalFor_(prog, refusals) {
+  var r = refusals && refusals[prog.program_id];
+  /* The fingerprint must still match. A filter edited since the refusal deserves a fresh attempt,
+     which is the whole point of keying the memory on the filter rather than on the id. */
+  return (r && r.fp === snapshotFingerprint_(prog)) ? r : null;
+}
+
+function annotateUnmeasurable_(programs) {
+  var refusals = snapshotRefusals_();   // one script-property read for the whole list
+  programs.forEach(function (p) {
+    var r = snapshotRefusalFor_(p, refusals);
+    p.unmeasurable = r ? { reason: r.reason || 'refused', since: r.at || '' } : null;
+  });
+}
+
 /* Multi-SKU programs blend the cost. Return the label used, so the import is
    auditable — you can see WHICH blended figure a program was priced on. */
 function findBlendedCost_(grid, cMax) {
@@ -871,6 +907,7 @@ function listPrograms_(status) {
   /* Annotate BEFORE filtering: the duplicate check compares a program against every other program,
      so narrowing to one status first would let History and Programs disagree about the same row. */
   annotateActuals_(all);
+  annotateUnmeasurable_(all);
   if (!status) return all;
   return all.filter(function (p) { return p.status === status; });
 }
@@ -2036,8 +2073,8 @@ function snapshotBacklog_() {
       out.measured++; return;
     }
     out.never_measured++;
-    var r = refused[prog.program_id];
-    var stuck = !!(r && r.fp === snapshotFingerprint_(prog));
+    var r = snapshotRefusalFor_(prog, refused);
+    var stuck = !!r;
     if (stuck) out.refused++;
     out.programs.push({ program_id: prog.program_id, refused: stuck,
                         reason: stuck ? (r.reason || 'refused') : 'not reached yet',

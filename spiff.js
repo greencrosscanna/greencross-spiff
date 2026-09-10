@@ -3982,16 +3982,34 @@
     if (title) title.textContent = 'What sold';
     /* NOT "0 units". Nothing has been asked, which is a different claim from nothing having been
        sold — the same distinction the reference pull and the orphan guard both turn on. */
+    /* `unmeasurable` is set by the engine only after the sweep has actually TRIED this program and
+       been refused, and it clears itself the moment the filter changes — so it never says this
+       about a program nobody has attempted yet. Twelve closed programs carry prose filters from
+       the 2026-08-30 seed — a product list reading "Carts, Aio’s and 2g Dabs", a category of
+       "Extracts" — and match nothing in Dutchie. The decision was to leave them rather than
+       reverse-engineer each one, so the screen has to say so instead of implying a measurement is
+       pending.
+
+       NOTE THE TYPOGRAPHIC APOSTROPHE above, and keep it. snapshot_test.js reads the phrasings out
+       of this function by scanning for single-quoted runs, so a straight apostrophe anywhere in
+       here — comment or string — swallows the code between it and the next one and fails a test
+       that has nothing to do with what you changed. */
+    var stuck = rec.unmeasurable;
     if (note) note.textContent = v.noWindow
       ? 'no window set — this program has no dates to measure over'
       : v.noStores ? 'no stores on this program — nothing to measure'
-      : 'not measured yet — nothing has been pulled from Dutchie for this window';
+      : stuck
+        ? 'cannot be measured — the Dutchie filter on this program matches nothing, so a pull '
+          + 'comes back empty against a record that says otherwise, and is refused. Correct the '
+          + 'filter above to make it measurable.'
+        : 'not measured yet — nothing has been pulled from Dutchie for this window';
     if (grid) grid.innerHTML = '';
     if (!stamp) return;
     /* Blocked for a real reason gets no button: pressing it would fail server-side anyway
        (snapshotStore_ refuses a program with no window), and an offer that cannot work is worse
-       than none. */
-    if (v.noWindow || v.noStores || !canEdit()) { stamp.textContent = ''; return; }
+       than none. A known refusal is the same case — pressing it spends a minute on six stores and
+       ends in the refusal the engine already recorded. */
+    if (v.noWindow || v.noStores || stuck || !canEdit()) { stamp.textContent = ''; return; }
     stamp.innerHTML = esc(prettyDay(rec.start_date)) + ' → ' + esc(prettyDay(rec.end_date))
       + ' · <button type="button" class="sp-remeasure" id="resMeasure">Measure now</button>';
     var mb = $('#resMeasure');

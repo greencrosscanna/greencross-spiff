@@ -140,8 +140,15 @@ ok('  …and when it froze nothing while work remained — silence used to read 
    /!snap\.done\.length && !snap\.failed\.length && snap\.remaining/.test(trig));
 
 /* ══════════════════ 5. THE BACKLOG REPORT ══════════════════ */
+/* snapshotBacklog_ asks snapshotRefusalFor_ whether a remembered refusal still applies, rather than
+   re-deriving that test itself — the record panel needs the same answer, and two copies of "is this
+   refusal still current" would be free to drift. So the REAL helper is built here over whichever
+   fingerprint function each case injects, not stubbed: a stub would let the shared rule break while
+   this file still passed. */
+const refusalFor = fp => new Function('snapshotFingerprint_',
+                                      grab('snapshotRefusalFor_') + '; return snapshotRefusalFor_;')(fp);
 const backlog = new Function('listPrograms_', 'snapshotReasonFor_', 'snapshotRefusals_',
-                             'snapshotFingerprint_',
+                             'snapshotFingerprint_', 'snapshotRefusalFor_',
                              grab('snapshotBacklog_') + '; return snapshotBacklog_;');
 const P = [
   { program_id: 'measured', status: 'closed', progress_json: { stores: [{ store_id: 'bend' }] } },
@@ -149,10 +156,11 @@ const P = [
   { program_id: 'pending',  status: 'closed' },
   { program_id: 'active',   status: 'active' },
 ];
+const fp1 = p => (p.program_id === 'stuck' ? 'FP' : 'other');
 const r = backlog(() => P,
                   p => (p.status === 'closed' ? 'closed' : ''),
                   () => ({ stuck: { fp: 'FP', at: '2026-09-02', reason: 'zero_vs_record' } }),
-                  p => (p.program_id === 'stuck' ? 'FP' : 'other'))();
+                  fp1, refusalFor(fp1))();
 ok('the backlog counts only programs that could be measured', r.eligible === 3);
 ok('  …separating measured from never-measured', r.measured === 1 && r.never_measured === 2);
 ok('  …and stuck from merely not-yet-reached', r.refused === 1
@@ -161,9 +169,10 @@ ok('  …and stuck from merely not-yet-reached', r.refused === 1
 ok('  …naming when it got stuck, so a week-old floor is visible as one',
    (r.programs.find(x => x.refused) || {}).since === '2026-09-02');
 /* A fingerprint that no longer matches means somebody fixed the filter: not stuck any more. */
+const fp2 = () => 'CURRENT';
 const r2 = backlog(() => P, p => (p.status === 'closed' ? 'closed' : ''),
                    () => ({ stuck: { fp: 'STALE', at: '2026-09-02' } }),
-                   () => 'CURRENT')();
+                   fp2, refusalFor(fp2))();
 ok('a program whose filter has since been edited is no longer counted as stuck', r2.refused === 0);
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nsnapshot queue: all passed');
