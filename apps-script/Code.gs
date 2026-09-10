@@ -4451,8 +4451,10 @@ function diag_() {
  * NOTE THE PIN. `context` only reaches the sheet from GXCore v211, where gxIngestBug began
  * self-installing the bug_reports.context header — gxWrite_ maps records onto the sheet's REAL
  * header row, so on an older pin the snapshot is DROPPED SILENTLY and the report still returns ok.
- * This engine pins 213 (appsscript.json); a pushed pin only takes effect on the next
- * `clasp update-deployment`, so check ?action=libversion, never the manifest.
+ * NO VERSION NAMED HERE, DELIBERATELY. This line used to read "this engine pins 213" and was still
+ * saying so while the manifest said 306 — a stale number in a comment whose whole point is that the
+ * manifest cannot be trusted either. A pushed pin takes effect only on the next deploy, so the only
+ * honest answer is the live one: ask ?action=libversion.
  */
 function reportBug_(p) {
   var auth = gxAuth_(p.token);   // memoized per execution — guard_ already paid for this call
