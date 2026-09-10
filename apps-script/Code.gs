@@ -4536,12 +4536,20 @@ function reportBug_(p) {
  * job. The text is then gone and nobody ever knew a problem was hit. This preserves the content and
  * the fact that somebody tried; acting on it is Sky's call, not an instruction.
  *
- * `deduped` IS RELIABLE IN THIS APP, unlike the general warning core-admin circulated on
- * 2026-09-10. That caveat is about spokes that file through BOTH the library call and HTTP
- * ingest_bug, where the two take different locks — a library call takes the CALLING script's, an
- * HTTP ingest takes Core's. Verified here on 2026-09-10: SPIFF has exactly one transport, the
- * GXCore.gxIngestBug call above, and no `ingest_bug` route anywhere in the repo. If a second
- * transport is ever added, this comment stops being true and bugMailOnce_ becomes the only guard.
+ * `deduped` IS RELIABLE IN THIS APP. A caveat reached us on 2026-09-10 saying SPIFF files through
+ * BOTH the library call and HTTP ingest_bug, which take DIFFERENT locks — a library call takes the
+ * CALLING script's, an HTTP ingest takes Core's — so Core's de-dupe would not cover us. It is a real
+ * property and it belongs to PRICE CARDS, not to us: that app has its own secret-gated ingest_bug
+ * route over HTTP as well as the library call Inventory makes on its behalf. SPIFF has exactly one
+ * transport, the GXCore.gxIngestBug call above, and no `ingest_bug` route anywhere in the repo.
+ *
+ * WORTH KEEPING RATHER THAN JUST DELETING, because a caveat pinned to the wrong app does not merely
+ * fail to help — it argues against the rule it exists to protect. Believing it here would have led
+ * to treating `deduped` as unsafe and reading a missing `mailed` field as a mail failure, which IS
+ * the three-copies bug the caveat was written to prevent. The check is automated in
+ * tests/bug_mail_fallback_test.js rather than left to this paragraph: it greps every source file
+ * for a second transport on each run, so if one is ever added here this stops being true loudly
+ * instead of silently.
  *
  * WHETHER THIS MAIL CAN SUCCEED WHERE CORE'S FAILED is not guaranteed, and saying so shapes what it
  * is for. A library call runs in the CALLING project, so Core's send spent THIS project's quota —
