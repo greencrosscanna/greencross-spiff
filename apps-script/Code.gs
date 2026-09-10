@@ -4522,7 +4522,24 @@ function reportBug_(p) {
      true — gxAuth_ returns Core's `validate` payload, whose `user` is the slug — but it takes BOTH
      halves to skip, and the second cannot happen while the default stands. Setting
      cfg.bugWatchEmail to `off` is what would make their warning correct overnight, which is exactly
-     why the branch below is kept rather than dropped as dead.
+     why the branch below is kept rather than dropped as dead. Leaderboard withdrew the warning the
+     same day after reading gxBugWatchEmail_ themselves; it is recorded here because the reasoning
+     behind it was sound and will be reached again.
+
+     AND THE SLUG RESOLVES, so the REPORTER RECEIPT works too — checked rather than assumed, because
+     the alternative was a silent suite-wide gap in something Sky asked for on 2026-09-09. Core's
+     secret-gated `?action=contacts` joins employees to users.email and marks each row contactable.
+     Swept across roles on 2026-09-10 with include_inactive=1:
+
+         role=manager   17 rows   13 hold a user_id   13 contactable   0 gaps
+         role=admin      5 rows    4 hold a user_id    4 contactable   0 gaps
+         viewer / editor / director — no rows at all
+
+     Holding a user_id is what it takes to sign in and file at all, so everyone who can reach this
+     function is covered. NOTE THE ROW-VS-USER DISTINCTION, which is why the sweep is written out
+     rather than summarized: this reached us as "17 hold a user_id, 17 of 17 contactable" — the right
+     conclusion off the wrong numbers. 17 is the ROW count; 13 of those rows carry a user_id. The
+     remainder are staff with no login, which is why they are not four more gaps.
 
      TRUTHINESS, NEVER `in`. The fields are ABSENT when they do not apply, not empty. */
   bugUnannounced_(auth.user, p, title, desc, res);
