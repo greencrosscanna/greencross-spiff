@@ -3304,13 +3304,22 @@
        why this refuses the fifth in the UI instead of accepting it and hoping. */
     var MAX_PICKS = 4;
 
+    /* A product belongs to a brand the way the PAYOUT decides it: case-insensitive "contains".
+       This was ===, so "All National Cannabis Co products" counted zero SKUs against products
+       branded "National Cannabis Co." while the payout counted 267 of their units. The catalog
+       route filters by the same rule, so the two cannot disagree about what "all" means. */
+    function brandHas(productBrand, brand) {
+      var b = String(brand || '').trim().toLowerCase();
+      return !!b && String(productBrand || '').toLowerCase().indexOf(b) >= 0;
+    }
+
     function pickKey(kind, name) { return kind + ':' + String(name).toLowerCase(); }
 
     /* Rebuild the saved shape from the picks. `all` sends brand alone; anything else sends the
        picks as products[] and CLEARS filter_text, which would otherwise AND against them. */
     function composeChosen(picks, all, brand) {
       if (all) {
-        var everything = pick.products.filter(function (x) { return x.b === brand; });
+        var everything = pick.products.filter(function (x) { return brandHas(x.b, brand); });
         return { label: 'All ' + brand + ' products', brand: brand, filter_text: '', products: [],
                  all: true, picks: [],
                  skus: everything.length,
@@ -3338,7 +3347,7 @@
     function costOf(chosen) {
       if (!chosen) return 0;
       if (chosen.all) {
-        var all = pick.products.filter(function (x) { return x.b === chosen.brand && x.cost > 0; });
+        var all = pick.products.filter(function (x) { return brandHas(x.b, chosen.brand) && x.cost > 0; });
         if (!all.length) return 0;
         return all.reduce(function (n, x) { return n + x.cost; }, 0) / all.length;
       }
@@ -4556,7 +4565,9 @@
           });
       };
       var r = await send();
-      if (r && r.code === 'brand_no_match') {
+      /* brand_ambiguous is the same kind of question: the brand matches more than one brand we
+         carry, so the program would count all of them. Worth one confirm, never a wall. */
+      if (r && (r.code === 'brand_no_match' || r.code === 'brand_ambiguous')) {
         if (!window.confirm(r.error + '\n\nSave anyway?')) {
           btn.disabled = false;
           btn.textContent = calc.editingId ? 'Update program' : 'Save program';

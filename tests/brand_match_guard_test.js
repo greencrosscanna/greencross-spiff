@@ -88,5 +88,36 @@ console.log('\n4. the guard is wired where both save paths pass through');
   ok('the refusal is identifiable by code, not by message text', /code: 'brand_no_match'/.test(gs));
 }
 
+console.log('\n5. a brand that matches MORE than one brand asks first — that is the widening');
+{
+  const r = check({ brand: 'Mule' }, catalogOf(['Mule', 'Mule Extracts', 'Wyld']));
+  ok('"Mule" against Mule + Mule Extracts is flagged, not waved through', r.checked === true && r.ok === false);
+  ok('  …as brand_ambiguous, naming both brands it would count',
+     r.code === 'brand_ambiguous' && r.matches.join('|') === 'Mule|Mule Extracts');
+  ok('  …while the full name matches one brand and passes', check({ brand: 'Mule Extracts' }, catalogOf(['Mule', 'Mule Extracts'])).ok === true);
+  ok('saveProgram_ returns it as its own code, with the brands it would count',
+     /code: 'brand_ambiguous'/.test(gs) && /matches: bm\.matches/.test(gs));
+  ok('  …and it is a question, not a wall: confirm_brand skips it like the no-match case',
+     grab('saveProgram_').indexOf("bm.code === 'brand_ambiguous'") > grab('saveProgram_').indexOf('!opts.confirmBrand'));
+}
+
+console.log('\n6. the PICKER now uses the payout rule too, so the two cannot disagree');
+{
+  const run = (brand, products) => new Function('catalogGet_', 'catalogPut_', 'buildCatalog_',
+    grab('catalog_') + '\nreturn catalog_;')(() => ({ products, brands: [], built_at: 'x' }), () => {}, () => null)({ brand });
+  const prods = [{ b: 'National Cannabis Co.', n: 'Tincture' }, { b: 'Mule Extracts', n: 'Dank Tank' }, { b: 'Wyld', n: 'Gummy' }];
+  ok('"National Cannabis Co" now finds the products branded "National Cannabis Co." (was zero)',
+     run('National Cannabis Co', prods).products.length === 1);
+  ok('  …case-insensitively, the same as the payout', run('mule', prods).products.map(x => x.b).join() === 'Mule Extracts');
+  ok('  …and still nothing for a brand we do not carry', run('Sessions', prods).products.length === 0);
+
+  const js = fs.readFileSync(__dirname + '/../spiff.js', 'utf8');
+  ok('the frontend has no exact brand comparison left in the picker', !/x\.b === (brand|chosen\.brand)/.test(js));
+  ok('  …it uses brandHas, which is contains + case-insensitive',
+     /function brandHas\(productBrand, brand\)/.test(js) && /indexOf\(b\) >= 0/.test(js));
+  ok('the save screen asks on brand_ambiguous as well as brand_no_match',
+     /r\.code === 'brand_no_match' \|\| r\.code === 'brand_ambiguous'/.test(js));
+}
+
 console.log(fail ? '\n' + fail + ' FAILED\n' : '\nall passed\n');
 process.exit(fail ? 1 : 0);

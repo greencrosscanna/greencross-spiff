@@ -1020,7 +1020,16 @@ function brandMatchCheck_(matchJson) {
 
   /* Substring, case-insensitive — the same test gxSalesByEmployee_ applies when it counts units. */
   var lower = brand.toLowerCase();
-  if (names.some(function (n) { return n.toLowerCase().indexOf(lower) >= 0; })) return { checked: true, ok: true };
+  var hits = names.filter(function (n) { return n.toLowerCase().indexOf(lower) >= 0; });
+
+  /* MORE THAN ONE BRAND IS THE WIDENING, and this is the one place it can be asked about.
+     "Mule" is contained in both "Mule" and "Mule Extracts", so a program on it is measured and
+     paid over both — and over any brand added later whose name happens to contain it. That can
+     be exactly what was meant (a vendor with sister lines), so it asks rather than refuses, the
+     same way an unmatched brand does. None of the 137 brands in the catalog on 2026-09-11 sits
+     inside another's name, so today this never fires; it is here for the day one does. */
+  if (hits.length > 1) return { checked: true, ok: false, code: 'brand_ambiguous', brand: brand, matches: hits };
+  if (hits.length) return { checked: true, ok: true };
 
   /* Only punctuation/case near-misses are offered. That is the failure this guard is named after —
      a trailing period, a missing space — and it is the one case where naming a suggestion is safe.
@@ -1040,6 +1049,17 @@ function saveProgram_(p, opts) {
      restore over history nobody is editing. Only a human save is checked. */
   if (!opts.fromImport && !opts.confirmBrand) {
     var bm = brandMatchCheck_(p.match_json);
+    if (bm.checked && !bm.ok && bm.code === 'brand_ambiguous') {
+      return {
+        ok: false,
+        code: 'brand_ambiguous',
+        brand: bm.brand,
+        matches: bm.matches,
+        error: 'Brand "' + bm.brand + '" matches more than one brand we carry: "'
+             + bm.matches.join('", "') + '". This program would count sales of all of them. '
+             + 'Use the full brand name to count only one, or save again to confirm all of them.'
+      };
+    }
     if (bm.checked && !bm.ok) {
       return {
         ok: false,
@@ -5229,10 +5249,18 @@ function catalog_(p) {
   if (String(p && p.all) === '1') { out.products = cat.products; return out; }
   if (!brand) { out.products = []; out.brand = ''; return out; }
 
-  /* Exact brand match, not substring: "Mule" must not drag in "Mule Extracts" rows and
-     quietly widen the program's reference units to a brand the vendor does not own. */
+  /* THE SAME RULE THE PAYOUT USES — case-insensitive substring — and on purpose (2026-09-11).
+     This used to be exact (===), to stop "Mule" dragging in "Mule Extracts". But the money path,
+     GX Core's sales_by_employee, has always matched by substring, and so has the reference-units
+     pull, which goes through it. So the exact rule never stopped the widening; it only HID it:
+     a program on "Mule" would be pitched over Mule's products and paid over both brands. And it
+     broke the other way on a real program — "National Cannabis Co" against products branded
+     "National Cannabis Co." showed an empty picker for a program that measured 267 units.
+     Now the picker shows the vendor the products they will actually be charged for, and the
+     widening itself is caught where it can be answered: brandMatchCheck_ asks before saving a
+     brand that matches more than one brand in the catalog. */
   out.brand = brand;
-  out.products = cat.products.filter(function (x) { return String(x.b || '').toLowerCase() === brand; });
+  out.products = cat.products.filter(function (x) { return String(x.b || '').toLowerCase().indexOf(brand) >= 0; });
   return out;
 }
 
