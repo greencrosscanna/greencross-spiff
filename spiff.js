@@ -1394,11 +1394,6 @@
       warn += '<div class="sp-notice is-warn"><span class="sp-notice-l">No contact email</span>'
         + 'A vendor link opens nothing without it &mdash; the rep signs in with their own address.</div>';
     }
-    if (p.edited_by) {
-      warn += '<div class="sp-notice"><span class="sp-notice-l">Hand-corrected</span>'
-        + 'By <b>' + esc(p.edited_by) + '</b> on ' + esc(p.edited_at)
-        + '. Re-importing the Calculator will not overwrite this record.</div>';
-    }
 
     $(REC.body).innerHTML = warn
       + '<h4 class="sp-h4">The program</h4>'
@@ -5050,10 +5045,12 @@
     else if (a.rate_changed) flag = '<span class="sp-flag is-warn">rate ' + money((p.payout_json || {}).amount)
       + ' &rarr; ' + money(a.spiff_amount) + '</span>';
 
-    return '<div class="sp-hist-row' + (dupe ? ' is-suspect' : p.edited_by ? ' is-edited' : '')
+    /* NO "corrected by" PILL (Sky, 2026-09-11). It marked the Calculator-era records Sky fixed by
+       hand while History was being reconciled; with that done, nearly every row carried it and it
+       told nobody anything. edited_by is still stamped on the record — this is display only. */
+    return '<div class="sp-hist-row' + (dupe ? ' is-suspect' : '')
       + '" data-id="' + esc(p.program_id) + '" tabindex="0" role="button">'
-      + '<div><div class="sp-hist-n">' + esc(programLabel(p))
-      +   (p.edited_by ? '<span class="sp-tag-edited">corrected by ' + esc(p.edited_by) + '</span>' : '') + '</div>'
+      + '<div><div class="sp-hist-n">' + esc(programLabel(p)) + '</div>'
       +   '<div class="sp-hist-s">' + esc(p.vendor) + ' &middot; '
       +     esc(p.start_date ? prettyDay(p.start_date) : '—') + ' &rarr; '
       +     esc(p.end_date ? prettyDay(p.end_date) : '—') + '</div>'
@@ -5308,7 +5305,7 @@
     stores.forEach(function (st) {
       var r = run.results[st];
       if (!r) return;
-      units += r.units; hit += r.hit; bts += r.budtenders;
+      units += r.units; hit += r.hit; bts += withRoster(st, r).length;
       if (!run.pulling[st] && !run.failed[st]) back++;
     });
     var btsAll = plannedBts || bts;
@@ -5410,7 +5407,11 @@
 
     var partial = !!run.pulling[st];
     var per = r.target || 0;
-    var goal = per * (r.budtenders || 0);
+    /* Everyone at the store, sellers first, then the people at 0 — see withRoster. The headcount
+       and the store goal follow it: "0 of 4 hit" against four sellers read as if the store had
+       four people, when two more were on the floor at zero. */
+    var all = withRoster(st, r);
+    var goal = per * (all.length || 0);
     var frac = goal ? r.units / goal : 0;
     var ahead = goal ? r.units >= goal : false;
     /* A per-unit program has no individual target, so "0 of 6 hit" and a bar against a goal of
@@ -5419,8 +5420,8 @@
     var cardRate    = (run.prog.payout_json || {}).amount || 0;
     var earning     = (r.rows || []).filter(function (e) { return e.units > 0; }).length;
 
-    var rows = r.rows.length
-      ? r.rows.map(function (e) {
+    var rows = all.length
+      ? all.map(function (e) {
           var short = (e.target || 0) - e.units;
           /* Per unit, anyone who sold is earning — and what they are owed is the useful figure,
              not how far they are from a target that does not exist. */
@@ -5445,10 +5446,10 @@
               + Math.max(0, Math.min(100, frac * 100)).toFixed(1) + '%"></i></div>')
       +   '<div class="sp-pgcard-f">'
       +     (cardPerUnit
-            ? '<span class="done">' + earning + ' of ' + r.budtenders + ' earning</span>'
+            ? '<span class="done">' + earning + ' of ' + all.length + ' earning</span>'
               + '<span>' + money(r.units * cardRate) + '</span>'
-            : '<span class="' + (r.hit === r.budtenders && r.budtenders ? 'done' : '') + '">'
-              + r.hit + ' of ' + r.budtenders + ' hit</span>'
+            : '<span class="' + (r.hit === all.length && all.length ? 'done' : '') + '">'
+              + r.hit + ' of ' + all.length + ' hit</span>'
               + '<span>' + (per ? per + ' each' : '') + '</span>')
       +   '</div></div>'
       + '<div class="sp-pgcard-b">' + rows + '</div>'
@@ -5475,10 +5476,13 @@
    * every row keeps the name Dutchie gave it, which is exactly what the screen showed before. A
    * friendlier label is not worth an error banner. */
   var rosterByDutchie = null;    // null = not loaded yet; {} = loaded, or tried and failed
+  /* Active staff by home store, for the zero rows on What's selling — see withRoster. Empty until
+     the roster lands, and empty for good if it fails, which is exactly the grid as it was before. */
+  var rosterByStore = Object.create(null);
 
   async function loadRoster() {
     if (rosterByDutchie) return rosterByDutchie;
-    var map = Object.create(null);
+    var map = Object.create(null), byStore = Object.create(null);
     try {
       var r = await ENG.jsonp('employees', { token: (session() || {}).token });
       (r && r.employees || []).forEach(function (e) {
@@ -5489,7 +5493,11 @@
         if (id && friendly && nameKey(friendly) !== nameKey(e.full_name)) map[id] = friendly;
         var nk = nameKey(e.full_name);
         if (nk && friendly && nameKey(friendly) !== nk && !map['n:' + nk]) map['n:' + nk] = friendly;
+        var st = String(e.home_store || '').trim();
+        if (st && e.full_name) (byStore[st] || (byStore[st] = [])).push({
+          name: String(e.full_name).trim(), display_name: friendly || String(e.full_name).trim(), employee_id: id });
       });
+      rosterByStore = byStore;
     } catch (err) {
       /* Logged, not surfaced. The screen is fully usable with legal names. */
       console.warn('[spiff] roster unavailable — showing the names Dutchie reported:', err);
@@ -5515,6 +5523,51 @@
       if (nk && map['n:' + nk]) return map['n:' + nk];
     }
     return e.name || '';
+  }
+
+  /* ---------------------------------------------------------- everyone on the floor, not just sellers
+   * Sell-through only knows people who SOLD something, so a budtender with nothing yet was simply
+   * absent from their store's card — Center showed four people when six work there, and the two
+   * missing (its store manager and assistant manager, both at 0) looked unaccounted for rather than
+   * behind. Tawny's hand-built sheet always listed them. Sky, 2026-09-09.
+   *
+   * DISPLAY ONLY, and that is deliberate. The zero rows are added here, at render, from the roster —
+   * not in the engine's sellthrough_. That response also feeds the hourly spiff_progress cache GX
+   * Crew pays from, the kiosks, and what SPIFF publishes to Core; a row there is a contract change
+   * for three consumers, and a zero row pays nobody anything. Nor does it touch who hit or what
+   * anyone earned: a zero row never hits and carries no money.
+   *
+   * Matching a roster person to a seller is by Dutchie id first, then by first + last name, because
+   * Dutchie adds middle names and nicknames the roster does not ("Sareena Sunshine Gonzalez",
+   * 'Jennifer "Jayce" Alexander') and some roster rows have no Dutchie id at all. A miss here shows
+   * someone twice — once with their units and once at 0 — which is visible and harmless; a false
+   * match would hide a person, which is the thing being fixed. */
+  function nameParts(s) {
+    var t = String(s == null ? '' : s).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    return t.length ? { first: t[0], last: t[t.length - 1] } : null;
+  }
+
+  function sameName(a, b) { return !!(a && b && a.first === b.first && a.last === b.last); }
+
+  function withRoster(st, r) {
+    var rows = (r && r.rows) || [];
+    var people = rosterByStore[st] || [];
+    if (!people.length) return rows;
+    var ids = Object.create(null), sold = [];
+    rows.forEach(function (e) {
+      if (e.employee_id) ids[String(e.employee_id)] = 1;
+      sold.push(nameParts(e.name));
+    });
+    var zeros = people.filter(function (p) {
+      if (p.employee_id && ids[p.employee_id]) return false;
+      var mine = [nameParts(p.name), nameParts(p.display_name)];
+      return !sold.some(function (t) { return mine.some(function (m) { return sameName(m, t); }); });
+    }).map(function (p) {
+      return { name: p.name, display_name: p.display_name, employee_id: p.employee_id, store_id: st,
+               units: 0, revenue: 0, target: (r && r.target) || 0, hit: false, rostered: true };
+    });
+    zeros.sort(function (a, b) { return a.display_name < b.display_name ? -1 : 1; });
+    return rows.concat(zeros);
   }
 
   function initials(name) {
@@ -5822,7 +5875,10 @@
       /* The roster may have landed after Progress already painted — repaint so the friendly names
          appear without the user having to switch away and back. Cheap: it re-renders from data
          already in hand, with no further calls. */
-      if (state.tab === 'progress') paintProgress();
+      /* Keyed on a live run, not on state.tab === 'progress': that tab was retired 2026-09-08 and
+         the grid moved onto the Calculator, so the old test never fired again — and it now also
+         carries the zero rows, which cannot appear until the roster has landed. */
+      if (pgRun) paintProgress();
     });
   }
 

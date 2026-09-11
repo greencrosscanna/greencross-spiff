@@ -1463,17 +1463,11 @@ body.is-gated .workspace { display: none !important; }
 .sp-hist-row:hover { background: var(--gx-surface-2); }
 .sp-hist-row:focus-visible { outline: 2px solid var(--gx-green); outline-offset: -2px; }
 .sp-hist-row.is-suspect { border-left: 3px solid var(--gx-red); }
-.sp-hist-row.is-edited { border-left: 3px solid var(--gx-green-dim); }
 .sp-hist-n { font-weight: 600; }
 .sp-hist-s { font-size: 11.5px; color: var(--gx-text-mute); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .sp-hist-row .num { text-align: right; font-variant-numeric: tabular-nums; }
 .sp-hist-lbl { font-size: 11px; color: var(--gx-text-mute); }
 .sp-hist-empty { padding: 30px 20px; text-align: center; color: var(--gx-text-mute); font-size: 13px; }
-.sp-tag-edited {
-  font-size: 9.5px; letter-spacing: .8px; text-transform: uppercase;
-  color: var(--gx-green); border: 1px solid var(--gx-green-dim); border-radius: 4px;
-  padding: 1px 5px; margin-left: 7px;
-}
 @media (max-width: 1000px) {
   .sp-hist-stats { grid-template-columns: repeat(2, 1fr); }
   .sp-hist-row { grid-template-columns: 1fr auto; row-gap: 6px; }

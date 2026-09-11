@@ -143,7 +143,7 @@ ok('the units tile drops the "/ target" half when there is no target',
 
 const card = grab('pgCard');
 ok('each store card reports who is earning rather than who "hit"',
-   /earning \+ ' of ' \+ r\.budtenders \+ ' earning<\/span>'/.test(card));
+   /earning \+ ' of ' \+ all\.length \+ ' earning<\/span>'/.test(card));
 ok('  …and shows the store’s money instead of a per-head target',
    /money\(r\.units \* cardRate\)/.test(card));
 ok('a budtender’s row shows what they have EARNED, not how far short they are',
@@ -158,7 +158,7 @@ ok('no progress bar is drawn when there is no goal to draw it against',
 
 /* The flat path must be untouched — 22 of the 24 programs are flat. */
 ok('flat programs still report hit against target',
-   /r\.hit \+ ' of ' \+ r\.budtenders \+ ' hit<\/span>'/.test(card) &&
+   /r\.hit \+ ' of ' \+ all\.length \+ ' hit<\/span>'/.test(card) &&
    /budtenders at their target/.test(paint));
 ok('  …and still price the ceiling as everyone landing it',
    /money\(btsAll \* rate\)/.test(paint));
