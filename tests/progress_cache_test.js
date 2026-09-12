@@ -87,9 +87,13 @@ function load() {
     ${grab('forceProgressTextDates_')} ${grab('refreshSpiffProgress_')}
     ${grab('userKey_')} ${grab('displayNameMap_')} ${grab('friendlyName_')}
     ${grab('spiffProgress_')} ${grab('refreshProgressPlan_')}
+    /* The program sidecar and the two helpers that put a program into words. Real, not stubbed:
+       what Leaderboard draws on a kiosk is whatever these return. */
+    ${grab('productLabelOf_')} ${grab('normalizePitch_')} ${grab('programsFor_')}
+    var PITCH_MAX_TIPS = 5, PITCH_MAX_LEN = 240;
     return { refreshSpiffProgress_, spiffProgress_, progEarned_, stampOf_, textDate_,
              forceProgressTextDates_, payPeriodMatches_, refreshProgressPlan_,
-             displayNameMap_, friendlyName_ };`;
+             displayNameMap_, friendlyName_, programsFor_ };`;
   const PropertiesService = { getScriptProperties: () => ({ getProperty: () => 'SEKRET' }) };
   /* Honors BOTH arguments on purpose. A mock that ignored the timezone would have passed happily
      through the very bug this file now guards: formatting a UTC-midnight date in LA time and
@@ -463,6 +467,48 @@ ok('an unreadable roster leaves every name as Dutchie reported it, and still ans
    noRoster.ok !== false && noRoster.rows.length === 3
    && noRoster.rows.every(function (r) { return !r.display_name; })
    && noRoster.rows.every(function (r) { return !!r.name; }));
+
+/* ══════════════ THE PROGRAM SIDECAR (2026-09-11) ══════════════
+ * Leaderboard draws the kiosk popup itself now, and a per-employee row cannot say what the SPIFF
+ * is ON, what the store's goal is, what it pays, or what Tawny wants said about it — those live on
+ * the program. Before this it INFERRED the reward from what people had already been paid, which is
+ * a guess about money.
+ * These run programsFor_ for real: what it returns is what a wall screen prints.
+ */
+ROSTER = [];
+const RICH = Object.assign({}, PROG, {
+  match_json: { brand: 'Mule Extracts', products: ['Live Resin Dank Tank | 2g'] },
+  target_json: { units: 168, by_store: { bend: 42, center: 18 }, per_bt: { bend: 7, center: 3 } },
+  pitch_json: { tips: ['Lead with the live resin', '', 'Mention battery compatibility'] },
+  payout_json: { type: 'flat', amount: 25 }
+});
+PROGRAMS = () => [RICH];
+M = load();
+const sc = M.spiffProgress_({}).programs;
+ok('the read carries one entry per program, not one per row',
+   Array.isArray(sc) && sc.length === 1 && M.spiffProgress_({}).rows.length === 3);
+const p0 = sc[0];
+ok('  …naming the product in words a kiosk can print', p0.product === 'Live Resin Dank Tank | 2g');
+ok('  …with the goal for EACH store, since one program runs at six with six numbers',
+   p0.store_goals.bend === 42 && p0.store_goals.center === 18 && p0.bt_goals.bend === 7);
+ok('  …what it pays, and on which model — no longer inferred from what people were paid',
+   p0.payout === 25 && p0.payout_type === 'flat');
+ok('  …and Tawny\'s tips, blanks dropped, as the kiosk shows them',
+   p0.tips.length === 2 && p0.tips[0] === 'Lead with the live resin');
+ok('  …plus the identity a consumer joins on', p0.program_id === 'P1' && p0.vendor === 'Wyld');
+/* NO PER-PERSON MONEY travels in the sidecar — `earned` belongs to the row it was computed on. */
+ok('the sidecar carries no per-person earnings', !('earned' in p0) && !('rows' in p0));
+/* A brand-wide SPIFF has no product list, and "all of this vendor" is the readable answer. */
+PROGRAMS = () => [Object.assign({}, RICH, { match_json: { brand: 'Mule Extracts' } })];
+M = load();
+ok('a brand-wide program reads as all of that vendor',
+   M.spiffProgress_({}).programs[0].product === 'All Mule Extracts products');
+/* A program with no rows in this slice must not be described — a publication should never talk
+   about a program it has no measurements for. */
+PROGRAMS = () => [RICH, Object.assign({}, RICH, { program_id: 'P2', program_name: 'Other' })];
+M = load();
+ok('only programs the rows actually belong to are described',
+   M.spiffProgress_({}).programs.map(function (x) { return x.program_id; }).join() === 'P1');
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nprogress cache: all passed');
 process.exit(fail ? 1 : 0);

@@ -2463,6 +2463,9 @@ function publishSpiffToCore_(opts) {
       ok: true, pay_period: scope, status: null,
       rows: rows,
       by_employee: byEmployee_(rows),
+      /* Scoped to THIS period's rows, so a consumer holding one publication is never told about a
+         program it has no rows for. */
+      programs: programsFor_(rows),
       refreshed_at: rows.reduce(function (n, r) {
         var t = String(r.refreshed_at || ''); return t > n ? t : n;
       }, ''),
@@ -2489,6 +2492,54 @@ function publishSpiffToCore_(opts) {
 
   return { ok: !failed.length, published: done, failed: failed,
            undated_program_ids: dedupe_(undated) };
+}
+
+/* ── THE PROGRAM SIDECAR — what a row cannot say about the program it belongs to ─────────────────
+ * Asked for by Leaderboard 2026-09-11, Sky's call: the kiosk popup stops framing SPIFF's store page
+ * and gets drawn natively, so Leaderboard needs the four things only the `programs` tab holds —
+ * the product in words, the store's goal, what it pays, and Tawny's tips. Without them it was
+ * INFERRING the reward from what everyone had been paid so far, which is a guess about money.
+ *
+ * A SIDECAR, NOT REPEATED COLUMNS. Both were offered; this is one entry per program rather than
+ * the same tips array copied onto every employee row, and the rows stay exactly the shape Crew and
+ * the kiosks already parse — nothing existing has to change to ignore it.
+ *
+ * BUILT FROM THE PROGRAM RECORD, not from the cached rows, because that is the only place these
+ * live — and read through the same helpers the operator screen and the kiosk page use
+ * (productLabelOf_, normalizePitch_, payoutRateOf_, payoutModelOf_), so a program cannot be
+ * described one way here and another way on screen.
+ *
+ * NO PER-PERSON MONEY IN HERE. `payout` is the program's rate, which is on the vendor's own
+ * proposal; what an individual earned stays on the row where it already was. */
+function programsFor_(rows) {
+  var want = Object.create(null);
+  (rows || []).forEach(function (r) { if (r && r.program_id) want[String(r.program_id)] = 1; });
+  var ids = Object.keys(want);
+  if (!ids.length) return [];
+
+  var out = [];
+  listProgramsCached_().forEach(function (pr) {
+    if (!want[String(pr.program_id)]) return;
+    var tgt = pr.target_json || {};
+    out.push({
+      program_id: pr.program_id,
+      vendor: pr.vendor || '',
+      program_name: pr.program_name || pr.title || '',
+      status: String(pr.status || '').toLowerCase(),
+      start_date: textDate_(pr.start_date), end_date: textDate_(pr.end_date),
+      /* The words a kiosk can show — "All Mule Extracts products" for a brand-wide SPIFF. A filter
+         is not readable on a wall screen. */
+      product: productLabelOf_(pr),
+      payout: payoutRateOf_(pr),
+      payout_type: payoutModelOf_(pr),
+      /* Maps keyed on store_id: a program runs at six stores with six different goals, and a
+         consumer rendering one store must not have to guess which number is theirs. */
+      store_goals: tgt.by_store || {},
+      bt_goals: tgt.per_bt || {},
+      tips: normalizePitch_(pr.pitch_json).tips
+    });
+  });
+  return out;
 }
 
 /* One line per person for a slice of rows. Same rule as spiffProgress_: keyed on employee_id where
@@ -2962,6 +3013,11 @@ function spiffProgress_(p) {
 
   return { ok: true, pay_period: wantPP || null, status: wantStatus || null, rows: rows,
            by_employee: Object.keys(by).map(function (k) { return by[k]; }),
+           /* The program sidecar — see programsFor_. Carried HERE as well as on the published
+              payload, because the publication's whole promise is "the same keys ?action=progress
+              returns, so a consumer can switch source without a rewrite". A field on one and not
+              the other breaks exactly that. */
+           programs: programsFor_(rows),
            refreshed_at: newest,
            orphan_program_ids: Object.keys(orphans), orphan_rows: orphanRows };
 }
