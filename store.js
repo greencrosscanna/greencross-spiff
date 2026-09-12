@@ -9,10 +9,17 @@
  * A link minted per program would need re-pasting into six kiosks every time a SPIFF ended, and
  * the first time somebody forgot, a kiosk would show a finished program as though it were live.
  *
- * WHAT IT DELIBERATELY DOES NOT SHOW: any budtender's name or units, anyone's earnings, vendor
- * cost, investment or ROI. The engine's `storeView` route returns none of those, so this page
- * cannot leak them even if it is edited carelessly later — scope lives on the server and this
- * file only has to render honestly. The personal view is flyer.html, which keeps its sign-in.
+ * IT SHOWS NAMES AND PROGRESS SINCE 2026-09-11, and that reversed what this file used to say.
+ * Sky's call, confirmed here directly: the kiosk's SPIFF button now opens this page in a popup
+ * instead of Leaderboard's own panel, so the per-person bars that lived in that panel moved here.
+ * The reason it is not a new exposure: the Leaderboard board on the SAME wall screen already
+ * carries every person's SPIFF units and target on their staff card, all day.
+ *
+ * WHAT IT STILL DELIBERATELY DOES NOT SHOW: anyone's EARNINGS, and no vendor cost, investment or
+ * ROI — a customer can read this over the counter, and money per person is the half that reads
+ * worst there. The engine's `storeView` route returns none of it, so this page cannot leak it even
+ * if it is edited carelessly later: scope lives on the server and this file only has to render
+ * honestly. The personal view is flyer.html, which keeps its sign-in and shows what YOU are owed.
  */
 'use strict';
 (function () {
@@ -110,6 +117,11 @@
       /* TAWNY'S TIPS. The reason this page exists beyond the numbers — the numbers say what the
          deal is, these say how to sell it. Absent rather than an empty heading when she has not
          written any: a "Selling tips" label over nothing reads as a broken page. */
+      /* THE TEAM, one row each. Everyone at the store is here, including whoever has not sold any
+         yet — a board that lists only sellers cannot tell you whether you are behind or missing.
+         No money per person: this screen faces the room. */
+      + crew(p)
+
       + ((p.tips || []).length
           ? '<div class="st-tips">'
             + '<div class="st-tips-h">How to sell it</div>'
@@ -119,6 +131,45 @@
             + '</div>'
           : '')
       + '</article>';
+  }
+
+  /* "2026-09-11 11:00:32" → "11:00am". The figures come from the hourly refresh, not live, and a
+     board that does not say so is a board that gets trusted to the minute. */
+  function prettyStamp(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(String(s || ''));
+    if (!m) return '';
+    var h = Number(m[4]), ap = h >= 12 ? 'pm' : 'am';
+    return ((h % 12) || 12) + ':' + m[5] + ap;
+  }
+
+  function crew(p) {
+    var people = p.people || [];
+    if (!people.length) return '';
+    var goal = Number(p.bt_goal) || 0;
+    var perUnit = String(p.payout_type || 'flat').toLowerCase() === 'per_unit';
+    var at = prettyStamp(p.measured_at);
+
+    return '<div class="st-crew">'
+      + '<div class="st-crew-h">'
+      +   '<span>' + (perUnit ? 'Sold so far' : 'How everyone is doing') + '</span>'
+      +   (at ? '<span class="st-crew-at">as of ' + esc(at) + '</span>' : '')
+      + '</div>'
+      + people.map(function (e) {
+          var units = Number(e.units) || 0;
+          /* Against a goal of zero there is nothing to draw — a full-width empty track reads as
+             "you have sold nothing" on a program that has no personal target at all. */
+          var pct = goal > 0 ? Math.max(0, Math.min(100, (units / goal) * 100)) : 0;
+          return '<div class="st-bt' + (e.hit ? ' is-hit' : '') + '">'
+            + '<span class="st-bt-n">' + esc(e.name) + '</span>'
+            + (goal > 0
+                ? '<span class="st-bt-bar"><i style="width:' + pct.toFixed(1) + '%"></i></span>'
+                : '<span class="st-bt-bar is-none"></span>')
+            + '<span class="st-bt-u">' + units.toLocaleString()
+            +   (goal > 0 ? '<small>/' + goal.toLocaleString() + '</small>' : '')
+            + '</span>'
+            + '</div>';
+        }).join('')
+      + '</div>';
   }
 
   function render(d) {

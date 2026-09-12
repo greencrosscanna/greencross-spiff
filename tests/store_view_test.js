@@ -61,8 +61,11 @@ function emittedKeys(block) {
 const perProgram = view.slice(view.indexOf('out.push({'), view.indexOf('});', view.indexOf('out.push({')));
 const envelope   = view.slice(view.lastIndexOf('return { ok: true'));
 
+/* `people` and `measured_at` were added 2026-09-11 — see the PEOPLE block below, which is where
+   the reversal is argued and where the line that did NOT move (earnings) is pinned. */
 const PROGRAM_ALLOWED = ['program_id', 'vendor', 'program_name', 'start_date', 'end_date',
-                         'product', 'store_goal', 'bt_goal', 'payout', 'payout_type', 'tips'];
+                         'product', 'store_goal', 'bt_goal', 'payout', 'payout_type', 'tips',
+                         'people', 'measured_at'];
 const ENVELOPE_ALLOWED = ['ok', 'store_id', 'store_name', 'today', 'programs'];
 
 const progKeys = emittedKeys(perProgram);
@@ -87,7 +90,41 @@ ok('the kiosk page never reads the personal route',
 ok('  …and has no sign-in of any kind',
    !/spiff_session/.test(sjs) && !/renderGate/.test(sjs) && !/password/i.test(sjs));
 ok('  …and says so in the markup, so the next reader does not add one',
-   /no sign-in and shows no person/.test(shtml));
+   /no sign-in/.test(shtml) && /never shows anyone's earnings/.test(shtml));
+
+/* ══════════════════ 1b. THE PEOPLE SLICE — WHAT MOVED, AND WHAT DID NOT ══════════════════
+ * Sky, 2026-09-11: the kiosk's SPIFF button now opens this page directly, so the per-person bars
+ * that Leaderboard's own panel drew move here. That reverses "no person on this page" — with his
+ * confirmation, and on the ground that the Leaderboard board on the SAME screen already shows each
+ * person's SPIFF units and target on their staff card.
+ *
+ * EARNINGS DID NOT MOVE, and that is what this block exists to hold. Money per person is the half
+ * that reads worst over a counter, and it is one property away at every step: the cached row this
+ * reads carries `earned`, and returning the row would have shipped it.
+ */
+const people = grab(gs, 'storePeople_');
+const PERSON_ALLOWED = ['name', 'units', 'target', 'hit', 'unmeasured', 'people', 'measured_at'];
+ok('a person on the kiosk board carries only name, units, target and hit',
+   emittedKeys(people).every(k => PERSON_ALLOWED.indexOf(k) >= 0));
+['earned', 'employee_id', 'revenue', 'payout', 'user_id']
+  .forEach(k => ok('  …no `' + k + '` on a kiosk person', emittedKeys(people).indexOf(k) < 0));
+ok('  …and `earned` is not even read off the cached row', !/\.earned/.test(people));
+ok('it reads the hourly cache, not a live Dutchie pull — six kiosks polling sell-through would crawl',
+   /progressRowsFor_\(/.test(people) && people.indexOf('sellthrough_') < 0);
+ok('  …and says how old the figures are, so a board is not trusted to the minute',
+   /measured_at/.test(view) && /as of /.test(sjs));
+ok('only THIS store\'s people are on this store\'s board',
+   /slug_\(r\.store_id\) !== store/.test(people));
+ok('everyone at the store is listed, including whoever has sold none yet',
+   /gxEmployees_\(\)/.test(people) && /units: 0/.test(people));
+ok('  …and a roster that could not be read adds nobody rather than emptying the board',
+   /roster = \[\]/.test(people));
+ok('the goal a bar is drawn against is the PROGRAM\'s per-store goal, not the cached row\'s',
+   /x\.target = perBt/.test(view));
+ok('the page draws no bar when there is no personal goal to draw it against',
+   /goal > 0/.test(sjs) && /is-none/.test(sjs));
+ok('nothing on the kiosk renders money for a PERSON',
+   !/money\(/.test(grab(sjs, 'crew')));
 
 /* ══════════════════ 2. THE TOKEN IS THE CREDENTIAL, AND IT IS CHECKED ══════════════════ */
 ok('a missing token is refused', /if \(!tok\) return \{ ok: false/.test(view));

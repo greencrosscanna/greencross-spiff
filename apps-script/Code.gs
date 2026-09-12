@@ -3902,6 +3902,76 @@ function publishKioskTokens_(p) {
   };
 }
 
+/* ── THE PEOPLE ON THE BOARD AT ONE STORE ────────────────────────────────────────────────────────
+ * Sky, 2026-09-11, asked for via Leaderboard: the kiosk's SPIFF button now opens store.html
+ * directly, so this page went from a secondary view to the whole feature, and the per-person
+ * progress bars that lived in Leaderboard's own panel move here.
+ *
+ * THIS REVERSES WHAT THIS PAGE WAS FOR, so the reasoning is worth keeping. store.js said: a kiosk
+ * faces the room, and one budtender's numbers are not the room's business. What changed is that the
+ * Leaderboard board on the SAME wall screen already carries every person's SPIFF units and target on
+ * their staff card, all day — so on that screen this adds nothing new. Sky confirmed it directly
+ * here, not through the peer request.
+ *
+ * WHAT STAYS OUT, and this is the half that reads worst over a counter: EARNINGS. No `earned`, no
+ * payout per person, no cost or ROI. Progress toward a goal is what was asked for and all that is
+ * returned — a consumer cannot render what the route does not send.
+ *
+ * IDs stay out too. A kiosk page needs a name and two numbers; `employee_id` would be one more
+ * thing riding on a credential-free URL for nobody's benefit.
+ *
+ * FROM THE CACHE, never a live Dutchie pull. Six kiosks polling ~9s-per-store sell-through would be
+ * both slow and pointless: the hourly refresh is what every other consumer reads, and a kiosk that
+ * disagreed with Crew's column would be a second answer. `measured_at` rides along so the page can
+ * say how old the figures are rather than implying they are live.
+ *
+ * EVERYONE AT THE STORE, including the people at zero — same rule the operator grid got the same
+ * day. A budtender missing from the board cannot tell whether they sold nothing or were left out.
+ */
+function storePeople_(programId, store) {
+  var rows = [];
+  try { rows = progressRowsFor_(programId) || []; } catch (e) { return { people: [], measured_at: '' }; }
+
+  var nameMap = displayNameMap_();
+  var out = [], seenId = Object.create(null), seenName = Object.create(null), newest = '';
+  rows.forEach(function (r) {
+    if (slug_(r.store_id) !== store) return;
+    var id = String(r.employee_id || '').trim();
+    var friendly = friendlyName_(nameMap, id, r.name) || String(r.name || '').trim();
+    if (!friendly) return;
+    if (id) seenId[id] = 1;
+    seenName[userKey_(r.name)] = 1;
+    seenName[userKey_(friendly)] = 1;
+    out.push({ name: friendly, units: Number(r.units) || 0,
+               target: Number(r.target) || 0, hit: !!r.hit });
+    var st = stampOf_(r.refreshed_at);
+    if (st > newest) newest = st;
+  });
+
+  /* The roster fills in whoever the cache has no row for. A read that fails adds nobody, which is
+     the board exactly as it was — never a reason to show no one. */
+  var roster = [];
+  try { var e = gxEmployees_(); roster = (e && e.ok && e.employees) || []; } catch (e2) { roster = []; }
+  roster.forEach(function (emp) {
+    if (slug_(emp.home_store || '') !== store) return;
+    var id = String(emp.dutchie_employee_id || '').trim();
+    if (id && seenId[id]) return;
+    var full = String(emp.full_name || '').trim();
+    var friendly = String(emp.display_name || full).trim();
+    if (!friendly) return;
+    if (seenName[userKey_(full)] || seenName[userKey_(friendly)]) return;
+    out.push({ name: friendly, units: 0, target: 0, hit: false, unmeasured: true });
+  });
+
+  /* Most sold first, then alphabetical, so the board reads as a board and a zero row is not a
+     random position that looks like a ranking. */
+  out.sort(function (a, b) {
+    if (b.units !== a.units) return b.units - a.units;
+    return String(a.name).localeCompare(String(b.name));
+  });
+  return { people: out, measured_at: newest };
+}
+
 /* THE KIOSK READ. No token in the GX sense and no session — the URL token IS the credential, so
  * it is matched against a live row and nothing else is trusted from the caller. */
 function storeView_(p) {
@@ -3935,8 +4005,16 @@ function storeView_(p) {
 
     var tgt = pr.target_json || {};
     var pitch = normalizePitch_(pr.pitch_json);
+    var crew = storePeople_(pr.program_id, store);
+    /* The per-budtender target is the program's per_bt for this store. The cached row carries one
+       too, but it can be the split-across-sellers fallback sellthrough_ computes when no per_bt is
+       set, which changes as people sell — a bar whose goal moves under the person reading it. */
+    var perBt = Number((tgt.per_bt || {})[store]) || 0;
+    crew.people.forEach(function (x) { x.target = perBt; x.hit = perBt > 0 && x.units >= perBt; });
     out.push({
       program_id: pr.program_id,
+      people: crew.people,
+      measured_at: crew.measured_at,
       /* The joined label is built in the browser from vendor + name, exactly as the operator app
          does it — one rule, not two that agree by luck. */
       vendor: pr.vendor || '', program_name: pr.program_name || pr.title || '',
