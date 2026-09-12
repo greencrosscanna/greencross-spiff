@@ -1527,17 +1527,15 @@ var _authMemo = Object.create(null);
 function gxAuth_(token) {
   if (!token) return { ok: false, error: 'Not signed in' };
   if (_authMemo[token]) return _authMemo[token];
-  try {
-    var url = GXCORE_URL + '?action=validate&app=' + encodeURIComponent(APP) + '&token=' + encodeURIComponent(token);
-    var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
-    var parsed = JSON.parse(res.getContentText());
-    _authMemo[token] = parsed;
-    return parsed;
-  } catch (e) {
-    /* Deliberately NOT memoized: a transient Core hiccup must not pin this execution into a
-       failure it would recover from on the next call. */
-    return { ok: false, error: 'Could not reach GX Core to verify your session' };
-  }
+  var url = GXCORE_URL + '?action=validate&app=' + encodeURIComponent(APP) + '&token=' + encodeURIComponent(token);
+  /* RETRIED, because /exec bounces and the cost of not retrying here is a person being told they
+     are signed out in the middle of a save. A READ — it asks Core a question and changes nothing —
+     so a repeat is free. */
+  var r = gxCoreFetchJson_(url, 'session check');
+  if (r.ok) { _authMemo[token] = r.data; return r.data; }
+  /* Deliberately NOT memoized: a transient Core hiccup must not pin this execution into a
+     failure it would recover from on the next call. */
+  return { ok: false, error: 'Could not reach GX Core to verify your session — ' + scrubSecrets_(r.error) };
 }
 
 function programToRow_(p, audit) {
@@ -3356,6 +3354,90 @@ function scrubSecrets_(msg) {
     .replace(/(secret|token|key|pass|password)=[^&\s"']*/gi, '$1=[redacted]');
 }
 
+/* ── ONE BOUNDED RETRY FOR EVERY GX CORE READ OVER HTTP ───────────────────────────────────────
+ *
+ * GX Core's `/exec` bounces. Measured 2026-09-11/12: the SAME request either answers in ~2s or
+ * stalls and comes back as Google's HTML error page — five or six failures in ten consecutive
+ * calls during a bad spell. It is Google's second hop, not our code and not our auth; gx-client.js
+ * has carried the browser-side retry for exactly this since the Drive-HTML incident, and the
+ * server side never got one.
+ *
+ * WHAT THAT COST. gxSalesByEmployee_ — the call behind every vendor payout number — already
+ * DETECTED the bounce and then gave up on the first one, reporting "auth or redirect issue". So a
+ * payout calculation failed during a bad spell and sent whoever was standing there to check a
+ * deploy secret that was never wrong. One more call, half a second later, usually worked.
+ *
+ * READS ONLY — and this is the constraint, not a caveat. Retrying a read is free: the worst case
+ * is the same answer twice. Retrying a WRITE re-sends it, and nothing in GX Core's secret-gated
+ * routes is idempotent by contract — gxWrite_ replaces whole rows and the append path had a race
+ * fixed only last night. Do not wrap a write in this without deciding, per route, what a duplicate
+ * does. The kiosk-token set_config call below is a write and is deliberately left at one attempt.
+ *
+ * RETRY TRANSPORT, NEVER AN ANSWER. A thrown fetch, a non-200, an HTML body, a body that will not
+ * parse — nothing at the far end formed an opinion, so ask again. A parsed {ok:false} IS GX Core
+ * answering: retrying "bad deploy secret" burns three times the wait, fails anyway, and buries the
+ * one message that would have explained it. dutchieInventoryViaGXCore_ has drawn that line right
+ * since 2026-08-31 ("A refusal is final"); this makes it the rule instead of one function's habit.
+ *
+ * THE ELAPSED BUDGET IS NOT DECORATION. A bounce sometimes STALLS rather than failing fast, and
+ * Google terminates /exec around 60s — so three stalled attempts would turn a recoverable failure
+ * into a dead page. Once the budget is spent the loop stops and says that is why, rather than
+ * spending the caller's last seconds on an attempt that cannot finish.
+ *
+ * Returns { ok:true, data } when GX Core answered at all — the caller decides what data.ok means —
+ * or { ok:false, error, attempts } when it never did. Errors are scrubbed: the URLs handed to this
+ * function carry GX_DEPLOY_SECRET, and UrlFetchApp puts the whole URL in its exception message.
+ */
+var GXCORE_FETCH_ATTEMPTS   = 3;
+var GXCORE_FETCH_BACKOFF_MS = [500, 1500];   // long enough to miss the bad instance, short enough
+                                             // that a person waiting on a payout does not give up
+var GXCORE_FETCH_BUDGET_MS  = 40000;         // stop starting attempts once /exec's ~60s is in sight
+
+function gxCoreFetchJson_(url, label) {
+  var t0 = Date.now();
+  var attempts = 0, last = '', ranOut = false;
+
+  for (var i = 0; i < GXCORE_FETCH_ATTEMPTS; i++) {
+    attempts++;
+    try {
+      var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+      var code = resp.getResponseCode();
+      var body = String(resp.getContentText() == null ? '' : resp.getContentText());
+      if (code !== 200) {
+        last = 'HTTP ' + code + ' from GX Core';
+      } else if (body.replace(/^\uFEFF/, '').trim().indexOf('<') === 0) {
+        /* Google's error page, or Apps Script's consent page. Both are HTML where JSON belongs,
+           and both are worth one more ask — the consent case will keep returning HTML and land on
+           the give-up message, which is honest about not knowing which it was. */
+        last = 'GX Core returned an HTML page where JSON belongs';
+      } else {
+        /* A sentinel, not `parsed !== null` — JSON.parse('null') is a legitimate parse and must
+           not be mistaken for a failure to parse. */
+        var parsed = null, parsedOk = false;
+        try { parsed = JSON.parse(body); parsedOk = true; }
+        catch (e) { last = 'GX Core returned a body that is not JSON'; }
+        if (parsedOk) return { ok: true, data: parsed, attempts: attempts };
+      }
+    } catch (e) {
+      last = scrubSecrets_((e && e.message) || e);
+    }
+
+    if (i >= GXCORE_FETCH_ATTEMPTS - 1) break;
+    if (Date.now() - t0 >= GXCORE_FETCH_BUDGET_MS) { ranOut = true; break; }
+    Utilities.sleep(GXCORE_FETCH_BACKOFF_MS[i]);
+  }
+
+  return {
+    ok: false, attempts: attempts,
+    error: (label ? label + ' failed: ' : '')
+         + 'GX Core did not answer after ' + attempts + ' attempt' + (attempts === 1 ? '' : 's')
+         + (ranOut ? ' (stopped early — the attempts were taking too long to keep trying)' : '')
+         + '. The last one was a transport bounce, not a credentials problem — GX Core\'s /exec '
+         + 'endpoint intermittently drops requests. Nothing is misconfigured; try again in a '
+         + 'minute. Last failure: ' + scrubSecrets_(last),
+  };
+}
+
 function gxSalesByEmployee_(secret, from, to, store, match) {
   var url = GXCORE_URL + '?action=sales_by_employee'
     + '&secret='  + encodeURIComponent(secret)
@@ -3367,14 +3449,11 @@ function gxSalesByEmployee_(secret, from, to, store, match) {
     + (match.filter_text ? '&filter_text=' + encodeURIComponent(match.filter_text) : '')
     + ((match.products && match.products.length) ? '&products=' + encodeURIComponent(match.products.join(',')) : '');
 
-  try {
-    var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
-    var body = resp.getContentText();
-    if (body.indexOf('<') === 0) return { ok: false, error: 'GX Core returned HTML (auth or redirect issue)' };
-    return JSON.parse(body);
-  } catch (e) {
-    return { ok: false, error: 'GX Core unreachable: ' + scrubSecrets_(e && e.message || e) };
-  }
+  /* THREE ATTEMPTS, and the error no longer blames auth. This is a READ, so a repeat costs nothing
+     but the wait; see gxCoreFetchJson_ for why a write may not do the same. */
+  var r = gxCoreFetchJson_(url, 'sell-through for ' + String(store || 'all stores'));
+  if (!r.ok) return { ok: false, error: scrubSecrets_(r.error), attempts: r.attempts };
+  return r.data;
 }
 
 /* ========================== VENDOR CLIENT VIEW =======================
@@ -3745,6 +3824,12 @@ function gxPublishKioskToken_(storeId, token) {
       + 'blanked on revoke; empty means no token and no kiosk button. Do not edit by hand — '
       + 'the value here must match the live row in SPIFF store_links or the button opens a dead page.');
 
+  /* NOT gxCoreFetchJson_, and this is the one exception worth stating out loud: set_config is a
+     WRITE. That helper retries transport failures, which is free for a read and is a decision per
+     route for a write — a bounce can land AFTER Core has already applied the change, so a retry can
+     be a second write. Here that is probably harmless (the same token, written twice) but "probably"
+     is not the standard for something a kiosk opens on, and the failure mode of a single attempt is
+     a visible error next to a button, not a wrong value. Single attempt, on purpose. */
   try {
     var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
     var body = resp.getContentText();
@@ -4906,15 +4991,42 @@ function gxEmployees_(opts) {
   return { ok: true, employees: out, by_store: byStore, roles: roles, count: out.length };
 }
 
-// Stores are shared truth — pulled, never hardcoded, so Command Center edits flow through.
+/* Stores are shared truth — pulled, never hardcoded, so Command Center edits flow through.
+ *
+ * THE LIBRARY, NOT THE WEB ROUTE (2026-09-12). This used to fetch ?action=stores over HTTP, which
+ * put the store registry — read on the vendor flyer, the kiosk-link panel, the close-out report and
+ * every sell-through grid — behind the same bouncing /exec hop that was failing payout calculations.
+ * There was never a reason for it: this app BINDS the GXCore library, getStores() opens the GX Core
+ * spreadsheet BY ID, and a library call runs inside this execution. No second hop, nothing to bounce.
+ *
+ * THE RULE THAT DECIDES THIS, from GX Core's own source: a library function may be called from a
+ * spoke IF it only touches things opened by id; the moment it needs one of GX CORE's ScriptProperties
+ * it has to be a web route, because getScriptProperties() scopes to the CALLING project. getStores
+ * qualifies. getSalesByEmployee explicitly does NOT — it reads Dutchie keys from Core's properties —
+ * which is why gxSalesByEmployee_ stays an HTTP call with a retry and must not be "improved" into a
+ * library call. dutchieInventoryViaGXCore_ is the same story, written up where it lives.
+ *
+ * THE SHAPES DIFFER, so this was checked rather than assumed. The route returns {stores:[…]} and the
+ * library returns the array itself; the route also slugs store_id and sorts by sort_order, which the
+ * library does not. Both are reproduced here — callers compare against 'river-rd' and several iterate
+ * to render, so neither is cosmetic.
+ *
+ * ONE FIELD IS NOT REPRODUCED, deliberately: the route DERIVES short_code from display_name (stored
+ * codes collide — Century and Center were both CEN), and that derivation is private to GX Core. The
+ * raw sheet value is passed through instead. Nothing live reads it: the only reader is matchStore_,
+ * reached only from storeTable_ ← parseCalcTab_, which has had no caller since the Calculator importer
+ * was cut on 2026-08-30. Copying Core's derivation down here would be a second home for a rule that
+ * already has one, to serve dead code.
+ */
 function gxStores_() {
   var cache = CacheService.getScriptCache();
   var hit = cache.get('gx_stores');
   if (hit) return JSON.parse(hit);
 
-  var res  = UrlFetchApp.fetch(GXCORE_URL + '?action=stores', { muteHttpExceptions: true, followRedirects: true });
-  var data = JSON.parse(res.getContentText());
-  var stores = data.stores || [];
+  var stores = (GXCore.getStores() || [])
+    .map(function (s) { s.store_id = slug_(s.store_id || ''); return s; })
+    .sort(function (a, b) { return (Number(a.sort_order) || 999) - (Number(b.sort_order) || 999); });
+
   cache.put('gx_stores', JSON.stringify(stores), 900);
   return stores;
 }
@@ -5234,11 +5346,22 @@ function dutchieInventoryViaGXCore_(storeId) {
               'quantityAvailable'                          // qty
             ].join(','));
 
+  /* Its OWN loop, not gxCoreFetchJson_: five attempts at 400ms rather than three at 500/1500, tuned
+     for a thousands-of-rows pull across six stores where the shared budget would be spent on one.
+     Same rule underneath, though — a refusal is final, transport is retried.
+
+     THE FETCH IS INSIDE THE TRY as of 2026-09-12. It was outside, so a THROWN fetch — the exact
+     shape /exec takes when it stalls — escaped the loop on attempt one and burned the other four.
+     The retry was there for the bounce and did not cover the bounce's commonest form. (It reached
+     buildCatalog_'s catch, which scrubs, so no secret ever rode out; the loop just never ran.) */
   var lastErr = '';
   for (var i = 0; i < 5; i++) {
-    var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    var data = null;
-    try { data = JSON.parse(resp.getContentText()); } catch (e) { lastErr = 'unparseable body'; }
+    var resp = null, data = null;
+    try { resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true }); }
+    catch (e) { lastErr = scrubSecrets_((e && e.message) || e); }
+    if (resp) {
+      try { data = JSON.parse(resp.getContentText()); } catch (e) { lastErr = 'unparseable body'; }
+    }
     if (data && data.ok === true && Array.isArray(data.rows)) return data.rows;
     // A refusal is final. Retrying a bad secret or an unknown store burns the budget and buries
     // the message that would have explained it.

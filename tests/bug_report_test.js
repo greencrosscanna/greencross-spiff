@@ -44,11 +44,20 @@ let ingest = null;         // { app, reporter, payload }
 let ingestBehaviour = () => ({ ok: true, id: 'bug_test1' });
 
 const stubs = {
-  SpreadsheetApp: {}, DriveApp: {}, DocumentApp: {}, Utilities: {},
+  SpreadsheetApp: {}, DriveApp: {}, DocumentApp: {},
+  // sleep() is real now: gxAuth_ goes through gxCoreFetchJson_, which backs off between attempts.
+  // A no-op here means the retry is exercised without the suite waiting on it.
+  Utilities: { sleep() {} },
   // gxAuth_ validates the token by fetching GX Core. Every token that reaches here is "valid" and
   // resolves to a VIEWER — the lowest role — because the reporter must work for one.
+  // getResponseCode is part of the shape too: gxCoreFetchJson_ treats a non-200 as a transport
+  // bounce and retries it, so a stub without one would send every call down the retry path and
+  // eventually report "GX Core did not answer" for a Core that answered perfectly.
   UrlFetchApp: {
-    fetch: () => ({ getContentText: () => JSON.stringify({ ok: true, user: 'tawny', role: 'viewer' }) }),
+    fetch: () => ({
+      getResponseCode: () => 200,
+      getContentText: () => JSON.stringify({ ok: true, user: 'tawny', role: 'viewer' }),
+    }),
   },
   PropertiesService: { getScriptProperties: () => ({ getProperty: () => '', setProperty: () => {} }) },
   ScriptApp: {}, Session: {}, LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },

@@ -82,9 +82,35 @@ ok('a non-string is coerced, not crashed', scrub(new Error('secret=xyz').message
 /* ── EVERY PATH THAT CAN CARRY A URL GOES THROUGH IT ──
    The one that leaked was gxSalesByEmployee_'s catch. Missing one of the others just moves the
    leak to a rarer failure, which is worse — it would surface once, months from now. */
-['gxSalesByEmployee_'].forEach(function (fn) {
-  ok(fn + ' scrubs its catch', /scrubSecrets_/.test(grab(fn)));
+/* Updated 2026-09-12 when the transport retry landed. gxSalesByEmployee_ no longer holds its own
+   catch — it delegates to gxCoreFetchJson_, which retries the bounce. So the check follows the
+   scrubbing rather than the function: each path either scrubs itself or hands off to the helper,
+   AND the helper is separately proved to scrub. Naming the helper without that second assertion
+   would be the weaker test, since "it calls something" is not "the something redacts". */
+['gxSalesByEmployee_', 'gxAuth_', 'gxPublishKioskToken_'].forEach(function (fn) {
+  const body = grab(fn);
+  ok(fn + ' scrubs its own error path, or hands it to the helper that does',
+     /scrubSecrets_/.test(body) || /gxCoreFetchJson_\(/.test(body));
 });
+ok('gxCoreFetchJson_ scrubs both the thrown message and the give-up line', (function () {
+  const h = grab('gxCoreFetchJson_');
+  return /catch \(e\) \{\s*last = scrubSecrets_/.test(h) && /scrubSecrets_\(last\)/.test(h);
+})());
+/* Actually run it: a regex proves the call is written, not that a secret cannot survive the path. */
+ok('  …so three thrown fetches carrying the whole URL return no secret', (function () {
+  const LEAK = 'Address unavailable: https://x/exec?action=sales_by_employee&secret=' + FAKE_SECRET;
+  const f = new Function('UrlFetchApp', 'Utilities', [
+    grab('scrubSecrets_'),
+    (gs.match(/^var GXCORE_FETCH_[A-Z_]+\s*=.*$/gm) || []).join('\n'),
+    grab('gxCoreFetchJson_'), 'return gxCoreFetchJson_;'].join('\n')
+  )({ fetch() { throw new Error(LEAK); } }, { sleep() {} });
+  const r = f('https://x/exec?secret=' + FAKE_SECRET, 'sell-through');
+  return r.ok === false && JSON.stringify(r).indexOf(FAKE_SECRET) < 0;
+})());
+/* The inventory pull raises rather than returning, and its raw exception used to escape the loop
+   entirely. It is caught and scrubbed now; this is the fixture that would have caught the old one. */
+ok('the inventory pull no longer lets a raw fetch exception out of its loop',
+   /catch \(e\) \{ lastErr = scrubSecrets_/.test(grab('dutchieInventoryViaGXCore_')));
 ok('no fetch-error path still interpolates a raw exception message',
    !/error: '[^']*' \+ \(e && e\.message \|\| e\)/.test(gs));
 ok('the router’s own catch is scrubbed as well',
