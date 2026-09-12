@@ -3402,7 +3402,10 @@ function gxCoreFetchJson_(url, label) {
     try {
       var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
       var code = resp.getResponseCode();
-      var body = String(resp.getContentText() == null ? '' : resp.getContentText());
+      /* ONCE. getContentText() decodes the whole blob on each call, and a sell-through payload is
+         every budtender at a store for a fortnight — not a thing to decode twice to null-check it. */
+      var raw  = resp.getContentText();
+      var body = String(raw == null ? '' : raw);
       if (code !== 200) {
         last = 'HTTP ' + code + ' from GX Core';
       } else if (body.replace(/^\uFEFF/, '').trim().indexOf('<') === 0) {
@@ -3424,7 +3427,10 @@ function gxCoreFetchJson_(url, label) {
 
     if (i >= GXCORE_FETCH_ATTEMPTS - 1) break;
     if (Date.now() - t0 >= GXCORE_FETCH_BUDGET_MS) { ranOut = true; break; }
-    Utilities.sleep(GXCORE_FETCH_BACKOFF_MS[i]);
+    /* The last backoff repeats if someone raises ATTEMPTS past the list. Sleeping `undefined`
+       throws, and a helper that dies in its own retry takes the real error down with it. */
+    var wait = GXCORE_FETCH_BACKOFF_MS[i];
+    Utilities.sleep(wait == null ? GXCORE_FETCH_BACKOFF_MS[GXCORE_FETCH_BACKOFF_MS.length - 1] : wait);
   }
 
   return {

@@ -295,5 +295,32 @@ ok('  …with a short backoff between them — 500ms then 1500ms',
      Array.isArray(second) && second.length === 3 && second[0].store_id === 'bend');
 }
 
+/* ══════════════════ 11. THE LOOP CANNOT KILL ITSELF ══════════════════ */
+/* FAILS IF: the backoff is indexed straight off the attempt number. Raise ATTEMPTS to 4 against a
+   two-entry backoff list and `Utilities.sleep(undefined)` throws — out of the helper, past every
+   caller's {ok:false}, and the real transport error dies with it. The fixture raises the ceiling
+   exactly the way a future edit would. */
+{
+  const responses = [{ body: HTML }, { body: HTML }, { body: HTML }, { body: HTML }];
+  const slept = [];
+  const f = new Function('UrlFetchApp', 'Utilities', 'GXCORE_ATTEMPTS_OVERRIDE', [
+    grab('scrubSecrets_'),
+    KNOBS,
+    'GXCORE_FETCH_ATTEMPTS = GXCORE_ATTEMPTS_OVERRIDE;',
+    grab('gxCoreFetchJson_'), 'return gxCoreFetchJson_;'].join('\n')
+  )({ fetch: () => ({ getResponseCode: () => 200, getContentText: () => HTML }) },
+    /* REFUSES a non-number, the way the real Utilities.sleep does. A permissive fake would record
+       `undefined`, let the loop finish, and leave the "does not throw" assertion below unable to
+       fail — measuring the fixture instead of the code. */
+    { sleep: ms => { if (typeof ms !== 'number' || !isFinite(ms)) {
+                       throw new Error('Cannot convert ' + ms + ' to int.'); }
+                     slept.push(ms); } }, responses.length);
+  let threw = null, r = null;
+  try { r = f('https://x/exec', 'probe'); } catch (e) { threw = e; }
+  ok('a 4th attempt reuses the last backoff instead of sleeping undefined',
+     threw === null && r && r.ok === false && r.attempts === 4);
+  ok('  …so the wait sequence stays finite and real', slept.join(',') === '500,1500,1500');
+}
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\ngxcore transport retry: all passed');
 process.exit(fail ? 1 : 0);
