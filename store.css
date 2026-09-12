@@ -111,6 +111,12 @@ body.flyer.store { display: block; }
 .st-bt-bar.is-none { visibility: hidden; }
 .st-bt-u { font-size: 15px; font-weight: 700; color: var(--gx-text); font-variant-numeric: tabular-nums; }
 .st-bt-u small { font-weight: 600; color: var(--gx-text-mute); }
+/* A NAME MUST NOT BE CLIPPED TO FIT A BAR. The popup the kiosk opens can be narrow, and at 375px
+   the three-way split cut "Jayce Alexander" to "Jayce Alex…" — which is the one thing on the row a
+   person scans for. The bar gives up its width first; it is the quick read, not the fact. */
+@media (max-width: 560px) {
+  .st-bt { grid-template-columns: minmax(0, 1fr) 70px auto; gap: 8px; }
+}
 .st-bt.is-hit .st-bt-n,
 .st-bt.is-hit .st-bt-u { color: var(--gx-green); }
 .st-bt.is-hit .st-bt-bar i { background: var(--gx-green); }
