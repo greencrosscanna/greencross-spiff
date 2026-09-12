@@ -506,7 +506,6 @@
     $('#cName').value = ''; $('#cVendor').value = '';
     $('#cCost').value = calc.cost; $('#cSpiff').value = calc.spiff;
     $('#cTarget').value = 0; $('#cGrowth').value = 0;
-    var load = $('#calcLoad'); if (load) load.value = '';
     $$('#cModel button').forEach(function (x) { x.classList.toggle('is-on', x.dataset.model === 'flat'); });
     $$('#cTarget, #cGrowth').forEach(function (x) { x.classList.remove('sp-driving'); });
     if (calcPicker) { calcPicker.setChosen(null); calcPicker.setVendorSilently(''); }
@@ -2413,7 +2412,13 @@
        per-store default of 6. On a screen that gets turned around to face a vendor, that is
        worse than blank. An em dash says "not yet"; −100% says "this deal loses money". */
     var hasBase = m.baseUnits > 0;
-    var hasAsk  = hasBase && (Number(calc.target) || 0) > 0;
+    /* AN ASK IS A TARGET ABOVE LAST MONTH, not a target above zero (Tawny, 2026-09-11: the return
+       card still read −100%). The comment below has always said "a target above last month"; the
+       test was `> 0`, so the moment a product was picked and any target typed — including the
+       target the app itself fills in at 0% growth, which equals last month exactly — the cards
+       priced a deal that buys no extra units: revenue increase 0, return −100%, on a screen that
+       gets turned around to face a vendor. Zero growth is not a deal; an em dash says "not yet". */
+    var hasAsk  = hasBase && (Number(calc.target) || 0) > m.baseUnits;
 
     /* ── A CLOSED PROGRAM HAS ALREADY ANSWERED THESE FOUR QUESTIONS ───────────────────────────
        All four cards are gated on an ASK — a target above last month — because a projection with
@@ -2456,12 +2461,13 @@
                       : 'no last-month figure to compare', '');
     } else if (stats) stats.innerHTML =
         cstat('You fund, at most', hasAsk ? money(m.invest) : '—',
-              !hasAsk ? 'set a product and a target first'
+              !hasAsk ? (hasBase ? 'set a target above last month' : 'pick a product first')
                 : calc.model === 'per_unit'
                   ? money(calc.spiff) + ' on each of ' + m.goalUnits.toLocaleString() + ' units'
                   : 'only if all ' + m.bts + ' reach their target', '')
       + cstat('Your revenue increase', hasAsk ? money(m.revInc) : '—',
-              hasAsk ? money(m.baseRev) + ' → ' + money(m.targetRev) : 'needs last month and a target', '')
+              hasAsk ? money(m.baseRev) + ' → ' + money(m.targetRev)
+                : hasBase ? 'needs a target above last month' : 'needs last month and a target', '')
       + cstat('Your return', hasAsk && m.invest ? pctWhole(m.roiPct) : '—',
               hasAsk ? money(m.roi) + ' net of the bounty' : 'once there is an ask to price',
               !hasAsk ? '' : m.roi < 0 ? 'is-neg' : 'is-hero')
@@ -2472,7 +2478,8 @@
          been asked for yet. Zero is not a target, and an em dash says "not yet". */
       + cstat('Unit lift', hasAsk ? (m.unitInc > 0 ? '+' : '') + m.unitInc.toLocaleString() : '—',
               hasAsk ? pct(m.growth) + ' over last month'
-                : hasBase ? 'set a target to see the lift' : 'pick a product to pull last month', '');
+                : hasBase ? 'set a target above last month to see the lift'
+                  : 'pick a product to pull last month', '');
 
     /* ---- the goal bar, which is also the goal CONTROL.
        The track is a units axis: 0 .. lastMonth × (1 + GOAL_MAX). That makes the dark segment
@@ -2626,11 +2633,11 @@
           +   '<span class="sp-dot"></span>' + esc(st.name) + '</span></td>'
           + '<td class="num">' + refCell(st, i, base) + '</td>'
           + '<td class="num strong">' + goal.toLocaleString() + '</td>'
-          + '<td class="num"><input class="sp-in sp-num-in narrow" type="number" min="0" data-i="' + i + '" data-f="bts" value="' + n + '" aria-label="Budtenders, ' + esc(st.name) + '"></td>'
+          + '<td class="num"><input class="sp-in sp-num-in narrow" type="text" inputmode="numeric" data-i="' + i + '" data-f="bts" value="' + n + '" aria-label="Budtenders, ' + esc(st.name) + '"></td>'
           + '<td class="num dim">' + (perNow == null ? '—' : perNow.toLocaleString()) + '</td>'
           + '<td class="num">' + (perGoal == null ? '—'
               : '<span class="sp-pin-cell' + (row.pinned ? ' is-pinned' : '') + '">'
-                + '<input class="sp-in sp-num-in narrow" type="number" min="0" data-i="' + i + '"'
+                + '<input class="sp-in sp-num-in narrow" type="text" inputmode="numeric" data-i="' + i + '"'
                 +   ' data-f="perBtSet" value="' + perGoal + '"'
                 +   ' aria-label="Per-budtender goal, ' + esc(st.name) + '">'
                 + (row.pinned
@@ -2814,7 +2821,16 @@
 
   function refCell(st, i, base) {
     if (st.refState === 'loading') return '<span class="sp-shim" aria-label="loading"></span>';
-    var input = '<input class="sp-in sp-num-in" type="number" min="0" data-i="' + i
+    /* ── type="text" inputmode="numeric", NOT type="number", AND THAT IS THE BUG FIX ─────────────
+       (Tawny, 2026-09-11: "typing in number field adds the number the wrong way".)
+       This table is innerHTML-replaced on every keystroke, so restoreFocus puts the caret back
+       afterwards. On a NUMBER input it cannot: selectionStart reads null and setSelectionRange
+       throws InvalidStateError — both verified live in this app — so the caret silently went to
+       the start of the field and the next digit landed in front of the last one. Typing 120 into
+       a cell showing 0 produced 1200.
+       inputmode keeps the numeric keypad on a phone; the values are already clamped in JS
+       (Number(x) || 0, and Math.max(0, …) for the pinned goal), so min="0" was never the guard. */
+    var input = '<input class="sp-in sp-num-in" type="text" inputmode="numeric" data-i="' + i
       + '" data-f="baseline" value="' + base + '" aria-label="Reference units, ' + esc(st.name) + '">';
     if (st.refState === 'error') {
       return input + '<div class="sp-ref-src is-err" data-refretry="' + i + '" title="'
@@ -2871,6 +2887,18 @@
         calc[{ cName: 'name', cVendor: 'vendor', cCost: 'cost', cSpiff: 'spiff' }[id]] = $('#' + id).value;
         recalc(id === 'cName' || id === 'cVendor' ? null : PULSE_ALL);
       });
+    });
+
+    /* A BOX SHOWING 0 IS A STARTING VALUE, NOT A NUMBER ANYONE MEANS TO KEEP. Clicking into one
+       and typing 120 gave "0120" — or, before the caret fix above, "1200". Selecting the zero on
+       focus makes the first keystroke replace it, which is what typing into an empty-looking box
+       is expected to do. Only an exact "0": a real figure is never selected out from under the
+       person who is about to edit one digit of it. */
+    document.addEventListener('focusin', function (e) {
+      var el = e.target;
+      if (!el || el.tagName !== 'INPUT' || !el.classList.contains('sp-num-in')) return;
+      if (String(el.value).trim() !== '0') return;
+      try { el.select(); } catch (err) { /* a browser that refuses leaves the caret where it was */ }
     });
 
     /* Payout model. Switching it changes what "vendor funds" even means, so it recomputes
@@ -2988,7 +3016,6 @@
       }
     });
 
-    $('#calcLoad').addEventListener('change', loadIntoCalc);
     $('#calcSave').addEventListener('click', saveEverything);
     var pres = $('#calcPresent');
     if (pres) pres.addEventListener('click', enterPitch);
@@ -3019,7 +3046,11 @@
     var el = document.querySelector('#calcTable input[data-i="' + parts[0] + '"][data-f="' + parts[1] + '"]');
     if (!el) return;
     el.focus();
-    try { el.setSelectionRange(pos, pos); } catch (e) { /* number inputs refuse this in some browsers */ }
+    /* The cells are type="text" so this now works — see refCell. The fallback is the END of the
+       value rather than the start: if a browser ever hands back a null position again, appending
+       is what typing normally does, while position 0 reverses the digits as they are typed. */
+    var at = pos == null ? el.value.length : pos;
+    try { el.setSelectionRange(at, at); } catch (e) { /* nothing better to do than leave the caret */ }
   }
 
   /* ══════════════════════════════════════════════ PAY PERIODS ═══════════ */
@@ -4260,62 +4291,6 @@
       + '<div class="sp-pbig-s">' + esc(sub) + '</div></div>';
   }
 
-  // Model a new deal off a past one — "what if we ran Wyld again, but at $50?"
-  function loadIntoCalc() {
-    /* "Start from scratch…" is the empty option, and it used to return early — leaving every
-       value from the LAST program loaded, including a per_unit payout, under a heading that
-       says the model is new. Selecting it now genuinely resets. */
-    if (!$('#calcLoad').value) { newProgram(); return; }
-    var p = state.programs.filter(function (x) { return x.program_id === $('#calcLoad').value; })[0];
-    if (!p) return;
-    var base = p.baseline_json || {}, tgt = p.target_json || {};
-    /* Modeling FROM a past program is a new deal, not an edit of that one — so it inherits the
-       numbers and neither the editingId nor the lock. Carrying either would mean picking a
-       closed program off this list to sketch next quarter's deal opened a dead screen, or worse,
-       pointed Save at the program being copied. */
-    calc.editingId = null; calc.window = null; calc.locked = false;
-    calc.name   = p.program_name || p.title;
-    calc.vendor = p.vendor;
-    calc.cost   = (p.cost_json || {}).per_unit || 0;
-    calc.spiff  = (p.payout_json || {}).amount || 0;
-    calc.model  = normalModel((p.payout_json || {}).model || p.payout_type);
-    calc.target = tgt.units || 0;
-    /* THE FEATURED PRODUCT COMES TOO. It never did — this path copied the name, the vendor, the
-       cost, the payout, the target and the stores, and left the product null. So "model from a
-       past program" produced a model with nothing selected, and pullReference returns early
-       without one: the reference figures the whole Calculator prices off silently never loaded. */
-    calc.product = productFromMatch(p.match_json);
-    /* EVERY registry store, not just the ones this program ran in. The Calculator models a NEW
-       deal; loading a past one seeds its numbers, it does not re-scope the chain. A store that
-       sat out last time has a 0 reference here, which is visible and editable -- where the old
-       `on` flag hid it behind an unticked box. */
-    calc.stores = state.stores.map(function (s) {
-      var b = (base.by_store || {})[s.store_id];
-      var tgtPerBt = (tgt.per_bt || {})[s.store_id];
-      return {
-        store_id: s.store_id, name: s.display_name || s.store_id,
-        baseline: b || 0,
-        bts: btsForStore(s.store_id, tgt, base),
-        perBtSet: tgtPerBt ? Number(tgtPerBt) : null
-      };
-    });
-    $('#cName').value = calc.name; $('#cVendor').value = calc.vendor;
-    $('#cCost').value = calc.cost; $('#cSpiff').value = calc.spiff;
-    $('#cTarget').value = calc.target;
-    $$('#cModel button').forEach(function (x) { x.classList.toggle('is-on', x.dataset.model === calc.model); });
-    if (calcPicker) {
-      calcPicker.setVendorSilently(calc.vendor);
-      calcPicker.setChosen(calc.product);
-    }
-    var m = calcModel();
-    $('#cGrowth').value = m.baseUnits ? Math.round(m.typedGrowth * 100) : 0;
-    recalc();
-    renderCalcEditing();
-    applyCalcLock();
-    applyStatusView();
-    syncRecordMount();
-  }
-
   /* The nine model fields, built once. Create sends all of them because there is nothing to
      compare against; update sends only the ones that moved — see calcModelPatch. */
   function calcModelPayload(m) {
@@ -4615,16 +4590,7 @@
      returning the new name; four <select> elements were simply never rebuilt.
      One function so the next list added here cannot be the one somebody forgets. */
   function fillProgramPickers() {
-    fillCalcLoad(); fillReportPicker(); fillHistoryFilters();
-  }
-
-  function fillCalcLoad() {
-    var sel = $('#calcLoad');
-    if (!sel) return;
-    sel.innerHTML = '<option value="">Start from scratch…</option>'
-      + sortPrograms(state.programs).map(function (p) {
-        return '<option value="' + esc(p.program_id) + '">' + esc(programLabel(p)) + '</option>';
-      }).join('');
+    fillReportPicker(); fillHistoryFilters();
   }
 
   /* -------------------------------------------------------------- close-out

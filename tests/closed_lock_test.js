@@ -63,14 +63,14 @@ const nw = grab('newProgram');
 ok('a brand-new model is never locked', /calc\.locked = false/.test(nw));
 ok('  …and says so on screen', /applyCalcLock\(\)/.test(nw));
 
-const load = grab('loadIntoCalc');
-ok('modeling FROM a past program does not inherit its lock', /calc\.locked = false/.test(load));
-/* The dangerous half: it must also drop editingId, or Save would point at the program being
-   copied rather than the new one being sketched. */
-ok('  …nor its editingId, which would aim Save at the program being copied',
-   /calc\.editingId = null/.test(load));
-ok('  …and it re-applies, so picking an open program after a closed one revives the controls',
-   /applyCalcLock\(\)/.test(load));
+/* THE SECOND WAY IS GONE (2026-09-11). "Modeling — model from a past program" was removed after
+   Sky watched Tawny use the Calculator; there is now ONE way to reach a new model, newProgram,
+   and one way to open an existing one, from History. The lock rule it used to carry cannot be
+   forgotten because the path it lived on no longer exists. */
+ok('there is no "model from a past program" path left to inherit a lock',
+   !/function loadIntoCalc/.test(js) && !/calcLoad/.test(js));
+ok('  …and opening a program re-applies the lock, so an open one after a closed one revives the controls',
+   /applyCalcLock\(\)/.test(grab('openInCalculator')));
 
 /* ── THE ONE THAT MATTERS: the table is rebuilt constantly ── */
 /* recalc() innerHTML-replaces the whole per-store table on every keystroke. Fresh inputs know

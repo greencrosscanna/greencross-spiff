@@ -218,14 +218,14 @@ ok('the save stores the headcount so the next reopen does not have to guess',
    /bts_by_store/.test(payloadSrc));
 ok('  …taken from the plan, not recomputed', /btsByStore\[s\.store_id\] = Number\(s\.n\)/.test(payloadSrc));
 
-/* Both load paths must use the shared reconstruction — one of them drifting is the same bug. */
+/* ONE load path since 2026-09-11 — the "model from a past program" dropdown was removed, so the
+   two that had to agree are now one, and opening from History is it. */
 ok('openInCalculator uses the shared reconstruction',
    /bts: btsForStore\(/.test(grab('openInCalculator')));
-ok('and so does loading a past program from the picker',
-   /bts: btsForStore\(/.test(grab('loadIntoCalc')));
-ok('neither still divides last month by its rounded per-BT',
-   !/Math\.max\(1, Math\.round\(\(b \|\| 0\) \/ perBt\)\)/.test(grab('openInCalculator'))
-   && !/Math\.max\(1, Math\.round\(\(b \|\| 0\) \/ perBt\)\)/.test(grab('loadIntoCalc')));
+ok('  …and no longer divides last month by its rounded per-BT',
+   !/Math\.max\(1, Math\.round\(\(b \|\| 0\) \/ perBt\)\)/.test(grab('openInCalculator')));
+ok('  …and there is no second load path left to drift from it',
+   !/function loadIntoCalc/.test(js));
 
 /* ── A SAVE HAS TO REPAINT THE FOUR CARDS IT JUST CHANGED ─────────────────────────────────────
    saveEverything refreshed the LISTS after a write — programs, history, the pickers — but the

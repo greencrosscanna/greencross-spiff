@@ -106,14 +106,15 @@ ok('the menu pins an "All <vendor> products" row', /data-all="1"/.test(js));
 ok('  …which the search box never filters away', js.indexOf('var head = brandNow') >= 0);
 ok('  …and the click handler acts on it', /closest\('\[data-all\]'\)/.test(js));
 
-/* ── LOADING A PAST PROGRAM CARRIES THE PRODUCT ──
-   loadIntoCalc copied name, vendor, cost, payout, target and stores, and left the product null —
-   so "model from a past program" produced a model with nothing selected, and pullReference returns
-   early without one. The reference figures the whole Calculator prices off never loaded. */
-const load = grab('loadIntoCalc');
-ok('modeling from a past program brings its product too',
-   /calc\.product = productFromMatch\(p\.match_json\)/.test(load));
-ok('  …and shows it in the picker', /calcPicker\.setChosen\(calc\.product\)/.test(load));
+/* ── OPENING A PROGRAM CARRIES THE PRODUCT ──
+   This used to guard loadIntoCalc, the "model from a past program" dropdown, which copied name,
+   vendor, cost, payout, target and stores and left the product null — so the reference figures the
+   whole Calculator prices off never loaded. That control was removed 2026-09-11; the same rule now
+   has to hold on the path that survived, which is opening a program from History. */
+const open = grab('openInCalculator');
+ok('opening a program brings its product too',
+   /var mj = merged\.match_json \|\| \{\};[\s\S]{0,80}calc\.product = productFromMatch\(mj\)/.test(open));
+ok('  …and shows it in the picker', /calcPicker\.setChosen\(calc\.product\)/.test(open));
 
 /* ══════════════ A PER-UNIT PROGRAM HAS NO INDIVIDUAL TARGET ══════════════
  * Portland Heights, 2026-09-02: the vendor set a per-STORE threshold, every store cleared it, and
@@ -274,12 +275,17 @@ const phUnits = 242, phBase = 206, phInv = 181.5, phRoi = 130.98, phCost = 8.68;
 ok('  …and that identity holds on the real figures',
    Math.abs((phRoi + phInv) - (phUnits - phBase) * phCost) < 0.01);
 
-/* The modeling gate must survive untouched — it is what keeps a fresh Calculator from quoting
-   -100% at a vendor. */
-ok('an unsettled program still requires an ask before it projects',
-   /var hasAsk  = hasBase && \(Number\(calc\.target\) \|\| 0\) > 0/.test(rc));
-ok('  …and still says "not yet" rather than a confident zero',
-   /set a product and a target first/.test(rc) && /pick a product to pull last month/.test(rc));
+/* The modeling gate must survive — it is what keeps a fresh Calculator from quoting -100% at a
+   vendor. TIGHTENED 2026-09-11 (Tawny still saw −100%): an ask is a target ABOVE last month, which
+   is what the gate's own comment always claimed. `> 0` let the equal-to-last-month case through —
+   including the target the app itself fills in at 0% growth — and that case buys no extra units,
+   so the return is exactly minus the bounty: −100%, in front of a vendor. */
+ok('an unsettled program requires an ask ABOVE last month before it projects',
+   /var hasAsk  = hasBase && \(Number\(calc\.target\) \|\| 0\) > m\.baseUnits/.test(rc));
+ok('  …and says "not yet" rather than a confident zero',
+   /set a target above last month/.test(rc) && /pick a product to pull last month/.test(rc));
+ok('  …distinguishing "no product yet" from "no ask yet", which need different actions',
+   /pick a product first/.test(rc) && /needs a target above last month/.test(rc));
 
 /* ══════════════ THREE PRODUCTS, ONE NAME ══════════════
  * Sky, 2026-09-02, setting up the LIVE Mule programme: "selecting Mule Extracts - Tank (28) is

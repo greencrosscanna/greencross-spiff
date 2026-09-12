@@ -40,9 +40,13 @@ const all = grab('fillProgramPickers');
 /* THREE, not four, since 2026-09-08: Progress stopped being a tab, so its picker went with it —
    a section of a program does not have to ask which program it is about. The rule this file
    exists to protect is unchanged, and now has one fewer place to be forgotten. */
-['fillCalcLoad', 'fillReportPicker', 'fillHistoryFilters'].forEach(fn => {
+/* TWO, not three, since 2026-09-11: the Calculator's "model from a past program" dropdown was
+   removed after Tawny used the app, so the list it filled went with it. */
+['fillReportPicker', 'fillHistoryFilters'].forEach(fn => {
   ok(fn + ' is refilled by the shared function', all.indexOf(fn + '()') >= 0);
 });
+ok('  …and the removed Calculator dropdown is not still being filled',
+   !/fillCalcLoad/.test(js) && !/calcLoad/.test(js));
 ok('the Progress picker is gone entirely, not merely unwired',
    !/function fillProgressPicker/.test(js) && !/#pgProgram/.test(js));
 
@@ -57,12 +61,9 @@ ok('the Calculator save refills them too',
    ONCE in the file, inside fillProgramPickers itself. */
 ok('boot uses the same function rather than its own copy of the list',
    /loadPrograms\(\)\.then\(function \(\) \{\s*fillProgramPickers\(\);\s*\}\)/.test(js));
-ok('  …and the four are only ever listed together in that one place',
-   (js.match(/fillCalcLoad\(\); fillReportPicker\(\)/g) || []).length === 1 &&
-   grab('fillProgramPickers').indexOf('fillCalcLoad(); fillReportPicker()') >= 0);
-/* The old bug in one line: the Calculator save used to refresh ONLY its own dropdown. */
-ok('the Calculator save no longer refreshes only its own list',
-   !/renderPrograms\(\);\s*\n\s*fillCalcLoad\(\);/.test(js));
+ok('  …and the two are only ever listed together in that one place',
+   (js.match(/fillReportPicker\(\); fillHistoryFilters\(\)/g) || []).length === 1 &&
+   grab('fillProgramPickers').indexOf('fillReportPicker(); fillHistoryFilters()') >= 0);
 
 /* ── a refill must not move you ── */
 /* ── PROGRESS NO LONGER PICKS, SO IT CANNOT BE MOVED BY A REFILL ──────────────────────────────
@@ -115,7 +116,7 @@ ok('a falsy catalog reply is treated as a failure, not as an empty shop',
    so the pickers name a program through programLabel rather than reaching for the columns
    themselves. The old rule is not gone — it moved INSIDE that one function, which is the point:
    ten call sites cannot disagree about what a program is called if only one of them decides. */
-[['fillReportPicker', rep], ['fillCalcLoad', grab('fillCalcLoad')]].forEach(([n, src]) => {
+[['fillReportPicker', rep]].forEach(([n, src]) => {
   ok(n + ' names the program through the one shared label',
      /programLabel\(p\)/.test(src));
 });

@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.405"/>
-<link rel="stylesheet" href="spiff.css?v=1.405"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.406"/>
+<link rel="stylesheet" href="spiff.css?v=1.406"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -106,10 +106,10 @@
   </div>
 
   <div class="sp-subnav" id="subnavCalculator" hidden>
-    <span class="sp-subnav-label">Modeling</span>
-    <select class="sp-in" id="calcLoad" style="max-width:240px" title="Model from a past program">
-      <option value="">Start from scratch&hellip;</option>
-    </select>
+    <!-- "Modeling: model from a past program" was removed 2026-09-11 (Sky, after watching Tawny
+         use it). It seeded a NEW deal from an old one's numbers — a shortcut that read as "open
+         this program", sat where the editing state belongs, and was the first control on the
+         screen. History is where a past program is opened; a new deal starts from the vendor. -->
     <span class="sp-editing" id="calcEditing" hidden></span>
     <div class="sp-subnav-right">
       <button class="gx-btn" id="calcSave">Save as program</button>
@@ -188,8 +188,11 @@
               <div class="sp-fld is-wide sp-pick"><span>Vendor</span>
                 <div class="sp-pick-input">
                   <input id="cVendor" placeholder="Start typing a brand&hellip;" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="cVendorMenu">
+                  <!-- Inside the input wrapper for the same reason as the product menu below:
+                       this field has nothing under it today, and the next thing added to it
+                       would have pushed the vendor list down the page silently. -->
+                  <div class="sp-pick-menu" id="cVendorMenu" role="listbox" hidden></div>
                 </div>
-                <div class="sp-pick-menu" id="cVendorMenu" role="listbox" hidden></div>
               </div>
               <!-- ── THE PROGRAM NAME IS THE DETAIL ONLY ───────────────────────────────────
                    Sky, 2026-09-07: "should the Program name just have the details and we can
@@ -211,11 +214,16 @@
                    which products those numbers were measured against is not one of them, and a
                    filter that matches nothing has to be fixable without unlocking the goals. -->
               <div class="sp-fld is-wide sp-pick" id="cProductField"><span>Featured product</span>
+                <!-- THE MENU HANGS OFF THE INPUT, NOT OFF THE FIELD. It is positioned at
+                     top:100% of its positioned ancestor, and this field carries the chosen
+                     chips, the hint AND the Cost per unit box below the box you type in — so
+                     anchored to the field, the product list opened below all of that, far down
+                     the page. Tawny, 2026-09-11: "product select is showing up low on page". -->
                 <div class="sp-pick-input">
                   <input id="cProduct" placeholder="Search this vendor&rsquo;s products&hellip;" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="cProductMenu" disabled>
                   <button type="button" class="sp-pick-clear" id="cProductClear" title="Clear" hidden>&#10005;</button>
+                  <div class="sp-pick-menu" id="cProductMenu" role="listbox" hidden></div>
                 </div>
-                <div class="sp-pick-menu" id="cProductMenu" role="listbox" hidden></div>
                 <div id="cChosen"></div>
                 <span class="sp-hint" id="cProductHint">Pick a vendor first.</span>
                 <!-- Cost per unit belongs to the PRODUCT, not to the deal (Sky, 2026-08-31). It
@@ -502,6 +510,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="spiff.js?v=1.405"></script>
+<script src="spiff.js?v=1.406"></script>
 </body>
 </html>
