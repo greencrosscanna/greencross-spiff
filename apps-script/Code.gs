@@ -3544,12 +3544,6 @@ function clientView_(p) {
   };
 }
 
-function sumVals_(o) {
-  var n = 0;
-  Object.keys(o || {}).forEach(function (k) { n += Number(o[k]) || 0; });
-  return n;
-}
-
 /* Mint (or reuse) a program's share token. Admin-gated — creating a link that exposes
    a program to an outside party is a write, not a read. */
 /* ═══════════════════ THE KIOSK LINK, ONE PER STORE ═══════════════════
