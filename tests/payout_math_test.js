@@ -33,7 +33,7 @@ const stubs = {
   GXCore: {},
 };
 const names = Object.keys(stubs);
-const load = new Function(...names, src + '\n; return { computePayouts_, findBlendedCost_ };');
+const load = new Function(...names, src + '\n; return { computePayouts_ };');
 const S = load(...names.map(n => stubs[n]));
 
 let pass = 0, fail = 0;
@@ -119,20 +119,16 @@ console.log('\n6. defaults and empty input');
   eq(dirty.total_owed, 25, 'units arriving as a string still compare numerically');
 }
 
-// ── 7. findBlendedCost_ — returns the LABEL, so an import is auditable ───────
-console.log('\n7. blended-cost label detection');
-{
-  const grid = [['Vendor', 'Wyld'], ['SKU', '10pc'], ['Combined WS Cost', '4.12']];
-  eq(S.findBlendedCost_(grid, 3), 'Combined WS Cost', 'finds "Combined WS Cost" and returns the label, not the number');
-  eq(S.findBlendedCost_([['Average Cost', '3']], 3), 'Average Cost', 'finds "Average Cost"');
-  eq(S.findBlendedCost_([['Combined Total for 20pc & 2pc', '9']], 3), 'Combined Total for 20pc & 2pc', 'finds a combined total');
-  ok(S.findBlendedCost_([['combioned ws cost', '1']], 3) === 'combioned ws cost',
-     'tolerates the "combioned" misspelling — deliberate, it is in real sheets');
-  eq(S.findBlendedCost_([['Unit Cost', '2']], 3), null, 'a plain unit cost is not a blend');
-  eq(S.findBlendedCost_([[], ['x']], 3), null, 'empty grid rows are survivable');
-  eq(S.findBlendedCost_([['a', 'b', 'c', 'Average Cost']], 1), null,
-     'respects the cMax column bound rather than scanning the whole row');
-}
+/* SECTION 7 WAS findBlendedCost_, AND IT WENT WITH THE FUNCTION on 2026-09-12.
+   It scraped a blended cost label ("Combined WS Cost", "Average Cost", and the real-sheet
+   misspelling "combioned") out of a Calculator grid. Its only caller was parseCalcTab_, which
+   lost ITS only caller when importCalc was cut on 2026-08-30 — so by the end this suite was the
+   sole reason the function still existed. Seven assertions kept a dead function alive and
+   reported that as coverage.
+
+   cost_json still carries mode:'blended'; nothing about blended pricing was removed. What went
+   is the grid SCRAPER. The blended figure is typed in the app now (see spiff.js, the mean of the
+   per-SKU costs prefilled into Cost per unit), and that path has no label to detect. */
 
 console.log('\n──────────────────────────────');
 console.log(pass + ' passed, ' + fail + ' failed');

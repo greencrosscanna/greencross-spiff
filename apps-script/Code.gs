@@ -518,100 +518,6 @@ function doPost(e) {
   return reply_(out, null);
 }
 
-
-function parseCalcTab_(sheet, stores) {
-  var grid = sheet.getDataRange().getValues();
-  var name = String(sheet.getName()).trim();
-
-  // Split plan (left) from actuals (right) at the 'SPIFF ROI' header.
-  var roiCol  = findCellCol_(grid, 'SPIFF ROI');
-  var planMax = roiCol > 0 ? roiCol - 1 : 7;
-  var actMax  = maxCols_(grid) - 1;
-
-  var spiff = num_(findVal_(grid, 'SPIFF', 0, planMax));
-  if (!spiff) return null;           // not a program tab (index/notes/etc.)
-
-  var costPerUnit = num_(findVal_(grid, 'Cost Per Unit', 0, planMax));
-  var blended     = findBlendedCost_(grid, planMax);
-
-  var baseline = {
-    units:    num_(findVal_(grid, 'Current Sales Units',   0, planMax)),
-    revenue:  num_(findVal_(grid, 'Current Sales Revenue', 0, planMax))
-  };
-  var target = {
-    units:    num_(findVal_(grid, 'Sales Target Units',   0, planMax)),
-    revenue:  num_(findVal_(grid, 'Sales Target Revenue', 0, planMax))
-  };
-
-  var baseTable = storeTable_(grid, 'AVG Sales Store',    stores);
-  var tgtTable  = storeTable_(grid, 'Target Sales Store', stores);
-  baseline.by_store = baseTable.by_store;
-  baseline.per_bt   = baseTable.per_bt;
-  target.by_store   = tgtTable.by_store;
-  target.per_bt     = tgtTable.per_bt;
-
-  // Participating stores = those carrying a target. Falls back to the
-  // baseline table when a tab only filled the "current" side.
-  var storeIds = Object.keys(tgtTable.by_store);
-  if (!storeIds.length) storeIds = Object.keys(baseTable.by_store);
-
-  // Actuals, if this program already ran.
-  //
-  // The actuals panel carries its OWN SPIFF rate, and it does not always match the
-  // plan: 'Drops' was modeled at $25/BT but settled at $50/BT (26 BTs × $50 = the
-  // recorded $1,300 investment). Record both — the plan rate is what we pitched, the
-  // actual rate is what we paid — and self-audit the arithmetic so a bad import is
-  // visible instead of silent.
-  var actual = null;
-  if (roiCol > 0) {
-    var sold = num_(findVal_(grid, 'Units Sold', roiCol, actMax));
-    if (sold) {
-      var actSpiff  = num_(findVal_(grid, 'SPIFF',      roiCol, actMax)) || spiff;
-      var btsHit    = num_(findVal_(grid, "BT's = SPIFF", roiCol, actMax));
-      var investment = num_(findVal_(grid, 'Investment',  roiCol, actMax));
-      actual = {
-        units_sold:   sold,
-        revenue:      num_(findVal_(grid, 'Sales Revenue', roiCol, actMax)),
-        bts_hit:      btsHit,
-        spiff_amount: actSpiff,
-        investment:   investment,
-        roi:          num_(findVal_(grid, 'ROI $', roiCol, actMax)),
-        roi_pct:      num_(findVal_(grid, 'ROI %', roiCol, actMax)),
-        rate_changed: actSpiff !== spiff,
-        balances:     Math.abs(btsHit * actSpiff - investment) < 0.5
-      };
-    }
-  }
-
-  var period = periodOf_(name);
-
-  // A3 carries the descriptive program name — 'Hellavated 0326' (the tab) is
-  // 'Hellavated Joints' (the program). Some tabs put only the vendor there; going
-  // forward Tawny names the program, so A3 wins and the tab name is the fallback.
-  var programName = String(grid[2] && grid[2][0] || '').trim() || name;
-
-  return {
-    program_id:    slug_(name),
-    vendor:        period.vendor,
-    program_name:  programName,
-    title:         name,
-    status:        actual ? 'closed' : 'draft',
-    start_date:    period.start_date,
-    end_date:      period.end_date,
-    pay_period:    '',            // derived from start_date on write — see programToRow_
-    match_json:    { brand: period.vendor, category: '', filter_text: '', products: [] },
-    stores_json:   storeIds,
-    cost_json:     { mode: blended ? 'blended' : 'flat', per_unit: costPerUnit, source_label: blended || 'Cost Per Unit' },
-    payout_type:   'flat',
-    payout_json:   { amount: spiff },
-    baseline_json: baseline,
-    target_json:   target,
-    actual_json:   actual,
-    source:        'calculator:' + name,
-    unmatched_stores: baseTable.unmatched.concat(tgtTable.unmatched)
-  };
-}
-
 /* ==================== DERIVED WARNING FLAGS ====================
  * `duplicate_of` and `rate_changed` are COMPUTED ON EVERY READ and never stored. That is the whole
  * point of this block, so read the next paragraph before "optimizing" it into a column.
@@ -760,51 +666,6 @@ function annotateUnmeasurable_(programs) {
     var r = snapshotRefusalFor_(p, refusals);
     p.unmeasurable = r ? { reason: r.reason || 'refused', since: r.at || '' } : null;
   });
-}
-
-/* Multi-SKU programs blend the cost. Return the label used, so the import is
-   auditable — you can see WHICH blended figure a program was priced on. */
-function findBlendedCost_(grid, cMax) {
-  var re = /(combined|combioned|average).*(cost|total)|cost.*average/i;
-  for (var r = 0; r < grid.length; r++) {
-    for (var c = 0; c <= Math.min(cMax, grid[r].length - 1); c++) {
-      var s = String(grid[r][c] || '').trim();
-      if (s && re.test(s)) return s;
-    }
-  }
-  return null;
-}
-
-/* Read a per-store table that sits under `headerLabel`. Layout is
-   [store] [units per store] [units per budtender] …, so offsets are taken
-   relative to the header cell rather than assumed to be column B. */
-function storeTable_(grid, headerLabel, stores) {
-  var out = { by_store: {}, per_bt: {}, unmatched: [] };
-  var want = norm_(headerLabel);
-  var hr = -1, hc = -1;
-
-  for (var r = 0; r < grid.length && hr < 0; r++) {
-    for (var c = 0; c < grid[r].length; c++) {
-      if (norm_(grid[r][c]) === want) { hr = r; hc = c; break; }
-    }
-  }
-  if (hr < 0 || hc < 1) return out;
-
-  var labelCol = hc - 1, unitsCol = hc, btCol = hc + 1;
-
-  for (var i = hr + 1; i < grid.length; i++) {
-    var label = String(grid[i][labelCol] || '').trim();
-    if (!label) break;                                   // table ended
-    var low = norm_(label);
-    if (low === 'total') break;                          // summary row — stop
-    if (low === 'average') continue;                     // summary row — skip
-
-    var id = matchStore_(label, stores);
-    if (!id) { out.unmatched.push(label); continue; }
-    out.by_store[id] = num_(grid[i][unitsCol]);
-    out.per_bt[id]   = num_(grid[i][btCol]);
-  }
-  return out;
 }
 
 /* ============================= STORAGE ============================= */
@@ -5017,12 +4878,12 @@ function gxEmployees_(opts) {
  * library does not. Both are reproduced here — callers compare against 'river-rd' and several iterate
  * to render, so neither is cosmetic.
  *
- * ONE FIELD IS NOT REPRODUCED, deliberately: the route DERIVES short_code from display_name (stored
- * codes collide — Century and Center were both CEN), and that derivation is private to GX Core. The
- * raw sheet value is passed through instead. Nothing live reads it: the only reader is matchStore_,
- * reached only from storeTable_ ← parseCalcTab_, which has had no caller since the Calculator importer
- * was cut on 2026-08-30. Copying Core's derivation down here would be a second home for a rule that
- * already has one, to serve dead code.
+ * SHORT_CODE IS RAW HERE, AND NOTHING IN THIS APP READS IT. The web route DERIVES short_code from
+ * display_name because the stored codes collide — Century and Center were both CEN — and that
+ * derivation is private to GX Core; the library hands back the sheet cell. So if you ever reach for
+ * s.short_code, you are reading the colliding value, not Core's disambiguated one. Match on store_id
+ * instead. Do not copy Core's derivation down here: that rule already has a home, and a second copy
+ * is the thing that rots.
  */
 function gxStores_() {
   var cache = CacheService.getScriptCache();
@@ -5035,35 +4896,6 @@ function gxStores_() {
 
   cache.put('gx_stores', JSON.stringify(stores), 900);
   return stores;
-}
-
-/* The sheets label stores inconsistently — the Calculator says "Portland" and
-   "River", the Sales Report shouts "BASELINE"/"CENTURY". Match against every
-   name GX Core knows (store_id, display_name, dutchie_name, short_code) so both
-   spellings resolve to one canonical store_id. */
-function matchStore_(label, stores) {
-  var want = norm_(label);
-  if (!want) return null;
-  // Tawny's older SPIF docs say "South" where the newer ones (and GX Core) say
-  // "Commercial" — the South Commercial St store. Without this every South doc becomes
-  // its own orphan program.
-  if (want === 'south') want = 'commercial';
-
-  for (var i = 0; i < stores.length; i++) {
-    var s = stores[i];
-    if ([s.store_id, s.display_name, s.dutchie_name, s.short_code].some(function (n) { return norm_(n) === want; })) {
-      return s.store_id;
-    }
-  }
-  // "Portland" → "Portland Rd", "River" → "River Rd"
-  for (var j = 0; j < stores.length; j++) {
-    var t = stores[j];
-    if ([t.store_id, t.display_name, t.dutchie_name].some(function (n) {
-      var v = norm_(n);
-      return v && (v.indexOf(want) === 0 || want.indexOf(v) === 0);
-    })) return t.store_id;
-  }
-  return null;
 }
 
 /* ----------------------------- HELPERS ---------------------------- */
@@ -5088,37 +4920,6 @@ function slug_(s) {
   return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-/* Tab names carry the program's period as an MMYY suffix — 'National 0825' ran in
-   Aug 2025, 'Buddies 0626-0726' spans Jun–Jul 2026. That is the only date the
-   Calculator records, and History ("what did we run 9 pay periods ago", "last time
-   we did Wyld") is built on it, so it gets parsed rather than discarded.
-   Returns { vendor, start_date, end_date } with dates as TEXT. */
-function periodOf_(title) {
-  var t = String(title).trim();
-  var m = t.match(/\s(\d{4})(?:\s*[-–]\s*(\d{4}))?\s*$/);
-  if (!m) return { vendor: cleanVendor_(t), start_date: '', end_date: '' };
-
-  var from = mmyy_(m[1]);
-  var to   = m[2] ? mmyy_(m[2]) : from;
-  if (!from || !to) return { vendor: cleanVendor_(t), start_date: '', end_date: '' };
-
-  return {
-    vendor:     cleanVendor_(t.slice(0, m.index)),
-    start_date: from.y + '-' + pad2_(from.m) + '-01',
-    end_date:   to.y + '-' + pad2_(to.m) + '-' + pad2_(new Date(to.y, to.m, 0).getDate())
-  };
-}
-
-// '0825' → Aug 2025. Rejects anything whose month isn't 01–12 (so a SKU count
-// like '10pc' or a stray year never gets read as a period).
-function mmyy_(s) {
-  var mo = parseInt(s.slice(0, 2), 10), yr = parseInt(s.slice(2), 10);
-  if (!(mo >= 1 && mo <= 12)) return null;
-  return { m: mo, y: 2000 + yr };
-}
-
-function pad2_(n) { return (n < 10 ? '0' : '') + n; }
-
 /* Belt to forceTextDates_'s braces: any Date that already made it into the sheet (or
    sneaks in later) reads back as 'YYYY-MM-DD' rather than an ISO timestamp.
  *
@@ -5132,43 +4933,6 @@ function pad2_(n) { return (n < 10 ? '0' : '') + n; }
 function textDate_(v) {
   if (v instanceof Date) return Utilities.formatDate(v, 'UTC', 'yyyy-MM-dd');
   return String(v == null ? '' : v).trim();
-}
-
-// 'Gron Chocolate - Ratio 10pks' → 'Gron';  'Mule Extracts -' → 'Mule Extracts'
-function cleanVendor_(s) {
-  var t = String(s).split(/\s+[-–]\s+/)[0];
-  t = t.replace(/\s+(all skus|all products|\d+\s*p(c|k)s?|carts?.*|joints?.*)$/i, '');
-  return t.replace(/[\s\-–]+$/, '').trim() || String(s).trim();
-}
-
-function findCellCol_(grid, label) {
-  var want = norm_(label);
-  for (var r = 0; r < grid.length; r++) {
-    for (var c = 0; c < grid[r].length; c++) if (norm_(grid[r][c]) === want) return c;
-  }
-  return -1;
-}
-
-/* Value for `label` = first non-empty cell to its right, searched only within
-   [cMin, cMax] so a plan label never picks up its actuals twin. */
-function findVal_(grid, label, cMin, cMax) {
-  var want = norm_(label);
-  for (var r = 0; r < grid.length; r++) {
-    var lim = Math.min(cMax, grid[r].length - 1);
-    for (var c = cMin; c <= lim; c++) {
-      if (norm_(grid[r][c]) !== want) continue;
-      for (var k = c + 1; k <= Math.min(lim + 2, grid[r].length - 1); k++) {
-        if (grid[r][k] !== '' && grid[r][k] != null) return grid[r][k];
-      }
-    }
-  }
-  return null;
-}
-
-function maxCols_(grid) {
-  var m = 0;
-  for (var r = 0; r < grid.length; r++) m = Math.max(m, grid[r].length);
-  return m;
 }
 
 function parseJson_(s, fallback) {
@@ -5226,6 +4990,21 @@ function authorize() {
  * If it ever has to come back: `git show db7a4c5:apps-script/Code.gs` (shipped as v1.322) is the last revision
  * that had all of it, seed map included, and CLAUDE.md records what the seed could not
  * supply (green-cross-2025-08-11 has no actuals; hapy-kitchen kept the Calculator`s targets).
+ *
+ * THE PARSER OUTLIVED THE BUTTON BY THIRTEEN DAYS. Cutting `importCalc` on 2026-08-30 removed the
+ * only CALLER of the Calculator parser but left the parser itself compiling quietly: parseCalcTab_
+ * and, reachable only through it, storeTable_ → matchStore_, plus findBlendedCost_, findCellCol_,
+ * findVal_, maxCols_, periodOf_ → mmyy_ / pad2_ / cleanVendor_. Eleven functions, 235 lines, zero
+ * ways to reach any of them. Removed 2026-09-12.
+ *
+ * IT WAS NOT INERT WHILE IT SAT THERE. matchStore_ was the only reader of a store's `short_code`,
+ * and that single dead reference was load-bearing in a COMMENT: when gxStores_ moved off the web
+ * route to the bound library (see it above), the route's derived short_code stopped being
+ * reproduced, and the justification for not reproducing it was "nothing live reads it — only
+ * matchStore_, which is dead." True, but it made a live design decision depend on a fact about
+ * unreachable code, which the next reader has to go and re-verify. Deleting the parser is what let
+ * that comment become a plain statement instead of a chain of reasoning. Dead code is not free; it
+ * shows up as a caveat somewhere else.
  * ═══════════════════════════════════════════════════════════════════════════════════════ */
 
 
