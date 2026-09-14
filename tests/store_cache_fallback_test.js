@@ -54,8 +54,14 @@ console.log('\n1. a failed fetch on top of a populated cache still serves store 
 const THEME = path.join(__dirname, '..', '..', 'greencross-gx-theme', 'gx-stores.js');
 if (!fs.existsSync(THEME)) {
   /* Loud, not silent, and not a failure: the sibling repo is normally right there, but a checkout
-     without it must not turn a missing input into a passing test. */
-  console.log('  ~ SKIPPED — no greencross-gx-theme beside this repo, so there is nothing to run.');
+     without it must not turn a missing input into a passing test.
+
+     "SKIP" as the first non-space word is the marker every GX repo's CI coverage step greps for
+     (SKIPRE='^SKIP|^ +SKIP '). This line used to read "  ~ SKIPPED —", which matches neither branch
+     of that pattern, so CI reported this suite as a plain ✅ while half of it had not run — the
+     precise false green the reporting step exists to prevent. secret_leak_test.js was given the
+     marker when it was introduced; this one was missed. */
+  console.log('  SKIP  no greencross-gx-theme beside this repo, so there is nothing to run.');
   console.log('    (Section 2 below is SPIFF\'s own half and still runs.)');
 } else {
   const SIX = [

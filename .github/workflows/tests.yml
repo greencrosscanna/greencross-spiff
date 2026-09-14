@@ -31,6 +31,28 @@ jobs:
         with:
           path: greencross-spiff
 
+      # ONE SIBLING, AND NO SECRET. store_cache_fallback_test.js runs the REAL gx-stores.js out of
+      # greencross-gx-theme to prove a failed stores fetch still serves cached display names — the bug
+      # that rendered every store as its slug ("bend" for Century) on 2026-09-08. Without this checkout
+      # that half of the suite skips, so CI printed a pass for a check that had never run: coverage
+      # present locally, where the sibling happens to sit beside this repo, and silently absent from the
+      # one gate `git push --no-verify` cannot walk past.
+      #
+      # greencross-gx-theme is PUBLIC, so actions/checkout reaches it with the default GITHUB_TOKEN and
+      # there is nothing to create, rotate or leak. Modeled on the hub's workflow, where siblings are
+      # checked out at `path: greencross-<name>` beside a main checkout that must itself be pathed —
+      # hence `path: greencross-spiff` above, which is what puts the two repos side by side the way the
+      # test's `..` lookup expects.
+      #
+      # DELIBERATELY NOT greencross-command-center: it is PRIVATE, the default token cannot reach it,
+      # and the cross-app contract coverage it would unlock already runs in the hub's own CI where all
+      # seven repos are checked out. A suite here that still says SKIP for a hub sibling is correct to.
+      - name: Check out greencross-gx-theme
+        uses: actions/checkout@v7
+        with:
+          repository: greencrosscanna/greencross-gx-theme
+          path: greencross-gx-theme
+
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
@@ -81,4 +103,14 @@ jobs:
                 echo "- ✅ \`$t\` — $(printf '%s' "$out" | tail -1)"
               fi
             done
+            echo ""
+            # Say whether the sibling actually arrived. The checkout step failing is the one way this
+            # repo goes back to reporting a pass for a check that did not run, and a ⚠️ line above only
+            # appears if the suite is asked to run at all — so name the input directly.
+            if [ -d "../greencross-gx-theme" ]; then
+              echo "greencross-gx-theme present — the shared-stores half of store_cache_fallback ran here."
+            else
+              echo "> **Sibling absent: greencross-gx-theme.** It is public and needs no token, so this"
+              echo "> means the checkout step failed — not that the coverage is optional."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
