@@ -203,6 +203,42 @@ let sb = saveBrandWith({ brand_id: 'ncc', website: 'w', display_name: 'Renamed',
 ok('saveBrand never renames, switches off or creates a brand from Settings',
    sb.sent && !('display_name' in sb.sent) && !('active' in sb.sent) && !('create' in sb.sent) && sb.sent.by === 'tawny');
 
+/* ── find-or-add, as you type ── */
+console.log('find or add');
+const suggest = new Function(grab(js, 'brandFold') + grab(js, 'brandSuggestions') + 'return brandSuggestions;')();
+const REG = [
+  { brand_id: 'national-cannabis-co', display_name: 'National Cannabis Co.', aliases: ['National Cannabis Co'], active: true,
+    contacts: [{ name: 'Amy Chen', email: 'amy@ncc.com', active: true }, { name: 'Gone Guy', email: 'gone@ncc.com', active: false }] },
+  { brand_id: 'mule-extracts', display_name: 'Mule Extracts', aliases: [], active: true, contacts: [] },
+];
+const DUTCHIE = [{ name: 'National Cannabis Co', count: 40 }, { name: 'Mule Extracts', count: 12 },
+                 { name: 'Muletown Farms', count: 7 }, { name: 'Wyld', count: 90 }];
+let sg = suggest('mul', REG, DUTCHIE, true);
+ok('a brand already in the list is offered first, with its rep count',
+   sg[0].kind === 'brand' && sg[0].id === 'mule-extracts' && /no reps/.test(sg[0].sub));
+ok('  …and an in-stock Dutchie brand not in the list is offered to add, in Dutchie\'s spelling',
+   sg.some(r => r.kind === 'dutchie' && r.name === 'Muletown Farms'));
+ok('  …but never a Dutchie brand the list already has', !sg.some(r => r.kind === 'dutchie' && r.name === 'Mule Extracts'));
+sg = suggest('national cannabis', REG, DUTCHIE, true);
+ok('a Dutchie spelling that folds to a registered brand is not offered as a second brand',
+   !sg.some(r => r.kind === 'dutchie' || r.kind === 'new'));
+sg = suggest('amy', REG, DUTCHIE, true);
+ok('a rep is found by name, and leads to their brand', sg.some(r => r.kind === 'rep' && r.id === 'national-cannabis-co'));
+ok('  …but a removed rep is not', !suggest('gone', REG, DUTCHIE, true).some(r => r.kind === 'rep'));
+sg = suggest('Brand New Co', REG, DUTCHIE, true);
+ok('a name Dutchie does not carry can still be added, and says to check the spelling',
+   sg.length === 1 && sg[0].kind === 'new' && /spelling/.test(sg[0].sub));
+ok('  …but not while Dutchie\'s list is still loading, when "not in Dutchie" would be a guess',
+   !suggest('Brand New Co', REG, null, true).length);
+ok('a viewer is never offered an add', !suggest('mul', REG, DUTCHIE, false).some(r => r.kind === 'dutchie' || r.kind === 'new')
+   && !suggest('Brand New Co', REG, DUTCHIE, false).length);
+ok('a two-letter query does not match across word breaks', !suggest('na', REG, [{ name: 'Benson Arbor', count: 3 }], true).some(r => r.name === 'Benson Arbor'));
+ok('  …but a longer punctuation-blind query still finds its brand', suggest('national cannabis co', [], [{ name: 'National Cannabis Co.', count: 3 }], true).some(r => r.kind === 'dutchie'));
+ok('an empty box suggests nothing', suggest('  ', REG, DUTCHIE, true).length === 0);
+ok('adding from the menu goes through the same addBrand door', /brandCall\('addBrand'/.test(grab(js, 'wireBrandFind')));
+ok('the Dutchie list is the Calculator picker\'s cache, not a second fetch',
+   /pick\.brands/.test(grab(js, 'wireBrandFind')) && /loadBrands\(\)/.test(grab(js, 'wireBrandFind')));
+
 /* ── the one-time seed ── */
 console.log('seed');
 function seed(programs, existing, apply) {

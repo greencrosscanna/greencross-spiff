@@ -208,6 +208,11 @@ Google's consent HTML instead of JSON until the owner has authorized.
   rename a brand or turn one off — a program finds its brand by name, and turning a brand off locks
   out all its reps; both are rare enough to do on purpose, not from a list.
 
+  **Its search autocompletes** (Sky, 2026-09-15): brands in the list, reps by name or email, and
+  every brand Dutchie has **in stock** that is not in the list yet, added in **Dutchie's spelling**.
+  A name Dutchie does not carry can still be added and says so. The Dutchie list is the Calculator
+  picker's `catalog` cache, not a second fetch.
+
   The 16 brands SPIFF had run programs on were seeded with no reps by `?action=seedBrands`
   (secret-gated, dry by default, skips anything Core already resolves). Pinned by
   `tests/brand_contacts_test.js`.

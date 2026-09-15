@@ -1510,29 +1510,157 @@
       if (rt) rt.addEventListener('click', function () { state.brandsError = ''; renderBrandDirectory(); loadBrandReps(); });
       return;
     }
-    var ed = canEdit();
     var focusQ = document.activeElement && document.activeElement.id === 'bdirQ';
     host.innerHTML = '<p class="hint sp-brep-note">Shared with Inventory. Any active rep listed here can open '
       +   'that brand&rsquo;s shared proposals with the brand password.</p>'
       + '<div class="sp-bdir-tools">'
-      +   '<input class="sp-in" id="bdirQ" type="search" placeholder="Search brands or reps" value="' + esc(brandDir.q) + '">'
-      +   (ed ? '<span class="sp-bdir-add"><input class="sp-in" id="bdirNew" placeholder="New brand name">'
-              + '<button type="button" class="gx-btn" id="bdirAdd">Add brand</button><span class="sp-brep-msg"></span></span>' : '')
+      +   '<div class="sp-pick sp-bdir-find"><div class="sp-pick-input">'
+      +     '<input class="sp-in" id="bdirQ" type="search" autocomplete="off" spellcheck="false" role="combobox"'
+      +       ' aria-expanded="false" aria-controls="bdirMenu" value="' + esc(brandDir.q) + '"'
+      +       ' placeholder="' + (canEdit() ? 'Find a brand or rep, or add a brand' : 'Find a brand or rep') + '">'
+      +     '<div class="sp-pick-menu" id="bdirMenu" role="listbox" hidden></div>'
+      +   '</div></div>'
+      +   '<span class="sp-brep-msg" id="bdirMsg"></span>'
       + '</div>'
       + '<div id="bdirList"></div>';
     paintBrandList();
+    // Focus BEFORE wiring: restoring focus after a pick must not fire the focus handler and reopen the menu.
+    if (focusQ) { var q = $('#bdirQ'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+    wireBrandFind();
+  }
 
-    var q = $('#bdirQ');
-    q.addEventListener('input', function () { brandDir.q = q.value; paintBrandList(); });
-    if (focusQ) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
-    var add = $('#bdirAdd');
-    if (add) add.addEventListener('click', function () {
-      var name = $('#bdirNew').value.trim();
-      if (!name) return;
-      brandDir.q = '';
-      brandCall('addBrand', { display_name: name }, add.parentNode, add).then(function (r) {
-        if (r && r.brand_id) { brandDir.open = r.brand_id; renderBrandDirectory(); }
+  /* ── FIND OR ADD, AS YOU TYPE (Sky, 2026-09-15: "pull and auto-complete from the list of all brands
+     as the user types, similar to how the search feature works in inventory and price card") ──
+     One box. Typing still filters the list underneath, and a menu offers, in order: brands already in
+     the shared list, reps by name or email, and every brand Dutchie has IN STOCK that is not in the
+     list yet — so adding one uses Dutchie's own spelling instead of whatever got typed, which is how
+     "National Cannabis Co." and "National Cannabis Co" became two programs. A brand Dutchie does not
+     carry yet can still be added by name, and says so.
+
+     The Dutchie list is the Calculator's brand picker cache (`pick`, loaded by the picker's
+     loadBrands), so opening Settings after the Calculator costs no fetch at all. */
+  function brandSuggestions(q, brands, dutchie, editable) {
+    var k = String(q || '').trim().toLowerCase(), fk = brandFold(q);
+    if (!k) return [];
+    /* Punctuation-blind matching ("natl cannabis co." finding "National Cannabis Co") only from four
+       letters on: folded, a two-letter query matches across word breaks, and "na" offered Benson Arbor. */
+    var fold4 = fk.length >= 4 ? fk : '';
+    var out = [], known = Object.create(null);
+    (brands || []).forEach(function (b) {
+      [b.brand_id, b.display_name].concat(b.aliases || []).forEach(function (n) { known[brandFold(n)] = 1; });
+    });
+    var named = function (b) {
+      return [b.display_name].concat(b.aliases || []).some(function (n) {
+        return n.toLowerCase().indexOf(k) >= 0 || (fold4 && brandFold(n).indexOf(fold4) >= 0);
       });
+    };
+    (brands || []).filter(named).slice(0, 8).forEach(function (b) {
+      var n = (b.contacts || []).filter(function (c) { return c.active; }).length;
+      out.push({ kind: 'brand', id: b.brand_id, label: b.display_name,
+                 sub: (b.active ? '' : 'turned off · ') + (n ? n + ' rep' + (n === 1 ? '' : 's') : 'no reps') });
+    });
+    var reps = [];
+    (brands || []).forEach(function (b) {
+      (b.contacts || []).forEach(function (c) {
+        if (c.active && ((c.name || '').toLowerCase().indexOf(k) >= 0 || c.email.indexOf(k) >= 0)) {
+          reps.push({ kind: 'rep', id: b.brand_id, label: c.name || c.email, sub: (c.name ? c.email + ' · ' : '') + b.display_name });
+        }
+      });
+    });
+    out = out.concat(reps.slice(0, 5));
+    if (editable) {
+      (dutchie || []).filter(function (d) {
+        return d.name && !known[brandFold(d.name)]
+          && (d.name.toLowerCase().indexOf(k) >= 0 || (fold4 && brandFold(d.name).indexOf(fold4) >= 0));
+      }).slice(0, 8).forEach(function (d) {
+        out.push({ kind: 'dutchie', name: d.name, label: d.name, sub: 'in Dutchie · ' + (d.count || 0) + ' in stock · add to the list' });
+      });
+      var typed = String(q).trim();
+      /* Only when nothing real matched. Offering "Add 'national cann'" under the brand being typed toward
+         is how a half-typed name becomes a brand. */
+      var matched = out.some(function (r) { return r.kind === 'brand' || r.kind === 'dutchie'; }) || known[fk];
+      // `dutchie` is null while Dutchie's list is still loading: "not in Dutchie" would be a guess then.
+      if (fk && !matched && dutchie) {
+        out.push({ kind: 'new', name: typed, label: 'Add “' + typed + '”',
+                   sub: dutchie.length ? 'not a brand Dutchie has in stock — check the spelling'
+                                       : 'couldn’t check Dutchie’s brands — check the spelling' });
+      }
+    }
+    return out;
+  }
+
+  function wireBrandFind() {
+    var q = $('#bdirQ'), menu = $('#bdirMenu');
+    if (!q || !menu) return;
+    var rows = [], cur = 0;
+
+    function paintMenu() {
+      rows = brandSuggestions(q.value, state.brands, pick.loading ? null : pick.brands, canEdit());
+      var loadingDutchie = canEdit() && pick.loading && q.value.trim();
+      if (!rows.length && !loadingDutchie) { closeMenu(); return; }
+      cur = Math.min(cur, Math.max(rows.length - 1, 0));
+      menu.innerHTML = rows.map(function (r, i) {
+        return '<div class="sp-pick-row' + (i === cur ? ' is-cur' : '') + (r.kind === 'new' ? ' is-new' : '')
+          + '" data-i="' + i + '" role="option"><span class="sp-pick-spacer">' + (r.kind === 'dutchie' || r.kind === 'new' ? '+' : '') + '</span>'
+          + '<div class="sp-pick-body"><div class="sp-pick-1"><span class="sp-pick-name">' + esc(r.label) + '</span></div>'
+          + '<div class="sp-pick-2">' + esc(r.sub) + '</div></div></div>';
+      }).join('') + (loadingDutchie ? '<div class="sp-pick-empty">Loading brands from Dutchie&hellip;</div>' : '');
+      menu.hidden = false;
+      q.setAttribute('aria-expanded', 'true');
+    }
+    function closeMenu() { menu.hidden = true; q.setAttribute('aria-expanded', 'false'); }
+
+    async function choose(r) {
+      if (!r) return;
+      closeMenu();
+      if (r.kind === 'brand' || r.kind === 'rep') {
+        var b = (state.brands || []).filter(function (x) { return x.brand_id === r.id; })[0];
+        brandDir.q = b ? b.display_name : '';
+        brandDir.open = r.id;
+        renderBrandDirectory();
+        var d = $('#bdirList details[open]');
+        if (d) d.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      var res = await brandCall('addBrand', { display_name: r.name }, $('#brandDir .sp-bdir-tools'), q);
+      if (res && res.brand_id) {
+        brandDir.q = r.name;
+        brandDir.open = res.brand_id;
+        renderBrandDirectory();
+      }
+    }
+
+    q.addEventListener('input', async function () {
+      brandDir.q = q.value;
+      cur = 0;
+      paintBrandList();
+      paintMenu();
+      if (canEdit() && !pick.brands.length) {
+        await loadBrands();                       // the picker's Dutchie list; memoized, one call ever
+        if (document.activeElement === q) paintMenu();
+      }
+    });
+    q.addEventListener('focus', function () { if (q.value.trim()) paintMenu(); if (canEdit()) loadBrands(); });
+    q.addEventListener('blur', function () { setTimeout(closeMenu, 160); });
+    q.addEventListener('keydown', function (ev) {
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        if (menu.hidden) { paintMenu(); return; }
+        ev.preventDefault();
+        cur = (cur + (ev.key === 'ArrowDown' ? 1 : -1) + rows.length) % Math.max(rows.length, 1);
+        paintMenu();
+      } else if (ev.key === 'Enter') {
+        ev.preventDefault();
+        if (!menu.hidden) choose(rows[cur]);
+      } else if (ev.key === 'Escape' && !menu.hidden) {
+        ev.stopPropagation();                     // close the menu, not the whole Settings dialog
+        closeMenu();
+      }
+    });
+    menu.addEventListener('mousedown', function (ev) {
+      var row = ev.target.closest('[data-i]');
+      if (!row) return;
+      ev.preventDefault();
+      choose(rows[Number(row.dataset.i)]);
     });
   }
 
