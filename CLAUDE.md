@@ -259,6 +259,20 @@ Google's consent HTML instead of JSON until the owner has authorized.
   ordering of writes, or a refusal: `indexOf(a) < indexOf(b)` on source text is equally true of a
   route that moves the rows first and one whose loop never matches a row.
 
+  **The rule is a ratchet, not a memo** (2026-09-15). `tests/suite_shape_test.js` fails if a test
+  file neither runs code nor carries a `SOURCE-SHAPED:` line in its header saying why it cannot.
+  Six files are declared: the static analyzer, the cache-invalidation scan (whose claim is about
+  writers nobody has written yet), and four that are markup, browser painting or call counting.
+  Writing a regex will always be faster than building a harness, so the marker is what makes
+  choosing one a decision somebody wrote down rather than the path of least resistance.
+
+- **A bug report carries its screenshot** (2026-09-15, v1.424). The browser uploads the image to
+  Drive on its own call and puts the url on the payload as `screenshot_url`; `reportBug_` forwards
+  a NAMED list of fields to `GXCore.gxIngestBug`, and until v1.424 that list did not include it —
+  so the upload succeeded, the url arrived, and the board showed a report with no picture. Found by
+  core-admin across the suite: 140 reports, seven apps, not one image. Add a field to the payload
+  and it must be added to that list too; pinned by `tests/bug_report_test.js`.
+
 - **SPIFF reads the roster, never writes it.** `employees` and `stores` come from GX Core; don't
   re-hardcode store names — Command Center edits must flow through on the next load.
 - **SPIFF PUBLISHES TO CORE NOW — the write contract exists as of 2026-09-08 (v1.374).** After every
