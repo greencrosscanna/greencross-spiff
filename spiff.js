@@ -5427,6 +5427,44 @@
     renderHistory();
   }
 
+  /* ── WHAT HISTORY SHOWS FOR ONE PROGRAM ───────────────────────────────────────────────────
+     Recorded actuals when a person has recorded them; otherwise the measurement frozen when the
+     program closed. Sky, 2026-09-15: the Mule Dank Tank program closed and History read 0 sold,
+     0 hit, $0 — while its frozen measurement held 168 units and 20 budtenders earning $500.
+
+     Recorded actuals stay a human's job on purpose: "Pull live from Dutchie" fills the fields and
+     nothing is saved until someone presses save, because those figures go to the vendor. Mule was
+     simply the first program to close INSIDE the app — every older one arrived with actuals from
+     the seed — so it was the first to show the gap. The measured figures are therefore SHOWN, and
+     labeled as not yet recorded, rather than written onto the record behind anyone's back.
+
+     ROI is the Calculator's identity, the same one pullActuals uses:
+       (units sold − baseline units) × cost per unit − what was paid. */
+  function histFigures(p) {
+    var a = p.actual_json;
+    if (a && (a.units_sold != null || a.bts_hit != null || a.roi != null)) {
+      return { sold: Number(a.units_sold) || 0, hit: Number(a.bts_hit) || 0,
+               rate: Number(a.spiff_amount) || Number((p.payout_json || {}).amount) || 0,
+               paid: (Number(a.bts_hit) || 0) * (Number(a.spiff_amount) || Number((p.payout_json || {}).amount) || 0),
+               roi: Number(a.roi) || 0, measured: false, recorded: true };
+    }
+    var s = p.progress_json;
+    /* A measurement of ZERO units is not shown as a result. On a program that ran, zero almost
+       always means its product filter matches nothing any more (Green Cross, Aug 2025, measures 0
+       against goals of 616), and "measured — 0 sold" would state a fact that is really a broken
+       filter. Nothing recorded and nothing credible measured stays plain zeros, claiming nothing. */
+    if (s && s.stores && s.stores.length && Number(s.units) > 0) {
+      var units = Number(s.units) || 0, paid = Number(s.earned) || 0;
+      var base = Number((p.baseline_json || {}).units) || 0, cost = Number((p.cost_json || {}).per_unit) || 0;
+      return { sold: units, hit: Number(s.earners) || 0,
+               rate: Number(s.rate) || Number((p.payout_json || {}).amount) || 0, paid: paid,
+               roi: Math.round(((units - base) * cost - paid) * 100) / 100,
+               measured: true, recorded: false, partial: (s.partial || []).length };
+    }
+    return { sold: 0, hit: 0, rate: Number((p.payout_json || {}).amount) || 0, paid: 0, roi: 0,
+             measured: false, recorded: false };
+  }
+
   function renderHistory() {
     var q       = ($('#hSearch').value || '').trim().toLowerCase();
     var vendor  = $('#hVendor').value;
@@ -5447,10 +5485,10 @@
 
     // Totals answer "what has this vendor cost us and returned" without opening anything.
     var t = list.reduce(function (acc, p) {
-      var a = p.actual_json || {};
-      acc.units  += a.units_sold || 0;
-      acc.spend  += (a.bts_hit || 0) * (a.spiff_amount || (p.payout_json || {}).amount || 0);
-      acc.roi    += a.roi || 0;
+      var f = histFigures(p);
+      acc.units  += f.sold;
+      acc.spend  += f.paid;
+      acc.roi    += f.roi;
       return acc;
     }, { units: 0, spend: 0, roi: 0 });
 
@@ -5485,9 +5523,9 @@
     $('#hList').innerHTML = keys.map(function (k) {
       var g = groups[k];
       var m = g.reduce(function (acc, p) {
-        var a = p.actual_json || {};
-        acc.spend += (a.bts_hit || 0) * (a.spiff_amount || (p.payout_json || {}).amount || 0);
-        acc.roi   += a.roi || 0;
+        var f = histFigures(p);
+        acc.spend += f.paid;
+        acc.roi   += f.roi;
         return acc;
       }, { spend: 0, roi: 0 });
       return '<div class="sp-month"><h3>' + esc(monthLabel(k)) + '</h3>'
@@ -5507,9 +5545,10 @@
 
   function histRow(p) {
     var a    = p.actual_json || {};
-    var rate = a.spiff_amount || (p.payout_json || {}).amount || 0;
+    var f    = histFigures(p);
+    var rate = f.rate;
     var tgt  = (p.target_json || {}).units || 0;
-    var sold = a.units_sold || 0;
+    var sold = f.sold;
     var d    = tgt ? sold - tgt : null;
     var dupe = (a.duplicate_of || []).length;
 
@@ -5518,6 +5557,10 @@
       + esc(a.duplicate_of.join(', ')) + '">actuals match ' + esc(a.duplicate_of.join(', ')) + ' &mdash; verify</span>';
     else if (a.rate_changed) flag = '<span class="sp-flag is-warn">rate ' + money((p.payout_json || {}).amount)
       + ' &rarr; ' + money(a.spiff_amount) + '</span>';
+    else if (f.measured) flag = '<span class="sp-flag is-warn" title="Measured from Dutchie when the program closed. '
+      + 'Open it, press Pull live from Dutchie, check the figures and save to record them.">measured'
+      + (f.partial ? ' (' + f.partial + ' store' + (f.partial === 1 ? '' : 's') + ' missing)' : '')
+      + ' &mdash; not yet recorded</span>';
 
     /* NO "corrected by" PILL (Sky, 2026-09-11). It marked the Calculator-era records Sky fixed by
        hand while History was being reconciled; with that done, nearly every row carried it and it
@@ -5532,9 +5575,9 @@
       + '</div>'
       + '<div class="num"><b>' + sold.toLocaleString() + '</b> <span class="sp-hist-lbl">sold</span>'
       +   (d == null ? '' : ' <span class="sp-delta ' + (d >= 0 ? 'up' : 'down') + '">' + (d >= 0 ? '+' : '') + d.toLocaleString() + '</span>') + '</div>'
-      + '<div class="num"><b>' + (a.bts_hit || 0) + '</b> <span class="sp-hist-lbl">hit &times; ' + money(rate) + '</span></div>'
-      + '<div class="num sp-money ' + (a.roi < 0 ? 'is-neg' : 'is-pos') + '"><b>'
-      +   (a.roi >= 0 ? '+' : '') + money(a.roi) + '</b> <span class="sp-hist-lbl">ROI</span></div>'
+      + '<div class="num"><b>' + f.hit + '</b> <span class="sp-hist-lbl">hit &times; ' + money(rate) + '</span></div>'
+      + '<div class="num sp-money ' + (f.roi < 0 ? 'is-neg' : 'is-pos') + '"><b>'
+      +   (f.roi >= 0 ? '+' : '') + money(f.roi) + '</b> <span class="sp-hist-lbl">ROI</span></div>'
       + '</div>';
   }
 
