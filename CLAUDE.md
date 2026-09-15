@@ -186,6 +186,26 @@ Google's consent HTML instead of JSON until the owner has authorized.
 - **Cost, not payout, is where programs vary.** Multi-SKU programs blend it — the sheet's
   `Combined WS Cost` / `Average Cost` / `Combined Total for 20pc & 2pc`. `cost_json` supports
   `flat` and `blended`.
+- **Brand reps live in GX Core's shared brand registry, not on the program** (Sky, 2026-09-14/15;
+  GXCore v330). `brands` + `brand_contacts`, keyed by **brand** — Sky chose that over a
+  vendor/distributor layer. SPIFF edits reps on the program screen (`saveBrandContact`,
+  `removeBrandContact`, `addBrand` — editor session, stamped `by` the signed-in user) and Core is the
+  only writer. Inventory is a named consumer.
+
+  **The vendor sign-in reads it.** `clientView_` lets in any **active rep on an active brand**, with
+  the brand resolved by `GXCore.resolveBrand` from `match_json.brand` (else `vendor`). The old
+  per-program `contact_email` opens **nothing** now, and `contact_name` / `contact_email` are out of
+  `EDITABLE_FIELDS` — the columns stay because names are names. Removing a rep is soft in Core and
+  closes their access at once.
+
+  **Core's library read is slow** — `getBrands` measured 6–30s. The engine caches it **for the screen
+  only** (five minutes, cleared by every SPIFF write); the sign-in never reads that cache, or a removed
+  rep would keep access for five minutes. Contact emails are half of a rep's login, so no route hands
+  the list to an anonymous caller.
+
+  The 16 brands SPIFF had run programs on were seeded with no reps by `?action=seedBrands`
+  (secret-gated, dry by default, skips anything Core already resolves). Pinned by
+  `tests/brand_contacts_test.js`.
 - **SPIFF reads the roster, never writes it.** `employees` and `stores` come from GX Core; don't
   re-hardcode store names — Command Center edits must flow through on the next load.
 - **SPIFF PUBLISHES TO CORE NOW — the write contract exists as of 2026-09-08 (v1.374).** After every

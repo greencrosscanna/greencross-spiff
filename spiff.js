@@ -1380,7 +1380,7 @@
      punctuation ignored). That is only for what the screen SHOWS. Who may sign in is decided on
      the engine by GXCore.resolveBrand, and Core refuses two brands that fold to the same name, so
      the two agree for everything the registry holds. */
-  async function loadBrands() {
+  async function loadBrandReps() {
     try {
       // Core's library read is slow (6–30s measured cold); the engine caches it, but a cold read needs the room.
       var r = await ENG.jsonp('brands', { token: (session() || {}).token }, { timeoutMs: 45000, retries: 1 });
@@ -1509,7 +1509,7 @@
       var r = await ENG.jsonp(action, Object.assign({ token: (session() || {}).token }, params), { timeoutMs: 45000, retries: 0 });
       if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
       if (row) repMsg(row, 'Saved', true);
-      await loadBrands();
+      await loadBrandReps();
       return r;
     } catch (err) {
       if (row) repMsg(row, String(err.message || err), false);
@@ -6019,7 +6019,7 @@
     });
     /* Not awaited either: the brand list only decides the rep section and the "needs a rep" hints,
        so a slow Core must never hold up the program list. It repaints what it touches when it lands. */
-    var brandsP   = loadBrands();
+    var brandsP   = loadBrandReps();
     var cacheP    = loadProgressCache();
     /* NOT awaited by first paint, on purpose: the built-in anchor is correct today, so the screen
        is right the moment it renders and this only has to CORRECT it if Core disagrees. Blocking

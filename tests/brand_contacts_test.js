@@ -111,6 +111,15 @@ ok('  …and a rep whose brand has no shared program is refused', !cv.ok && DENY
 
 /* ── the program no longer carries its own contact list ── */
 console.log('program record');
+/* Found in the browser: SPIFF already had a `loadBrands` (the product picker's), and a second function
+   declaration of the same name in one scope silently REPLACES the first. The rep section sat on
+   "Loading" forever while every test passed. Each name below must be declared exactly once. */
+['loadBrandReps', 'brandNameOf', 'brandFold', 'brandOf', 'activeReps', 'needsRep', 'primaryRep',
+ 'renderBrandReps', 'repRow', 'repMsg', 'brandCall', 'saveRep', 'removeRep', 'restoreRep', 'addBrandFor', 'loadBrands']
+  .forEach(function (n) {
+    ok('spiff.js declares ' + n + ' exactly once', (js.match(new RegExp('function ' + n + '\\s*\\(', 'g')) || []).length === 1);
+  });
+ok('boot loads the brand REGISTRY, not the product picker\'s brand list', /var brandsP\s*=\s*loadBrandReps\(\)/.test(js));
 const editable = gs.slice(gs.indexOf('var EDITABLE_FIELDS'), gs.indexOf('];', gs.indexOf('var EDITABLE_FIELDS')));
 ok('contact_name and contact_email are no longer editable on a program',
    !/'contact_name'|'contact_email'/.test(editable.replace(/\/\*[\s\S]*?\*\//g, '')));
