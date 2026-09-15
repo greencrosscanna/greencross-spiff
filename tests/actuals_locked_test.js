@@ -168,7 +168,7 @@ ok('  …and no longer offers undercounted totals as a result',
 /* ══════════════════ 4. A CLOSED PROGRAM ASKS FIRST ══════════════════ */
 ok('unlocking a CLOSED program confirms, naming what those figures are',
    /closed && !confirm\(/.test(render)
-   && /figures the vendor was \'\s*\+\s*\'sent and the budtenders were paid against/.test(render.replace(/\n\s*\+\s*/g, ' + ')));
+   && /figures the brand was \'\s*\+\s*\'sent and the budtenders were paid against/.test(render.replace(/\n\s*\+\s*/g, ' + ')));
 ok('  …and points at the measured alternative instead of typing',
    /Pull live from Dutchie re-measures them instead/.test(render));
 /* A draft or running program has been reported to nobody — a dialog there teaches people to

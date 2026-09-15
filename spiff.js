@@ -856,7 +856,7 @@
       + '<div><div class="sp-row-name">' + esc(programLabel(p)) + '</div>'
       +   '<div class="sp-row-sub">' + esc(p.vendor) + ' &middot; ' + esc(prettyRange(p)) + '</div>'
       +   (dupe ? '<span class="sp-flag is-bad" title="Identical units sold, budtenders hit and investment as '
-                  + esc(a.duplicate_of.join(', ')) + ' — likely a copied tab, verify before it reaches a vendor">'
+                  + esc(a.duplicate_of.join(', ')) + ' — likely a copied tab, verify before it reaches a brand">'
                   + 'actuals match ' + esc(a.duplicate_of.join(', ')) + ' &mdash; verify</span>' : '')
       +   (rate && !dupe ? '<span class="sp-flag is-warn" title="Modeled at ' + money(pay)
                   + ', settled at ' + money(a.spiff_amount) + '">rate ' + money(pay)
@@ -893,8 +893,8 @@
        "does not match" a wrong password gives — no clue that the fault is ours. Say so here rather
        than let a broken link get emailed. */
     var title = noEmail ? 'Set a contact email on this program first — without one the link opens nothing'
-              : has     ? 'Copy the vendor link'
-                        : 'Create a vendor link';
+              : has     ? 'Copy the brand link'
+                        : 'Create a brand link';
     return '<div class="sp-row-share">'
       + '<button class="sp-share' + (has ? ' has-link' : '') + (noEmail ? ' is-blocked' : '')
       +   '" data-share="' + esc(p.program_id) + '" title="' + esc(title) + '"'
@@ -1381,7 +1381,7 @@
       warn += '<div class="sp-notice is-bad"><span class="sp-notice-l">Actuals look copied</span>'
         + 'Identical units sold, budtenders hit and investment as <b>' + esc(a.duplicate_of.join(', ')) + '</b>. '
         + 'Duplicating a tab copies its typed cells while formulas recalculate, so these numbers may belong to '
-        + 'another program. Pull live actuals below, or correct them by hand — the vendor close-out PDF in Drive '
+        + 'another program. Pull live actuals below, or correct them by hand — the brand close-out PDF in Drive '
         + 'is the reliable source.</div>';
     }
     if (a.rate_changed) {
@@ -1391,7 +1391,7 @@
     }
     if (!p.contact_email) {
       warn += '<div class="sp-notice is-warn"><span class="sp-notice-l">No contact email</span>'
-        + 'A vendor link opens nothing without it &mdash; the rep signs in with their own address.</div>';
+        + 'A brand link opens nothing without it &mdash; the rep signs in with their own address.</div>';
     }
 
     $(REC.body).innerHTML = warn
@@ -1421,7 +1421,7 @@
 
       + '<h4 class="sp-h4">Contact</h4>'
       + '<div class="sp-flds">'
-      +   recField('Vendor contact', 'contact_name', p.contact_name)
+      +   recField('Brand contact', 'contact_name', p.contact_name)
       +   recField('Contact email', 'contact_email', p.contact_email)
       + '</div>'
 
@@ -1447,7 +1447,7 @@
       + '<div class="sp-h4-row"><h4 class="sp-h4">Actuals</h4>'
       +   '<span class="sp-h4-note" id="rActualsNote">'
       +     (actualsOpen
-              ? 'open for hand correction &mdash; these are the figures the vendor was sent'
+              ? 'open for hand correction &mdash; these are the figures the brand was sent'
               : 'measured, not typed &mdash; pull them from Dutchie, or unlock to correct by hand')
       +   '</span>'
       +   (canEdit() && !actualsOpen
@@ -1486,7 +1486,7 @@
     if (unlock) unlock.addEventListener('click', function () {
       var closed = String(p.status || '').toLowerCase() === 'closed';
       if (closed && !confirm('Correct the actuals on ' + (programLabel(p) || 'this program') + ' by hand?\n\n'
-            + 'It closed on ' + prettyDay(p.end_date) + '. These are the figures the vendor was '
+            + 'It closed on ' + prettyDay(p.end_date) + '. These are the figures the brand was '
             + 'sent and the budtenders were paid against.\n\n'
             + 'Pull live from Dutchie re-measures them instead, without typing.')) return;
       calc.actualsOpenFor = p.program_id;
@@ -1547,12 +1547,12 @@
     // the same role gate as editing and says plainly what it does.
     if (canEdit()) {
       $(REC.body).insertAdjacentHTML('beforeend',
-        '<h4>Vendor link</h4>'
+        '<h4>Brand link</h4>'
         + '<p class="hint">A read-only page showing only this program. To open it they enter '
         + '<b>their own email</b> and the shared password — so set the contact email above first, '
         + 'or the link opens nothing.</p>'
         + '<div class="share-row">'
-        +   '<button class="gx-btn" id="btnShare">' + (p.share_token ? 'Copy vendor link' : 'Create vendor link') + '</button>'
+        +   '<button class="gx-btn" id="btnShare">' + (p.share_token ? 'Copy brand link' : 'Create brand link') + '</button>'
         +   (p.share_token ? '<button class="gx-btn" id="btnRevoke">Revoke</button>' : '')
         +   '<input class="gx-input" id="shareUrl" readonly hidden>'
         + '</div>');
@@ -1569,11 +1569,11 @@
       $(REC.body).insertAdjacentHTML('beforeend',
         '<h4>Delete</h4>'
         + (closed
-            ? '<p class="hint">This program is closed — it ran, was reported to the vendor and was '
+            ? '<p class="hint">This program is closed — it ran, was reported to the brand and was '
               + 'paid, so it stays in History. Nothing here deletes it.</p>'
             : '<p class="hint">Removes this program and every progress figure measured for it. '
               + 'It moves to the <b>deleted_programs</b> tab of the engine sheet, so a wrong '
-              + 'delete is recoverable — but it disappears from Programs, History, the vendor '
+              + 'delete is recoverable — but it disappears from Programs, History, the brand '
               + 'link and the Progress feed that GX Crew and the kiosks read.</p>'
               + '<div class="share-row">'
               /* THE RAW NAME, not programLabel(). The engine re-checks this string against the
@@ -1844,7 +1844,7 @@
       p.share_token = '';
       btn.textContent = 'Revoked';
       var box = $('#shareUrl'); if (box) { box.hidden = true; box.value = ''; }
-      $('#btnShare').textContent = 'Create vendor link';
+      $('#btnShare').textContent = 'Create brand link';
     } catch (err) {
       btn.textContent = 'Failed';
       console.error('[spiff] revoke failed:', err);
@@ -3416,7 +3416,7 @@
       chosenHost.innerHTML = '<div class="sp-chosen"><div class="sp-chosen-b">'
         + body
         + (c.costSuspect
-            ? '<span class="sp-cost-warn">Dutchie lists a unit cost under a cent for this &mdash; check it before quoting a vendor.</span>'
+            ? '<span class="sp-cost-warn">Dutchie lists a unit cost under a cent for this &mdash; check it before quoting a brand.</span>'
             : '')
         + '</div><button type="button" class="gx-btn" data-unpick="1">Clear</button></div>';
     }
@@ -3851,7 +3851,7 @@
     if (un) un.addEventListener('click', function () {
       /* Named, not a shrug. The program was reported to the vendor against these numbers, and
          whoever unlocks it should be reading that sentence before the controls come alive. */
-      if (!confirm('This program is closed. Its goals were reported to the vendor and paid '
+      if (!confirm('This program is closed. Its goals were reported to the brand and paid '
                  + 'against.\n\nUnlock and re-model it anyway?')) return;
       calc.locked = false;
       renderCalcEditing();
@@ -4114,7 +4114,7 @@
     if (!confirm(replacing
           ? 'Re-measure ' + (programLabel(rec) || 'this program') + '?\n\n'
             + 'It closed on ' + prettyDay(rec.end_date) + ' and these numbers were reported to '
-            + 'the vendor. Re-measuring replaces them with what Dutchie says today.'
+            + 'the brand. Re-measuring replaces them with what Dutchie says today.'
           : 'Measure ' + (programLabel(rec) || 'this program') + '?\n\n'
             + 'Nothing has been measured for it yet, so this replaces nothing. It reads '
             + prettyDay(rec.start_date) + ' → ' + prettyDay(rec.end_date) + ' from Dutchie, one '
@@ -4728,7 +4728,7 @@
     var suspect = a.duplicate_of && a.duplicate_of.length
       ? '<div class="sp-notice is-bad"><span class="sp-notice-l">Check these numbers before sending</span>'
         + 'These actuals are identical to <b>' + esc(a.duplicate_of.join(', ')) + '</b> and may be copied '
-        + 'from another tab. A vendor credit built on them would be wrong.</div>'
+        + 'from another tab. A brand credit built on them would be wrong.</div>'
       : '';
 
     var mail = { subject: '', body: '' };
@@ -4761,7 +4761,7 @@
 
     host.innerHTML = suspect
       + '<div class="sp-rep-hero">'
-      +   '<div><div class="sp-rep-owed-l">The vendor owes</div>'
+      +   '<div><div class="sp-rep-owed-l">The brand owes</div>'
       +     '<div class="sp-rep-owed-v">' + money(owed) + '</div>'
       +     '<div class="sp-rep-owed-s">' + hit + ' budtender' + (hit === 1 ? '' : 's') + ' &times; ' + money(rate) + '</div></div>'
       +   '<dl class="sp-rep-facts">'
@@ -4773,14 +4773,14 @@
               return '<span class="sp-dot" style="--dot:' + esc(storeColor(id)) + '" title="' + esc(storeName(id)) + '"></span>';
             }).join(' ') + '</dd>'
       +   '</dl>'
-      +   '<div style="text-align:right"><div class="sp-rep-ret-l">Vendor&rsquo;s return</div>'
+      +   '<div style="text-align:right"><div class="sp-rep-ret-l">Brand&rsquo;s return</div>'
       +     '<div class="sp-rep-ret-v">' + (owed ? pctWhole(net / owed) : '—') + '</div>'
       +     '<div class="sp-rep-ret-s">' + money(added) + ' sell-through, net ' + money(net) + '</div></div>'
       + '</div>'
 
       /* ---- step 1: the artefact the vendor receives */
       + '<div class="sp-step" id="repStep1">'
-      +   '<div class="sp-step-h"><span class="sp-step-n">1</span><h4>File the vendor report</h4>'
+      +   '<div class="sp-step-h"><span class="sp-step-n">1</span><h4>File the brand report</h4>'
       +     '<span class="sp-step-note" id="repStep1Note">saved to the SPIFF Reports folder in Drive</span></div>'
       +   '<div class="sp-step-b">'
       +     '<div class="sp-paper" id="printArea">'
@@ -4815,7 +4815,7 @@
 
       /* ---- step 2: the message a human sends */
       + '<div class="sp-step" id="repStep2">'
-      +   '<div class="sp-step-h"><span class="sp-step-n">2</span><h4>Send the vendor email</h4>'
+      +   '<div class="sp-step-h"><span class="sp-step-n">2</span><h4>Send the brand email</h4>'
       +     '<span class="sp-step-note">draft &mdash; you send it</span></div>'
       +   '<div class="sp-step-b">'
       +     '<div class="sp-mail-f">'
@@ -4827,7 +4827,7 @@
       +       '<button class="gx-btn" data-act="copy">Copy email</button>'
       +       '<button class="gx-btn" data-act="mailto">Open in mail &#8599;</button>'
       +     '</div>'
-      +     '<p class="sp-step-hint">The app cannot email a vendor. Attach the PDF and send it yourself.</p>'
+      +     '<p class="sp-step-hint">The app cannot email a brand. Attach the PDF and send it yourself.</p>'
       +   '</div></div>'
 
       /* ---- step 3: what staff actually get */
@@ -4923,7 +4923,7 @@
       if (p.vendor) vendors[p.vendor] = 1;
       if (p.start_date) years[p.start_date.slice(0, 4)] = 1;
     });
-    $('#hVendor').innerHTML = '<option value="">All vendors</option>'
+    $('#hVendor').innerHTML = '<option value="">All brands</option>'
       + Object.keys(vendors).sort().map(function (v) { return '<option>' + esc(v) + '</option>'; }).join('');
     $('#hYear').innerHTML = '<option value="">All time</option>'
       + Object.keys(years).sort().reverse().map(function (y) { return '<option>' + esc(y) + '</option>'; }).join('');

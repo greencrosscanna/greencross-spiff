@@ -1333,7 +1333,7 @@ function deleteProgram_(p) {
   var prog = current.program;
 
   if (String(prog.status || '').toLowerCase() === 'closed') {
-    return { ok: false, error: 'This program is closed — it ran, was reported to the vendor and was '
+    return { ok: false, error: 'This program is closed — it ran, was reported to the brand and was '
                              + 'paid, so it stays in History. Only a draft or an active program can be deleted.' };
   }
 
@@ -3374,7 +3374,7 @@ function clientView_(p) {
   if (fails >= 8) return { ok: false, error: 'Too many attempts — try again later.' };
 
   var expected = PropertiesService.getScriptProperties().getProperty(CLIENT_PASS_PROP);
-  if (!expected) return { ok: false, error: 'Vendor access is not set up yet.' };
+  if (!expected) return { ok: false, error: 'Brand access is not set up yet.' };
 
   // One generic failure for a wrong password OR an unknown email — telling them apart
   // would let someone confirm which reps we work with.
@@ -4049,7 +4049,7 @@ function productLabelOf_(pr) {
 function shareLink_(p) {
   var auth = gxAuth_(p.token);
   if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
-  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) return { ok: false, error: 'Your role cannot create vendor links' };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) return { ok: false, error: 'Your role cannot create brand links' };
 
   var res = getProgram_(p.id);
   if (!res.ok) return res;

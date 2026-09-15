@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.412"/>
-<link rel="stylesheet" href="spiff.css?v=1.412"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.413"/>
+<link rel="stylesheet" href="spiff.css?v=1.413"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -89,7 +89,7 @@
   <div class="sp-subnav" id="subnavPrograms">
     <div class="sp-search">
       <span class="sp-search-icon" aria-hidden="true">&#8981;</span>
-      <input id="progSearch" type="search" placeholder="Search vendor or program&hellip;" aria-label="Search vendor or program">
+      <input id="progSearch" type="search" placeholder="Search brand or program&hellip;" aria-label="Search brand or program">
     </div>
     <div class="sp-seg" id="progScope" role="group" aria-label="Filter by status">
       <button type="button" class="is-on" data-scope="active">Active</button>
@@ -113,22 +113,22 @@
     <span class="sp-editing" id="calcEditing" hidden></span>
     <div class="sp-subnav-right">
       <button class="gx-btn" id="calcSave">Save as program</button>
-      <button class="sp-btn-gold" id="calcPresent" title="Full-screen, no chrome — what the vendor sees">&#9656; Present to vendor</button>
+      <button class="sp-btn-gold" id="calcPresent" title="Full-screen, no chrome — what the brand sees">&#9656; Present to brand</button>
     </div>
   </div>
 
   <div class="sp-subnav" id="subnavReports" hidden>
     <select class="sp-in sp-progpick" id="repProgram" title="Which program to close out"></select>
     <span id="repStatus"></span>
-    <span class="sp-h4-note">Nothing is sent from here &mdash; the vendor hears from Tawny.</span>
+    <span class="sp-h4-note">Nothing is sent from here &mdash; the brand hears from Tawny.</span>
   </div>
 
   <div class="sp-subnav" id="subnavHistory" hidden>
     <div class="sp-search">
       <span class="sp-search-icon" aria-hidden="true">&#8981;</span>
-      <input id="hSearch" type="search" placeholder="Search vendor or program&hellip;" aria-label="Search history">
+      <input id="hSearch" type="search" placeholder="Search brand or program&hellip;" aria-label="Search history">
     </div>
-    <select class="sp-in" id="hVendor" style="max-width:180px"><option value="">All vendors</option></select>
+    <select class="sp-in" id="hVendor" style="max-width:180px"><option value="">All brands</option></select>
     <select class="sp-in" id="hYear" style="max-width:150px"><option value="">All time</option></select>
     <label class="sp-pill" style="cursor:pointer"><input type="checkbox" id="hSuspect" style="margin:0 6px 0 0"> Only flagged records</label>
   </div>
@@ -510,6 +510,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="spiff.js?v=1.412"></script>
+<script src="spiff.js?v=1.413"></script>
 </body>
 </html>

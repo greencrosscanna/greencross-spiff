@@ -59,7 +59,7 @@ ok('  …and a failure to drop them is REPORTED, not swallowed — orphans are t
 ok('a CLOSED program is refused',
    /status[^\n]*toLowerCase\(\)\s*===\s*'closed'/.test(del) && /ok:\s*false/.test(del));
 ok('  …and the refusal says why, rather than reading as a bug',
-   /reported to the vendor/.test(del));
+   /reported to the brand/.test(del));
 
 /* ── the confirmation is a control, not a dialog ── */
 ok('the typed name is compared SERVER-SIDE against the stored program name',

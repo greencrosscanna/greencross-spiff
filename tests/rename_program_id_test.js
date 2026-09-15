@@ -107,7 +107,7 @@ ok('  …and the reasoning is written down, next to the delete that does refuse'
    || /delete removes money that was reported and paid/.test(gs));
 /* Deleting still refuses closed — this must not have loosened that. */
 ok('deleting a closed program is still refused',
-   /it ran, was reported to the vendor and was/.test(grab('deleteProgram_')));
+   /it ran, was reported to the brand and was/.test(grab('deleteProgram_')));
 
 /* ══════════════════ 5. IT DOES NOT GO THROUGH THE SAVE PATH ══════════════════ */
 /* saveProgram_ clears a program's measurements when the fields that define what it measured move
