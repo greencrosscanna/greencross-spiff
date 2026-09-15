@@ -47,50 +47,110 @@ function grab(src, name) {
   throw new Error('unbalanced ' + name);
 }
 
-/* ══════════════════ 1. NO PERSON, NO MARGIN ══════════════════ */
-const view = grab(gs, 'storeView_');
+/* ── THE BOARD, BUILT FOR REAL ───────────────────────────────────────────────────────────────────
+   REWRITTEN 2026-09-15. Every check below used to read storeView_'s SOURCE and pull the emitted
+   keys out of the text between `out.push({` and `});`. That is a weak way to guard a leak on the
+   one route with no credential: it reads what the literal SAYS, so a key added by
+   `Object.assign(row, cached)`, by spreading a cached row, or by returning the row itself would
+   never appear in it — and the cached row this reads carries `earned`. The route is now RUN and
+   the assertions call Object.keys on what it actually returns. */
+const G = require('./_gas');
 
-/* AN ALLOWLIST, read off the keys the route actually emits — not a substring hunt. The first cut
-   of this test searched the function text for "name" and "rows" and failed on `program_name` and
-   `storeLinkRows_`, which is the wrong kind of wrong: a check that cries about safe code teaches
-   you to loosen it. Reading the emitted keys means a NEW leak fails this, and a rename does not. */
-function emittedKeys(block) {
-  return (block.match(/(?:^|[\s{,])([a-z_][a-z0-9_]*)\s*:/gi) || [])
-    .map(m => m.replace(/[\s{,]/g, '').replace(/:$/, ''));
+/* The cache rows carry MORE than the board may show — `earned` above all, which is the property
+   one line away at every step. Handing the route a realistic row is the only way "no earnings on a
+   wall screen" can be tested rather than asserted. */
+function cachedRow(store, employeeId, name, units, earned) {
+  return { program_id: 'mule-0831', store_id: store, employee_id: employeeId, name: name,
+           display_name: '', units: units, target: 4, hit: units >= 4, earned: earned,
+           vendor: 'Mule', program_name: 'Mule Extracts 2g', pay_period: '2026-08-31',
+           start_date: '2026-08-31', end_date: '2026-09-13', refreshed_at: '2026-09-15 08:00:00' };
 }
-const perProgram = view.slice(view.indexOf('out.push({'), view.indexOf('});', view.indexOf('out.push({')));
-const envelope   = view.slice(view.lastIndexOf('return { ok: true'));
+const PROGRAMS = [
+  { program_id: 'mule-0831', vendor: 'Mule', program_name: 'Mule Extracts 2g', status: 'active',
+    start_date: '2026-08-31', end_date: '2026-09-13',
+    stores_json: [{ store_id: 'river-rd' }, { store_id: 'bend' }],
+    match_json: { brand: 'Mule Extracts' }, payout_json: { model: 'flat', amount: 25 },
+    payout_type: 'flat',
+    target_json: { units: 200, by_store: { 'river-rd': 120 }, per_bt: { 'river-rd': 6 } },
+    pitch_json: { tips: ['Lead with the 2g price', '  ', 'Mention the terpene sheet'] },
+    /* Everything below is what must NOT reach a wall screen. */
+    cost_json: { model: 'flat', unit_cost: 8.68 },
+    actual_json: { units_sold: 168, bts_hit: 5, investment: 125 },
+    progress_json: { at: '2026-09-14T18:00:00Z', stores: [] },
+    contact_email: 'rep@mule.example', share_token: 'sekret-share' },
+  /* Ends sooner — must sort first. */
+  { program_id: 'gron-0905', vendor: 'Grön', program_name: 'Grön chews', status: 'active',
+    start_date: '2026-09-05', end_date: '2026-09-11', stores_json: ['river-rd'],
+    match_json: { brand: 'Grön' }, payout_json: { model: 'per_unit', amount: 1 },
+    payout_type: 'per_unit', target_json: { by_store: { 'river-rd': 60 }, per_bt: {} },
+    pitch_json: null },
+  /* Must never appear: closed, another store, and a window that has not started. */
+  { program_id: 'closed-0801', vendor: 'Wyld', program_name: 'Wyld closed', status: 'closed',
+    start_date: '2026-09-01', end_date: '2026-09-30', stores_json: ['river-rd'], target_json: {} },
+  { program_id: 'bend-only', vendor: 'Kaprikorn', program_name: 'Bend only', status: 'active',
+    start_date: '2026-09-01', end_date: '2026-09-30', stores_json: ['bend'], target_json: {} },
+  { program_id: 'future-1001', vendor: 'Freshy', program_name: 'Not yet', status: 'active',
+    start_date: '2026-10-01', end_date: '2026-10-14', stores_json: ['river-rd'], target_json: {} },
+];
 
-/* `people` and `measured_at` were added 2026-09-11 — see the PEOPLE block below, which is where
-   the reversal is argued and where the line that did NOT move (earnings) is pinned. */
+function kiosk(opts) {
+  const o = opts || {};
+  return G.load({
+    real: ['storeView_', 'storePeople_', 'productLabelOf_', 'payoutModelOf_', 'normalizePitch_',
+           'slug_', 'userKey_', 'stampOf_', 'friendlyName_'],
+    vars: ['PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
+    stubs: {
+      storeLinkRows_: () => (o.links || [{ store_id: 'river-rd', token: 'live-token', revoked_at: '' },
+                                         { store_id: 'bend', token: 'dead-token', revoked_at: '2026-09-01' }]),
+      gxStores_: () => (o.stores === undefined
+        ? [{ store_id: 'river-rd', display_name: 'River Rd' }] : o.stores),
+      listPrograms_: () => (o.programs || PROGRAMS),
+      progressRowsFor_: () => (o.rows === undefined ? [
+        cachedRow('river-rd', 'e1', 'SKYLER P', 9, 25),
+        cachedRow('river-rd', 'e2', 'TAWNY R', 3, 0),
+        cachedRow('bend', 'e7', 'SOMEBODY ELSE', 40, 25),
+      ] : o.rows),
+      displayNameMap_: () => ({ byId: { e1: 'Sky' }, byName: {} }),
+      gxEmployees_: () => (o.employees === undefined
+        ? { ok: true, employees: [
+            { dutchie_employee_id: 'e1', full_name: 'SKYLER P', display_name: 'Sky', home_store: 'river-rd' },
+            { dutchie_employee_id: 'e5', full_name: 'NEW HIRE', display_name: 'New Hire', home_store: 'river-rd' },
+            { dutchie_employee_id: 'e7', full_name: 'SOMEBODY ELSE', home_store: 'bend' } ] }
+        : o.employees),
+      nowStamp_: () => '2026-09-10 09:00:00',
+    },
+  });
+}
+
+/* ══════════════════ 1. NO PERSON'S MONEY, NO MARGIN ══════════════════ */
+const board = kiosk().storeView_({ t: 'live-token' });
+
+ok('the board answers for the store the token belongs to',
+   board.ok === true && board.store_id === 'river-rd' && board.store_name === 'River Rd');
+ok('  …and the envelope carries nothing else',
+   Object.keys(board).sort().join(',') === 'ok,programs,store_id,store_name,today');
+
+const prog = board.programs.filter(x => x.program_id === 'mule-0831')[0];
 const PROGRAM_ALLOWED = ['program_id', 'vendor', 'program_name', 'start_date', 'end_date',
                          'product', 'store_goal', 'bt_goal', 'payout', 'payout_type', 'tips',
                          'people', 'measured_at'];
-const ENVELOPE_ALLOWED = ['ok', 'store_id', 'store_name', 'today', 'programs'];
-
-const progKeys = emittedKeys(perProgram);
 ok('each program on the board emits only the agreed fields',
-   progKeys.length > 0 && progKeys.every(k => PROGRAM_ALLOWED.indexOf(k) >= 0));
-ok('  …and the envelope around them likewise',
-   emittedKeys(envelope).every(k => ENVELOPE_ALLOWED.indexOf(k) >= 0));
-/* Named individually so a future reader sees WHICH leaks were being guarded against. */
-['full_name', 'employee', 'nameKey', 'user_id', 'earned', 'bts_hit', 'units_sold', 'hit']
-  .forEach(k => ok('no `' + k + '` reaches the kiosk', progKeys.indexOf(k) < 0));
-ok('  …and no vendor cost or ROI — a customer can read this over the counter',
-   view.indexOf('cost_json') < 0 && view.indexOf('roi') < 0 && view.indexOf('actual_json') < 0);
-ok('  …and no progress snapshot, which is per budtender',
-   view.indexOf('progress_json') < 0);
-/* What it DOES carry is exactly the detail Sky asked for. */
-['store_goal', 'bt_goal', 'payout', 'payout_type', 'tips', 'product']
-  .forEach(k => ok('it does carry `' + k + '`', progKeys.indexOf(k) >= 0));
-
-/* The page cannot render what it was not sent, but it must not ask for it either. */
-ok('the kiosk page never reads the personal route',
-   sjs.indexOf("'flyer'") < 0 && /jsonp\('storeView'/.test(sjs));
-ok('  …and has no sign-in of any kind',
-   !/spiff_session/.test(sjs) && !/renderGate/.test(sjs) && !/password/i.test(sjs));
-ok('  …and says so in the markup, so the next reader does not add one',
-   /no sign-in/.test(shtml) && /never shows anyone's earnings/.test(shtml));
+   !!prog && Object.keys(prog).every(k => PROGRAM_ALLOWED.indexOf(k) >= 0));
+/* Named individually so a future reader sees WHICH leaks were being guarded against, and now
+   checked against the REAL object rather than the text of the literal that builds it. */
+['cost_json', 'actual_json', 'progress_json', 'contact_email', 'share_token', 'earned',
+ 'bts_hit', 'units_sold', 'roi'].forEach(k =>
+  ok('no `' + k + '` reaches the kiosk', !(k in prog)));
+ok('  …not anywhere in the whole response, however it was nested',
+   JSON.stringify(board).indexOf('8.68') < 0 && JSON.stringify(board).indexOf('rep@mule') < 0
+   && JSON.stringify(board).indexOf('sekret-share') < 0);
+/* What it DOES carry is exactly the detail Sky asked for, with the right values. */
+ok('it carries the product in words a wall screen can show', prog.product === 'All Mule Extracts products');
+ok('  …the store goal and the per-budtender goal for THIS store',
+   prog.store_goal === 120 && prog.bt_goal === 6);
+ok('  …the payout and its model', prog.payout === 25 && prog.payout_type === 'flat');
+ok('  …and Tawny\'s tips, blanks dropped',
+   prog.tips.length === 2 && prog.tips[0] === 'Lead with the 2g price');
 
 /* ══════════════════ 1b. THE PEOPLE SLICE — WHAT MOVED, AND WHAT DID NOT ══════════════════
  * Sky, 2026-09-11: the kiosk's SPIFF button now opens this page directly, so the per-person bars
@@ -100,71 +160,131 @@ ok('  …and says so in the markup, so the next reader does not add one',
  *
  * EARNINGS DID NOT MOVE, and that is what this block exists to hold. Money per person is the half
  * that reads worst over a counter, and it is one property away at every step: the cached row this
- * reads carries `earned`, and returning the row would have shipped it.
+ * reads carries `earned`, and returning the row would have shipped it. The fixture above carries
+ * $25 on a row precisely so this can fail if it ever does.
  */
-const people = grab(gs, 'storePeople_');
-const PERSON_ALLOWED = ['name', 'units', 'target', 'hit', 'unmeasured', 'people', 'measured_at'];
+const PERSON_ALLOWED = ['name', 'units', 'target', 'hit', 'unmeasured'];
 ok('a person on the kiosk board carries only name, units, target and hit',
-   emittedKeys(people).every(k => PERSON_ALLOWED.indexOf(k) >= 0));
-['earned', 'employee_id', 'revenue', 'payout', 'user_id']
-  .forEach(k => ok('  …no `' + k + '` on a kiosk person', emittedKeys(people).indexOf(k) < 0));
-ok('  …and `earned` is not even read off the cached row', !/\.earned/.test(people));
-ok('it reads the hourly cache, not a live Dutchie pull — six kiosks polling sell-through would crawl',
-   /progressRowsFor_\(/.test(people) && people.indexOf('sellthrough_') < 0);
-ok('  …and says how old the figures are, so a board is not trusted to the minute',
-   /measured_at/.test(view) && /as of /.test(sjs));
+   prog.people.length > 0
+   && prog.people.every(x => Object.keys(x).every(k => PERSON_ALLOWED.indexOf(k) >= 0)));
+['earned', 'employee_id', 'revenue', 'payout', 'user_id'].forEach(k =>
+  ok('  …no `' + k + '` on a kiosk person', prog.people.every(x => !(k in x))));
+/* The fixture rows carry $25 of `earned`, so the key checks above are the real guard — a second
+   assertion with an `||` fallback in it would pass on either half and prove neither. */
 ok('only THIS store\'s people are on this store\'s board',
-   /slug_\(r\.store_id\) !== store/.test(people));
+   !prog.people.some(x => /SOMEBODY ELSE/.test(x.name)));
+ok('names are decorated where the roster has a better one',
+   prog.people.some(x => x.name === 'Sky') && !prog.people.some(x => x.name === 'SKYLER P'));
+ok('  …and left as Dutchie reported them where it does not',
+   prog.people.some(x => x.name === 'TAWNY R'));
 ok('everyone at the store is listed, including whoever has sold none yet',
-   /gxEmployees_\(\)/.test(people) && /units: 0/.test(people));
-ok('  …and a roster that could not be read adds nobody rather than emptying the board',
-   /roster = \[\]/.test(people));
+   prog.people.some(x => x.name === 'New Hire' && x.units === 0 && x.unmeasured === true));
+ok('  …without listing the same person twice under two spellings',
+   prog.people.filter(x => /Sky|SKYLER/.test(x.name)).length === 1);
+ok('most sold first, so the board reads as a board',
+   prog.people[0].units === 9 && prog.people[prog.people.length - 1].units === 0);
 ok('the goal a bar is drawn against is the PROGRAM\'s per-store goal, not the cached row\'s',
-   /x\.target = perBt/.test(view));
-ok('the page draws no bar when there is no personal goal to draw it against',
-   /goal > 0/.test(sjs) && /is-none/.test(sjs));
-ok('nothing on the kiosk renders money for a PERSON',
-   !/money\(/.test(grab(sjs, 'crew')));
+   prog.people.every(x => x.target === 6));
+ok('  …and `hit` is resolved against that same goal',
+   prog.people.filter(x => x.name === 'Sky')[0].hit === true
+   && prog.people.filter(x => x.name === 'TAWNY R')[0].hit === false);
+ok('a program with no per-budtender goal draws no personal bar at all',
+   board.programs.filter(x => x.program_id === 'gron-0905')[0].people.every(x => x.target === 0 && !x.hit));
+ok('it says how old the figures are, so a board is not trusted to the minute',
+   prog.measured_at === '2026-09-15 08:00:00');
+{
+  const noRoster = kiosk({ employees: { ok: false } }).storeView_({ t: 'live-token' });
+  ok('a roster that could not be read adds nobody rather than emptying the board',
+     noRoster.programs[0].people.length >= 2);
+  const noCache = kiosk({ rows: [] }).storeView_({ t: 'live-token' });
+  ok('a cache with no rows still lists the store\'s people, at zero',
+     noCache.programs[0].people.length === 2
+     && noCache.programs[0].people.every(x => x.units === 0 && x.unmeasured === true));
+}
 
 /* ══════════════════ 2. THE TOKEN IS THE CREDENTIAL, AND IT IS CHECKED ══════════════════ */
-ok('a missing token is refused', /if \(!tok\) return \{ ok: false/.test(view));
-ok('the token is matched against a LIVE row, never trusted from the caller',
-   /r\.token === tok && !r\.revoked_at/.test(view));
-ok('  …and a revoked link says the LINK is dead, not the store',
-   /no longer active/.test(view));
-/* Minting and rotating are writes and need a real session, like everything else here. */
+{
+  const k = kiosk();
+  ok('a missing token is refused',
+     k.storeView_({}).ok === false && /missing its code/.test(k.storeView_({}).error));
+  const wrong = k.storeView_({ t: 'not-a-token' });
+  ok('a token that matches no row is refused', wrong.ok === false && !wrong.programs);
+  ok('  …and a revoked link says the LINK is dead, not the store',
+     /no longer active/.test(k.storeView_({ t: 'dead-token' }).error)
+     && !/no such store/i.test(k.storeView_({ t: 'dead-token' }).error));
+  ok('a refusal carries no store, no people and no programs',
+     Object.keys(wrong).sort().join(',') === 'error,ok');
+  /* The caller cannot ask for another store's board by saying so. */
+  const spoof = k.storeView_({ t: 'live-token', store: 'bend', store_id: 'bend' });
+  ok('the store comes from the matched row, never from the caller', spoof.store_id === 'river-rd');
+}
+/* Minting and rotating are writes and need a real session, like everything else here. Source-
+   shaped: what they check is the gate at the top of a function, and the assertions two lines below
+   in section 3 exercise the rest of them. */
 ['storeLinks_', 'storeLinkRotate_'].forEach(fn => {
-  const f = grab(gs, fn);
+  const f = G.grab(fn);
   ok(fn + ' needs a signed-in session', /gxAuth_\(p\.token\)/.test(f) && /needsAuth: true/.test(f));
   ok('  …and an editing role', /EDIT_ROLES\.indexOf\(String\(auth\.role\)\) < 0/.test(f));
 });
-/* A deploy secret must not be a way in, and storeView must not be a way to enumerate. */
 ok('the kiosk read is not secret-gated either — the URL token is the whole credential',
-   view.indexOf('GX_SECRET_PROP') < 0);
+   G.grab('storeView_').indexOf('GX_SECRET_PROP') < 0);
 /* ── AND IT HAS TO BE REACHABLE, which is a separate fact from being safe ────────────────────
    The router is private-by-default: PUBLIC_ACTIONS is a short closed list and anything absent
    from it is answered "Not signed in" BEFORE its handler runs. So the first deploy of this route
-   returned auth_required to every kiosk — the handler was correct and simply never reached,
-   which reads as a broken route rather than a missing line. That failure direction is the point
-   of the list, and this pins the entry so a later tidy-up cannot silently take the kiosks down. */
+   returned auth_required to every kiosk — the handler was correct and simply never reached. */
 ok('storeView is on the public list, or no kiosk can reach it',
    /var PUBLIC_ACTIONS = \[[^\]]*'storeView'/.test(gs));
 ok('  …and it is the ONLY new name on it — minting still needs a session',
    !/PUBLIC_ACTIONS = \[[^\]]*storeLinks/.test(gs)
    && !/PUBLIC_ACTIONS = \[[^\]]*storeLinkRotate/.test(gs));
 
+/* ══════════════════ 2b. WHAT IS ON THE BOARD TODAY, RESOLVED AT READ TIME ══════════════════ */
+ok('a closed program never shows on a kiosk',
+   !board.programs.some(x => x.program_id === 'closed-0801'));
+ok('a program that has not started yet does not either',
+   !board.programs.some(x => x.program_id === 'future-1001'));
+ok('nor one that runs at another store',
+   !board.programs.some(x => x.program_id === 'bend-only'));
+ok('the soonest to end is listed first — that is the one worth pushing today',
+   board.programs.map(x => x.program_id).join(',') === 'gron-0905,mule-0831');
+ok('the board states the date it resolved against', board.today === '2026-09-10');
+{
+  /* The window is inclusive at both ends: a program ending today is still running today. */
+  const endsToday = kiosk({ programs: [Object.assign({}, PROGRAMS[0],
+    { start_date: '2026-09-10', end_date: '2026-09-10' })] }).storeView_({ t: 'live-token' });
+  ok('a program that starts and ends today is on the board', endsToday.programs.length === 1);
+  const ended = kiosk({ programs: [Object.assign({}, PROGRAMS[0],
+    { start_date: '2026-08-01', end_date: '2026-09-09' })] }).storeView_({ t: 'live-token' });
+  ok('  …and one that ended yesterday is not', ended.programs.length === 0);
+  const noStores = kiosk({ stores: [] }).storeView_({ t: 'live-token' });
+  ok('a store registry that did not answer falls back to the slug rather than a blank name',
+     noStores.store_name === 'river-rd');
+}
+
+/* ── THE PAGE ITSELF ─────────────────────────────────────────────────────────────────────────────
+   Source-shaped from here down, and deliberately: store.js paints a DOM and store.html is markup.
+   The route above is what decides what can leak; these pin that the page has not grown a sign-in,
+   a personal link, or a money formatter. */
+ok('the kiosk page never reads the personal route',
+   sjs.indexOf("'flyer'") < 0 && /jsonp\('storeView'/.test(sjs));
+ok('  …and has no sign-in of any kind',
+   !/spiff_session/.test(sjs) && !/renderGate/.test(sjs) && !/password/i.test(sjs));
+ok('  …and says so in the markup, so the next reader does not add one',
+   /no sign-in/.test(shtml) && /never shows anyone's earnings/.test(shtml));
+ok('nothing on the kiosk renders money for a PERSON',
+   !/money\(/.test(grab(sjs, 'crew')));
+ok('the page draws no bar when there is no personal goal to draw it against',
+   /goal > 0/.test(sjs) && /is-none/.test(sjs));
+ok('  …and shows how old the figures are', /as of /.test(sjs));
+ok('it reads the hourly cache, not a live Dutchie pull — six kiosks polling sell-through would crawl',
+   /progressRowsFor_\(/.test(G.grab('storePeople_')) && G.grab('storePeople_').indexOf('sellthrough_') < 0);
+
 /* ══════════════════ 3. ONE LINK PER STORE, PERMANENT ══════════════════ */
 const links = grab(gs, 'storeLinks_');
 ok('links are keyed on the store, not on a program',
    /STORE_LINK_HEADERS = \['store_id', 'token'/.test(gs) && links.indexOf('program_id') < 0);
-ok('  …so the page resolves the program at READ time, from today',
-   /var today = nowStamp_\(\)\.slice\(0, 10\)/.test(view) && /a <= today && today <= b/.test(view));
-ok('  …and a closed program never shows on a kiosk',
-   /st === 'closed'/.test(view));
-ok('  …and only programs that actually run at THIS store',
-   /pr\.stores_json \|\| \[\]\)\.some/.test(view));
-ok('the soonest to end is listed first — that is the one worth pushing today',
-   /localeCompare/.test(view));
+/* What the link resolves to at read time — which programs, in which order — is exercised against
+   the running route in section 2b; it is not restated here. */
 /* An empty store registry is not an empty company. */
 ok('a registry that did not answer refuses rather than minting against nothing',
    /if \(!stores\.length\)/.test(links) && /Nothing was changed/.test(links));
