@@ -393,7 +393,9 @@ the same money to a key that tells the truth.
 
 Two gaps it could not fill, both known and neither a bug: `green-cross-2025-08-11-2025-08-17` is a
 real program Sky confirmed, but the Calculator never held it, so it has goals and **no
-`actual_json`** — no units sold, no ROI, and that is the one row worth filling by hand.
+`actual_json`** — no units sold, no ROI. *Sky, 2026-09-15: leave it as is.* Its close-out measurement
+found 0 units (a filter that matches nothing), so the hourly actuals recording logs it as "needs a
+person" every run — that line is expected, not a new problem.
 `hapy-kitchen` states "Unit Based" / "You Decide" where goals go, so it kept the Calculator's
 targets; its `per_unit` $1/unit payout came off the doc correctly.
 
