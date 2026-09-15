@@ -60,7 +60,7 @@ sent.forEach(function (f) {
 });
 
 /* The record form's fields too — the other half of the screen saves through the same route. */
-['status', 'start_date', 'end_date', 'contact_name', 'contact_email', 'actual_json']
+['status', 'start_date', 'end_date', 'actual_json']
   .forEach(function (f) {
     ok('the record form’s ' + f + ' is accepted', EDITABLE.indexOf(f) >= 0);
   });

@@ -147,7 +147,11 @@ var EDITABLE_FIELDS = [
   'vendor', 'program_name', 'status', 'start_date', 'end_date',
   'match_json', 'stores_json', 'payout_type',
   'payout_json', 'cost_json', 'target_json', 'baseline_json', 'actual_json',
-  'contact_name', 'contact_email', 'pitch_json'
+  /* contact_name / contact_email are NOT here any more (2026-09-15). A brand's reps live in GX
+     Core's brand registry and are edited through saveBrandContact; accepting them here would give
+     a program a second, private contact list that the vendor login no longer reads. The columns
+     stay on the sheet because names are names, and they hold only test values. */
+  'pitch_json'
 ];
 
 /* Which GXCore version THIS DEPLOYMENT is bound to, over HTTP. Requested by inventory, and it
@@ -317,7 +321,7 @@ var GATED_WRITES = ['snapshotProgress'];
    all three; see guard_. */
 var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses',
                       'sweepOrphanProgress', 'publishToCore', 'backfillPayPeriods',
-                      'publishKioskTokens'];
+                      'publishKioskTokens', 'seedBrands'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -380,6 +384,13 @@ function doGet(e) {
       case 'giftCards':   out = giftCardList_(p);                                   break;
       case 'clientView':  out = clientView_(p);                                     break;
       case 'shareLink':   out = shareLink_(p);                                      break;
+      /* The brand registry lives in GX Core (v330+). These are SPIFF's doors onto it: a signed-in
+         read, and editor-only writes that stamp the signed-in user as `by`. See BRAND CONTACTS. */
+      case 'brands':      out = brandsRead_(p);                                     break;
+      case 'addBrand':    out = addBrand_(p);                                       break;
+      case 'saveBrandContact':   out = saveBrandContact_(p);                        break;
+      case 'removeBrandContact': out = removeBrandContact_(p);                      break;
+      case 'seedBrands':  out = seedBrands_(p);                                     break;
       /* ── THE KIOSK LINKS ───────────────────────────────────────────────────────────────────
          `storeView` is the only route in this app with NO credential of its own: the token in
          the URL is the credential, matched against a live row. It answers with the program,
@@ -3384,23 +3395,52 @@ function clientView_(p) {
   };
   if (pass !== expected) return deny();
 
-  var all = listProgramsCached_().filter(function (x) { return norm_(x.contact_email) === email; });
+  /* WHO MAY OPEN A PROPOSAL IS DECIDED BY THE BRAND REGISTRY IN GX CORE (Sky, 2026-09-14/15).
+     It used to be one contact_email typed onto each program. Now any ACTIVE rep on the program's
+     brand may sign in, on an ACTIVE brand — so adding a rep in one place opens every proposal for
+     that brand, and removing one (or retiring the brand) closes them all at once. getBrands and
+     resolveBrand already omit removed reps; the active checks here are belt and braces, so a
+     missed filter upstream fails closed rather than letting someone back in.
 
-  var prog = null;
+     A Core outage is NOT a wrong password. It gets its own message, which still names no rep. */
+  var repOn = function (brand) {
+    if (!brand || !brand.active) return null;
+    return (brand.contacts || []).filter(function (c) { return c.active && norm_(c.email) === email; })[0] || null;
+  };
+  var shared = listProgramsCached_().filter(function (x) { return x.share_token; });
+  var unavailable = { ok: false, error: 'Brand sign-in is unavailable right now — please try again in a few minutes.' };
+
+  var prog = null, rep = null;
   if (token) {
-    // The link scopes to one program AND the email must be that program's contact.
-    for (var i = 0; i < all.length; i++) if (all[i].share_token === token) prog = all[i];
+    // The link scopes to one program, and the email must be an active rep on THAT program's brand.
+    // resolveBrand is Core's own answer to "which brand is this", so the gate never forms a second one.
+    prog = shared.filter(function (x) { return x.share_token === token; })[0] || null;
     if (!prog) return deny();
+    var brand;
+    try { brand = GXCore.resolveBrand(brandNameOf_(prog)); } catch (e) { return unavailable; }
+    rep = repOn(brand);
+    if (!rep) return deny();
   } else {
-    // No link: show what this rep is on. More than one, let them pick.
-    var shared = all.filter(function (x) { return x.share_token; });
-    if (!shared.length) return deny();
-    if (shared.length > 1) {
-      return { ok: true, choices: shared.map(function (x) {
+    /* No link: show what this rep is on. The shortlist matches each shared program's brand name
+       against the names of the brands this rep is on, folded the way Core folds. Core refuses two
+       brands sharing a folded name, so this agrees with resolveBrand for every registry-written
+       row — and it only offers CHOICES: opening one comes back through the token branch above,
+       which asks Core directly. */
+    var brands;
+    try { brands = GXCore.getBrands() || []; } catch (e) { return unavailable; }
+    var mine = brands.filter(function (b) { return repOn(b); });
+    if (!mine.length) return deny();
+    var names = Object.create(null);
+    mine.forEach(function (b) { brandFoldedNames_(b).forEach(function (n) { names[n] = b; }); });
+    var onMine = shared.filter(function (x) { return names[brandFold_(brandNameOf_(x))]; });
+    if (!onMine.length) return deny();
+    if (onMine.length > 1) {
+      return { ok: true, choices: onMine.map(function (x) {
         return { token: x.share_token, name: x.program_name || x.title, period: x.start_date || '' };
       }) };
     }
-    prog = shared[0];
+    prog = onMine[0];
+    rep = repOn(names[brandFold_(brandNameOf_(prog))]);
   }
 
   var t = prog.target_json || {}, b = prog.baseline_json || {}, a = prog.actual_json;
@@ -3513,7 +3553,7 @@ function clientView_(p) {
     program: {
       name: prog.program_name || prog.title,
       vendor: prog.vendor,
-      contact_name: prog.contact_name || '',
+      contact_name: (rep && rep.name) || '',        // the rep who signed in, not a per-program field
       status: prog.status,
       start_date: prog.start_date,
       end_date: prog.end_date,
@@ -4044,6 +4084,129 @@ function productLabelOf_(pr) {
   if (m.filter_text) return (m.brand ? m.brand + ' ' : '') + m.filter_text;
   if (m.brand) return 'All ' + m.brand + ' products';
   return '';
+}
+
+/* ════ BRAND CONTACTS — the reps live in GX Core, not on the program ══════════════════════════════
+ * Sky, 2026-09-14: "we only have a few dozen vendors, is it better to bake their profiles in?"
+ * Tawny was typing a contact onto every program, and Inventory needs the same list. So the reps
+ * moved to GX Core's brand registry (library v330): `brands` + `brand_contacts`, keyed by BRAND —
+ * Sky's choice over a vendor/distributor layer. SPIFF reads it and edits it; Core is the only
+ * writer, and every write here passes the signed-in user as `by`.
+ *
+ * What a program knows is its BRAND NAME (match_json.brand, else vendor). Which registry brand
+ * that is, is Core's call — resolveBrand folds case and punctuation, so "National Cannabis Co."
+ * and "National Cannabis Co" are one brand. Nothing brand-related is stored on the program.
+ *
+ * Contact emails are half of a vendor rep's sign-in, so every read here is session-gated (guard_
+ * default) and no route hands the list to an anonymous caller. */
+function brandNameOf_(prog) {
+  var m = prog && prog.match_json;
+  if (typeof m === 'string') m = parseJson_(m, {});
+  return String((m && m.brand) || (prog && prog.vendor) || '').trim();
+}
+
+// Core's fold, mirrored for the no-link shortlist and the seed's grouping only. Access itself is
+// decided by GXCore.resolveBrand; see clientView_.
+function brandFold_(s) { return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, ''); }
+function brandFoldedNames_(b) {
+  return [b.brand_id, b.display_name].concat(b.aliases || []).map(brandFold_).filter(Boolean);
+}
+
+function brandEditor_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { denied: { ok: false, error: auth.error || 'Not signed in', needsAuth: true } };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) {
+    return { denied: { ok: false, error: 'Your role (' + auth.role + ') cannot change brand contacts' } };
+  }
+  return { user: String(auth.user || '') };
+}
+
+// Every brand, removed reps and retired brands included, so the program screen can show and restore them.
+function brandsRead_(p) {
+  try { return { ok: true, brands: GXCore.getBrands({ all: true }) || [] }; }
+  catch (e) { return { ok: false, error: 'GX Core brand list unavailable: ' + scrubSecrets_(e && e.message || e) }; }
+}
+
+// Add a brand to the shared list. Core refuses a name another brand already answers to, and says which.
+function addBrand_(p) {
+  var who = brandEditor_(p);
+  if (who.denied) return who.denied;
+  var name = String(p.display_name || '').trim();
+  if (!name) return { ok: false, error: 'display_name required' };
+  try { return GXCore.gxUpsertBrand({ display_name: name, create: 1, by: who.user }); }
+  catch (e) { return { ok: false, error: 'GX Core unavailable: ' + scrubSecrets_(e && e.message || e) }; }
+}
+
+/* Add or edit one rep. Only the fields Core's contract names are passed through, so a stray key in
+   the request cannot ride along into a shared tab. Without contact_id Core adds — or reactivates the
+   brand's existing row for that email, which is what "add a rep" after "remove a rep" should do. */
+var BRAND_CONTACT_FIELDS = ['contact_id', 'brand_id', 'email', 'name', 'phone', 'role', 'is_primary', 'active', 'clear'];
+function saveBrandContact_(p) {
+  var who = brandEditor_(p);
+  if (who.denied) return who.denied;
+  var c = parseJson_(p.contact, null);
+  if (!c || typeof c !== 'object') return { ok: false, error: 'contact required' };
+  var out = { by: who.user };
+  BRAND_CONTACT_FIELDS.forEach(function (f) {
+    if (Object.prototype.hasOwnProperty.call(c, f) && c[f] != null) out[f] = c[f];
+  });
+  try { return GXCore.gxUpsertBrandContact(out); }
+  catch (e) { return { ok: false, error: 'GX Core unavailable: ' + scrubSecrets_(e && e.message || e) }; }
+}
+
+// Soft: the row stays in Core with active=false, so "who could sign in, and when" survives.
+function removeBrandContact_(p) {
+  var who = brandEditor_(p);
+  if (who.denied) return who.denied;
+  if (!p.contact_id) return { ok: false, error: 'contact_id required' };
+  try { return GXCore.gxDeactivateBrandContact({ contact_id: String(p.contact_id), by: who.user }); }
+  catch (e) { return { ok: false, error: 'GX Core unavailable: ' + scrubSecrets_(e && e.message || e) }; }
+}
+
+/* ONE-TIME SEED: every brand SPIFF has run a program on, with no contacts — Tawny adds reps as she
+ * works. Deliberately not all of Dutchie's ~137 brands. Secret-gated and DRY BY DEFAULT; apply=1
+ * writes. Re-runnable: a spelling Core already resolves is skipped rather than patched, so a re-run
+ * can never rename a brand someone has since edited.
+ *
+ * Spellings that fold together become ONE brand. The display name is the spelling most programs
+ * use (ties: the most recent program's), and the rest become aliases. */
+function seedBrands_(p) {
+  var want = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  if (!want || String(p.secret || '') !== want) return { ok: false, error: 'Unauthorized' };
+  var apply = String(p.apply || '') === '1';
+
+  var groups = Object.create(null);
+  listPrograms_().forEach(function (prog) {
+    var name = brandNameOf_(prog), k = brandFold_(name);
+    if (!k) return;
+    var g = groups[k] || (groups[k] = { spellings: Object.create(null) });
+    var sp = g.spellings[name] || (g.spellings[name] = { n: 0, latest: '' });
+    sp.n++;
+    if (String(prog.start_date || '') > sp.latest) sp.latest = String(prog.start_date || '');
+  });
+
+  var plan = Object.keys(groups).sort().map(function (k) {
+    var names = Object.keys(groups[k].spellings);
+    names.sort(function (a, b) {
+      var x = groups[k].spellings[a], y = groups[k].spellings[b];
+      return (y.n - x.n) || y.latest.localeCompare(x.latest) || a.localeCompare(b);
+    });
+    return { display_name: names[0], aliases: names.slice(1),
+             brand_id: names[0].toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') };
+  });
+
+  var results = plan.map(function (b) {
+    var found = null;
+    try { found = GXCore.resolveBrand(b.display_name, { all: true }); }
+    catch (e) { return { brand_id: b.brand_id, action: 'error', error: scrubSecrets_(e && e.message || e) }; }
+    if (found) return { brand_id: found.brand_id, action: 'exists', display_name: found.display_name };
+    if (!apply) return { brand_id: b.brand_id, action: 'would_create', display_name: b.display_name, aliases: b.aliases };
+    var r = GXCore.gxUpsertBrand({ brand_id: b.brand_id, display_name: b.display_name,
+                                   aliases: b.aliases, create: 1, by: String(p.by || 'spiff:seedBrands') });
+    return r && r.ok ? { brand_id: r.brand_id, action: r.created ? 'created' : 'unchanged', aliases: b.aliases }
+                     : { brand_id: b.brand_id, action: 'refused', error: r && r.error };
+  });
+  return { ok: true, dry: !apply, count: results.length, brands: results };
 }
 
 function shareLink_(p) {

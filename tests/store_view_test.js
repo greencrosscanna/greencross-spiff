@@ -233,7 +233,7 @@ ok('the editor offers tips only — no goal, payout or product boxes',
 ok('  …and says the rest comes off the program automatically',
    /come off this program automatically/.test(editor));
 ok('pitch_json is accepted by the engine, or the save would be a silent no-op',
-   /'contact_name', 'contact_email', 'pitch_json'/.test(gs));
+   /var EDITABLE_FIELDS = \[[\s\S]*?'pitch_json'\s*\n\];/.test(gs));
 /* The structural compare — without it every save rewrites the tips with themselves. */
 ok('collectPatch compares tips structurally, not as "[object Object]"',
    /key === 'match_json' \|\| key === 'pitch_json'/.test(grab(js, 'collectPatch')));

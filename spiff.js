@@ -46,6 +46,7 @@
     stores:    [],   // from GX Core — canonical, never hardcoded
     employees: [],   // from GX Core — SPIFF READS the roster, never writes it
     programs:  [],
+    brands:    null, // GX Core's shared brand list, reps included; null until it has loaded
     record:    null  // program open in the record modal
   };
 
@@ -887,12 +888,12 @@
   function shareCell(p) {
     if (!canEdit()) return '';
     var has = !!p.share_token;
-    var noEmail = !String(p.contact_email || '').trim();
-    /* A token on a program with no contact_email is a DEAD LINK: clientView_ matches the rep's own
-       email against contact_email before it looks at the token, so the vendor gets the same generic
-       "does not match" a wrong password gives — no clue that the fault is ours. Say so here rather
-       than let a broken link get emailed. */
-    var title = noEmail ? 'Set a contact email on this program first — without one the link opens nothing'
+    var noEmail = needsRep(p);
+    /* A token on a program whose brand has no active rep is a DEAD LINK: clientView_ lets in only an
+       active rep on the program's brand, so the vendor gets the same generic "does not match" a
+       wrong password gives — no clue that the fault is ours. Say so here rather than let a broken
+       link get emailed. (Contacts moved to GX Core's brand registry on 2026-09-15.) */
+    var title = noEmail ? 'Add a rep for this brand first — without one the link opens nothing'
               : has     ? 'Copy the brand link'
                         : 'Create a brand link';
     return '<div class="sp-row-share">'
@@ -1371,6 +1372,191 @@
     });
   }
 
+  /* ── BRAND REPS — GX Core's shared brand list ─────────────────────────────────────────────
+     Sky, 2026-09-14: vendor contacts are baked into GX Core once per BRAND rather than typed onto
+     every program. Any active rep on an active brand can open that brand's shared proposals.
+
+     This screen finds a program's brand by folding its brand name the way Core does (case and
+     punctuation ignored). That is only for what the screen SHOWS. Who may sign in is decided on
+     the engine by GXCore.resolveBrand, and Core refuses two brands that fold to the same name, so
+     the two agree for everything the registry holds. */
+  async function loadBrands() {
+    try {
+      var r = await ENG.jsonp('brands', { token: (session() || {}).token });
+      if (!r || !r.ok || !Array.isArray(r.brands)) throw new Error((r && r.error) || 'unexpected response');
+      state.brands = r.brands;
+      state.brandsError = '';
+    } catch (err) {
+      console.warn('[spiff] brand list load failed:', err);
+      state.brandsError = String(err.message || err);
+    }
+    try { if (state.programs && state.programs.length) renderPrograms(); } catch (e) {}
+    if (state.record) renderBrandReps(state.record);
+  }
+
+  function brandNameOf(p) {
+    var m = (p && p.match_json) || {};
+    return String(m.brand || (p && p.vendor) || '').trim();
+  }
+  function brandFold(x) { return String(x == null ? '' : x).toLowerCase().replace(/[^a-z0-9]/g, ''); }
+  function brandOf(p) {
+    var k = brandFold(brandNameOf(p));
+    if (!state.brands || !k) return null;
+    var hits = state.brands.filter(function (b) {
+      return [b.brand_id, b.display_name].concat(b.aliases || []).map(brandFold).indexOf(k) >= 0;
+    });
+    var live = hits.filter(function (b) { return b.active; });
+    var pool = live.length ? live : hits;
+    return pool.length === 1 ? pool[0] : null;          // ambiguous: show nothing rather than guess
+  }
+  function activeReps(p) {
+    var b = brandOf(p);
+    return b && b.active ? (b.contacts || []).filter(function (c) { return c.active; }) : [];
+  }
+  /* False while the list has not loaded: unknown is not "missing", and a Core hiccup must not
+     block minting a link. The engine is the gate either way. */
+  function needsRep(p) { return !!state.brands && !activeReps(p).length; }
+  // Core sorts the main contact first, so a brand with one has it at [0].
+  function primaryRep(p) { return activeReps(p)[0] || null; }
+
+  function renderBrandReps(p) {
+    var host = $('#rBrandReps');
+    if (!host || !p || host.dataset.program !== p.program_id) return;
+    var name = brandNameOf(p), ed = canEdit();
+    host.onclick = null;
+
+    if (!state.brands) {
+      host.innerHTML = '<p class="hint">' + (state.brandsError
+        ? 'Couldn’t load the shared brand list: ' + esc(state.brandsError)
+        : 'Loading this brand’s reps…') + '</p>';
+      return;
+    }
+    if (!name) {
+      host.innerHTML = '<p class="hint">Set the brand in the Calculator above, then add its reps here.</p>';
+      return;
+    }
+    var b = brandOf(p);
+    if (!b) {
+      host.innerHTML = '<p class="hint"><b>' + esc(name) + '</b> isn’t in the shared brand list yet.</p>'
+        + (ed ? '<div class="sp-brep-actions"><button type="button" class="gx-btn" data-rep-act="brand">Add '
+              + esc(name) + ' to the brand list</button><span class="sp-brep-msg"></span></div>' : '');
+      host.onclick = function (ev) {
+        var btn = ev.target.closest('[data-rep-act="brand"]');
+        if (btn) addBrandFor(name, btn);
+      };
+      return;
+    }
+
+    var live = (b.contacts || []).filter(function (c) { return c.active; });
+    var gone = (b.contacts || []).filter(function (c) { return !c.active; });
+    host.innerHTML = (b.active ? '' : '<div class="sp-notice is-bad"><span class="sp-notice-l">Brand turned off</span>'
+          + esc(b.display_name) + ' is turned off in the shared brand list, so none of its reps can sign in.</div>')
+      + '<p class="hint sp-brep-note">Shared across the suite &mdash; a change here applies to every '
+      +   esc(b.display_name) + ' program, and Inventory sees the same reps.</p>'
+      + (live.length ? live.map(repRow).join('') : '<p class="hint">No reps yet.</p>')
+      + (ed ? repRow(null) : '')
+      + (gone.length
+          ? '<details class="sp-brep-gone"><summary>' + gone.length + ' removed rep' + (gone.length === 1 ? '' : 's')
+            + '</summary>' + gone.map(function (c) {
+                return '<div class="sp-brep is-gone" data-rep="' + esc(c.contact_id) + '">'
+                  + '<span>' + esc(c.name || c.email) + (c.name ? ' &middot; ' + esc(c.email) : '') + '</span>'
+                  + (ed ? '<button type="button" class="gx-btn" data-rep-act="restore">Restore</button>' : '')
+                  + '<span class="sp-brep-msg"></span></div>';
+              }).join('') + '</details>'
+          : '');
+
+    host.onclick = function (ev) {
+      var btn = ev.target.closest('[data-rep-act]');
+      if (!btn || !ed) return;
+      var row = btn.closest('.sp-brep');
+      var c = (b.contacts || []).filter(function (x) { return x.contact_id === row.dataset.rep; })[0] || null;
+      if (btn.dataset.repAct === 'save') saveRep(b, c, row, btn);
+      else if (btn.dataset.repAct === 'remove') removeRep(b, c, row, btn);
+      else if (btn.dataset.repAct === 'restore') restoreRep(b, c, row, btn);
+    };
+  }
+
+  function repRow(c) {
+    var ro = canEdit() ? '' : ' readonly';
+    var f = function (label, key, type) {
+      return '<label class="sp-fld"><span>' + label + '</span><input class="sp-in" data-rep-f="' + key
+        + '" type="' + type + '" value="' + esc((c && c[key]) || '') + '"' + ro + '></label>';
+    };
+    return '<div class="sp-brep' + (c ? '' : ' is-new') + '" data-rep="' + esc(c ? c.contact_id : '') + '">'
+      + (c ? '' : '<div class="sp-brep-new">Add a rep</div>')
+      + '<div class="sp-flds">' + f('Name', 'name', 'text') + f('Email', 'email', 'email')
+      +   f('Phone', 'phone', 'tel') + f('Role', 'role', 'text') + '</div>'
+      + '<div class="sp-brep-actions">'
+      +   '<label class="sp-brep-primary"><input type="checkbox" data-rep-f="is_primary"'
+      +     (c && c.is_primary ? ' checked' : '') + (canEdit() ? '' : ' disabled') + '> Main contact'
+      +     ' <span class="hint">fills in the report email</span></label>'
+      +   (canEdit() ? '<button type="button" class="gx-btn" data-rep-act="save">' + (c ? 'Save' : 'Add rep') + '</button>'
+                     + (c ? '<button type="button" class="gx-btn" data-rep-act="remove">Remove</button>' : '') : '')
+      +   '<span class="sp-brep-msg"></span>'
+      + '</div></div>';
+  }
+
+  function repMsg(row, text, good) {
+    var m = row.querySelector('.sp-brep-msg');
+    if (m) { m.textContent = text; m.classList.toggle('is-bad', !good); }
+  }
+
+  async function brandCall(action, params, row, btn) {
+    btn.disabled = true;
+    try {
+      var r = await ENG.jsonp(action, Object.assign({ token: (session() || {}).token }, params));
+      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+      if (row) repMsg(row, 'Saved', true);
+      await loadBrands();
+      return r;
+    } catch (err) {
+      if (row) repMsg(row, String(err.message || err), false);
+      btn.disabled = false;
+      return null;
+    }
+  }
+
+  /* One rep per press, and only what changed. Core treats a blank as "leave it alone", so emptying a
+     box that had a value is sent as an explicit clear — otherwise a deleted phone number would
+     quietly come back on the next load. Email is the rep's sign-in and can be changed but never
+     blanked; a rep is taken off with Remove. */
+  function saveRep(b, c, row, btn) {
+    var v = {};
+    row.querySelectorAll('[data-rep-f]').forEach(function (el) {
+      v[el.dataset.repF] = el.type === 'checkbox' ? el.checked : el.value.trim();
+    });
+    if (!v.email) { repMsg(row, 'Email is required — it is what the rep signs in with', false); return; }
+    var out = { brand_id: b.brand_id }, clear = [];
+    if (c) out.contact_id = c.contact_id;
+    if (!c || v.email !== c.email) out.email = v.email;
+    ['name', 'phone', 'role'].forEach(function (k) {
+      var was = c ? String(c[k] || '') : '';
+      if (v[k] && v[k] !== was) out[k] = v[k];
+      else if (!v[k] && was) clear.push(k);
+    });
+    if (c ? v.is_primary !== !!c.is_primary : v.is_primary) out.is_primary = v.is_primary;
+    if (clear.length) out.clear = clear.join(',');
+    brandCall('saveBrandContact', { contact: JSON.stringify(out) }, row, btn);
+  }
+
+  function removeRep(b, c, row, btn) {
+    if (!c) return;
+    if (!confirm('Remove ' + (c.name || c.email) + ' from ' + b.display_name + '?\n\n'
+        + 'They will no longer be able to open ' + b.display_name + ' proposals. '
+        + 'The record is kept, and they can be restored.')) return;
+    brandCall('removeBrandContact', { contact_id: c.contact_id }, row, btn);
+  }
+
+  function restoreRep(b, c, row, btn) {
+    if (!c) return;
+    brandCall('saveBrandContact', { contact: JSON.stringify({ contact_id: c.contact_id, brand_id: b.brand_id, active: true }) }, row, btn);
+  }
+
+  function addBrandFor(name, btn) {
+    // Core refuses a name another brand already answers to, and the refusal names that brand.
+    brandCall('addBrand', { display_name: name }, btn.parentNode, btn);
+  }
+
   function renderRecord(p) {
     var a = p.actual_json || {};
     var warn = '';
@@ -1389,9 +1575,9 @@
         + 'Modeled at ' + money(p.payout_json && p.payout_json.amount)
         + ', settled at ' + money(a.spiff_amount) + '.</div>';
     }
-    if (!p.contact_email) {
-      warn += '<div class="sp-notice is-warn"><span class="sp-notice-l">No contact email</span>'
-        + 'A brand link opens nothing without it &mdash; the rep signs in with their own address.</div>';
+    if (needsRep(p)) {
+      warn += '<div class="sp-notice is-warn"><span class="sp-notice-l">No brand rep</span>'
+        + 'A brand link opens nothing without one &mdash; the rep signs in with their own address.</div>';
     }
 
     $(REC.body).innerHTML = warn
@@ -1419,11 +1605,12 @@
          The split it used to describe is still real and still the point: the model above saves
          wholesale, this form saves only what changed. What is gone is the second, weaker copy. */
 
-      + '<h4 class="sp-h4">Contact</h4>'
-      + '<div class="sp-flds">'
-      +   recField('Brand contact', 'contact_name', p.contact_name)
-      +   recField('Contact email', 'contact_email', p.contact_email)
-      + '</div>'
+      /* THE BRAND'S REPS, NOT THIS PROGRAM'S (2026-09-15). They live in GX Core's shared brand list,
+         so they are filled in once per brand instead of once per program, and Inventory sees the same
+         people. Rendered by renderBrandReps, which saves each rep on its own button — never through
+         collectPatch, so none of these inputs carry data-key. */
+      + '<h4 class="sp-h4">Brand reps</h4>'
+      + '<div id="rBrandReps" data-program="' + esc(p.program_id) + '"></div>'
 
       /* ── ACTUALS ARE MEASURED, NOT TYPED (Sky, 2026-09-08: "remove actuals from edit mode") ──
          These six are what the vendor was told and what the budtenders were paid against, and
@@ -1549,8 +1736,8 @@
       $(REC.body).insertAdjacentHTML('beforeend',
         '<h4>Brand link</h4>'
         + '<p class="hint">A read-only page showing only this program. To open it they enter '
-        + '<b>their own email</b> and the shared password — so set the contact email above first, '
-        + 'or the link opens nothing.</p>'
+        + '<b>their own email</b> and the shared password. Any active rep listed above for this brand '
+        + 'can open it &mdash; add one first, or the link opens nothing.</p>'
         + '<div class="share-row">'
         +   '<button class="gx-btn" id="btnShare">' + (p.share_token ? 'Copy brand link' : 'Create brand link') + '</button>'
         +   (p.share_token ? '<button class="gx-btn" id="btnRevoke">Revoke</button>' : '')
@@ -1559,6 +1746,8 @@
       $('#btnShare').addEventListener('click', function () { makeShare(p, this); });
       if (p.share_token) $('#btnRevoke').addEventListener('click', function () { revokeShare(p, this); });
     }
+
+    renderBrandReps(p);
 
     /* ── Deleting ─────────────────────────────────────────────────────────────────────────────
        Last thing in the panel, because it is the last thing anyone should reach for. A closed
@@ -1775,10 +1964,10 @@
     var p  = (state.programs || []).filter(function (x) { return x.program_id === id; })[0];
     if (!p) return;
 
-    if (!String(p.contact_email || '').trim()) {
+    if (needsRep(p)) {
       /* Refuses rather than minting a link that cannot open. Opens the record on the program so the
-         missing field is in front of them, instead of an error they have to act on from memory. */
-      flashShare(btn, 'Needs a contact email', false);
+         missing rep is in front of them, instead of an error they have to act on from memory. */
+      flashShare(btn, 'Needs a brand rep', false);
       /* Opens the program so the missing field is in front of them — on the Calculator now,
          where the Contact section lives, rather than in a modal that no longer opens. */
       setTimeout(function () { openProgram(id); }, 900);
@@ -4805,7 +4994,7 @@
             + '<td class="num">' + hit + ' / ' + (cache ? cache.bts : (t.budtenders || 0)) + '</td></tr></tbody></table>'
           : '<p style="color:#5a635f;font-size:11.5px">Per-store detail appears once sell-through has been pulled for this program.</p>')
       +       '<div class="sp-paper-file">SPIFF_Sales Report - ' + esc(p.vendor) + ' - ' + esc(fileStamp(p)) + '.pdf'
-      +         (p.contact_name ? ' &middot; prepared for ' + esc(p.contact_name) + ', ' + esc(p.vendor) : '') + '</div>'
+      +         (primaryRep(p) && primaryRep(p).name ? ' &middot; prepared for ' + esc(primaryRep(p).name) + ', ' + esc(p.vendor) : '') + '</div>'
       +     '</div>'
       +     '<div class="sp-step-actions">'
       +       '<button class="gx-btn gx-btn-green" data-act="pdf">Save PDF to Drive</button>'
@@ -4819,7 +5008,7 @@
       +     '<span class="sp-step-note">draft &mdash; you send it</span></div>'
       +   '<div class="sp-step-b">'
       +     '<div class="sp-mail-f">'
-      +       '<label for="repTo">To</label><input class="sp-in" id="repTo" value="' + esc(p.contact_email || '') + '" placeholder="no contact email on this record">'
+      +       '<label for="repTo">To</label><input class="sp-in" id="repTo" value="' + esc((primaryRep(p) || {}).email || '') + '" placeholder="no rep on this brand yet">'
       +       '<label for="repSubj">Subject</label><input class="sp-in" id="repSubj" value="' + esc(mail.subject) + '">'
       +     '</div>'
       +     '<textarea class="sp-mail-body" id="repMail">' + esc(mail.body) + '</textarea>'
@@ -4837,7 +5026,7 @@
       +   '<div class="sp-step-b">' + giftList(p, cache, rate) + '</div></div>';
 
     var to = $('#repTo');
-    if (to && !p.contact_email) to.classList.add('sp-driving');
+    if (to && !primaryRep(p)) to.classList.add('sp-driving');
   }
 
   function paperStat(label, value, sub, good) {
@@ -5826,6 +6015,9 @@
     var programsP = loadPrograms().then(function () {
       fillProgramPickers();
     });
+    /* Not awaited either: the brand list only decides the rep section and the "needs a rep" hints,
+       so a slow Core must never hold up the program list. It repaints what it touches when it lands. */
+    var brandsP   = loadBrands();
     var cacheP    = loadProgressCache();
     /* NOT awaited by first paint, on purpose: the built-in anchor is correct today, so the screen
        is right the moment it renders and this only has to CORRECT it if Core disagrees. Blocking

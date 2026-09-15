@@ -1,0 +1,186 @@
+#!/usr/bin/env node
+/* ─── Brand reps live in GX Core, and they are who can open a proposal ───────────────────────────
+ *
+ *   RUN:  node tests/brand_contacts_test.js
+ *
+ * WHY
+ * Sky, 2026-09-14: "we only have a few dozen vendors, is it better to bake their profiles in?"
+ * Contacts moved off each program into GX Core's shared brand registry (library v330). Sky chose
+ * the rules this pins:
+ *  - keyed by BRAND, not by vendor/distributor;
+ *  - ANY active rep on an ACTIVE brand can open that brand's shared proposals — so removing a rep,
+ *    or turning a brand off, closes every link at once;
+ *  - reps are edited from SPIFF's program screen, with Core as the only writer.
+ *
+ * The sign-in is the part that matters. Before this, clientView_ matched one contact_email typed
+ * onto the program. A regression back to that — or a gate that forgets `active` — would let a
+ * removed rep keep opening a vendor proposal, and nothing on any screen would say so.
+ */
+'use strict';
+const fs = require('fs');
+
+let fail = 0;
+const ok = (l, c) => c ? console.log('  ✓ ' + l) : (fail++, console.log('  ✗ ' + l));
+
+const gs = fs.readFileSync(__dirname + '/../apps-script/Code.gs', 'utf8');
+const js = fs.readFileSync(__dirname + '/../spiff.js', 'utf8');
+
+function grab(src, name) {
+  const i = src.search(new RegExp('\\n\\s*(?:async\\s+)?function ' + name + '\\s*\\('));
+  if (i < 0) throw new Error('missing ' + name);
+  let d = 0;
+  for (let k = src.indexOf('{', i); k < src.length; k++) {
+    if (src[k] === '{') d++; else if (src[k] === '}') { d--; if (!d) return src.slice(i, k + 1); }
+  }
+  throw new Error('unbalanced ' + name);
+}
+
+/* ── the vendor sign-in, run for real against a stubbed Core ── */
+console.log('vendor sign-in');
+const DENY = /does not match an active proposal/;
+
+function portal(opts) {
+  const programs = opts.programs;
+  const brands = opts.brands;
+  const cacheStore = {};
+  const GXCore = {
+    resolveBrand(name) {
+      if (opts.coreDown) throw new Error('Service unavailable');
+      const k = String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
+      return brands.filter(b => [b.brand_id, b.display_name].concat(b.aliases || [])
+        .map(x => String(x).toLowerCase().replace(/[^a-z0-9]/g, '')).indexOf(k) >= 0)[0] || null;
+    },
+    getBrands() {
+      if (opts.coreDown) throw new Error('Service unavailable');
+      return brands.filter(b => b.active);
+    },
+  };
+  const f = new Function('GXCore', 'CacheService', 'PropertiesService', 'listProgramsCached_',
+    'gxStores_', 'progressRowsFor_', 'listPrograms_', 'textDate_',
+    [grab(gs, 'norm_'), grab(gs, 'parseJson_'), grab(gs, 'brandNameOf_'), grab(gs, 'brandFold_'),
+     grab(gs, 'brandFoldedNames_'), 'var CLIENT_PASS_PROP = "CLIENT_VIEW_PASSWORD";',
+     grab(gs, 'clientView_'), 'return clientView_;'].join('\n'));
+  return f(GXCore,
+    { getScriptCache: () => ({ get: k => cacheStore[k] || null, put: (k, v) => { cacheStore[k] = v; } }) },
+    { getScriptProperties: () => ({ getProperty: () => 'pw' }) },
+    () => programs, () => [], () => [], () => [], x => x);
+}
+
+const PROG = { program_id: 'mule-1', program_name: 'Mule Dank Tank', vendor: 'Mule Extracts',
+               match_json: { brand: 'Mule Extracts' }, share_token: 'tok1', status: 'active',
+               target_json: {}, baseline_json: {}, cost_json: {}, payout_json: {},
+               // A stale legacy contact on the row must open NOTHING any more.
+               contact_email: 'old@legacy.com' };
+const rep = (email, over) => Object.assign({ contact_id: 'bc_' + email, email, name: 'Rep ' + email, active: true }, over || {});
+const MULE = { brand_id: 'mule-extracts', display_name: 'Mule Extracts', aliases: [], active: true,
+               contacts: [rep('amy@mule.com')] };
+
+let cv = portal({ programs: [PROG], brands: [MULE] })({ t: 'tok1', email: 'Amy@Mule.com', pass: 'pw' });
+ok('an active rep on the program\'s brand opens the link (email case-blind)', cv.ok === true && cv.program);
+ok('  …and the page is prepared for the rep who signed in', cv.ok && cv.program.contact_name === 'Rep amy@mule.com');
+
+cv = portal({ programs: [PROG], brands: [MULE] })({ t: 'tok1', email: 'old@legacy.com', pass: 'pw' });
+ok('the program\'s old contact_email no longer opens anything', !cv.ok && DENY.test(cv.error));
+
+cv = portal({ programs: [PROG], brands: [MULE] })({ t: 'tok1', email: 'amy@mule.com', pass: 'wrong' });
+ok('a wrong password is still refused', !cv.ok && DENY.test(cv.error));
+
+const removed = Object.assign({}, MULE, { contacts: [rep('amy@mule.com', { active: false })] });
+cv = portal({ programs: [PROG], brands: [removed] })({ t: 'tok1', email: 'amy@mule.com', pass: 'pw' });
+ok('a REMOVED rep is refused even if Core hands the row back', !cv.ok && DENY.test(cv.error));
+
+const off = Object.assign({}, MULE, { active: false });
+cv = portal({ programs: [PROG], brands: [off] })({ t: 'tok1', email: 'amy@mule.com', pass: 'pw' });
+ok('a rep on a TURNED-OFF brand is refused', !cv.ok && DENY.test(cv.error));
+
+const OTHER = { brand_id: 'freshy', display_name: 'Freshy', aliases: [], active: true, contacts: [rep('bo@freshy.com')] };
+cv = portal({ programs: [PROG], brands: [MULE, OTHER] })({ t: 'tok1', email: 'bo@freshy.com', pass: 'pw' });
+ok('a rep on a DIFFERENT brand cannot open this brand\'s link', !cv.ok && DENY.test(cv.error));
+
+cv = portal({ programs: [PROG], brands: [MULE], coreDown: true })({ t: 'tok1', email: 'amy@mule.com', pass: 'pw' });
+ok('a Core outage says unavailable, not "wrong password"', !cv.ok && /unavailable/.test(cv.error) && !DENY.test(cv.error));
+ok('  …and names no rep while saying it', !cv.ok && !/amy/.test(cv.error));
+
+const PROG2 = Object.assign({}, PROG, { program_id: 'mule-2', program_name: 'Mule Carts', share_token: 'tok2',
+                                        vendor: 'MULE EXTRACTS.', match_json: { brand: 'MULE EXTRACTS.' } });
+cv = portal({ programs: [PROG, PROG2], brands: [MULE] })({ email: 'amy@mule.com', pass: 'pw' });
+ok('with no link, a rep on two shared programs is offered both (spelling folded)',
+   cv.ok && Array.isArray(cv.choices) && cv.choices.length === 2);
+cv = portal({ programs: [PROG], brands: [MULE, OTHER] })({ email: 'bo@freshy.com', pass: 'pw' });
+ok('  …and a rep whose brand has no shared program is refused', !cv.ok && DENY.test(cv.error));
+
+/* ── the program no longer carries its own contact list ── */
+console.log('program record');
+const editable = gs.slice(gs.indexOf('var EDITABLE_FIELDS'), gs.indexOf('];', gs.indexOf('var EDITABLE_FIELDS')));
+ok('contact_name and contact_email are no longer editable on a program',
+   !/'contact_name'|'contact_email'/.test(editable.replace(/\/\*[\s\S]*?\*\//g, '')));
+ok('the record screen has no contact_email input left', !/data-key="contact_/.test(js) && !/'contact_email', p\.contact_email/.test(js));
+ok('the list and the record warn from the brand\'s reps, not from contact_email',
+   /needsRep\(p\)/.test(grab(js, 'shareCell')) && /needsRep\(p\)/.test(grab(js, 'rowShare')));
+
+/* ── the write doors ── */
+console.log('writes');
+function saveWith(role, contact) {
+  let sent = null;
+  const f = new Function('GXCore', 'gxAuth_', 'scrubSecrets_',
+    ['var EDIT_ROLES = ["admin", "editor", "director"];', grab(gs, 'parseJson_'),
+     gs.match(/^var BRAND_CONTACT_FIELDS = .*$/m)[0], grab(gs, 'brandEditor_'), grab(gs, 'saveBrandContact_'),
+     'return saveBrandContact_;'].join('\n'));
+  const r = f({ gxUpsertBrandContact(p) { sent = p; return { ok: true }; } },
+              () => ({ ok: true, role, user: 'tawny' }), x => String(x))({ token: 't', contact: JSON.stringify(contact) });
+  return { r, sent };
+}
+let w = saveWith('editor', { brand_id: 'mule-extracts', email: 'a@b.co', name: 'A', updated_by: 'forged', evil: 1 });
+ok('an editor\'s save reaches Core stamped with who made it', w.r.ok && w.sent.by === 'tawny');
+ok('  …and only the contract\'s fields ride along', w.sent && !('evil' in w.sent) && !('updated_by' in w.sent));
+w = saveWith('viewer', { brand_id: 'mule-extracts', email: 'a@b.co' });
+ok('a viewer cannot change a brand\'s reps', !w.r.ok && w.sent === null);
+
+/* Blank means "leave it alone" to Core, so an emptied box has to be sent as an explicit clear. */
+const saveRep = new Function('brandCall', grab(js, 'repMsg') + grab(js, 'saveRep') + 'return saveRep;');
+function runSave(c, values) {
+  let call = null;
+  const row = { querySelectorAll: () => Object.keys(values).map(k => ({ dataset: { repF: k },
+                  type: k === 'is_primary' ? 'checkbox' : 'text', checked: values[k], value: values[k] })),
+                querySelector: () => null };
+  saveRep((a, params) => { call = { a, contact: JSON.parse(params.contact) }; })(
+    { brand_id: 'mule-extracts' }, c, row, {});
+  return call;
+}
+let call = runSave({ contact_id: 'bc_1', email: 'a@b.co', name: 'Amy', phone: '555', role: 'Rep', is_primary: false },
+                   { name: 'Amy', email: 'a@b.co', phone: '', role: 'Rep', is_primary: false });
+ok('emptying a rep\'s phone sends clear=phone', call && call.contact.clear === 'phone');
+ok('  …and resends nothing that did not change', call && !('name' in call.contact) && !('email' in call.contact));
+call = runSave({ contact_id: 'bc_1', email: 'a@b.co', name: 'Amy' }, { name: 'Amy', email: 'new@b.co', phone: '', role: '', is_primary: false });
+ok('a changed email is sent, on the same contact_id', call && call.contact.email === 'new@b.co' && call.contact.contact_id === 'bc_1');
+call = runSave({ contact_id: 'bc_1', email: 'a@b.co' }, { name: '', email: '', phone: '', role: '', is_primary: false });
+ok('an emptied email is refused on the screen, never sent', call === null);
+
+/* ── the one-time seed ── */
+console.log('seed');
+function seed(programs, existing, apply) {
+  const made = [];
+  const f = new Function('PropertiesService', 'GXCore', 'listPrograms_', 'scrubSecrets_', 'GX_SECRET_PROP',
+    [grab(gs, 'parseJson_'), grab(gs, 'brandNameOf_'), grab(gs, 'brandFold_'), grab(gs, 'seedBrands_'), 'return seedBrands_;'].join('\n'));
+  const r = f({ getScriptProperties: () => ({ getProperty: () => 's' }) },
+    { resolveBrand: n => existing.indexOf(n) >= 0 ? { brand_id: 'x', display_name: n } : null,
+      gxUpsertBrand: p => { made.push(p); return { ok: true, brand_id: p.brand_id, created: true }; } },
+    () => programs, x => String(x), 'GX_DEPLOY_SECRET')({ secret: 's', apply: apply ? '1' : '' });
+  return { r, made };
+}
+const P = (brand, start) => ({ vendor: brand, match_json: { brand }, start_date: start });
+let sd = seed([P('National Cannabis Co.', '2025-01-01'), P('National Cannabis Co', '2025-06-01'),
+               P('National Cannabis Co', '2025-03-01'), P('Freshy', '2025-02-01')], [], false);
+ok('the seed is dry unless apply=1', sd.r.dry === true && sd.made.length === 0);
+ok('  …and plans ONE brand per folded name', sd.r.count === 2);
+const ncc = sd.r.brands.filter(b => /national/.test(b.brand_id))[0];
+ok('  …named by the spelling most programs use, the other kept as an alias',
+   ncc && ncc.display_name === 'National Cannabis Co' && ncc.aliases.join() === 'National Cannabis Co.');
+sd = seed([P('Freshy', '2025-02-01'), P('Drops', '2025-02-01')], ['Freshy'], true);
+ok('a brand Core already has is skipped, never patched', sd.made.length === 1 && sd.made[0].display_name === 'Drops');
+ok('  …and every write passes an explicit brand_id, so a re-run cannot mint a duplicate',
+   sd.made.every(p => p.brand_id && p.create === 1));
+ok('seedBrands is secret-gated at the router', /'publishKioskTokens', 'seedBrands'\]/.test(gs));
+
+console.log(fail ? '\n' + fail + ' FAILED' : '\nall passed');
+process.exit(fail ? 1 : 0);

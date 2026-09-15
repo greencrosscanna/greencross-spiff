@@ -117,7 +117,7 @@ ok('  …and a create carries the window, since it has no record half to save it
 ok('  …and adopts it into the editing bar, which used to read "no dates set" after a create',
    /calc\.window = \{ start: \(sd && sd\.value\)/.test(grab('saveCalcProgram')));
 ok('and the contact, the actuals and the vendor link',
-   /contact_email/.test(render) && /rPullActuals/.test(render) && /btnShare/.test(render));
+   /rBrandReps/.test(render) && /rPullActuals/.test(render) && /btnShare/.test(render));
 
 /* ── EVERY WAY IN LANDS ON THE CALCULATOR ── */
 ok('openProgram is the single way in',
