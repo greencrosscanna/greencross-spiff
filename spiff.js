@@ -553,6 +553,9 @@
      Progress tab has pulled them — see liveTotals — so the landing page is never STALER than
      what the user has already looked at, just cheaper when they have not. */
   var progCache = null;
+  /* The load itself, kept so a program opened before it lands can wait for it instead of pulling
+     live — see loadProgress. */
+  var progCacheP = null;
 
   async function loadProgressCache() {
     try {
@@ -3278,7 +3281,10 @@
     var run = (calc.refRun = {});
     calc.stores.forEach(function (st) { st.refState = 'loading'; });
     recalc();
-    await Promise.all(calc.stores.map(function (st, i) { return pullReferenceFor(i, run); }));
+    /* PULL_LANES at a time, not all six (2026-09-15). Each store here is a SPIFF execution plus a
+       GX Core one, on a Google account that can only run 30 things at once across every GX app —
+       see inLanes. Cells still fill store by store; the last two just arrive a little later. */
+    await inLanes(calc.stores.map(function (st, i) { return i; }), function (i) { return pullReferenceFor(i, run); });
   }
 
   /* One store. Also the retry path, so a store that timed out is re-pulled on its own instead
@@ -5628,6 +5634,101 @@
   var PULL_LANES = 2;
   var PULL_RETRIES = 2;
 
+  /* ── RUN fn OVER items, PULL_LANES AT A TIME ─────────────────────────────────────────────────
+     Why it is a ceiling and not a preference (measured 2026-09-15): every GX web app and trigger
+     runs as ONE Google account, and Google lets an account run 30 executions at once. A six-store
+     Promise.all here is six SPIFF executions, each calling GX Core — twelve slots from one click,
+     repeated for every date window. That afternoon the suite peaked at 114 simultaneous, and
+     everyone's screens waited in the queue behind it, not just SPIFF's. fn must catch its own
+     failures, as pullOneStore and pullReferenceFor do; one store refusing must not stop the rest. */
+  async function inLanes(items, fn) {
+    var next = 0;
+    async function lane() {
+      while (next < items.length) { var it = items[next++]; await fn(it); }
+    }
+    var lanes = [];
+    for (var i = 0; i < Math.min(PULL_LANES, items.length); i++) lanes.push(lane());
+    await Promise.all(lanes);
+  }
+
+  /* Los Angeles wall-clock stamp, the same 'yyyy-MM-dd HH:mm:ss' shape the engine writes into
+     refreshed_at, so the two compare as strings whatever time zone this browser is in. */
+  function laStamp(ms) {
+    try {
+      var parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hourCycle: 'h23',
+        year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        .formatToParts(new Date(ms)).reduce(function (o, x) { o[x.type] = x.value; return o; }, {});
+      return parts.year + '-' + parts.month + '-' + parts.day + ' ' + parts.hour + ':' + parts.minute + ':' + parts.second;
+    } catch (e) { return ''; }
+  }
+
+  /* ── A RUNNING PROGRAM OPENS ON THE HOURLY FIGURES (2026-09-15) ─────────────────────────────
+     Opening a running program used to pull all six stores live, every time: at a 10-day window
+     that is 12+ engine calls and as many GX Core calls, fanned out six wide. On 2026-09-15 those
+     bursts lined up minute for minute with the spikes that pushed the shared Google account past
+     its 30-at-once ceiling, and SPIFF calls ran 60-184 seconds.
+
+     The engine already measures every active program hourly (the same rows the landing page, GX
+     Crew and the kiosks read), so the grid opens on those, SAYS they are the hourly figures and
+     when they are from, and Refresh pulls live. Per store, deliberately:
+       · a store is taken from the cache only when its rows are for THIS window — a program whose
+         dates were edited since the last sweep is a different measurement;
+       · a store with no cached rows is pulled live. No rows cannot tell "sold nothing" from "not
+         measured yet", and a missing store must never read as a zero;
+       · rows older than PG_HOURLY_MAX_AGE_MS are not used at all — an hourly job that has stopped
+         must not leave a running program's grid quietly frozen.
+     Returns { results, at } or null. */
+  var PG_HOURLY_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+
+  /* '2026-09-15 13:56:09' → '1:56 PM'. The stamp is already Los Angeles time, so this only reads it. */
+  function clockLabel(stamp) {
+    var m = String(stamp || '').match(/ (\d{2}):(\d{2})/);
+    if (!m) return '';
+    var h = Number(m[1]);
+    return (h % 12 || 12) + ':' + m[2] + (h < 12 ? ' AM' : ' PM');
+  }
+
+  function hourlyResultsFor(prog, stores) {
+    var g = progCache && progCache[prog.program_id];
+    if (!g || !(g.rows || []).length) return null;
+    var oldestOk = laStamp(Date.now() - PG_HOURLY_MAX_AGE_MS);
+    if (!oldestOk) return null;
+    var rate = (prog.payout_json || {}).amount || 0;
+    var byStore = Object.create(null), oldest = '';
+    g.rows.forEach(function (row) {
+      if (String(row.start_date) !== String(prog.start_date) || String(row.end_date) !== String(prog.end_date)) return;
+      var at = String(row.refreshed_at || '');
+      if (!at || at < oldestOk) return;
+      (byStore[row.store_id] || (byStore[row.store_id] = [])).push(row);
+    });
+    var results = Object.create(null), n = 0;
+    stores.forEach(function (st) {
+      var rows = byStore[st];
+      if (!rows || !rows.length) return;
+      /* The TARGET is today's, not the sweep's: a goal pinned since the last hour must show on
+         the grid at once. Same rule as sellthrough_ in the engine — the store's per-budtender goal,
+         else its store target split across whoever sold. */
+      var tj = prog.target_json || {};
+      var t = Number((tj.per_bt || {})[st]) || 0;
+      if (!t) t = Math.round((Number((tj.by_store || {})[st]) || 0) / rows.length);
+      var units = 0, hit = 0;
+      var list = rows.map(function (row) {
+        var u = Number(row.units) || 0;
+        var h = t > 0 && u >= t;
+        units += u; if (h) hit++;
+        var at = String(row.refreshed_at || '');
+        if (!oldest || at < oldest) oldest = at;
+        return { name: row.name, employee_id: row.employee_id || '', display_name: row.display_name || '',
+                 store_id: st, units: u, revenue: 0, target: t, hit: h };
+      }).sort(function (a, b) { return b.units - a.units; });
+      results[st] = { ok: true, store_id: st, from: prog.start_date, to: prog.end_date,
+                      target: t, rate: rate, rows: list, units: units, hit: hit,
+                      budtenders: list.length, hourly: true };
+      n++;
+    });
+    return n ? { results: results, at: oldest } : null;
+  }
+
   function dateWindows(from, to, days) {
     var out = [], cur = from;
     while (cur <= to) {
@@ -5746,7 +5847,13 @@
     }
 
     var stores  = prog.stores_json || [];
-    var windows = dateWindows(prog.start_date, prog.end_date, PROGRESS_WINDOW_DAYS);
+    /* A RUNNING program is measured up to TODAY, not to its end date (2026-09-15). The days after
+       today have no sales, and asking for them anyway was a whole extra call per store — half of
+       every pull, a week into a fortnight — each one a SPIFF and a GX Core execution. */
+    var today   = laStamp(Date.now()).slice(0, 10);
+    var until   = (prog.status === 'active' && today && today >= prog.start_date && today < prog.end_date)
+      ? today : prog.end_date;
+    var windows = dateWindows(prog.start_date, until, PROGRESS_WINDOW_DAYS);
     var force   = !!(opts && opts.force);
 
     /* A closed program we have already measured, on the same window, renders straight away. */
@@ -5761,14 +5868,28 @@
       return;
     }
 
+    /* A running program opens on the hourly figures; only the stores they do not cover are
+       pulled. Refresh (force) pulls every store live. See hourlyResultsFor. */
+    var hourly = null;
+    if (!force && prog.status === 'active') {
+      if (!progCache && progCacheP) { try { await progCacheP; } catch (e) {} }
+      if (calc.editingId !== id) return;          // another program was opened while we waited
+      hourly = hourlyResultsFor(prog, stores);
+    }
+
     pgRun = { prog: prog, id: id, windows: windows, stores: stores,
-              results: Object.create(null), failed: Object.create(null), pulling: Object.create(null) };
-    stores.forEach(function (st) { pgRun.pulling[st] = 1; });
+              results: hourly ? hourly.results : Object.create(null),
+              failed: Object.create(null), pulling: Object.create(null),
+              hourlyAt: hourly ? hourly.at : '' };
+    var toPull = stores.filter(function (st) { return !pgRun.results[st]; });
+    toPull.forEach(function (st) { pgRun.pulling[st] = 1; });
 
     renderPgLive(prog, windows, stores);
     paintProgress();
 
-    await Promise.all(stores.map(function (st) { return pullOneStore(st); }));
+    var run = pgRun;
+    await inLanes(toPull, function (st) { return pgRun === run ? pullOneStore(st) : null; });
+    if (pgRun !== run) return;
     pgRun.done = true;
     paintProgress();
 
@@ -5874,6 +5995,9 @@
     var cachedNote = pgRun && pgRun.cachedAt
       ? ' · <b>saved figures</b> from ' + esc(String(pgRun.cachedAt).slice(0, 10))
         + ' — this program is closed, so they cannot have moved. Refresh re-pulls from Dutchie.'
+      : (pgRun && pgRun.hourlyAt && stores.some(function (st) { return (pgRun.results[st] || {}).hourly; }))
+      ? ' · <b>hourly figures</b> as of ' + esc(clockLabel(pgRun.hourlyAt))
+        + ' — the engine re-measures running programs every hour. Refresh pulls live from Dutchie.'
       : '';
     $('#pgNote').innerHTML = esc(prettyDay(prog.start_date)) + ' → ' + esc(prettyDay(prog.end_date))
       + ' · green means that person has already earned the bounty.'
@@ -6379,7 +6503,7 @@
     /* Not awaited either: the brand list only decides the rep section and the "needs a rep" hints,
        so a slow Core must never hold up the program list. It repaints what it touches when it lands. */
     var brandsP   = loadBrandReps();
-    var cacheP    = loadProgressCache();
+    var cacheP    = progCacheP = loadProgressCache();
     /* NOT awaited by first paint, on purpose: the built-in anchor is correct today, so the screen
        is right the moment it renders and this only has to CORRECT it if Core disagrees. Blocking
        every boot on a call that almost always changes nothing would trade a real second of latency

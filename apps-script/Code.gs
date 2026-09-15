@@ -1400,15 +1400,75 @@ function deleteProgram_(p) {
    function, return it as the cached answer, and `auth.ok` would read undefined. That happens
    to fail CLOSED here, but relying on which way an accident falls is not a control. */
 var _authMemo = Object.create(null);
+
+/* ── A SUCCESSFUL SESSION CHECK IS REMEMBERED FOR FIVE MINUTES, ACROSS EXECUTIONS (2026-09-15) ──
+   Every call from a signed-in browser used to cost a SECOND execution in GX Core to ask "is this
+   token still good?" — four on every page load, and one per date window per store while Progress
+   pulled. Every GX web app and trigger runs as the same Google account, and Google lets that
+   account run 30 things at once; on 2026-09-15 the suite peaked at 114, and SPIFF's bursts lined
+   up with Core's (62 Core starts in one minute beside 22 of ours). The per-execution memo above
+   could not help, because each of those calls is its own execution.
+
+   What makes this safe:
+   · ONLY A YES IS CACHED. A refusal, an expiry or a Core hiccup is re-asked every time, so a
+     newly granted person is let in at once and a transient failure never sticks.
+   · Keyed by a SHA-256 of the token, never the token — the cache is readable by anything in this
+     project, and a raw token there is a session anyone with the editor could lift.
+   · Never outlives the token. The expiry is the middle field of `user:exp:sig`, signed by Core;
+     reading it here only SHORTENS the cache, and the signature is still Core's to check on a miss.
+   · THE COST, stated: a grant REMOVED or a role CHANGED in Command Center takes up to five minutes
+     to reach SPIFF, where it took up to one (Core caches grants for 60s itself). */
+var AUTH_CACHE_TTL_S = 300;
+var AUTH_CACHE_PREFIX = 'auth1_';
+
+function authCacheKey_(token) {
+  try {
+    var d = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, APP + '|' + String(token));
+    var hex = '';
+    for (var i = 0; i < d.length; i++) hex += ('0' + (d[i] & 0xFF).toString(16)).slice(-2);
+    return AUTH_CACHE_PREFIX + hex;
+  } catch (e) { return ''; }
+}
+
+/* Seconds this token may still be cached for: the lesser of the TTL and its own remaining life.
+   0 means do not cache — a token with no readable expiry is Core's question, not ours. */
+function authCacheTtl_(token, nowMs) {
+  var exp = Number(String(token).split(':')[1] || 0);
+  if (!exp || !isFinite(exp)) return 0;
+  var left = Math.floor((exp - nowMs) / 1000);
+  if (left < 30) return 0;
+  return Math.min(AUTH_CACHE_TTL_S, left);
+}
+
 function gxAuth_(token) {
   if (!token) return { ok: false, error: 'Not signed in' };
   if (_authMemo[token]) return _authMemo[token];
+
+  var cache = null, ckey = '';
+  try { cache = CacheService.getScriptCache(); ckey = authCacheKey_(token); } catch (e) { cache = null; }
+  if (cache && ckey && authCacheTtl_(token, Date.now()) > 0) {
+    try {
+      var hit = cache.get(ckey);
+      if (hit) {
+        var v = JSON.parse(hit);
+        if (v && v.ok === true) { _authMemo[token] = v; return v; }
+      }
+    } catch (e) { /* an unreadable entry is not an answer — ask Core */ }
+  }
+
   var url = GXCORE_URL + '?action=validate&app=' + encodeURIComponent(APP) + '&token=' + encodeURIComponent(token);
   /* RETRIED, because /exec bounces and the cost of not retrying here is a person being told they
      are signed out in the middle of a save. A READ — it asks Core a question and changes nothing —
      so a repeat is free. */
   var r = gxCoreFetchJson_(url, 'session check');
-  if (r.ok) { _authMemo[token] = r.data; return r.data; }
+  if (r.ok) {
+    _authMemo[token] = r.data;
+    var ttl = (r.data && r.data.ok === true) ? authCacheTtl_(token, Date.now()) : 0;
+    if (cache && ckey && ttl > 0) {
+      try { cache.put(ckey, JSON.stringify(r.data), ttl); } catch (e) { /* cache full — just ask again next time */ }
+    }
+    return r.data;
+  }
   /* Deliberately NOT memoized: a transient Core hiccup must not pin this execution into a
      failure it would recover from on the next call. */
   return { ok: false, error: 'Could not reach GX Core to verify your session — ' + scrubSecrets_(r.error) };
@@ -2209,12 +2269,24 @@ function rollProgramStatuses_(opts) {
 }
 
 /** Installed once; hourly is well inside Dutchie's freshness and nowhere near the quota. */
+/* LOCKED, and it says how many it removed (2026-09-15). The hourly job ran 13 times in four hours
+   that day — the shape of several copies installed side by side, each one another six stores of
+   sell-through against the account's 30-at-once ceiling. Delete-then-create is two steps, so two
+   installs landing together can each delete nothing and each create one. The lock makes it one
+   step; `removed` says whether there had been duplicates to clear. */
 function installSpiffProgressTrigger() {
-  ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'refreshSpiffProgressTrigger') ScriptApp.deleteTrigger(t);
-  });
-  ScriptApp.newTrigger('refreshSpiffProgressTrigger').timeBased().everyHours(1).create();
-  return { ok: true, installed: 'refreshSpiffProgress hourly' };
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return { ok: false, error: 'another install is running — try again in a minute' };
+  try {
+    var removed = 0;
+    ScriptApp.getProjectTriggers().forEach(function (t) {
+      if (t.getHandlerFunction() === 'refreshSpiffProgressTrigger') { ScriptApp.deleteTrigger(t); removed++; }
+    });
+    ScriptApp.newTrigger('refreshSpiffProgressTrigger').timeBased().everyHours(1).create();
+    return { ok: true, installed: 'refreshSpiffProgress hourly', removed: removed };
+  } finally {
+    lock.releaseLock();
+  }
 }
 /* Roll FIRST, then sweep. The sweep is active-only, so a program that starts today has to be
    flipped before the same run measures it -- otherwise its first hour of sales lands an hour late,
@@ -2519,65 +2591,115 @@ function dedupe_(a) {
   return out;
 }
 
+/* ONE RUN AT A TIME (2026-09-15). A run takes up to ~4 minutes, and nothing stopped a second copy
+   of the trigger — or a slow run overlapping the next hour — from sweeping the same stores at the
+   same time: double the Dutchie reads, double the GX Core executions, and two writers deleting and
+   re-adding the same progress rows. A run that finds one already going simply stops; the one in
+   flight is doing the same work.
+
+   A LEASE IN A PROPERTY, NOT A SCRIPT LOCK HELD FOR THE RUN. The script lock is one lock for the
+   whole project, so holding it for four minutes would block anything else that ever takes it (the
+   bug-mail dedupe does today). And a lease has an expiry, so a run killed at Google's six-minute
+   limit cannot wedge the job for good: after SWEEP_LEASE_MS the next hour takes over. */
+var SWEEP_LEASE_PROP = 'SWEEP_RUNNING_UNTIL';
+var SWEEP_LEASE_MS = 7 * 60 * 1000;
+
+function takeSweepLease_() {
+  var props = PropertiesService.getScriptProperties();
+  var lock = LockService.getScriptLock();
+  /* The lease check-and-set is itself two steps, so it takes the script lock for the instant it
+     needs — milliseconds, never the minutes of the sweep. */
+  if (!lock.tryLock(10000)) { console.warn('[spiff] sweep skipped: could not take the lease lock'); return ''; }
+  try {
+    var held = String(props.getProperty(SWEEP_LEASE_PROP) || '');
+    var until = Number(held.split('|')[0] || 0);
+    if (until > Date.now()) {
+      console.warn('[spiff] sweep skipped: another run holds the lease until '
+                   + new Date(until).toISOString() + ' — likely a duplicate trigger; see ?action=diag');
+      return '';
+    }
+    var mine = String(Date.now()) + ':' + Math.random().toString(36).slice(2);
+    props.setProperty(SWEEP_LEASE_PROP, (Date.now() + SWEEP_LEASE_MS) + '|' + mine);
+    return mine;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* Release only OUR lease. If this run overran and a later one took over, deleting here would open
+   the door to a third. */
+function releaseSweepLease_(mine) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    if (String(props.getProperty(SWEEP_LEASE_PROP) || '').split('|')[1] === mine) props.deleteProperty(SWEEP_LEASE_PROP);
+  } catch (e) {}
+}
+
 function refreshSpiffProgressTrigger() {
-  try { rollProgramStatuses_(); }
-  catch (e) { console.warn('[spiff] status roll failed: ' + ((e && e.message) || e)); }
-  // Keep the brand list warm so Settings and the program screen never wait on Core's slow read.
-  try { warmBrandsCache_(); }
-  catch (e) { console.warn('[spiff] brand cache warm failed: ' + ((e && e.message) || e)); }
-  /* Freeze finished programs, deliberately BEFORE the sweep — a program that just closed in the
-     roll above is measured while this hour's numbers are still the last word on it.
-     HOW MANY depends on whether anyone is likely to be looking. Apps Script runs one thing at a
-     time per project, so every second spent measuring is a second the app cannot answer a page
-     load: a 20-minute backfill made SPIFF unusable this afternoon and had to be killed twice.
-     Overnight nobody is competing, so it drains the backlog four at a time (~216s, comfortably
-     inside the trigger's six minutes) and a 23-program backlog is gone by morning. In working
-     hours it takes ONE, ~54s an hour, which nobody notices. */
+  var lease = takeSweepLease_();
+  if (!lease) return;
   try {
-    var snap = snapshotPending_({ max: quietHours_() ? 4 : 1 });
-    if (snap.done.length) {
-      console.log('[spiff] froze ' + snap.done.length + ' program(s), '
-                  + snap.remaining + ' still to freeze'
-                  + (quietHours_() ? ' (quiet hours)' : ''));
-    }
-    /* SAY IT EVEN WHEN NOTHING WAS DONE. The old line logged only successes, so a sweep that
-       wrote nothing for a week logged nothing for a week — the silence read exactly like "no work
-       to do". A refusal that will not clear on its own is the one thing here a human must act on. */
-    if (snap.refused_skipped) {
-      console.warn('[spiff] ' + snap.refused_skipped + ' program(s) SKIPPED as unmeasurable — '
-                 + 'their filter matches nothing and will not fix itself. See ?action=diag.');
-    }
-    if (!snap.done.length && !snap.failed.length && snap.remaining) {
-      console.warn('[spiff] froze nothing this run with ' + snap.remaining + ' still eligible.');
-    }
-  } catch (e) { console.warn('[spiff] snapshot failed: ' + ((e && e.message) || e)); }
-  /* Straight after the freeze, so a program measured this hour is recorded this hour. No Dutchie
-     calls — it reads the measurement already on the row. */
-  try {
-    var rec = recordMeasuredActuals_({ apply: true });
-    if (rec.recorded.length) {
-      console.log('[spiff] recorded actuals for ' + rec.recorded.map(function (x) { return x.program_id; }).join(', '));
-    }
-    if (rec.needs_person.length) {
-      console.warn('[spiff] closed but NOT auto-recorded (needs a person): '
-                   + rec.needs_person.map(function (x) { return x.program_id + ' — ' + x.why; }).join('; '));
-    }
-  } catch (e) { console.warn('[spiff] recording actuals failed: ' + ((e && e.message) || e)); }
-  refreshSpiffProgress_();
-  /* PUBLISH LAST, after the cache has this hour's numbers in it. Wrapped so a Core outage costs
-     the publish and not the refresh: the cache is this app's own source of truth and must land
-     even when the hand-off cannot. A consumer sees the age go up, which is exactly what
-     age_minutes is for. */
-  try {
-    var pub = publishSpiffToCore_({ notes: 'hourly refresh' });
-    if (pub.ok) {
-      console.log('[spiff] published ' + pub.published.length + ' pay period(s) to Core: '
-                  + pub.published.map(function (x) { return x.scope + ' (' + x.rows + ' rows)'; }).join(', '));
-    } else {
-      console.warn('[spiff] publish to Core failed: '
-                   + (pub.error || JSON.stringify(pub.failed || [])));
-    }
-  } catch (e) { console.warn('[spiff] publish to Core threw: ' + ((e && e.message) || e)); }
+    try { rollProgramStatuses_(); }
+    catch (e) { console.warn('[spiff] status roll failed: ' + ((e && e.message) || e)); }
+    // Keep the brand list warm so Settings and the program screen never wait on Core's slow read.
+    try { warmBrandsCache_(); }
+    catch (e) { console.warn('[spiff] brand cache warm failed: ' + ((e && e.message) || e)); }
+    /* Freeze finished programs, deliberately BEFORE the sweep — a program that just closed in the
+       roll above is measured while this hour's numbers are still the last word on it.
+       HOW MANY depends on whether anyone is likely to be looking. Apps Script runs one thing at a
+       time per project, so every second spent measuring is a second the app cannot answer a page
+       load: a 20-minute backfill made SPIFF unusable this afternoon and had to be killed twice.
+       Overnight nobody is competing, so it drains the backlog four at a time (~216s, comfortably
+       inside the trigger's six minutes) and a 23-program backlog is gone by morning. In working
+       hours it takes ONE, ~54s an hour, which nobody notices. */
+    try {
+      var snap = snapshotPending_({ max: quietHours_() ? 4 : 1 });
+      if (snap.done.length) {
+        console.log('[spiff] froze ' + snap.done.length + ' program(s), '
+                    + snap.remaining + ' still to freeze'
+                    + (quietHours_() ? ' (quiet hours)' : ''));
+      }
+      /* SAY IT EVEN WHEN NOTHING WAS DONE. The old line logged only successes, so a sweep that
+         wrote nothing for a week logged nothing for a week — the silence read exactly like "no work
+         to do". A refusal that will not clear on its own is the one thing here a human must act on. */
+      if (snap.refused_skipped) {
+        console.warn('[spiff] ' + snap.refused_skipped + ' program(s) SKIPPED as unmeasurable — '
+                   + 'their filter matches nothing and will not fix itself. See ?action=diag.');
+      }
+      if (!snap.done.length && !snap.failed.length && snap.remaining) {
+        console.warn('[spiff] froze nothing this run with ' + snap.remaining + ' still eligible.');
+      }
+    } catch (e) { console.warn('[spiff] snapshot failed: ' + ((e && e.message) || e)); }
+    /* Straight after the freeze, so a program measured this hour is recorded this hour. No Dutchie
+       calls — it reads the measurement already on the row. */
+    try {
+      var rec = recordMeasuredActuals_({ apply: true });
+      if (rec.recorded.length) {
+        console.log('[spiff] recorded actuals for ' + rec.recorded.map(function (x) { return x.program_id; }).join(', '));
+      }
+      if (rec.needs_person.length) {
+        console.warn('[spiff] closed but NOT auto-recorded (needs a person): '
+                     + rec.needs_person.map(function (x) { return x.program_id + ' — ' + x.why; }).join('; '));
+      }
+    } catch (e) { console.warn('[spiff] recording actuals failed: ' + ((e && e.message) || e)); }
+    refreshSpiffProgress_();
+    /* PUBLISH LAST, after the cache has this hour's numbers in it. Wrapped so a Core outage costs
+       the publish and not the refresh: the cache is this app's own source of truth and must land
+       even when the hand-off cannot. A consumer sees the age go up, which is exactly what
+       age_minutes is for. */
+    try {
+      var pub = publishSpiffToCore_({ notes: 'hourly refresh' });
+      if (pub.ok) {
+        console.log('[spiff] published ' + pub.published.length + ' pay period(s) to Core: '
+                    + pub.published.map(function (x) { return x.scope + ' (' + x.rows + ' rows)'; }).join(', '));
+      } else {
+        console.warn('[spiff] publish to Core failed: '
+                     + (pub.error || JSON.stringify(pub.failed || [])));
+      }
+    } catch (e) { console.warn('[spiff] publish to Core threw: ' + ((e && e.message) || e)); }
+  } finally {
+    releaseSweepLease_(lease);
+  }
 }
 
 /* Is anybody likely to be using the app? Los Angeles, not UTC and not the script's idea of local
@@ -4840,11 +4962,15 @@ function diag_() {
      deleted by hand looked exactly like a program that simply had not moved yet. Reported as a
      verdict rather than a handler list: this route is ANYONE_ANONYMOUS. */
   try {
-    var installed = ScriptApp.getProjectTriggers().some(function (t) {
+    var copies = ScriptApp.getProjectTriggers().filter(function (t) {
       return t.getHandlerFunction() === 'refreshSpiffProgressTrigger';
-    });
-    d.hourlyTrigger = installed ? 'installed'
+    }).length;
+    /* HOW MANY, not just whether (2026-09-15). Two copies still read "installed" and doubled the
+       sweep's load on the shared account; ?action=installProgressTrigger collapses them to one. */
+    d.hourlyTrigger = copies === 1 ? 'installed'
+      : copies > 1 ? 'DUPLICATED x' + copies + ' - run ?action=installProgressTrigger to collapse to one'
       : 'MISSING - statuses will not roll and progress will not refresh';
+    d.hourlyTriggerCopies = copies;
   } catch (e) { d.hourlyTrigger = 'ERR ' + ((e && e.message) || e); }
   /* ── WHETHER IT IS INSTALLED IS NOT WHETHER IT IS GETTING ITS WORK DONE ──────────────────────
      `hourlyTrigger: installed` answers whether the trigger EXISTS and reads as whether it RUNS.

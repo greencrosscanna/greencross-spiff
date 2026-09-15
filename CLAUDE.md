@@ -148,6 +148,17 @@ Google's consent HTML instead of JSON until the owner has authorized.
   labeled "not yet recorded", for the hour before it runs. Pinned by `tests/record_actuals_test.js`
   and `tests/history_measured_test.js`.
 
+- **Every GX app shares one 30-at-once execution ceiling — don't fan out** (2026-09-15, v1.422).
+  All web apps and triggers run as sky@, and Google caps an account at 30 simultaneous executions;
+  that afternoon the suite hit 114 and every app's screens queued. SPIFF's share, and the fixes:
+  a signed-in call no longer re-asks GX Core about the token each time (`gxAuth_` caches a **yes
+  only**, 5 min, keyed by a hash — so a removed grant or changed role takes up to 5 min to bite);
+  store pulls run **`PULL_LANES` (2) at a time** via `inLanes`, never `Promise.all` over stores; a
+  **running program opens on the hourly figures**, labeled with their time, and only Refresh (or a
+  store the cache lacks) pulls live, up to today rather than the end date; the hourly job holds a
+  **lease** so two copies can't overlap, and `diag` reports `hourlyTriggerCopies`. Pinned by
+  `tests/shared_account_load_test.js`.
+
 - **The per-budtender goal is pinnable per store**, and an empty pin is not a zero. The Calculator
   splits the typed target by last month's volume; typing over one store's number pins it and leaves
   the others tracking the target. Clearing the box means *back to the split* — running it through
