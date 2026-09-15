@@ -105,9 +105,18 @@
     var back = $('#settingsBack');
     if (back) back.hidden = true;
   }
+  /* The nested door (index.html #btnSettingsNested). Same predicate as the chip menu's Settings row
+     in menuItems, so the two contexts can never disagree about who is offered it; the attribute
+     data-gx-embed-only keeps it off the standalone page, where the chip is the door. Called from
+     renderAuthChip, which every session change already runs through. */
+  function syncNestedSettings() {
+    var b = $('#btnSettingsNested');
+    if (b) b.hidden = !(session() && canEdit());
+  }
   function wireSettings() {
-    var back = $('#settingsBack'), x = $('#settingsClose');
+    var back = $('#settingsBack'), x = $('#settingsClose'), nested = $('#btnSettingsNested');
     if (x) x.addEventListener('click', closeSettings);
+    if (nested) nested.addEventListener('click', openSettings);
     /* Backdrop click and Escape both close it, like the sign-in dialog. A modal you can only
        leave by finding one small × is a modal people reload the page to escape. */
     if (back) back.addEventListener('click', function (e) { if (e.target === back) closeSettings(); });
@@ -1047,6 +1056,7 @@
   }
 
   function renderAuthChip() {
+    syncNestedSettings();   // before the early returns: the nested door does not depend on the chip
     var b = $('#btnAuth'), slot = $('#userSlot');
     if (!b) return;
     var s = session();

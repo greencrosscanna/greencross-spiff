@@ -221,6 +221,12 @@ Google's consent HTML instead of JSON until the owner has authorized.
   rename a brand or turn one off — a program finds its brand by name, and turning a brand off locks
   out all its reps; both are rare enough to do on purpose, not from a list.
 
+  **Settings has two doors, one per context** (Sky, 2026-09-15). Standalone it is the chip menu's
+  Settings row; **nested in Inventory** the shared theme hides the whole user tray, so a
+  `data-gx-embed-only` Settings button at the end of SPIFF's own tab bar replaces it. Same dialog,
+  same editor-only rule as the menu. Tawny works through Inventory, so without it she had no way in.
+  Pinned by `tests/nested_settings_test.js`.
+
   **Its search autocompletes** (Sky, 2026-09-15): brands in the list, reps by name or email, and
   every brand Dutchie has **in stock** that is not in the list yet, added in **Dutchie's spelling**.
   A name Dutchie does not carry can still be added and says so. The Dutchie list is the Calculator

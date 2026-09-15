@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.419"/>
-<link rel="stylesheet" href="spiff.css?v=1.419"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.420"/>
+<link rel="stylesheet" href="spiff.css?v=1.420"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -73,6 +73,17 @@
            The page is unchanged and still live; budtenders reach it by its own URL, which is how
            they were always going to. Nothing here links to it, deliberately. -->
     </nav>
+    <!-- SETTINGS WHEN NESTED (Sky, 2026-09-15). Inside Inventory the shared theme hides
+         .gx-topnav-right -- the host owns the user tray -- and the chip menu in there was the ONLY
+         way into Settings. So Tawny, who lives in SPIFF through Inventory, could not reach the
+         brand directory that holds the rep emails vendors sign in with. data-gx-embed-only is
+         gx-theme's own marker for exactly this ("Settings, which lives in the user tray when
+         standalone but has no tray to live in when nested"); standalone it never shows, so there
+         is still one door per context. Outside #tabs on purpose: it opens a dialog, it is not a
+         place, and showTab must not light or unlight it. spiff.js un-hides it for editors only,
+         the same rule the chip menu uses. -->
+    <button type="button" class="gx-topnav-tab sp-nested-settings" id="btnSettingsNested"
+            data-gx-embed-only hidden>Settings</button>
     <div class="gx-topnav-right">
       <span class="conn" id="conn" hidden title="GX Core connection">&#9679; connecting&hellip;</span>
       <div class="gx-clock"><div class="gx-clock-time">&mdash;</div><div class="gx-clock-date">&mdash;</div></div>
@@ -520,6 +531,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="spiff.js?v=1.419"></script>
+<script src="spiff.js?v=1.420"></script>
 </body>
 </html>
