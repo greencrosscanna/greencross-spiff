@@ -4121,10 +4121,27 @@ function brandEditor_(p) {
   return { user: String(auth.user || '') };
 }
 
-// Every brand, removed reps and retired brands included, so the program screen can show and restore them.
+/* Every brand, removed reps and retired brands included, so the program screen can show and restore them.
+ *
+ * CACHED FOR THE SCREEN ONLY, five minutes. Measured 2026-09-15: GXCore.getBrands answers in 6–30s
+ * through the library, which outlasted the browser's wait, so the section sat on "Loading" forever.
+ * SPIFF's own writes clear the cache, so an edit here shows at once; an edit made from another app
+ * can take up to five minutes to appear. The VENDOR SIGN-IN never reads this — clientView_ asks Core
+ * directly, so removing a rep closes their access immediately, not five minutes later. */
+var BRANDS_CACHE_KEY = 'gx_brands_all';
 function brandsRead_(p) {
-  try { return { ok: true, brands: GXCore.getBrands({ all: true }) || [] }; }
+  var cache = CacheService.getScriptCache();
+  var hit = cache.get(BRANDS_CACHE_KEY);
+  if (hit) { try { return { ok: true, brands: JSON.parse(hit), cached: true }; } catch (e) {} }
+  var brands;
+  try { brands = GXCore.getBrands({ all: true }) || []; }
   catch (e) { return { ok: false, error: 'GX Core brand list unavailable: ' + scrubSecrets_(e && e.message || e) }; }
+  try { cache.put(BRANDS_CACHE_KEY, JSON.stringify(brands), 300); } catch (e) {}   // >100KB just skips caching
+  return { ok: true, brands: brands };
+}
+function brandsChanged_(r) {
+  if (r && r.ok) { try { CacheService.getScriptCache().remove(BRANDS_CACHE_KEY); } catch (e) {} }
+  return r;
 }
 
 // Add a brand to the shared list. Core refuses a name another brand already answers to, and says which.
@@ -4133,7 +4150,7 @@ function addBrand_(p) {
   if (who.denied) return who.denied;
   var name = String(p.display_name || '').trim();
   if (!name) return { ok: false, error: 'display_name required' };
-  try { return GXCore.gxUpsertBrand({ display_name: name, create: 1, by: who.user }); }
+  try { return brandsChanged_(GXCore.gxUpsertBrand({ display_name: name, create: 1, by: who.user })); }
   catch (e) { return { ok: false, error: 'GX Core unavailable: ' + scrubSecrets_(e && e.message || e) }; }
 }
 
@@ -4150,7 +4167,7 @@ function saveBrandContact_(p) {
   BRAND_CONTACT_FIELDS.forEach(function (f) {
     if (Object.prototype.hasOwnProperty.call(c, f) && c[f] != null) out[f] = c[f];
   });
-  try { return GXCore.gxUpsertBrandContact(out); }
+  try { return brandsChanged_(GXCore.gxUpsertBrandContact(out)); }
   catch (e) { return { ok: false, error: 'GX Core unavailable: ' + scrubSecrets_(e && e.message || e) }; }
 }
 
@@ -4159,7 +4176,7 @@ function removeBrandContact_(p) {
   var who = brandEditor_(p);
   if (who.denied) return who.denied;
   if (!p.contact_id) return { ok: false, error: 'contact_id required' };
-  try { return GXCore.gxDeactivateBrandContact({ contact_id: String(p.contact_id), by: who.user }); }
+  try { return brandsChanged_(GXCore.gxDeactivateBrandContact({ contact_id: String(p.contact_id), by: who.user })); }
   catch (e) { return { ok: false, error: 'GX Core unavailable: ' + scrubSecrets_(e && e.message || e) }; }
 }
 
@@ -4206,6 +4223,7 @@ function seedBrands_(p) {
     return r && r.ok ? { brand_id: r.brand_id, action: r.created ? 'created' : 'unchanged', aliases: b.aliases }
                      : { brand_id: b.brand_id, action: 'refused', error: r && r.error };
   });
+  if (apply) brandsChanged_({ ok: true });
   return { ok: true, dry: !apply, count: results.length, brands: results };
 }
 

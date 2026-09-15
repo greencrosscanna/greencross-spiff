@@ -123,7 +123,7 @@ console.log('writes');
 function saveWith(role, contact) {
   let sent = null;
   const f = new Function('GXCore', 'gxAuth_', 'scrubSecrets_',
-    ['var EDIT_ROLES = ["admin", "editor", "director"];', grab(gs, 'parseJson_'),
+    ['var EDIT_ROLES = ["admin", "editor", "director"];', 'function brandsChanged_(r) { return r; }', grab(gs, 'parseJson_'),
      gs.match(/^var BRAND_CONTACT_FIELDS = .*$/m)[0], grab(gs, 'brandEditor_'), grab(gs, 'saveBrandContact_'),
      'return saveBrandContact_;'].join('\n'));
   const r = f({ gxUpsertBrandContact(p) { sent = p; return { ok: true }; } },
@@ -135,6 +135,11 @@ ok('an editor\'s save reaches Core stamped with who made it', w.r.ok && w.sent.b
 ok('  …and only the contract\'s fields ride along', w.sent && !('evil' in w.sent) && !('updated_by' in w.sent));
 w = saveWith('viewer', { brand_id: 'mule-extracts', email: 'a@b.co' });
 ok('a viewer cannot change a brand\'s reps', !w.r.ok && w.sent === null);
+['addBrand_', 'saveBrandContact_', 'removeBrandContact_'].forEach(function (fn) {
+  ok(fn + ' clears the screen\'s brand cache after a write', /brandsChanged_\(GXCore\./.test(grab(gs, fn)));
+});
+ok('the vendor sign-in never reads the cached brand list — a removed rep is locked out at once',
+   !/BRANDS_CACHE_KEY|brandsRead_/.test(grab(gs, 'clientView_')));
 
 /* Blank means "leave it alone" to Core, so an emptied box has to be sent as an explicit clear. */
 const saveRep = new Function('brandCall', grab(js, 'repMsg') + grab(js, 'saveRep') + 'return saveRep;');
@@ -161,7 +166,7 @@ console.log('seed');
 function seed(programs, existing, apply) {
   const made = [];
   const f = new Function('PropertiesService', 'GXCore', 'listPrograms_', 'scrubSecrets_', 'GX_SECRET_PROP',
-    [grab(gs, 'parseJson_'), grab(gs, 'brandNameOf_'), grab(gs, 'brandFold_'), grab(gs, 'seedBrands_'), 'return seedBrands_;'].join('\n'));
+    ['function brandsChanged_(r) { return r; }', grab(gs, 'parseJson_'), grab(gs, 'brandNameOf_'), grab(gs, 'brandFold_'), grab(gs, 'seedBrands_'), 'return seedBrands_;'].join('\n'));
   const r = f({ getScriptProperties: () => ({ getProperty: () => 's' }) },
     { resolveBrand: n => existing.indexOf(n) >= 0 ? { brand_id: 'x', display_name: n } : null,
       gxUpsertBrand: p => { made.push(p); return { ok: true, brand_id: p.brand_id, created: true }; } },

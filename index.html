@@ -486,6 +486,8 @@
   // production. Add new READS here; leave writes off the list.
   // Guarded writes: buildReport, bugreport, createProgram, editProgram, shareLink,
   //                  storeLinkMintAll, storeLinkRotate
+  // Also guarded: addBrand, saveBrandContact, removeBrandContact. `brands` is a READ (GX Core's
+  // shared brand list with reps, through the engine).
   // `storeLinks` and `storeView` are READS — listing the kiosk links and rendering a kiosk board.
   // Minting (storeLinkMintAll) and rotating (storeLinkRotate) are writes and are deliberately
   // NOT here: they must stay behind ARM WRITES. Listing used to mint as a side effect, and the
@@ -494,7 +496,7 @@
     // `employees` is the friendly-name roster (loadRoster) — a read, and undeclared until
     // 2026-09-08, so every LOCAL session showed staff their legal names and logged a BLOCKED
     // warning that looked like a roster outage. Production was always fine; only dev lied.
-    'catalog', 'clientView', 'config', 'emailDraft', 'employees', 'login', 'productStats',
+    'brands', 'catalog', 'clientView', 'config', 'emailDraft', 'employees', 'login', 'productStats',
     'programs', 'progress', 'refunits', 'sellthrough', 'storeLinks', 'storeView', 'stores',
     'version_history'
   ];

@@ -1382,7 +1382,8 @@
      the two agree for everything the registry holds. */
   async function loadBrands() {
     try {
-      var r = await ENG.jsonp('brands', { token: (session() || {}).token });
+      // Core's library read is slow (6–30s measured cold); the engine caches it, but a cold read needs the room.
+      var r = await ENG.jsonp('brands', { token: (session() || {}).token }, { timeoutMs: 45000, retries: 1 });
       if (!r || !r.ok || !Array.isArray(r.brands)) throw new Error((r && r.error) || 'unexpected response');
       state.brands = r.brands;
       state.brandsError = '';
@@ -1504,7 +1505,8 @@
   async function brandCall(action, params, row, btn) {
     btn.disabled = true;
     try {
-      var r = await ENG.jsonp(action, Object.assign({ token: (session() || {}).token }, params));
+      // No retry: a write that timed out may still have landed, and the reload below shows which.
+      var r = await ENG.jsonp(action, Object.assign({ token: (session() || {}).token }, params), { timeoutMs: 45000, retries: 0 });
       if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
       if (row) repMsg(row, 'Saved', true);
       await loadBrands();
