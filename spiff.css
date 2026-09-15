@@ -256,6 +256,11 @@ body {
 /* The sign-in dialog is the only modal left, and it is a two-field form — 760px of width around
    it read as a dialog that had failed to load its content. */
 .modal-sm { width: min(420px, 100%); }
+/* Settings holds a live-filtering brand search. Sized to its CONTENT, the dialog grew and shrank with
+   every keystroke as the list narrowed — "very disjointing" (Sky, 2026-09-15). One fixed box; the
+   body scrolls inside it. */
+.modal.modal-fixed { width: min(760px, 100%); height: min(88vh, 860px); }
+.modal.modal-fixed .modal-body { flex: 1 1 auto; min-height: 0; }
 .modal-head, .modal-foot {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   padding: 16px 20px;
@@ -1541,3 +1546,12 @@ body.is-gated .workspace { display: none !important; }
 /* In the flow, not floating: the Settings body scrolls, so a floating menu was clipped at the dialog's
    edge whenever the search had narrowed the list below it to one or two rows. */
 .sp-bdir-find .sp-pick-menu { position: static; margin-top: 4px; max-height: 280px; }
+
+/* A save in flight: words plus a small spinner, so a slow Core write never looks like a dead button. */
+.sp-brep-msg.is-busy { color: var(--gx-text-dim); }
+.sp-brep-msg.is-busy::before {
+  content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px;
+  border: 2px solid var(--gx-border-strong, var(--gx-border)); border-top-color: var(--gx-green);
+  border-radius: 50%; animation: sp-brep-spin .8s linear infinite;
+}
+@keyframes sp-brep-spin { to { transform: rotate(360deg); } }

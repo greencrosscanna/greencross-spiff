@@ -2440,6 +2440,9 @@ function dedupe_(a) {
 function refreshSpiffProgressTrigger() {
   try { rollProgramStatuses_(); }
   catch (e) { console.warn('[spiff] status roll failed: ' + ((e && e.message) || e)); }
+  // Keep the brand list warm so Settings and the program screen never wait on Core's slow read.
+  try { warmBrandsCache_(); }
+  catch (e) { console.warn('[spiff] brand cache warm failed: ' + ((e && e.message) || e)); }
   /* Freeze finished programs, deliberately BEFORE the sweep — a program that just closed in the
      roll above is measured while this hour's numbers are still the last word on it.
      HOW MANY depends on whether anyone is likely to be looking. Apps Script runs one thing at a
@@ -4124,12 +4127,18 @@ function brandEditor_(p) {
 
 /* Every brand, removed reps and retired brands included, so the program screen can show and restore them.
  *
- * CACHED FOR THE SCREEN ONLY, five minutes. Measured 2026-09-15: GXCore.getBrands answers in 6–30s
- * through the library, which outlasted the browser's wait, so the section sat on "Loading" forever.
- * SPIFF's own writes clear the cache, so an edit here shows at once; an edit made from another app
- * can take up to five minutes to appear. The VENDOR SIGN-IN never reads this — clientView_ asks Core
- * directly, so removing a rep closes their access immediately, not five minutes later. */
+ * CACHED FOR THE SCREEN ONLY. GXCore.getBrands answers in 6–30s through the library (measured
+ * 2026-09-15), and a screen that waits that long reads as broken. So:
+ *  - the hourly trigger re-reads it into the cache (warmBrandsCache_), which lives a little longer
+ *    than an hour, so a person opening the screen almost never pays for the read;
+ *  - SPIFF's own writes PATCH the cached list from what Core returns (applyBrandWrite_) instead of
+ *    throwing it away — throwing it away is what made every add sit for half a minute re-reading
+ *    all of it, with nothing on screen saying why (Sky, 2026-09-15);
+ *  - an edit made OUTSIDE SPIFF (Inventory, or Core's sheet by hand) can take up to an hour to show.
+ * The VENDOR SIGN-IN never reads this — clientView_ asks Core directly, so removing a rep closes
+ * their access immediately, not an hour later. */
 var BRANDS_CACHE_KEY = 'gx_brands_all';
+var BRANDS_CACHE_TTL = 3900;   // 65 min: outlives the hourly warm, so the cache does not lapse between runs
 function brandsRead_(p) {
   var cache = CacheService.getScriptCache();
   var hit = cache.get(BRANDS_CACHE_KEY);
@@ -4137,11 +4146,53 @@ function brandsRead_(p) {
   var brands;
   try { brands = GXCore.getBrands({ all: true }) || []; }
   catch (e) { return { ok: false, error: 'GX Core brand list unavailable: ' + scrubSecrets_(e && e.message || e) }; }
-  try { cache.put(BRANDS_CACHE_KEY, JSON.stringify(brands), 300); } catch (e) {}   // >100KB just skips caching
+  try { cache.put(BRANDS_CACHE_KEY, JSON.stringify(brands), BRANDS_CACHE_TTL); } catch (e) {}   // >100KB just skips caching
   return { ok: true, brands: brands };
 }
+function warmBrandsCache_() {
+  var brands = GXCore.getBrands({ all: true }) || [];
+  try { CacheService.getScriptCache().put(BRANDS_CACHE_KEY, JSON.stringify(brands), BRANDS_CACHE_TTL); } catch (e) {}
+  return brands.length;
+}
+
+/* Fold one successful Core write into a brand list, from the write's OWN result — no re-read.
+   gxUpsertBrand returns the whole brand (contacts included); gxUpsertBrandContact and
+   gxDeactivateBrandContact return the contact plus the ids whose primary flag it demoted. Contacts
+   keep Core's order (primary first, then name, then email) so "the main contact is [0]" still holds.
+   The browser runs the same rule as applyBrandWrite in spiff.js. */
+function applyBrandWrite_(brands, r) {
+  brands = brands || [];
+  if (!r || !r.ok) return brands;
+  if (r.brand && r.brand.brand_id) {
+    var i = -1;
+    brands.forEach(function (b, k) { if (b.brand_id === r.brand.brand_id) i = k; });
+    if (i >= 0) brands[i] = r.brand; else brands.push(r.brand);
+    brands.sort(function (a, b) { return String(a.display_name).localeCompare(String(b.display_name)); });
+  }
+  if (r.contact && r.contact.contact_id) {
+    var brand = brands.filter(function (b) { return b.brand_id === (r.brand_id || r.contact.brand_id); })[0];
+    if (brand) {
+      var cs = brand.contacts || (brand.contacts = []), j = -1;
+      cs.forEach(function (c, k) { if (c.contact_id === r.contact.contact_id) j = k; });
+      if (j >= 0) cs[j] = r.contact; else cs.push(r.contact);
+      (r.demoted || []).forEach(function (id) { cs.forEach(function (c) { if (c.contact_id === id) c.is_primary = false; }); });
+      cs.sort(function (a, c) {
+        return (Number(!!c.is_primary) - Number(!!a.is_primary)) || String(a.name || '').localeCompare(String(c.name || ''))
+            || String(a.email || '').localeCompare(String(c.email || ''));
+      });
+    }
+  }
+  return brands;
+}
+
 function brandsChanged_(r) {
-  if (r && r.ok) { try { CacheService.getScriptCache().remove(BRANDS_CACHE_KEY); } catch (e) {} }
+  if (!r || !r.ok) return r;
+  try {
+    var cache = CacheService.getScriptCache(), hit = cache.get(BRANDS_CACHE_KEY);
+    if (hit) cache.put(BRANDS_CACHE_KEY, JSON.stringify(applyBrandWrite_(JSON.parse(hit), r)), BRANDS_CACHE_TTL);
+  } catch (e) {
+    try { CacheService.getScriptCache().remove(BRANDS_CACHE_KEY); } catch (e2) {}   // a patch that fails must not leave a wrong list
+  }
   return r;
 }
 
@@ -4242,7 +4293,7 @@ function seedBrands_(p) {
     return r && r.ok ? { brand_id: r.brand_id, action: r.created ? 'created' : 'unchanged', aliases: b.aliases }
                      : { brand_id: b.brand_id, action: 'refused', error: r && r.error };
   });
-  if (apply) brandsChanged_({ ok: true });
+  if (apply) { try { CacheService.getScriptCache().remove(BRANDS_CACHE_KEY); } catch (e) {} }
   return { ok: true, dry: !apply, count: results.length, brands: results };
 }
 

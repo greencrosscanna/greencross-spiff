@@ -176,7 +176,44 @@ ok('Settings holds the brand directory above the kiosk links',
    /id="brandDir"[\s\S]*id="kioskBody"/.test(fs.readFileSync(__dirname + '/../index.html', 'utf8')));
 ok('the program screen and the directory share ONE reps editor',
    /repsEditor\(host, b\)/.test(grab(js, 'renderBrandReps')) && /repsEditor\(/.test(grab(js, 'paintBrandBody')));
-ok('a save anywhere repaints the directory', /renderBrandDirectory\(\)/.test(grab(js, 'loadBrandReps')));
+ok('a load repaints the directory', /renderBrandDirectory\(\)/.test(grab(js, 'repaintBrands')) && /repaintBrands\(\)/.test(grab(js, 'loadBrandReps')));
+
+/* ── a save is quick and says so (Sky, 2026-09-15: "once i click to add it takes a while to load") ──
+   Every save used to re-read the WHOLE brand list from Core (6–30s) before anything changed on screen. */
+const bc = grab(js, 'brandCall');
+ok('a save says something the moment it is pressed', /repMsg\(row, pending \|\| 'Saving…', true, true\)/.test(bc));
+ok('  …and folds Core\'s own answer into the screen instead of re-reading every brand',
+   /applyBrandWrite\(state\.brands, r\)/.test(bc) && !/await loadBrandReps\(\)/.test(bc));
+ok('adding a brand names what it is adding while it waits', /Adding ' \+ r\.name/.test(grab(js, 'wireBrandFind')));
+const applyJs = new Function(grab(js, 'applyBrandWrite') + 'return applyBrandWrite;')();
+const applyGs = new Function(grab(gs, 'applyBrandWrite_') + 'return applyBrandWrite_;')();
+const base = () => [
+  { brand_id: 'mule', display_name: 'Mule', contacts: [
+      { contact_id: 'c1', name: 'Zed', email: 'z@m.co', is_primary: true, active: true },
+      { contact_id: 'c2', name: 'Amy', email: 'a@m.co', is_primary: false, active: true }] },
+  { brand_id: 'wyld', display_name: 'Wyld', contacts: [] }];
+const WRITES = [
+  { ok: true, brand: { brand_id: 'drops', display_name: 'Drops', contacts: [] } },
+  { ok: true, brand_id: 'mule', contact: { contact_id: 'c2', brand_id: 'mule', name: 'Amy', email: 'a@m.co', is_primary: true, active: true }, demoted: ['c1'] },
+  { ok: true, brand_id: 'wyld', contact: { contact_id: 'c9', brand_id: 'wyld', name: 'Bo', email: 'b@w.co', is_primary: false, active: true }, demoted: [] },
+  { ok: false, brand: { brand_id: 'nope', display_name: 'Nope' } },
+];
+let a = base(); WRITES.forEach(w => { a = applyJs(a, w); });
+ok('an added brand appears, in name order', a.map(b => b.brand_id).join() === 'drops,mule,wyld');
+ok('a new main contact goes first and the old one is demoted',
+   a[1].contacts[0].contact_id === 'c2' && a[1].contacts[1].is_primary === false);
+ok('a new rep lands on the right brand', a[2].contacts.length === 1 && a[2].contacts[0].email === 'b@w.co');
+ok('a refused write changes nothing', !a.some(b => b.brand_id === 'nope'));
+let g = base(); WRITES.forEach(w => { g = applyGs(g, w); });
+ok('the engine\'s cache patch and the screen agree exactly', JSON.stringify(g) === JSON.stringify(a));
+ok('SPIFF\'s writes patch the cached list rather than clearing it', /applyBrandWrite_\(JSON\.parse\(hit\), r\)/.test(grab(gs, 'brandsChanged_')));
+ok('the hourly trigger keeps the brand list warm', /warmBrandsCache_\(\)/.test(grab(gs, 'refreshSpiffProgressTrigger')));
+
+/* Sky, 2026-09-15: "keep the size of the popup window the same … its very disjointing to see the window
+   size change as you type". */
+ok('the Settings dialog is a fixed size, not sized to what the search has left',
+   /class="modal modal-fixed"[^>]*aria-labelledby="settingsTitle"/.test(fs.readFileSync(__dirname + '/../index.html', 'utf8'))
+   && /\.modal\.modal-fixed \{[^}]*height:/.test(fs.readFileSync(__dirname + '/../spiff.css', 'utf8')));
 const saveInfo = new Function('brandCall', grab(js, 'repMsg') + grab(js, 'saveBrandInfo') + 'return saveBrandInfo;');
 function runInfo(b, v) {
   let call = null;

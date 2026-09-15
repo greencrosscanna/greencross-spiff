@@ -1395,9 +1395,39 @@
       state.brandsError = String(err.message || err);
     }
     state.brandsLoading = false;
+    repaintBrands();
+  }
+  function repaintBrands() {
     try { if (state.programs && state.programs.length) renderPrograms(); } catch (e) {}
     if (state.record) renderBrandReps(state.record);
     renderBrandDirectory();
+  }
+
+  /* Fold a write's own result into the list on screen — the same rule as applyBrandWrite_ in the
+     engine. Re-reading the whole list after every save is what made an add sit for half a minute. */
+  function applyBrandWrite(brands, r) {
+    brands = brands || [];
+    if (!r || !r.ok) return brands;
+    if (r.brand && r.brand.brand_id) {
+      var i = -1;
+      brands.forEach(function (b, k) { if (b.brand_id === r.brand.brand_id) i = k; });
+      if (i >= 0) brands[i] = r.brand; else brands.push(r.brand);
+      brands.sort(function (a, b) { return String(a.display_name).localeCompare(String(b.display_name)); });
+    }
+    if (r.contact && r.contact.contact_id) {
+      var brand = brands.filter(function (b) { return b.brand_id === (r.brand_id || r.contact.brand_id); })[0];
+      if (brand) {
+        var cs = brand.contacts || (brand.contacts = []), j = -1;
+        cs.forEach(function (c, k) { if (c.contact_id === r.contact.contact_id) j = k; });
+        if (j >= 0) cs[j] = r.contact; else cs.push(r.contact);
+        (r.demoted || []).forEach(function (id) { cs.forEach(function (c) { if (c.contact_id === id) c.is_primary = false; }); });
+        cs.sort(function (a, c) {
+          return (Number(!!c.is_primary) - Number(!!a.is_primary)) || String(a.name || '').localeCompare(String(c.name || ''))
+              || String(a.email || '').localeCompare(String(c.email || ''));
+        });
+      }
+    }
+    return brands;
   }
 
   function brandNameOf(p) {
@@ -1622,11 +1652,14 @@
         if (d) d.scrollIntoView({ block: 'nearest' });
         return;
       }
-      var res = await brandCall('addBrand', { display_name: r.name }, $('#brandDir .sp-bdir-tools'), q);
+      var res = await brandCall('addBrand', { display_name: r.name }, $('#brandDir .sp-bdir-tools'), q,
+                                'Adding ' + r.name + ' to the brand list…');
       if (res && res.brand_id) {
         brandDir.q = r.name;
         brandDir.open = res.brand_id;
         renderBrandDirectory();
+        var done = $('#bdirMsg');
+        if (done) done.textContent = 'Added ' + r.name + ' — add its reps below.';
       }
     }
 
@@ -1764,23 +1797,29 @@
       + '</div></div>';
   }
 
-  function repMsg(row, text, good) {
+  function repMsg(row, text, good, busy) {
     var m = row.querySelector('.sp-brep-msg');
-    if (m) { m.textContent = text; m.classList.toggle('is-bad', !good); }
+    if (m) { m.textContent = text; m.classList.toggle('is-bad', !good); m.classList.toggle('is-busy', !!busy); }
   }
 
-  async function brandCall(action, params, row, btn) {
+  /* SAY SOMETHING THE MOMENT IT IS PRESSED. A Core write takes seconds, and a button that goes gray
+     with no words reads as "nothing happened" — Sky, 2026-09-15, adding a brand. */
+  async function brandCall(action, params, row, btn, pending) {
     btn.disabled = true;
+    if (row) repMsg(row, pending || 'Saving…', true, true);
     try {
-      // No retry: a write that timed out may still have landed, and the reload below shows which.
+      /* No retry: a write that timed out may still have landed. On a timeout the list is re-read so
+         the screen shows whichever it was, rather than guessing. */
       var r = await ENG.jsonp(action, Object.assign({ token: (session() || {}).token }, params), { timeoutMs: 45000, retries: 0 });
       if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
-      if (row) repMsg(row, 'Saved', true);
-      await loadBrandReps();
+      state.brands = applyBrandWrite(state.brands, r);
+      repaintBrands();
+      if (row && row.isConnected) { repMsg(row, 'Saved', true); btn.disabled = false; }
       return r;
     } catch (err) {
       if (row) repMsg(row, String(err.message || err), false);
       btn.disabled = false;
+      if (/timed out|timeout/i.test(String(err && err.message))) loadBrandReps();
       return null;
     }
   }

@@ -199,8 +199,11 @@ Google's consent HTML instead of JSON until the owner has authorized.
   closes their access at once.
 
   **Core's library read is slow** — `getBrands` measured 6–30s. The engine caches it **for the screen
-  only** (five minutes, cleared by every SPIFF write); the sign-in never reads that cache, or a removed
-  rep would keep access for five minutes. Contact emails are half of a rep's login, so no route hands
+  only**: the hourly trigger re-reads it (`warmBrandsCache_`, 65-minute cache), and SPIFF's own writes
+  **patch** the cached list from Core's answer (`applyBrandWrite_`, mirrored by `applyBrandWrite` in
+  the browser) instead of re-reading it — the re-read made every add sit for half a minute. An edit
+  made outside SPIFF can take up to an hour to show. The sign-in never reads that cache, or a removed
+  rep would keep access. Contact emails are half of a rep's login, so no route hands
   the list to an anonymous caller.
 
   **Settings holds the brand directory** (Sky, 2026-09-15): every brand, searchable by brand or rep,
