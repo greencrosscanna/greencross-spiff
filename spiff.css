@@ -437,7 +437,8 @@ body.is-gated .workspace { display: none !important; }
 .sp-subnav-right { margin-left: auto; display: flex; gap: 8px; }
 /* The nested Settings door (index.html #btnSettingsNested) sits at the far end of the bar, where the
    hidden user tray would have been. Only placement: its look is .gx-topnav-tab, unchanged. */
-.sp-nested-settings { margin-left: auto; }
+.sp-nested-settings { margin-left: auto; display: inline-flex; align-items: center; justify-content: center; }
+.sp-nested-settings svg { display: block; }
 
 /* THE PROGRAM PICKERS, on Progress and Reports. Both were capped by an inline max-width — 260px
    and 300px — set back when an option was just the program's name. The name now carries its date

@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.420"/>
-<link rel="stylesheet" href="spiff.css?v=1.420"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.421"/>
+<link rel="stylesheet" href="spiff.css?v=1.421"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -81,9 +81,14 @@
          standalone but has no tray to live in when nested"); standalone it never shows, so there
          is still one door per context. Outside #tabs on purpose: it opens a dialog, it is not a
          place, and showTab must not light or unlight it. spiff.js un-hides it for editors only,
-         the same rule the chip menu uses. -->
+         the same rule the chip menu uses.
+         The GEAR, not the word (Sky, 2026-09-15): the same outline gear Sales still carries and
+         Inventory and Leaderboard used before Settings moved into the user tray. Stroke is
+         currentColor, so it takes .gx-topnav-tab's muted color and its hover. -->
     <button type="button" class="gx-topnav-tab sp-nested-settings" id="btnSettingsNested"
-            data-gx-embed-only hidden>Settings</button>
+            title="Settings" aria-label="Settings" data-gx-embed-only hidden>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
     <div class="gx-topnav-right">
       <span class="conn" id="conn" hidden title="GX Core connection">&#9679; connecting&hellip;</span>
       <div class="gx-clock"><div class="gx-clock-time">&mdash;</div><div class="gx-clock-date">&mdash;</div></div>
@@ -531,6 +536,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="spiff.js?v=1.420"></script>
+<script src="spiff.js?v=1.421"></script>
 </body>
 </html>

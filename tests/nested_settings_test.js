@@ -42,6 +42,11 @@ const tag = (html.match(/<button[^>]*id="btnSettingsNested"[^>]*>/) || [''])[0];
 ok('index.html has a nested Settings button', !!tag);
 ok('  …marked data-gx-embed-only, so standalone never shows it', /data-gx-embed-only/.test(tag));
 ok('  …and hidden until spiff.js decides who gets it', /\shidden(\s|>)/.test(tag));
+const btnHtml = (html.match(/<button[^>]*id="btnSettingsNested"[\s\S]*?<\/button>/) || [''])[0];
+ok('  …drawn as the suite gear, not the word (Sky, 2026-09-15)',
+   /<svg[^>]*aria-hidden="true"/.test(btnHtml) && /M19\.4 15a1\.65/.test(btnHtml) &&
+   !/>\s*Settings\s*</.test(btnHtml));
+ok('  …and still named for a screen reader, since it has no text', /aria-label="Settings"/.test(tag));
 
 const header = html.slice(html.indexOf('<header class="gx-topnav"'), html.indexOf('</header>'));
 const btnAt = header.indexOf('id="btnSettingsNested"');

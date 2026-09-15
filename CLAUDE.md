@@ -223,7 +223,7 @@ Google's consent HTML instead of JSON until the owner has authorized.
 
   **Settings has two doors, one per context** (Sky, 2026-09-15). Standalone it is the chip menu's
   Settings row; **nested in Inventory** the shared theme hides the whole user tray, so a
-  `data-gx-embed-only` Settings button at the end of SPIFF's own tab bar replaces it. Same dialog,
+  `data-gx-embed-only` gear at the end of SPIFF's own tab bar replaces it (the suite's outline gear). Same dialog,
   same editor-only rule as the menu. Tawny works through Inventory, so without it she had no way in.
   Pinned by `tests/nested_settings_test.js`.
 
