@@ -321,7 +321,7 @@ var GATED_WRITES = ['snapshotProgress'];
    all three; see guard_. */
 var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses',
                       'sweepOrphanProgress', 'publishToCore', 'backfillPayPeriods',
-                      'publishKioskTokens', 'seedBrands'];
+                      'publishKioskTokens', 'seedBrands', 'recordActuals'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -416,6 +416,9 @@ function doGet(e) {
          the periods and row counts it would send without writing to Core, so the shape can be
          checked before a consumer is pointed at it. `apply=1` publishes. */
       case 'publishToCore': out = publishToCore_(p);                                break;
+      /* Record a closed program's actuals from its close-out measurement. Secret-gated and DRY BY
+         DEFAULT; `apply=1` writes. The hourly trigger does this on its own — see RECORDING ACTUALS. */
+      case 'recordActuals': out = recordActualsWeb_(p);                             break;
       /* ONE STORE PER CALL. A full sweep is ~9s per store and /exec is killed at 60s — asking for
          all of them timed out with nothing written and no error to read, which is the worst of both.
          Called WITHOUT a store this returns the PLAN (every program × store pair) so a caller can
@@ -2048,6 +2051,85 @@ function snapshotPending_(opts) {
            refused_skipped: stuck, out_of_budget: ranOut };
 }
 
+/* ═════════════ RECORDING ACTUALS FROM THE CLOSE-OUT MEASUREMENT ═════════════
+ * Sky, 2026-09-15: "we should automate the pull from dutchie after a program has closed, we shouldn't
+ * rely on a human to remember that." The Mule Dank Tank program closed on Sep 13, was measured that
+ * night (168 units, 20 budtenders, $500), and sat with NO recorded actuals — so History, the vendor
+ * report and every total read zero until somebody opened it and pressed Pull live, then Save.
+ *
+ * The measurement IS the pull: snapshotProgram_ calls the same per-store sell-through route over
+ * the program's own window that "Pull live from Dutchie" does. So once a closed program has been
+ * measured, its actuals are written from that measurement, by the same arithmetic pullActuals uses.
+ *
+ * WHAT IT WILL NOT DO, and each one is a rule that has already cost money here:
+ *  - OVERWRITE recorded actuals. A closed program's actuals may already be on a vendor report;
+ *    changing them is a person's decision (Correct by hand).
+ *  - Record from a PARTIAL measurement. A store that did not answer is not a store that sold
+ *    nothing — the Buddies undercount came from exactly that.
+ *  - Record ZERO units. On a program that ran, zero almost always means a filter that matches
+ *    nothing; it is reported as needing a person instead.
+ *  - Touch a DRAFT whose window passed. "Drafted and never run" vs "ran and finished" is a human's
+ *    call (see the status roll).
+ * edited_by is not changed — a measurement is not an edit by a person. The actuals carry
+ * `source: 'measured'` and `recorded_at`, so it is always visible that no human typed them. */
+function actualsFromSnapshot_(prog) {
+  if (String(prog.status || '').trim().toLowerCase() !== 'closed') return { skip: 'not closed' };
+  var a = prog.actual_json;
+  if (a && (a.units_sold != null || a.bts_hit != null || a.roi != null)) return { skip: 'already recorded' };
+  var s = prog.progress_json;
+  if (!s || !s.stores || !s.stores.length) return { skip: 'not measured yet' };
+  if ((s.partial || []).length) return { person: 'measurement is missing ' + s.partial.join(', ') + ' — re-measure it' };
+  var units = Number(s.units) || 0;
+  if (units <= 0) return { person: 'measured zero units — check the product filter' };
+
+  var cost = Number((prog.cost_json || {}).per_unit) || 0;
+  var base = Number((prog.baseline_json || {}).units) || 0;
+  var rate = Number(s.rate) || payoutRateOf_(prog);
+  var invest = Math.round((Number(s.earned) || 0) * 100) / 100;     // flat: rate × hit; per unit: rate × units
+  var roi = Math.round(((units - base) * cost - invest) * 100) / 100;
+  return { actual: {
+    units_sold: units,
+    revenue: Math.round(units * cost * 100) / 100,
+    bts_hit: Number(s.earners) || 0,
+    spiff_amount: rate,
+    investment: invest,
+    roi: roi,
+    roi_pct: invest ? Math.round((roi / invest) * 10000) / 10000 : 0,
+    source: 'measured',
+    recorded_at: nowStamp_(),
+    measured_at: String(s.at || '')
+  } };
+}
+
+function recordMeasuredActuals_(opts) {
+  opts = opts || {};
+  var apply = !!opts.apply, only = String(opts.program || '').trim();
+  var out = { ok: true, dry: !apply, recorded: [], needs_person: [] };
+  var sh = dataSheet_();
+  if (sh.getLastRow() < 2) return out;
+  var vals = sh.getRange(2, 1, sh.getLastRow() - 1, PROGRAM_HEADERS.length).getValues();
+  var aCol = PROGRAM_HEADERS.indexOf('actual_json');
+  for (var i = 0; i < vals.length; i++) {
+    var prog = rowToProgram_(vals[i]);
+    if (only && String(prog.program_id) !== only) continue;
+    var r = actualsFromSnapshot_(prog);
+    if (r.person) { out.needs_person.push({ program_id: prog.program_id, why: r.person }); continue; }
+    if (!r.actual) continue;
+    // ONE cell, like the freeze: the rest of the row, and who last edited it, stay exactly as they were.
+    if (apply) sh.getRange(i + 2, aCol + 1).setValue(JSON.stringify(r.actual));
+    out.recorded.push({ program_id: prog.program_id, units_sold: r.actual.units_sold,
+                        bts_hit: r.actual.bts_hit, investment: r.actual.investment, roi: r.actual.roi });
+  }
+  if (apply && out.recorded.length) invalidatePrograms_();
+  return out;
+}
+
+function recordActualsWeb_(p) {
+  var want = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  if (!want || String(p.secret || '') !== want) return { ok: false, error: 'Unauthorized' };
+  return recordMeasuredActuals_({ apply: String(p.apply || '') === '1', program: p.program });
+}
+
 /* ===================== SCHEDULED STATUS ROLL =====================
  * A program's status was a thing somebody had to remember to change. Nothing moved a draft to
  * active on its start date and nothing closed a program when its window ran out, so the landing
@@ -2469,6 +2551,18 @@ function refreshSpiffProgressTrigger() {
       console.warn('[spiff] froze nothing this run with ' + snap.remaining + ' still eligible.');
     }
   } catch (e) { console.warn('[spiff] snapshot failed: ' + ((e && e.message) || e)); }
+  /* Straight after the freeze, so a program measured this hour is recorded this hour. No Dutchie
+     calls — it reads the measurement already on the row. */
+  try {
+    var rec = recordMeasuredActuals_({ apply: true });
+    if (rec.recorded.length) {
+      console.log('[spiff] recorded actuals for ' + rec.recorded.map(function (x) { return x.program_id; }).join(', '));
+    }
+    if (rec.needs_person.length) {
+      console.warn('[spiff] closed but NOT auto-recorded (needs a person): '
+                   + rec.needs_person.map(function (x) { return x.program_id + ' — ' + x.why; }).join('; '));
+    }
+  } catch (e) { console.warn('[spiff] recording actuals failed: ' + ((e && e.message) || e)); }
   refreshSpiffProgress_();
   /* PUBLISH LAST, after the cache has this hour's numbers in it. Wrapped so a Core outage costs
      the publish and not the refresh: the cache is this app's own source of truth and must land

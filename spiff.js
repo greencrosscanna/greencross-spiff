@@ -5432,11 +5432,10 @@
      program closed. Sky, 2026-09-15: the Mule Dank Tank program closed and History read 0 sold,
      0 hit, $0 — while its frozen measurement held 168 units and 20 budtenders earning $500.
 
-     Recorded actuals stay a human's job on purpose: "Pull live from Dutchie" fills the fields and
-     nothing is saved until someone presses save, because those figures go to the vendor. Mule was
-     simply the first program to close INSIDE the app — every older one arrived with actuals from
-     the seed — so it was the first to show the gap. The measured figures are therefore SHOWN, and
-     labeled as not yet recorded, rather than written onto the record behind anyone's back.
+     Since the same day the engine RECORDS them on its own (Sky: "we shouldn't rely on a human to
+     remember that") — recordMeasuredActuals_ runs hourly, straight after the freeze. So this
+     fallback covers the hour before that run, and the cases it deliberately leaves to a person: a
+     measurement missing a store, or one that measured zero.
 
      ROI is the Calculator's identity, the same one pullActuals uses:
        (units sold − baseline units) × cost per unit − what was paid. */
@@ -5558,7 +5557,8 @@
     else if (a.rate_changed) flag = '<span class="sp-flag is-warn">rate ' + money((p.payout_json || {}).amount)
       + ' &rarr; ' + money(a.spiff_amount) + '</span>';
     else if (f.measured) flag = '<span class="sp-flag is-warn" title="Measured from Dutchie when the program closed. '
-      + 'Open it, press Pull live from Dutchie, check the figures and save to record them.">measured'
+      + (f.partial ? 'A store did not answer, so these are NOT recorded automatically — open the program and re-measure it.'
+                   : 'They are recorded automatically within the hour.') + '">measured'
       + (f.partial ? ' (' + f.partial + ' store' + (f.partial === 1 ? '' : 's') + ' missing)' : '')
       + ' &mdash; not yet recorded</span>';
 

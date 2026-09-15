@@ -300,7 +300,7 @@ sd = seed([P('Freshy', '2025-02-01'), P('Drops', '2025-02-01')], ['Freshy'], tru
 ok('a brand Core already has is skipped, never patched', sd.made.length === 1 && sd.made[0].display_name === 'Drops');
 ok('  …and every write passes an explicit brand_id, so a re-run cannot mint a duplicate',
    sd.made.every(p => p.brand_id && p.create === 1));
-ok('seedBrands is secret-gated at the router', /'publishKioskTokens', 'seedBrands'\]/.test(gs));
+ok('seedBrands is secret-gated at the router', /var SECRET_ACTIONS = \[[^\]]*'seedBrands'/.test(gs));
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nall passed');
 process.exit(fail ? 1 : 0);

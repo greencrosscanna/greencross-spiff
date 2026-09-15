@@ -138,6 +138,16 @@ Google's consent HTML instead of JSON until the owner has authorized.
   window a run of whole periods"; it refuses the half-open cases, which is how a closed program's
   window would otherwise gain a fortnight. Pinned by `tests/window_and_goal_test.js`.
 
+- **A closed program's actuals record themselves** (Sky, 2026-09-15: "we shouldn't rely on a human to
+  remember that"). Hourly, straight after the freeze, `recordMeasuredActuals_` writes `actual_json`
+  from the close-out measurement (`progress_json`) with `pullActuals`' arithmetic, tagged
+  `source: 'measured'`. It **never overwrites** recorded actuals (they may be on a vendor report),
+  **never records a partial** measurement (a refused store is not a zero), **never records zero
+  units** (usually a dead filter — logged as needing a person), and leaves stale drafts alone.
+  `?action=recordActuals` runs it on demand (secret, dry by default). History shows the measurement,
+  labeled "not yet recorded", for the hour before it runs. Pinned by `tests/record_actuals_test.js`
+  and `tests/history_measured_test.js`.
+
 - **The per-budtender goal is pinnable per store**, and an empty pin is not a zero. The Calculator
   splits the typed target by last month's volume; typing over one store's number pins it and leaves
   the others tracking the target. Clearing the box means *back to the split* — running it through
