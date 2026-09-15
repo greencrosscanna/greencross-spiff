@@ -64,13 +64,118 @@ const perUnit = fromSnap(with_({ payout_json: { amount: 1, model: 'per_unit' },
   progress_json: Object.assign({}, MULE.progress_json, { rate: 1, earned: 168, earners: 31 }) }));
 ok('a per-unit program pays what the measurement earned (168 × $1)', perUnit.actual.investment === 168 && perUnit.actual.bts_hit === 31);
 
-const rec = grab('recordMeasuredActuals_');
-ok('it writes ONE cell, so who last edited the record is untouched', /getRange\(i \+ 2, aCol \+ 1\)\.setValue/.test(rec) && !/edited_by/.test(rec));
-ok('it only writes when told to', /if \(apply\) sh\.getRange/.test(rec));
+/* ── THE SWEEP THAT WRITES THEM ──────────────────────────────────────────────────────────────────
+   REWRITTEN 2026-09-15. The arithmetic above was always run; the sweep around it was read —
+   `/if \(apply\) sh\.getRange/` proves the guard is typed, not that a dry run leaves the sheet
+   alone, and "dry by default" is the only thing standing between a preview and a write onto rows
+   that may already be on a vendor report. */
+const G = require('./_gas');
+const PH = G.grabVar('PROGRAM_HEADERS');
+
+function progRow(o) {
+  const r = PH.map(() => '');
+  r[PH.indexOf('program_id')] = o.program_id;
+  r[PH.indexOf('program_name')] = o.program_id;
+  r[PH.indexOf('status')] = o.status || 'closed';
+  r[PH.indexOf('start_date')] = '2026-08-31';
+  r[PH.indexOf('end_date')] = '2026-09-13';
+  r[PH.indexOf('payout_json')] = JSON.stringify(o.payout_json || MULE.payout_json);
+  r[PH.indexOf('cost_json')] = JSON.stringify(o.cost_json || MULE.cost_json);
+  r[PH.indexOf('baseline_json')] = JSON.stringify(o.baseline_json || MULE.baseline_json);
+  r[PH.indexOf('actual_json')] = o.actual_json ? JSON.stringify(o.actual_json) : '';
+  r[PH.indexOf('progress_json')] = o.progress_json === null ? ''
+    : JSON.stringify(o.progress_json || MULE.progress_json);
+  r[PH.indexOf('edited_by')] = 'tawny';
+  r[PH.indexOf('edited_at')] = '2026-09-10 11:00:00';
+  return r;
+}
+function recorder(programs) {
+  const sheet = G.makeSheet(PH, programs.map(progRow));
+  const cache = G.makeCache();
+  const api = G.load({
+    real: ['recordMeasuredActuals_', 'actualsFromSnapshot_', 'rowToProgram_', 'payoutRateOf_',
+           'payoutModelOf_', 'textDate_', 'parseJson_', 'normalizePitch_', 'invalidatePrograms_'],
+    vars: ['PROGRAM_HEADERS', 'PROGRAMS_CACHE_KEY', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
+    stubs: { dataSheet_: () => sheet, nowStamp_: () => '2026-09-15 14:00:00' },
+    globals: { CacheService: cache.CacheService },
+  });
+  return { api, sheet, cache,
+           actualsOf: (id) => {
+             const row = sheet.rows.find(x => x[PH.indexOf('program_id')] === id);
+             const cell = row && row[PH.indexOf('actual_json')];
+             return cell ? JSON.parse(cell) : null;
+           },
+           editedBy: (id) => sheet.rows.find(x => x[PH.indexOf('program_id')] === id)[PH.indexOf('edited_by')] };
+}
+
+/* Four programs, one of each kind the sweep has to tell apart. */
+const FOUR = [
+  { program_id: 'mule' },                                                   // measured, unrecorded
+  { program_id: 'already', actual_json: { units_sold: 170, bts_hit: 21 } },  // hand-corrected
+  { program_id: 'partial', progress_json: Object.assign({}, MULE.progress_json, { partial: ['river-rd'] }) },
+  { program_id: 'zero', progress_json: Object.assign({}, MULE.progress_json, { units: 0, earners: 0, earned: 0 }) },
+];
+
+{
+  const s = recorder(FOUR);
+  const dry = s.api.recordMeasuredActuals_({});
+  ok('dry by default: it says what it WOULD record', dry.dry === true && dry.recorded.length === 1
+     && dry.recorded[0].program_id === 'mule');
+  ok('  …and writes nothing at all', s.actualsOf('mule') === null);
+  ok('  …while naming what needs a person, and why',
+     dry.needs_person.map(x => x.program_id).sort().join(',') === 'partial,zero'
+     && /river-rd/.test(dry.needs_person.filter(x => x.program_id === 'partial')[0].why));
+  ok('  …and leaving a hand-corrected record out of both lists',
+     !dry.recorded.some(x => x.program_id === 'already')
+     && !dry.needs_person.some(x => x.program_id === 'already'));
+}
+{
+  const s = recorder(FOUR);
+  const res = s.api.recordMeasuredActuals_({ apply: true });
+  ok('applied, the measured program gets its actuals', res.dry === false
+     && s.actualsOf('mule').units_sold === 168 && s.actualsOf('mule').investment === 500);
+  ok('  …tagged as measured, with when the measurement ran',
+     s.actualsOf('mule').source === 'measured' && s.actualsOf('mule').measured_at === '2026-09-14 00:56:09');
+  /* NEVER OVERWRITES: those figures may already be on a vendor report. */
+  ok('a record that already has actuals is left exactly as it was',
+     s.actualsOf('already').units_sold === 170 && s.actualsOf('already').bts_hit === 21);
+  ok('a partial measurement writes nothing — a refused store is not a zero',
+     s.actualsOf('partial') === null);
+  ok('a measurement of zero units writes nothing either', s.actualsOf('zero') === null);
+  /* ONE CELL. A measurement is not an edit by the person who last corrected the record. */
+  ok('who last edited the record is untouched', s.editedBy('mule') === 'tawny');
+  ok('the programs cache is busted, so the screens show it at once',
+     s.cache.removed.indexOf(G.grabVar('PROGRAMS_CACHE_KEY')) >= 0);
+}
+{
+  const s = recorder(FOUR);
+  s.api.recordMeasuredActuals_({ apply: true, program: 'mule' });
+  ok('one program can be recorded on its own', s.actualsOf('mule') !== null);
+  const s2 = recorder(FOUR);
+  const r2 = s2.api.recordMeasuredActuals_({ apply: true, program: 'nobody' });
+  ok('  …and an id that matches nothing records nothing, quietly',
+     r2.ok === true && r2.recorded.length === 0 && s2.actualsOf('mule') === null);
+}
+{
+  const s = recorder([{ program_id: 'mule' }]);
+  s.api.recordMeasuredActuals_({ apply: true });
+  const twice = s.api.recordMeasuredActuals_({ apply: true });
+  ok('running it twice records once — the second pass sees actuals and stands down',
+     twice.recorded.length === 0);
+}
+{
+  const s = recorder([{ program_id: 'stale-draft', status: 'draft' }]);
+  const r = s.api.recordMeasuredActuals_({ apply: true });
+  ok('a stale draft is left alone entirely, and not reported as needing a person',
+     r.recorded.length === 0 && r.needs_person.length === 0 && s.actualsOf('stale-draft') === null);
+}
+/* Where it runs from. Both are wiring rather than computation: the trigger's ORDER (freeze, then
+   record, then refresh) and the route's gate live in functions whose other halves reach Google. */
 ok('the hourly trigger records, straight after the freeze and before the refresh',
-   /snapshot failed[\s\S]*recordMeasuredActuals_\(\{ apply: true \}\)[\s\S]*refreshSpiffProgress_\(\)/.test(grab('refreshSpiffProgressTrigger')));
-ok('the on-demand route is secret-gated and dry by default',
-   /'recordActuals'\];/.test(gs) && /apply: String\(p\.apply \|\| ''\) === '1'/.test(grab('recordActualsWeb_')));
+   /snapshot failed[\s\S]*recordMeasuredActuals_\(\{ apply: true \}\)[\s\S]*refreshSpiffProgress_\(\)/
+     .test(G.grab('refreshSpiffProgressTrigger')));
+ok('the on-demand route is secret-gated and dry unless asked',
+   /'recordActuals'\];/.test(gs) && /apply: String\(p\.apply \|\| ''\) === '1'/.test(G.grab('recordActualsWeb_')));
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nrecord actuals: all passed');
 process.exit(fail ? 1 : 0);

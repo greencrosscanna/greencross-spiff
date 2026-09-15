@@ -95,10 +95,75 @@ console.log('\n5. a brand that matches MORE than one brand asks first — that i
   ok('  …as brand_ambiguous, naming both brands it would count',
      r.code === 'brand_ambiguous' && r.matches.join('|') === 'Mule|Mule Extracts');
   ok('  …while the full name matches one brand and passes', check({ brand: 'Mule Extracts' }, catalogOf(['Mule', 'Mule Extracts'])).ok === true);
-  ok('saveProgram_ returns it as its own code, with the brands it would count',
-     /code: 'brand_ambiguous'/.test(gs) && /matches: bm\.matches/.test(gs));
-  ok('  …and it is a question, not a wall: confirm_brand skips it like the no-match case',
-     grab('saveProgram_').indexOf("bm.code === 'brand_ambiguous'") > grab('saveProgram_').indexOf('!opts.confirmBrand'));
+}
+
+/* ── AND THE SAVE ACTUALLY REFUSES ───────────────────────────────────────────────────────────────
+   REWRITTEN 2026-09-15. The guard's own answer was always computed here; what saveProgram_ DOES
+   with it was read out of the source — `/code: 'brand_ambiguous'/` proves the string is typed
+   somewhere in the file, and the confirm-skip was `indexOf(a) > indexOf(b)` on line order. A guard
+   that computes the right refusal and then writes the row anyway is exactly the shape those checks
+   cannot see. */
+const G = require('./_gas');
+const PH = G.grabVar('PROGRAM_HEADERS');
+function saver(catalogBrands) {
+  const row = PH.map(() => '');
+  row[PH.indexOf('program_id')] = 'p1';
+  row[PH.indexOf('program_name')] = 'Mule August';
+  row[PH.indexOf('status')] = 'active';
+  row[PH.indexOf('start_date')] = '2026-08-31';
+  row[PH.indexOf('end_date')] = '2026-09-13';
+  row[PH.indexOf('match_json')] = JSON.stringify({ brand: 'Mule Extracts' });
+  const sheet = G.makeSheet(PH, [row]);
+  const api = G.load({
+    real: ['saveProgram_', 'brandMatchCheck_', 'measurementInvalidatedBy_', 'rowToProgram_',
+           'programToRow_', 'textDate_', 'parseJson_', 'normalizePitch_', 'periodStartFor_',
+           'stripDerivedActuals_', 'nowStamp_', 'slug_'],
+    vars: ['PROGRAM_HEADERS', 'MEASURED_BY', 'DERIVED_ACTUALS', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
+    stubs: {
+      dataSheet_: () => sheet,
+      /* The catalog as catalog_ serves it: brandMatchCheck_ reads `brands`, which is the list the
+         payout rule matches against. */
+      catalog_: () => ({ ok: true, brands: catalogBrands.slice(),
+                         products: catalogBrands.map(b => ({ b: b, n: b + ' thing' })) }),
+      dropProgressRows_: () => 0,
+      invalidatePrograms_: () => {},
+      payPeriodCfg_: () => ({ anchor: '2026-08-17', days: 14 }),
+    },
+  });
+  return { api, sheet,
+           brandOf: () => JSON.parse(sheet.rows[1][PH.indexOf('match_json')]).brand };
+}
+const EDIT = (brand) => ({ program_id: 'p1', program_name: 'Mule August', status: 'active',
+                           start_date: '2026-08-31', end_date: '2026-09-13',
+                           match_json: { brand: brand } });
+{
+  const s = saver(['Mule', 'Mule Extracts', 'Wyld']);
+  const r = s.api.saveProgram_(EDIT('Mule'));
+  ok('a save whose brand would count two brands is REFUSED', r.ok === false && r.code === 'brand_ambiguous');
+  ok('  …naming both, so the answer is a choice rather than a rejection',
+     r.matches.join('|') === 'Mule|Mule Extracts');
+  ok('  …and the row is not written', s.brandOf() === 'Mule Extracts');
+  /* It is a question, not a wall. */
+  const ok2 = s.api.saveProgram_(EDIT('Mule'), { confirmBrand: true });
+  ok('confirming saves it', ok2.ok === true && s.brandOf() === 'Mule');
+}
+{
+  const s = saver(['Wyld', 'Grön']);
+  const r = s.api.saveProgram_(EDIT('Mule Extracts'));
+  ok('a brand no product carries is refused — the program would measure nothing',
+     r.ok === false && r.code === 'brand_no_match');
+  ok('  …and nothing is written', s.brandOf() === 'Mule Extracts');
+  ok('confirming saves that too, for a brand we do not stock yet',
+     s.api.saveProgram_(EDIT('Mule Extracts'), { confirmBrand: true }).ok === true);
+}
+{
+  const s = saver(['Mule Extracts', 'Wyld']);
+  ok('an unambiguous brand saves with no question at all',
+     s.api.saveProgram_(EDIT('Mule Extracts')).ok === true);
+  /* An IMPORT is a replay of records that already exist; re-litigating their brands would block a
+     restore over history nobody is editing. */
+  const stale = saver(['Wyld']);
+  ok('an import is not re-litigated', stale.api.saveProgram_(EDIT('Mule Extracts'), { fromImport: true }).ok === true);
 }
 
 console.log('\n6. the PICKER now uses the payout rule too, so the two cannot disagree');

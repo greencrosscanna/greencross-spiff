@@ -180,20 +180,67 @@ ok('  …and a failure there does not take the sweep down with it',
  * measure zero however much sold. The overnight sweep was about to write that across History as
  * empty grids that look authoritative.
  */
-const store0 = grab('snapshotStore_');
-ok('a measured zero is refused when the record says otherwise',
-   /snap\.units === 0 && recorded > 0/.test(store0));
-ok('  …and NOT written', store0.indexOf('refused:') < store0.indexOf('writeSnapshot_'));
-ok('  …naming the recorded figure it contradicts', /recorded: recorded/.test(store0));
-ok('  …and pointing at the filter, which is the actual fault',
-   /check match_json/.test(store0));
-/* A program with NO recorded actuals is left alone: there, zero is unproven either way and there
-   is nothing for it to contradict. */
-ok('a program with no recorded actuals is not blocked',
-   /Number\(\(prog\.actual_json \|\| \{\}\)\.units_sold\) \|\| 0/.test(store0));
-const whole = grab('snapshotProgram_');
-ok('the whole-program path refuses identically, so the trigger cannot write what the web path will not',
-   /out\.units === 0 && rec > 0/.test(whole));
+/* REWRITTEN 2026-09-15: both refusals, and the one-store merge, are RUN. They used to be regexes
+   over the two functions — `/snap\.units === 0 && recorded > 0/` proves the condition is typed, not
+   that the write is skipped, and `store0.indexOf('refused:') < store0.indexOf('writeSnapshot_')`
+   is a fact about line order. What these guard is an empty grid written over a program that sold
+   649 units, so they are worth running. */
+const G = require('./_gas');
+
+/* sellthrough_ is the seam: it is one Dutchie round trip per store, scripted here per store id so
+   a run can contain a store that answers, one that refuses, and a filter that matches nothing. */
+function measurer(answers, opts) {
+  const o = opts || {};
+  const written = [];
+  return {
+    written,
+    api: G.load({
+      real: ['snapshotStore_', 'snapshotProgram_', 'progEarned_', 'payoutRateOf_', 'payoutModelOf_',
+             'textDate_', 'slug_'],
+      stubs: {
+        sellthrough_: (q) => {
+          const a = answers[q.store];
+          if (!a) return { ok: false, error: 'no answer scripted for ' + q.store };
+          if (a.throws) throw new Error(a.throws);
+          return a;
+        },
+        writeSnapshot_: (id, snap) => { written.push({ id, snap }); },
+        nowStamp_: () => '2026-09-15 14:00:00',
+      },
+    }),
+  };
+}
+const PROG = { program_id: 'hellavated', start_date: '2026-09-01', end_date: '2026-09-14',
+               stores_json: ['bend', 'center'], payout_json: { model: 'flat', amount: 25 },
+               actual_json: { units_sold: 649 } };
+const SOLD = { ok: true, units: 40, target: 60,
+               rows: [{ name: 'BT ONE', employee_id: 'e1', units: 25, hit: true },
+                      { name: 'BT TWO', employee_id: 'e2', units: 15, hit: false }] };
+const NOTHING = { ok: true, units: 0, target: 60, rows: [] };
+
+{
+  /* Hellavated, 2026-09-02: 0 measured against 649 recorded. A broken filter, not a quiet
+     fortnight — and the overnight sweep was about to write it across History. */
+  const m = measurer({ bend: NOTHING, center: NOTHING });
+  const r = m.api.snapshotStore_(PROG, 'bend');
+  ok('a measured zero is refused when the record says otherwise',
+     r.ok === false && r.refused === 'zero_vs_record' && r.recorded === 649);
+  ok('  …and NOT written', m.written.length === 0);
+  ok('  …pointing at the filter, which is the actual fault', /check match_json/.test(r.error));
+  const whole = measurer({ bend: NOTHING, center: NOTHING });
+  const w = whole.api.snapshotProgram_(PROG);
+  ok('the whole-program path refuses identically, so the trigger cannot write what the web path will not',
+     w.ok === false && w.refused === 'zero_vs_record' && whole.written.length === 0);
+}
+{
+  /* A program with NO recorded actuals is left alone: zero is unproven either way, and there is
+     nothing for it to contradict. */
+  const unrecorded = Object.assign({}, PROG, { actual_json: null });
+  const m = measurer({ bend: NOTHING, center: NOTHING });
+  const r = m.api.snapshotStore_(unrecorded, 'bend');
+  ok('a program with no recorded actuals is not blocked', r.ok === true && m.written.length === 1);
+  ok('  …and its zero is written as the measurement it is', m.written[0].snap.units === 0);
+}
 
 /* ══════════════ ONE STORE PER CALL ══════════════
  * The first cut of the backfill route measured a whole program per request — six stores at ~9s —
@@ -201,18 +248,72 @@ ok('the whole-program path refuses identically, so the trigger cannot write what
  * guessed. Every other expensive path in this app already loops stores for exactly this reason;
  * this one now does too.
  */
-const store = grab('snapshotStore_');
-ok('a store can be measured on its own', /function snapshotStore_\(prog, slug\)/.test(gs));
-ok('  …and merges into what is already there rather than replacing it',
-   /snap\.stores = \(snap\.stores \|\| \[\]\)\.filter/.test(store));
-ok('  …keyed by store, so re-running one corrects it without disturbing the other five',
-   /x\.store_id !== slug/.test(store));
-ok('totals are recomputed from the stores present, never accumulated blindly',
-   /snap\.units   = snap\.stores\.reduce/.test(store));
-ok('`partial` is derived from what is MISSING, so it clears itself as stores land',
-   /snap\.partial = \(prog\.stores_json \|\| \[\]\)/.test(store));
-ok('the window and rate are refreshed each time, so a half-built snapshot cannot describe itself twice',
-   /snap\.from = from; snap\.to = to;/.test(store));
+{
+  const m = measurer({ bend: SOLD, center: { ok: true, units: 10, target: 60,
+    rows: [{ name: 'BT THREE', employee_id: 'e3', units: 10, hit: false }] } });
+  const first = m.api.snapshotStore_(PROG, 'bend');
+  ok('a store can be measured on its own', first.ok === true && first.stores_done === 1);
+  ok('  …and what is still missing is named, so a half-built snapshot says so',
+     first.still_missing.join(',') === 'center' && m.written[0].snap.partial.join(',') === 'center');
+  ok('  …with the totals from the one store that answered',
+     first.units === 40 && first.earned === 25 && first.earners === 1);
+
+  /* The second store MERGES into what is there rather than replacing it. */
+  const carried = Object.assign({}, PROG, { progress_json: m.written[0].snap });
+  const second = m.api.snapshotStore_(carried, 'center');
+  ok('a second store merges into what is already there', second.stores_done === 2);
+  ok('  …and `partial` clears itself as the last store lands',
+     second.still_missing.length === 0 && m.written[1].snap.partial.length === 0);
+  ok('totals are recomputed from the stores present, never accumulated blindly',
+     m.written[1].snap.units === 50 && m.written[1].snap.earned === 25);
+
+  /* Re-running ONE store corrects it without disturbing the other five. */
+  const corrected = Object.assign({}, PROG, { progress_json: m.written[1].snap });
+  m.api.snapshotStore_(corrected, 'bend');
+  const last = m.written[2].snap;
+  ok('re-running one store replaces only that store',
+     last.stores.filter(x => x.store_id === 'bend').length === 1 && last.stores.length === 2);
+  ok('  …and the totals follow, rather than doubling', last.units === 50);
+}
+{
+  /* A store that would not answer is a partial measurement, never a zero. */
+  const m = measurer({ bend: SOLD, center: { throws: 'Dutchie timed out' } });
+  const r = m.api.snapshotProgram_(PROG);
+  ok('a store that would not answer is reported as partial, not counted as zero',
+     r.ok === true && r.snapshot.partial.join(',') === 'center' && r.snapshot.units === 40);
+  const none = measurer({ bend: { throws: 'x' }, center: { throws: 'x' } });
+  const nr = none.api.snapshotProgram_(PROG);
+  ok('  …and if NO store answered, nothing is written at all',
+     nr.ok === false && /no store answered/.test(nr.error) && none.written.length === 0);
+}
+{
+  /* Who EARNED is not who hit: a per-unit program pays from the first unit and sets no individual
+     target, so `hit` is false for everyone however much was sold. */
+  const perUnit = Object.assign({}, PROG, { payout_json: { model: 'per_unit', amount: 0.75 },
+                                            actual_json: null });
+  const m = measurer({ bend: SOLD, center: NOTHING });
+  const r = m.api.snapshotProgram_(perUnit);
+  ok('a per-unit program counts everyone who sold as an earner', r.snapshot.earners === 2);
+  ok('  …and pays per unit, not per person', r.snapshot.earned === 30);
+  const flat = measurer({ bend: SOLD, center: NOTHING });
+  ok('a flat program counts only those who hit',
+     flat.api.snapshotProgram_(Object.assign({}, PROG, { actual_json: null })).snapshot.earners === 1);
+}
+{
+  const m = measurer({ bend: SOLD });
+  ok('a program with no window measures nothing',
+     m.api.snapshotProgram_(Object.assign({}, PROG, { start_date: '' })).ok === false
+     && m.api.snapshotStore_(Object.assign({}, PROG, { end_date: '' }), 'bend').ok === false);
+  ok('  …and one with no stores either',
+     m.api.snapshotProgram_(Object.assign({}, PROG, { stores_json: [] })).ok === false);
+  ok('the window and rate are refreshed with every store, so a half-built snapshot cannot describe '
+     + 'itself with two different windows',
+     (() => { const m2 = measurer({ bend: SOLD });
+              const moved = Object.assign({}, PROG, { actual_json: null, end_date: '2026-09-20',
+                progress_json: { from: '2026-09-01', to: '2026-09-14', stores: [], partial: [] } });
+              m2.api.snapshotStore_(moved, 'bend');
+              return m2.written[0].snap.to === '2026-09-20'; })());
+}
 
 const plan = grab('snapshotPlan_');
 ok('a plan lists every (program, store) pair still to do', /plan\.push\(\{ program: prog\.program_id, store: slug/.test(plan));

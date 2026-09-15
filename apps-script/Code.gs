@@ -495,7 +495,12 @@ function doGet(e) {
       default:            out = { ok: false, error: 'Unknown action: ' + (p.action || '(none)') };
     }
   } catch (err) {
-    out = { ok: false, error: String(err && err.message || err) };
+    /* SCRUBBED, like every other place an exception becomes a reply (2026-09-15). A handler that
+       THROWS a UrlFetchApp failure rather than catching it lands here, and Google's message is
+       "Address unavailable: <the whole url>" — deploy secret and all, printed into an error banner
+       on whatever screen made the call. Every named leak path scrubs at its own catch; this was the
+       one that did not, and it is the catch that sees anything nobody else caught. */
+    out = { ok: false, error: scrubSecrets_(err && err.message || err) };
   }
   return reply_(out, p.callback);
 }
@@ -528,7 +533,7 @@ function doPost(e) {
       default:              out = { ok: false, error: 'Unknown action: ' + (body.action || '(none)') };
     }
   } catch (err) {
-    out = { ok: false, error: String(err && err.message || err) };
+    out = { ok: false, error: scrubSecrets_(err && err.message || err) };   // see doGet's catch
   }
   return reply_(out, null);
 }

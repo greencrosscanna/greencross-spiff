@@ -85,20 +85,136 @@ ok('an identical match written in a different key order is NOT a change',
    inval(BEFORE, edit({ match_json: { products: [], filter_text: '', category: '', brand: 'Green Cross' } })).length === 1
    || inval({ match_json: { a: 1, b: 2 } }, { match_json: { a: 1, b: 2 } }).length === 0);
 
-/* ── the save actually acts on it ── */
-const save = grab('saveProgram_');
-ok('the comparison happens BEFORE the row is overwritten',
-   save.indexOf('measurementInvalidatedBy_') < save.indexOf('setValues([programToRow_'));
-ok('the frozen snapshot is cleared', /if \(moved\.length\) p\.progress_json = null/.test(save));
-ok('the cached rows are dropped', /dropProgressRows_\(p\.program_id\)/.test(save));
-ok('  …and a stuck cache never fails the save itself',
-   /catch \(e\) \{ \/\* the row is already saved/.test(save));
-ok('the reply says what was invalidated, so a caller is not left guessing',
-   /invalidated: moved\.length \? moved : undefined/.test(save));
+/* ── THE SAVE ACTUALLY ACTS ON IT ────────────────────────────────────────────────────────────────
+   REWRITTEN 2026-09-15. measurementInvalidatedBy_ was always run; what the SAVE does with its
+   answer was read out of the source — `save.indexOf('measurementInvalidatedBy_') < save.indexOf(
+   'setValues([programToRow_')` is a statement about line order, and a save that compares first and
+   then drops nothing satisfies it perfectly. The real save now runs against an in-memory sheet with
+   real cached rows, and the assertions count the rows that are gone. */
+const G = require('./_gas');
+const PH = G.grabVar('PROGRAM_HEADERS');
+const PROG_H = G.grabVar('PROGRESS_HEADERS');
 
-const drop = grab('dropProgressRows_');
-ok('rows are deleted bottom-up, or the indexes shift under the loop',
-   /for \(var i = vals\.length - 1; i >= 1; i--\)/.test(drop));
+function row(prog) {
+  const r = PH.map(() => '');
+  r[PH.indexOf('program_id')] = prog.program_id;
+  r[PH.indexOf('program_name')] = prog.program_name || 'Portland Heights';
+  r[PH.indexOf('status')] = 'active';
+  r[PH.indexOf('start_date')] = prog.start_date;
+  r[PH.indexOf('end_date')] = prog.end_date;
+  r[PH.indexOf('stores_json')] = JSON.stringify(prog.stores_json);
+  r[PH.indexOf('match_json')] = JSON.stringify(prog.match_json);
+  r[PH.indexOf('payout_json')] = JSON.stringify(prog.payout_json || { model: 'per_unit', amount: 0.75 });
+  r[PH.indexOf('progress_json')] = JSON.stringify({ at: '2026-09-02T18:00:00Z', units: 242,
+                                                    stores: [{ store_id: 'river-rd', units: 242, rows: [] }] });
+  return r;
+}
+function cached(id, employee) {
+  const r = PROG_H.map(() => '');
+  r[0] = id; r[PROG_H.indexOf('employee_id')] = employee;
+  r[PROG_H.indexOf('units')] = 20; r[PROG_H.indexOf('earned')] = 15;
+  return r;
+}
+function saver(prog) {
+  const programs = G.makeSheet(PH, [row(prog), row({ program_id: 'other', start_date: '2026-08-01',
+    end_date: '2026-08-14', stores_json: ['bend'], match_json: { brand: 'Mule' } })]);
+  const progress = G.makeSheet(PROG_H, [cached(prog.program_id, 'e1'), cached(prog.program_id, 'e2'),
+                                        cached(prog.program_id, 'e3'), cached('other', 'e9')]);
+  const cache = G.makeCache();
+  const api = G.load({
+    real: ['saveProgram_', 'measurementInvalidatedBy_', 'dropProgressRows_', 'rowToProgram_',
+           'programToRow_', 'invalidatePrograms_', 'textDate_', 'parseJson_', 'normalizePitch_',
+           'periodStartFor_', 'stripDerivedActuals_', 'nowStamp_'],
+    vars: ['PROGRAM_HEADERS', 'PROGRESS_HEADERS', 'MEASURED_BY', 'DERIVED_ACTUALS',
+           'PROGRAMS_CACHE_KEY', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
+    stubs: {
+      dataSheet_: () => programs,
+      progressSheet_: () => progress,
+      /* The brand check is a different file's subject (brand_match_guard_test.js); here it must
+         simply not stand in the way of the save being exercised. */
+      brandMatchCheck_: () => ({ checked: false, ok: true }),
+      payPeriodCfg_: () => ({ anchor: '2026-08-17', days: 14 }),
+    },
+    globals: { CacheService: cache.CacheService },
+  });
+  return { api, programs, progress, cache,
+           snapshotOf: (id) => {
+             const r2 = programs.rows.find(x => x[PH.indexOf('program_id')] === id);
+             const cell = r2 && r2[PH.indexOf('progress_json')];
+             return cell ? JSON.parse(cell) : null;
+           },
+           cachedFor: (id) => progress.rows.filter(x => x[0] === id).length };
+}
+
+/* Portland Heights, 2026-09-02: its match was corrected from the Green Cross house brand to "all
+   Portland Heights products" and three surfaces kept serving 3,514 units measured against the old
+   filter. This is that save. */
+/* The SNAPSHOT travels on the object being saved, because saveProgram_ writes the whole row —
+   every real caller reads the record, edits it and writes it back (see the read-merge-write rule).
+   A fixture that left it out would wipe the snapshot on every save and prove nothing about the
+   invalidation rule. */
+const SNAP = { at: '2026-09-02T18:00:00Z', units: 242,
+               stores: [{ store_id: 'river-rd', units: 242, rows: [] }] };
+const LIVE = { program_id: 'portland-heights', start_date: '2026-08-17', end_date: '2026-08-30',
+               stores_json: ['river-rd'], match_json: { brand: 'Green Cross' }, progress_json: SNAP };
+{
+  const s = saver(LIVE);
+  ok('(control) the program starts with a snapshot and three cached rows',
+     !!s.snapshotOf('portland-heights') && s.cachedFor('portland-heights') === 3);
+  const res = s.api.saveProgram_(Object.assign({}, LIVE, { match_json: { brand: 'Portland Heights' } }));
+  ok('a save that moves the match reports what it invalidated',
+     res.ok === true && res.invalidated.join(',') === 'match_json');
+  ok('  …clears the frozen snapshot from the row', s.snapshotOf('portland-heights') === null);
+  ok('  …drops every cached row for that program', s.cachedFor('portland-heights') === 0
+     && res.dropped_rows === 3);
+  ok('  …and leaves another program\'s rows alone', s.cachedFor('other') === 1);
+  ok('  …while the edit itself is saved',
+     JSON.parse(s.programs.rows.find(x => x[PH.indexOf('program_id')] === 'portland-heights')
+       [PH.indexOf('match_json')]).brand === 'Portland Heights');
+  ok('  …and the programs cache is busted, so no screen serves the old row',
+     s.cache.removed.indexOf(G.grabVar('PROGRAMS_CACHE_KEY')) >= 0);
+}
+{
+  /* An empty cache is honest — every consumer treats "no rows" as "no data yet". A STALE one is a
+     confident wrong answer, which is what this whole rule is about. */
+  const s = saver(LIVE);
+  s.api.saveProgram_(Object.assign({}, LIVE, { end_date: '2026-09-13' }));
+  ok('moving the window clears the measurements too', s.cachedFor('portland-heights') === 0);
+}
+{
+  const s = saver(LIVE);
+  const res = s.api.saveProgram_(Object.assign({}, LIVE,
+    { payout_json: { model: 'per_unit', amount: 1.5 } }));
+  ok('changing only the RATE keeps the measurements', res.invalidated === undefined
+     && s.cachedFor('portland-heights') === 3 && !!s.snapshotOf('portland-heights'));
+  ok('  …because earnings are applied at read time, not baked into the rows',
+     res.dropped_rows === undefined);
+}
+{
+  const s = saver(LIVE);
+  const res = s.api.saveProgram_(Object.assign({}, LIVE, { program_name: 'Portland Heights Spiff' }));
+  ok('renaming a program keeps its measurements',
+     res.invalidated === undefined && s.cachedFor('portland-heights') === 3);
+}
+{
+  /* A stuck cache must not fail a save that has already written the row. */
+  const s = saver(LIVE);
+  s.progress.deleteRow = () => { throw new Error('sheet is locked'); };
+  const res = s.api.saveProgram_(Object.assign({}, LIVE, { match_json: { brand: 'Something Else' } }));
+  ok('a cache that will not answer does not fail the save itself', res.ok === true);
+  ok('  …and still reports what it invalidated', res.invalidated.join(',') === 'match_json');
+  ok('  …and the snapshot is still cleared, since it lives on the row',
+     s.snapshotOf('portland-heights') === null);
+}
+
+/* Bottom-up deletion is why the third row above does not survive: top-down would shift the rows
+   under the loop. Proven by the count, not by the loop's shape. */
+{
+  const s = saver(LIVE);
+  s.api.saveProgram_(Object.assign({}, LIVE, { stores_json: ['river-rd', 'bend'] }));
+  ok('every row goes, not every other one — the shifting bug leaves stragglers',
+     s.cachedFor('portland-heights') === 0);
+}
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nstale measurement: all passed');
 process.exit(fail ? 1 : 0);

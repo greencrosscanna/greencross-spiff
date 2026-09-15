@@ -17,23 +17,28 @@
  * second is the one that bites: the message can carry a URL-encoded form, and an error raised
  * BEFORE the secret was read has nothing to compare against — so a value-based scrub would pass a
  * live secret straight through on exactly the paths most likely to fail early.
+ *
+ * REWRITTEN 2026-09-15. The scrubber itself was always executed; the five callers around it were
+ * not. Each was a regex over its own source — `/scrubSecrets_/.test(body)`, and for three of them
+ * an `||` against `/gxCoreFetchJson_\(/` that made either half sufficient, so a function could
+ * satisfy it by mentioning the helper in a comment. Those are now RUN: a fake UrlFetchApp throws
+ * the real "Address unavailable: <whole url>" message at each caller in turn and the assertion
+ * reads the answer the app would have rendered. What the old shape could not catch is a scrub
+ * applied to the wrong string — `scrubSecrets_(r.attempts)` returned into a raw `r.error` passes
+ * every regex here and leaks on every bounce. It also could not see a path where the secret is
+ * interpolated into the message a SECOND time after the scrub, which no source check reaches at
+ * all. What stays source-shaped is one global negative — that no fetch-error path anywhere still
+ * interpolates a raw exception — because "nowhere in the file" is not a thing execution can visit.
  */
 'use strict';
 const fs = require('fs');
+const G = require('./_gas');
 
 let fail = 0;
 const ok = (l, c) => c ? console.log('  ✓ ' + l) : (fail++, console.log('  ✗ ' + l));
 
-const gs = fs.readFileSync(__dirname + '/../apps-script/Code.gs', 'utf8');
-function grab(name) {
-  const i = gs.indexOf('function ' + name + '(');
-  if (i < 0) throw new Error('missing ' + name);
-  let d = 0;
-  for (let k = gs.indexOf('{', i); k < gs.length; k++) {
-    if (gs[k] === '{') d++; else if (gs[k] === '}') { d--; if (!d) return gs.slice(i, k + 1); }
-  }
-  throw new Error('unbalanced ' + name);
-}
+const gs = G.GS;
+const grab = (n) => G.grab(n);
 const scrub = new Function(grab('scrubSecrets_') + '; return scrubSecrets_;')();
 
 /* A STAND-IN, never a real secret. The scrubber matches by PATTERN, not by value, so what this
@@ -41,6 +46,9 @@ const scrub = new Function(grab('scrubSecrets_') + '; return scrubSecrets_;')();
    LIVE one in here, which committed it to a public repo and forced a suite-wide rotation on
    2026-09-06. The leak this test exists to prevent is the leak this test caused. Keep it fake. */
 const FAKE_SECRET = 'NOT-A-REAL-SECRET-0000000000000';
+
+/* ── 1. THE SCRUBBER ITSELF ──────────────────────────────────────────────────────────────────── */
+console.log('\n1. the scrubber');
 
 /* The message that actually leaked, shape for shape. */
 const LEAKED = 'GX Core unreachable: Address unavailable: '
@@ -79,44 +87,196 @@ ok('a message with no secret is returned unchanged',
      === 'GX Core returned HTML (auth or redirect issue)');
 ok('a non-string is coerced, not crashed', scrub(new Error('secret=xyz').message).indexOf('xyz') < 0);
 
-/* ── EVERY PATH THAT CAN CARRY A URL GOES THROUGH IT ──
-   The one that leaked was gxSalesByEmployee_'s catch. Missing one of the others just moves the
-   leak to a rarer failure, which is worse — it would surface once, months from now. */
-/* Updated 2026-09-12 when the transport retry landed. gxSalesByEmployee_ no longer holds its own
-   catch — it delegates to gxCoreFetchJson_, which retries the bounce. So the check follows the
-   scrubbing rather than the function: each path either scrubs itself or hands off to the helper,
-   AND the helper is separately proved to scrub. Naming the helper without that second assertion
-   would be the weaker test, since "it calls something" is not "the something redacts". */
-['gxSalesByEmployee_', 'gxAuth_', 'gxPublishKioskToken_'].forEach(function (fn) {
-  const body = grab(fn);
-  ok(fn + ' scrubs its own error path, or hands it to the helper that does',
-     /scrubSecrets_/.test(body) || /gxCoreFetchJson_\(/.test(body));
-});
-ok('gxCoreFetchJson_ scrubs both the thrown message and the give-up line', (function () {
-  const h = grab('gxCoreFetchJson_');
-  return /catch \(e\) \{\s*last = scrubSecrets_/.test(h) && /scrubSecrets_\(last\)/.test(h);
-})());
-/* Actually run it: a regex proves the call is written, not that a secret cannot survive the path. */
-ok('  …so three thrown fetches carrying the whole URL return no secret', (function () {
-  const LEAK = 'Address unavailable: https://x/exec?action=sales_by_employee&secret=' + FAKE_SECRET;
-  const f = new Function('UrlFetchApp', 'Utilities', [
-    grab('scrubSecrets_'),
-    (gs.match(/^var GXCORE_FETCH_[A-Z_]+\s*=.*$/gm) || []).join('\n'),
-    grab('gxCoreFetchJson_'), 'return gxCoreFetchJson_;'].join('\n')
-  )({ fetch() { throw new Error(LEAK); } }, { sleep() {} });
-  const r = f('https://x/exec?secret=' + FAKE_SECRET, 'sell-through');
-  return r.ok === false && JSON.stringify(r).indexOf(FAKE_SECRET) < 0;
-})());
-/* The inventory pull raises rather than returning, and its raw exception used to escape the loop
-   entirely. It is caught and scrubbed now; this is the fixture that would have caught the old one. */
-ok('the inventory pull no longer lets a raw fetch exception out of its loop',
-   /catch \(e\) \{ lastErr = scrubSecrets_/.test(grab('dutchieInventoryViaGXCore_')));
+/* ── 2. EVERY PATH THAT CAN CARRY A URL, RUN ─────────────────────────────────────────────────────
+ * The one that leaked was gxSalesByEmployee_'s. Missing one of the others just moves the leak to a
+ * rarer failure, which is worse — it would surface once, months from now.
+ *
+ * So each caller is assembled from its REAL source and handed a UrlFetchApp that throws the exact
+ * message Google produces, whole URL included. Nothing about the assertion depends on which line
+ * does the scrubbing, or on whether the function scrubs at all versus delegating to the helper:
+ * the question asked is the only one that matters, which is whether the secret can be read off
+ * what the caller returns. `deep` walks the entire answer, not just `.error` — a secret parked in
+ * an `attempts` or `url` field renders just as well in a banner.
+ */
+console.log('\n2. the callers, each run against a throwing fetch');
+
+const THROWN = (url) => new Error('Address unavailable: ' + url);
+
+/* Assemble a slice of the engine's GX Core transport with the fetch under our control. `fetches`
+   records every URL attempted, so "it retried" is a count rather than a reading of the loop. */
+function transport(opts) {
+  const o = opts || {};
+  const fetches = [];
+  const props = G.makeProps({ GX_DEPLOY_SECRET: o.secret === undefined ? FAKE_SECRET : o.secret });
+  const cache = G.makeCache();
+  const UrlFetchApp = {
+    fetch(url) {
+      fetches.push(url);
+      if (o.body !== undefined) {
+        return { getResponseCode: () => (o.code || 200), getContentText: () => o.body };
+      }
+      throw THROWN(url);
+    },
+  };
+  const api = G.load({
+    real: ['scrubSecrets_', 'gxCoreFetchJson_', 'gxSalesByEmployee_', 'gxAuth_',
+           'gxPublishKioskToken_', 'dutchieInventoryViaGXCore_', 'authCacheKey_',
+           'authCacheTtl_', 'slug_'],
+    vars: ['GXCORE_URL', 'GX_SECRET_PROP', 'APP', 'GXCORE_FETCH_ATTEMPTS',
+           'GXCORE_FETCH_BACKOFF_MS', 'GXCORE_FETCH_BUDGET_MS', 'AUTH_CACHE_PREFIX',
+           'AUTH_CACHE_TTL_S'],
+    /* _authMemo is module state in the engine; a fresh empty one per run keeps one case from
+       answering the next out of a memo it never wrote. */
+    varValues: { _authMemo: {} },
+    globals: { UrlFetchApp, PropertiesService: props.PropertiesService,
+               CacheService: cache.CacheService },
+  });
+  return { api, fetches };
+}
+
+/* Everything the caller returns, flattened — a secret is a leak wherever it is parked. */
+const deep = (v) => JSON.stringify(v === undefined ? null : v);
+const clean = (v) => deep(v).indexOf(FAKE_SECRET) < 0;
+
+/* The helper. The give-up line is assembled from `last`, which is set inside the catch, so it is a
+   second, separate chance to leak — it gets its own assertion. */
+{
+  const t = transport();
+  const r = t.api.gxCoreFetchJson_('https://x/exec?action=validate&secret=' + FAKE_SECRET, 'sell-through');
+  ok('gxCoreFetchJson_ gives up rather than answering', r.ok === false);
+  ok('  …after three attempts, so the retry really ran', t.fetches.length === 3 && r.attempts === 3);
+  ok('  …and no secret survives anywhere in what it returns', clean(r));
+  ok('  …with the transport failure still named, so the error is worth reading',
+     /transport bounce/.test(r.error) && /Address unavailable/.test(r.error));
+}
+
+/* The money route. It scrubs r.error a SECOND time on the way out; the point of running it is that
+   whether it does or not, the answer carries nothing. */
+{
+  const t = transport();
+  const r = t.api.gxSalesByEmployee_(FAKE_SECRET, '2026-08-05', '2026-09-01', 'commercial',
+                                     { brand: 'Portland Heights' });
+  ok('gxSalesByEmployee_ refuses rather than reporting zero units', r.ok === false);
+  ok('  …and the secret it was CALLED with is not in its answer', clean(r));
+  ok('  …though the store it failed on still is', /commercial/.test(r.error));
+}
+
+/* The session check. Its own message wraps the helper's, so a scrub applied to the wrapper and not
+   the inner string would still read fine in the source.
+   THE TOKEN IS THE CREDENTIAL HERE — this URL carries no deploy secret, it carries a live session
+   token, which opens every route a signed-in person can reach. So the fixture's token IS the value
+   being hunted for: an assertion that looked for a deploy secret in a URL that never holds one
+   could not fail, which is no better than not writing it. */
+{
+  const t = transport();
+  const r = t.api.gxAuth_(FAKE_SECRET + ':' + (Date.now() + 3600000));
+  ok('gxAuth_ reports it could not reach Core, not that you are signed out', r.ok === false
+     && /Could not reach GX Core/.test(r.error));
+  ok('  …with the session token really in the URL it attempted',
+     t.fetches.length === 3 && t.fetches[0].indexOf(FAKE_SECRET) >= 0);
+  ok('  …and no trace of it in what it hands back', clean(r));
+}
+
+/* The kiosk write. Single attempt on purpose (it is a write), and its error is rendered straight
+   into the kiosk-links panel, so this one is read by a human every time it fires. */
+{
+  const t = transport();
+  const r = t.api.gxPublishKioskToken_('river-rd', 'deadbeef');
+  ok('gxPublishKioskToken_ reports the store it failed on', r.ok === false && r.store_id === 'river-rd');
+  ok('  …and does not print the deploy secret into the kiosk-links panel', clean(r));
+  ok('  …having really put the secret in the URL it attempted — so there WAS one to leak',
+     t.fetches.length === 1 && t.fetches[0].indexOf(FAKE_SECRET) >= 0);
+}
+
+/* The inventory pull RAISES rather than returning, and its raw exception used to escape the loop
+   entirely: the fetch sat outside the try, so a thrown bounce burned attempts two through five
+   without making them. Both halves are checked here — the message, and that five attempts happen. */
+{
+  const t = transport();
+  let thrown = null;
+  try { t.api.dutchieInventoryViaGXCore_('river-rd'); } catch (e) { thrown = e; }
+  ok('dutchieInventoryViaGXCore_ raises when Core never answers', !!thrown);
+  ok('  …and no secret rides out on the exception it raises',
+     !!thrown && String(thrown.message).indexOf(FAKE_SECRET) < 0);
+  ok('  …the fetch is inside the try, so all five attempts are actually made',
+     t.fetches.length === 5);
+  ok('  …and it did carry the secret, so the redaction is doing work',
+     t.fetches.length > 0 && t.fetches[0].indexOf(FAKE_SECRET) >= 0);
+}
+
+/* A REFUSAL IS FINAL — the other half of the same loop, and the half a leak test would otherwise
+   never reach. Core answering ok:false is an ANSWER; retrying it burns the budget and buries the
+   message that would have explained it. */
+{
+  const t = transport({ body: JSON.stringify({ ok: false, error: 'bad deploy secret' }) });
+  let thrown = null;
+  try { t.api.dutchieInventoryViaGXCore_('river-rd'); } catch (e) { thrown = e; }
+  ok('a refusal from Core is raised on the first attempt, not retried',
+     !!thrown && t.fetches.length === 1 && /bad deploy secret/.test(thrown.message));
+}
+
+/* ── 3. WHAT EXECUTION CANNOT VISIT ──────────────────────────────────────────────────────────────
+   "No path ANYWHERE still does X" is a claim about every line in the file, including the ones no
+   fixture reaches and the ones nobody has written yet. There is no way to run that, so it stays a
+   grep — and it is a legitimate one, because the shape it bans is the shape that leaked. */
+console.log('\n3. the global guard, which has no runnable form');
 ok('no fetch-error path still interpolates a raw exception message',
    !/error: '[^']*' \+ \(e && e\.message \|\| e\)/.test(gs));
-ok('the router’s own catch is scrubbed as well',
-   /return \{ ok: false, error: scrubSecrets_\(e && e\.message \|\| e\) \};/.test(gs));
 
-/* The secret file must never be committed. */
+/* DELETED 2026-09-15: `ok('the router’s own catch is scrubbed as well', /return { ok: false, error:
+   scrubSecrets_(e && e.message || e) };/.test(gs))`. It passed, and it was not about the router.
+   That line appears once in the file, in libVersion_. doGet and doPost both catch with
+   `String(err && err.message || err)` — unscrubbed — so the assertion's label described behavior
+   the engine does not have, and a file-wide grep let an unrelated function vouch for it. Replaced
+   below by the claim that IS true and executable. The router's own catch — the gap this file used
+   to paper over — is exercised immediately after it, and was fixed the day it was found. */
+{
+  const props = G.makeProps({});
+  const api = G.load({
+    real: ['libVersion_', 'scrubSecrets_'],
+    vars: ['APP'],
+    globals: {
+      PropertiesService: props.PropertiesService,
+      GXCore: { libVersion() { throw THROWN('https://x/exec?secret=' + FAKE_SECRET); } },
+    },
+  });
+  const r = api.libVersion_();
+  ok('libVersion_ — the diagnostic run against a live deploy — scrubs its own catch',
+     r.ok === false && clean(r) && /Address unavailable/.test(r.error));
+}
+/* THE ROUTER'S OWN CATCH, which was the hole this file used to claim was covered (found
+   2026-09-15 while converting it, fixed the same day). Every named leak path scrubs at its own
+   catch; a handler that THROWS a UrlFetchApp failure instead of catching it lands here, and
+   Google's message is "Address unavailable: <the whole url>" — deploy secret included, printed
+   into an error banner on whatever screen made the call. Run, on both doors. */
+{
+  const thrower = () => { throw THROWN('https://script.google.com/exec?secret=' + FAKE_SECRET
+                                       + '&action=libversion'); };
+  const sent = [];
+  const api = G.load({
+    real: ['doGet', 'doPost', 'scrubSecrets_'],
+    vars: ['APP', 'EDIT_ROLES'],
+    stubs: {
+      guard_: () => null,                       // authorized; the throw is the subject here
+      reply_: (out) => { sent.push(out); return out; },
+      libVersion_: thrower,
+      gxAuth_: () => ({ ok: true, user: 'sky', role: 'admin' }),
+      saveProgram_: thrower,
+      nowStamp_: () => '2026-09-15 14:00:00',
+    },
+  });
+  api.doGet({ parameter: { action: 'libversion' } });
+  ok('doGet scrubs an exception that reaches its own catch',
+     sent.length === 1 && sent[0].ok === false && clean(sent[0]));
+  ok('  …while still saying what failed', /Address unavailable/.test(sent[0].error)
+     && /secret=\[redacted\]/.test(sent[0].error));
+  api.doPost({ postData: { contents: JSON.stringify({ action: 'saveProgram', token: 't' }) } });
+  ok('doPost does the same', sent.length === 2 && clean(sent[1])
+     && /secret=\[redacted\]/.test(sent[1].error));
+}
+
+/* ── 4. THE FILE ON DISK ─────────────────────────────────────────────────────────────────────── */
+console.log('\n4. the secret never enters the repo');
 const ignored = fs.readFileSync(__dirname + '/../.gitignore', 'utf8');
 ok('.gx_deploy_secret is gitignored', /^\.gx_deploy_secret$/m.test(ignored));
 
@@ -128,9 +288,6 @@ try {
   ok('this test file does not contain the live deploy secret',
      !!live && fs.readFileSync(__filename, 'utf8').indexOf(live) < 0);
 } catch (e) {
-  // "SKIP" at the start of the line (indented is fine) is the marker every GX repo's CI coverage
-  // step looks for. Worded any other way, a reporter shows this file green while one of its
-  // comparisons did not run — which is the thing the reporter exists to prevent.
   console.log('  SKIP  live-value check — no .gx_deploy_secret here (gitignored, as it should be)');
 }
 

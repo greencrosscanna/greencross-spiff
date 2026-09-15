@@ -40,23 +40,57 @@ function grab(name, src) {
    sheet, and every row index in these routes is computed from it. */
 function grabVar(name, src) {
   const s = src || GS;
-  const m = s.match(new RegExp('\\nvar ' + name + '\\s*=\\s*([\\s\\S]*?);[^\\n]*\\n'));
-  if (m) {
-    /* Comments come out first: several of these declarations carry a block comment inside the
-       literal (PROGRAM_HEADERS explains four of its columns) or a line comment after the
-       semicolon, and both are syntax errors once the text is re-evaluated on its own. */
-    /* The line-comment strip requires whitespace or a separator in front of the slashes, or it
-       would swallow the rest of a URL: LOGO_ONLIGHT is 'https://…', and `//` there is the value. */
-    const body = m[1].replace(/\/\*[\s\S]*?\*\//g, '')
-                     .replace(/(^|[\s;,)\]}])\/\/[^\n]*/g, '$1');
-    return new Function('return ' + body + ';')();
+  /* Scan the whole DECLARATION, not the first thing that looks like the value. `var NAME = ...;`
+     can declare several names at once — `var PITCH_MAX_TIPS = 5, PITCH_MAX_LEN = 240;` — and a
+     regex that stops at the semicolon hands back `5, PITCH_MAX_LEN = 240`, which evaluates as a
+     comma expression to 240. Both names then read as 240: a test exercising the tip cap would
+     have read a 240-tip limit as correct. Found 2026-09-15, in this harness, by a test that
+     printed the value it got. */
+  const re = new RegExp('\\nvar ([A-Za-z_$][\\w$]*)\\s*=', 'g');
+  let m;
+  while ((m = re.exec(s))) {
+    const declStart = m.index + 5;            // past "\nvar "
+    let depth = 0, i = declStart, inStr = '';
+    for (; i < s.length; i++) {
+      const c = s[i];
+      if (inStr) { if (c === '\\') i++; else if (c === inStr) inStr = ''; continue; }
+      if (c === '"' || c === "'" || c === '`') { inStr = c; continue; }
+      if (c === '/' && s[i + 1] === '*') { i = s.indexOf('*/', i) + 1; continue; }
+      if (c === '/' && s[i + 1] === '/') { i = s.indexOf('\n', i) - 1; continue; }
+      if ('([{'.indexOf(c) >= 0) depth++;
+      else if (')]}'.indexOf(c) >= 0) depth--;
+      else if (c === ';' && depth === 0) break;
+    }
+    const decls = splitTop(s.slice(declStart, i));
+    for (const d of decls) {
+      const eq = d.indexOf('=');
+      if (eq < 0) continue;
+      if (d.slice(0, eq).trim() !== name) continue;
+      const body = d.slice(eq + 1)
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/(^|[\s;,)\]}])\/\/[^\n]*/g, '$1');
+      return new Function('return (' + body + ');')();
+    }
   }
-  /* A second declarator on one line — `var PITCH_MAX_TIPS = 5, PITCH_MAX_LEN = 240;`. Narrowed to a
-     simple literal on purpose: anything with a comma inside it (an array, an object) has to be
-     declared on its own line to be read here, rather than guessed at by counting brackets. */
-  const one = s.match(new RegExp('[,\\s]' + name + '\\s*=\\s*([^,;\\n]+)[,;]'));
-  if (one) return new Function('return ' + one[1] + ';')();
   throw new Error('_gas.grabVar: no such var in Code.gs: ' + name);
+}
+
+/* Split a declarator list on its TOP-LEVEL commas — the ones inside an array or object literal
+   belong to the value, not to the list. */
+function splitTop(text) {
+  const out = [];
+  let depth = 0, start = 0, inStr = '';
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) { if (c === '\\') i++; else if (c === inStr) inStr = ''; continue; }
+    if (c === '"' || c === "'" || c === '`') { inStr = c; continue; }
+    if (c === '/' && text[i + 1] === '*') { i = text.indexOf('*/', i) + 1; continue; }
+    if ('([{'.indexOf(c) >= 0) depth++;
+    else if (')]}'.indexOf(c) >= 0) depth--;
+    else if (c === ',' && depth === 0) { out.push(text.slice(start, i)); start = i + 1; }
+  }
+  out.push(text.slice(start));
+  return out;
 }
 
 /* ── An in-memory Sheet ──────────────────────────────────────────────────────────────────────────

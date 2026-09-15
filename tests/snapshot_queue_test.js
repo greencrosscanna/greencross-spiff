@@ -86,46 +86,180 @@ const a = base(); a.match_json.products = ['Carts', 'Dabs'];
 const b = base(); b.match_json.products = ['Carts|Dabs'];
 ok('two different product lists do not share a fingerprint', fingerprint(a) !== fingerprint(b));
 
-/* ══════════════════ 2. THE BUDGET, in the source of the sweep ══════════════════ */
-const sweep = grab('snapshotPending_');
-/* Checked as a STATEMENT, not as a phrase. The first cut searched the source for
-   `done.length + failed.length >= max` and failed on the comment above the fix explaining what it
-   USED to be — the same way a "no 0 units" grep failed on the comment saying why. The second cut
-   stripped only lines beginning with / or *, and still failed: the phrase sits on a continuation
-   line inside a block comment, which carries no marker of its own. Strip the blocks. */
-const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-const stmts = strip(sweep);
-ok('the comment explaining the old guard is still there to read',
-   /done\.length \+ failed\.length >= max/.test(sweep));
-ok('a failure no longer buys a slot the way a success does',
-   !/done\.length \+ failed\.length >= max/.test(stmts));
-ok('  …max now counts what was WRITTEN', /done\.length >= max/.test(sweep));
-ok('  …and the clock bounds the run, because a trigger has six minutes',
-   /Date\.now\(\) - t0 > BUDGET_MS/.test(sweep) && /var BUDGET_MS/.test(sweep));
+/* ── THE SWEEP ITSELF, RUN ───────────────────────────────────────────────────────────────────────
+   REWRITTEN 2026-09-15. Sections 2 and 3 used to read snapshotPending_'s source with the comments
+   stripped out, which is a delicate way to check the most consequential thing in this file: that a
+   refusal no longer eats the run's one slot. `/done\.length >= max/` is equally true of a sweep
+   that budgets correctly and one that never reaches the second program for some other reason —
+   and "never reaches the second program" is exactly the bug. The sweep now runs against an
+   in-memory programs sheet with a scripted snapshotProgram_, and the assertions count what got
+   written. */
+const G = require('./_gas');
+const PH = G.grabVar('PROGRAM_HEADERS');
+/* The harness reads these constants out of Code.gs rather than copying them. Two names declared on
+   one line used to both resolve to the SECOND value — `var PITCH_MAX_TIPS = 5, PITCH_MAX_LEN = 240`
+   gave 240 for both — so a test of the tip cap would have read a 240-tip limit as correct. Pinned
+   here because this file is the one that loads the most of them. */
+ok('the harness reads a two-on-one-line declaration correctly',
+   G.grabVar('PITCH_MAX_TIPS') === 5 && G.grabVar('PITCH_MAX_LEN') === 240);
+
+function progRow(id, status, extra) {
+  const row = PH.map(() => '');
+  row[PH.indexOf('program_id')] = id;
+  row[PH.indexOf('program_name')] = id;
+  row[PH.indexOf('status')] = status || 'closed';
+  row[PH.indexOf('start_date')] = '2026-02-16';
+  row[PH.indexOf('end_date')] = '2026-03-01';
+  row[PH.indexOf('stores_json')] = JSON.stringify(['bend', 'center']);
+  row[PH.indexOf('match_json')] = JSON.stringify((extra && extra.match) || { brand: 'Kaprikorn' });
+  row[PH.indexOf('progress_json')] = (extra && extra.snapshot) ? JSON.stringify(extra.snapshot) : '';
+  return row;
+}
+/* `answers` scripts snapshotProgram_ per program id, so a run can contain a deterministic refusal,
+   a transient failure and a success at once — which is the case the budget fix is about. */
+function sweeper(rows, answers, memory) {
+  const sheet = G.makeSheet(PH, rows);
+  const store = memory || {};
+  const calls = [];
+  const api = G.load({
+    real: ['snapshotPending_', 'rowToProgram_', 'snapshotFingerprint_', 'textDate_', 'parseJson_',
+           'normalizePitch_', 'slug_'],
+    vars: ['PROGRAM_HEADERS', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
+    stubs: {
+      dataSheet_: () => sheet,
+      snapshotReasonFor_: (prog) => (String(prog.status).toLowerCase() === 'closed' ? 'closed' : ''),
+      snapshotProgram_: (prog) => {
+        calls.push(prog.program_id);
+        const a = answers[prog.program_id];
+        if (!a) return { ok: false, error: 'no answer scripted' };
+        return typeof a === 'function' ? a(prog) : a;
+      },
+      snapshotRefusals_: () => store,
+      saveSnapshotRefusals_: (m) => { store.__saved = (store.__saved || 0) + 1; Object.assign(store, m); },
+      invalidatePrograms_: () => {},
+      nowStamp_: () => '2026-09-09 10:00:00',
+      annotateActuals_: () => {}, annotateUnmeasurable_: () => {},
+    },
+  });
+  return { api, sheet, memory: store, calls,
+           snapshotOf: (id) => {
+             const i = sheet.rows.findIndex(r => r[PH.indexOf('program_id')] === id);
+             const cell = i < 0 ? '' : sheet.rows[i][PH.indexOf('progress_json')];
+             return cell ? JSON.parse(cell) : null;
+           } };
+}
+const GOOD = { ok: true, snapshot: { units: 120, earned: 250, earners: 10, partial: [] } };
+const REFUSED = { ok: false, error: 'measured 0 units against a record of 242', refused: 'zero_vs_record' };
+const FLAKY = { ok: false, error: 'bend did not answer' };
+
+/* ══════════════════ 2. A FAILURE NO LONGER BUYS A SLOT ══════════════════
+   `max` is 1 in working hours. Before the fix, one unmeasurable program at the head of the queue
+   ended every run — for a week, with every health signal green. */
+{
+  const s = sweeper([progRow('unmeasurable'), progRow('waiting')],
+                    { unmeasurable: REFUSED, waiting: GOOD });
+  const r = s.api.snapshotPending_({ max: 1 });
+  ok('a refusal at the head of the queue does not end the run',
+     s.calls.join(',') === 'unmeasurable,waiting');
+  ok('  …and the program behind it is measured in the SAME run',
+     r.done.length === 1 && r.done[0].program_id === 'waiting');
+  ok('  …with its snapshot really written to the row',
+     (s.snapshotOf('waiting') || {}).units === 120);
+  ok('  …and the refusal reported separately from the success',
+     r.failed.length === 1 && r.failed[0].program_id === 'unmeasurable');
+}
+{
+  /* `max` counts what was WRITTEN, so two successes with max 1 still stop after one. */
+  const s = sweeper([progRow('first'), progRow('second')], { first: GOOD, second: GOOD });
+  const r = s.api.snapshotPending_({ max: 1 });
+  ok('max still bounds what is written — one success, one run',
+     r.done.length === 1 && s.calls.join(',') === 'first');
+  ok('  …and what it did not reach is reported as remaining, not as done', r.remaining === 1);
+  const s2 = sweeper([progRow('first'), progRow('second')], { first: GOOD, second: GOOD });
+  ok('a bigger budget writes both', s2.api.snapshotPending_({ max: 5 }).done.length === 2);
+}
+{
+  /* A program that already has a snapshot is left alone — a measurement is frozen once. */
+  const s = sweeper([progRow('already', 'closed', { snapshot: { units: 9 } }), progRow('new')],
+                    { already: GOOD, new: GOOD });
+  s.api.snapshotPending_({ max: 5 });
+  ok('a program already measured is not re-measured', s.calls.join(',') === 'new');
+  ok('  …and its frozen snapshot is untouched', s.snapshotOf('already').units === 9);
+  const s2 = sweeper([progRow('already', 'closed', { snapshot: { units: 9 } })], { already: GOOD });
+  s2.api.snapshotPending_({ max: 5, force: true });
+  ok('  …unless force says otherwise', s2.snapshotOf('already').units === 120);
+}
+{
+  const s = sweeper([progRow('running', 'active')], { running: GOOD });
+  const r = s.api.snapshotPending_({ max: 5 });
+  ok('a program with no reason to be measured is never attempted',
+     s.calls.length === 0 && r.done.length === 0 && r.remaining === 0);
+}
 
 /* ══════════════════ 3. WHAT IS REMEMBERED, AND WHAT IS NOT ══════════════════ */
-ok('a deterministic refusal is remembered', /if \(res\.refused\) \{/.test(sweep)
-   && /refused\[prog\.program_id\] = \{ fp: fp/.test(sweep));
-/* THE IMPORTANT NEGATIVE: only res.refused. snapshotProgram_ sets that solely for zero_vs_record;
-   a store that would not answer comes back ok:false with no `refused`, and must be retried. */
-ok('  …but a transient failure is NOT, so one bad Dutchie afternoon is not permanent',
-   /failed\.push\(/.test(sweep)
-   && sweep.indexOf('if (res.refused) {') > sweep.indexOf('failed.push('));
-const prog = grab('snapshotProgram_');
-ok('  …and snapshotProgram_ marks ONLY the zero-vs-record case as refused',
-   (prog.match(/refused:/g) || []).length === 1 && /refused: 'zero_vs_record'/.test(prog));
-ok('  …a store that would not answer is reported as partial, not as a refusal',
-   /out\.partial\.push\(slug\)/.test(prog));
-ok('a program that succeeds clears any memory of refusing',
-   /if \(prior\) \{ delete refused\[prog\.program_id\]; refusalsMoved = true; \}/.test(sweep));
-ok('  …and force ignores the memory entirely', /prior\.fp === fp && !force/.test(sweep));
-ok('the memory is only written when it moved', /if \(refusalsMoved\) saveSnapshotRefusals_/.test(sweep));
+{
+  const s = sweeper([progRow('unmeasurable')], { unmeasurable: REFUSED });
+  s.api.snapshotPending_({ max: 5 });
+  ok('a deterministic refusal is remembered, with its reason and the day it happened',
+     !!s.memory.unmeasurable && s.memory.unmeasurable.reason === 'zero_vs_record'
+     && s.memory.unmeasurable.at === '2026-09-09 10:00:00');
+  /* Second run, same program, unchanged: not attempted at all — that is the Dutchie call saved. */
+  const again = sweeper([progRow('unmeasurable')], { unmeasurable: REFUSED }, s.memory);
+  const r2 = again.api.snapshotPending_({ max: 5 });
+  ok('  …and the next hour it is skipped without spending a Dutchie call',
+     again.calls.length === 0 && r2.refused_skipped === 1);
+  ok('  …counted apart from what a further run would still try', r2.remaining === 0);
+  /* THE IMPORTANT NEGATIVE: a refusal must not hold up anything else. */
+  const behind = sweeper([progRow('unmeasurable'), progRow('waiting')],
+                         { unmeasurable: REFUSED, waiting: GOOD }, s.memory);
+  const r3 = behind.api.snapshotPending_({ max: 1 });
+  ok('  …while the program behind it is measured normally', r3.done.length === 1);
+}
+{
+  /* A TRANSIENT failure is NOT remembered — writing those off would turn one bad afternoon at
+     Dutchie into a program that is never measured again. */
+  const s = sweeper([progRow('flaky')], { flaky: FLAKY });
+  s.api.snapshotPending_({ max: 5 });
+  ok('a transient failure is NOT remembered', !s.memory.flaky);
+  const retry = sweeper([progRow('flaky')], { flaky: GOOD }, s.memory);
+  const r = retry.api.snapshotPending_({ max: 5 });
+  ok('  …so the next hour tries it again, and it succeeds',
+     retry.calls.join(',') === 'flaky' && r.done.length === 1);
+}
+{
+  /* Correcting the filter re-arms it, with nobody having to remember to clear a flag. */
+  const s = sweeper([progRow('unmeasurable')], { unmeasurable: REFUSED });
+  s.api.snapshotPending_({ max: 5 });
+  const fixed = sweeper([progRow('unmeasurable', 'closed', { match: { brand: 'Mule Extracts' } })],
+                        { unmeasurable: GOOD }, s.memory);
+  const r = fixed.api.snapshotPending_({ max: 5 });
+  ok('editing what makes a program measurable re-arms it with no flag to clear',
+     fixed.calls.join(',') === 'unmeasurable' && r.done.length === 1);
+  ok('  …and succeeding forgets the refusal', !fixed.memory.unmeasurable);
+  /* force ignores the memory entirely. */
+  const forced = sweeper([progRow('unmeasurable')], { unmeasurable: GOOD }, { unmeasurable:
+    { fp: 'whatever', at: '2026-09-02', reason: 'zero_vs_record' } });
+  ok('force ignores the memory', forced.api.snapshotPending_({ max: 5, force: true }).done.length === 1);
+}
+{
+  /* The memory is only written when it moved: a quiet run must not rewrite the property. */
+  const s = sweeper([progRow('fine')], { fine: GOOD });
+  s.api.snapshotPending_({ max: 5 });
+  ok('a run that changed no refusal writes the memory not at all', !s.memory.__saved);
+}
+/* Only the zero-vs-record case is a refusal at all; a store that would not answer is partial.
+   Source-shaped because it is a property of snapshotProgram_, which is exercised in
+   snapshot_test.js — here it pins that this file's REFUSED fixture matches the only real one. */
+ok('snapshotProgram_ marks ONLY the zero-vs-record case as refused',
+   (G.grab('snapshotProgram_').match(/refused:/g) || []).length === 1
+   && /refused: 'zero_vs_record'/.test(G.grab('snapshotProgram_')));
 
 /* ══════════════════ 4. IT HAS TO BE SAYABLE ══════════════════ */
 /* The counts existed all along — snapshotPending_ has always returned `failed` and `remaining`.
    Nothing read either, which is the whole reason a stuck sweep ran for a week. */
-ok('the sweep reports what it skipped as unmeasurable, apart from what it will retry',
-   /refused_skipped: stuck/.test(sweep) && /remaining: Math\.max/.test(sweep));
+/* Exercised above: `refused_skipped` counted the skipped program and `remaining` stayed 0. What is
+   left for this section is the surfaces that READ those counts — the trigger's warning and the
+   diagnostic route — which is where a week of silence actually hid. */
 const diag = grab('diag_');
 ok('diag reports the backlog beside the trigger it rides on',
    /snapshotBacklog_\(\)/.test(diag) && /never_measured/.test(diag));
