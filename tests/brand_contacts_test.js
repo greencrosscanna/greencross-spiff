@@ -170,6 +170,39 @@ ok('a changed email is sent, on the same contact_id', call && call.contact.email
 call = runSave({ contact_id: 'bc_1', email: 'a@b.co' }, { name: '', email: '', phone: '', role: '', is_primary: false });
 ok('an emptied email is refused on the screen, never sent', call === null);
 
+/* ── the Settings directory ── */
+console.log('settings directory');
+ok('Settings holds the brand directory above the kiosk links',
+   /id="brandDir"[\s\S]*id="kioskBody"/.test(fs.readFileSync(__dirname + '/../index.html', 'utf8')));
+ok('the program screen and the directory share ONE reps editor',
+   /repsEditor\(host, b\)/.test(grab(js, 'renderBrandReps')) && /repsEditor\(/.test(grab(js, 'paintBrandBody')));
+ok('a save anywhere repaints the directory', /renderBrandDirectory\(\)/.test(grab(js, 'loadBrandReps')));
+const saveInfo = new Function('brandCall', grab(js, 'repMsg') + grab(js, 'saveBrandInfo') + 'return saveBrandInfo;');
+function runInfo(b, v) {
+  let call = null;
+  const row = { querySelectorAll: () => Object.keys(v).map(k => ({ dataset: { brandF: k }, value: v[k] })), querySelector: () => null };
+  saveInfo((a, params) => { call = { a, brand: JSON.parse(params.brand) }; })(b, row, {});
+  return call;
+}
+let info = runInfo({ brand_id: 'ncc', website: 'ncc.com', notes: 'x', aliases: ['NCC'] }, { website: '', notes: 'x', aliases: 'NCC, National Cannabis' });
+ok('emptying a brand\'s website sends clear=website', info && info.brand.clear === 'website');
+ok('  …and a new spelling is sent as the full list', info && info.brand.aliases.join('|') === 'NCC|National Cannabis');
+ok('  …and unchanged notes are not resent', info && !('notes' in info.brand));
+info = runInfo({ brand_id: 'ncc', website: '', notes: '', aliases: ['NCC'] }, { website: '', notes: '', aliases: '' });
+ok('removing every spelling clears aliases', info && info.brand.clear === 'aliases' && !('aliases' in info.brand));
+function saveBrandWith(brand) {
+  let sent = null;
+  const f = new Function('GXCore', 'gxAuth_', 'scrubSecrets_',
+    ['var EDIT_ROLES = ["admin", "editor", "director"];', 'function brandsChanged_(r) { return r; }', grab(gs, 'parseJson_'),
+     gs.match(/^var BRAND_FIELDS = .*$/m)[0], grab(gs, 'brandEditor_'), grab(gs, 'saveBrand_'), 'return saveBrand_;'].join('\n'));
+  const r = f({ gxUpsertBrand(p) { sent = p; return { ok: true }; } }, () => ({ ok: true, role: 'editor', user: 'tawny' }), String)
+    ({ token: 't', brand: JSON.stringify(brand) });
+  return { r, sent };
+}
+let sb = saveBrandWith({ brand_id: 'ncc', website: 'w', display_name: 'Renamed', active: false, create: 1 });
+ok('saveBrand never renames, switches off or creates a brand from Settings',
+   sb.sent && !('display_name' in sb.sent) && !('active' in sb.sent) && !('create' in sb.sent) && sb.sent.by === 'tawny');
+
 /* ── the one-time seed ── */
 console.log('seed');
 function seed(programs, existing, apply) {

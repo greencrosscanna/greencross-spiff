@@ -97,6 +97,8 @@
     var back = $('#settingsBack');
     if (!back) return;
     back.hidden = false;
+    renderBrandDirectory();
+    if (!state.brands && !state.brandsLoading) loadBrandReps();
     loadKioskLinks();
   }
   function closeSettings() {
@@ -1381,6 +1383,7 @@
      the engine by GXCore.resolveBrand, and Core refuses two brands that fold to the same name, so
      the two agree for everything the registry holds. */
   async function loadBrandReps() {
+    state.brandsLoading = true;
     try {
       // Core's library read is slow (6–30s measured cold); the engine caches it, but a cold read needs the room.
       var r = await ENG.jsonp('brands', { token: (session() || {}).token }, { timeoutMs: 45000, retries: 1 });
@@ -1391,8 +1394,10 @@
       console.warn('[spiff] brand list load failed:', err);
       state.brandsError = String(err.message || err);
     }
+    state.brandsLoading = false;
     try { if (state.programs && state.programs.length) renderPrograms(); } catch (e) {}
     if (state.record) renderBrandReps(state.record);
+    renderBrandDirectory();
   }
 
   function brandNameOf(p) {
@@ -1448,6 +1453,13 @@
       return;
     }
 
+    repsEditor(host, b);
+  }
+
+  /* The reps for one brand — list, add, removed — painted into `host` and wired there. Shared by the
+     program screen and the Settings directory, so the two can never disagree about what a save sends. */
+  function repsEditor(host, b) {
+    var ed = canEdit();
     var live = (b.contacts || []).filter(function (c) { return c.active; });
     var gone = (b.contacts || []).filter(function (c) { return !c.active; });
     host.innerHTML = (b.active ? '' : '<div class="sp-notice is-bad"><span class="sp-notice-l">Brand turned off</span>'
@@ -1475,6 +1487,133 @@
       else if (btn.dataset.repAct === 'remove') removeRep(b, c, row, btn);
       else if (btn.dataset.repAct === 'restore') restoreRep(b, c, row, btn);
     };
+  }
+
+  /* ── THE BRAND DIRECTORY, IN SETTINGS ─────────────────────────────────────────────────────
+     Sky, 2026-09-15: "should we have a place where tawny can review all of the brand contacts and
+     edit them?" Every brand in the shared list, searchable by brand or rep, with a count on the
+     closed row so a brand with nobody on it stands out before a link to it gets sent.
+
+     Rows open one at a time and only the open one is painted, so a list of a few dozen stays light
+     and a repaint after a save does not close what she was working in. */
+  var brandDir = { q: '', open: '' };
+
+  function renderBrandDirectory() {
+    var host = $('#brandDir'), back = $('#settingsBack');
+    if (!host || !back || back.hidden) return;
+    if (!state.brands) {
+      host.innerHTML = '<p class="hint">' + (state.brandsError
+        ? 'Couldn’t load the shared brand list: ' + esc(state.brandsError)
+          + ' <button type="button" class="gx-btn" id="bdirRetry">Try again</button>'
+        : 'Loading brands… Core can take up to half a minute.') + '</p>';
+      var rt = $('#bdirRetry');
+      if (rt) rt.addEventListener('click', function () { state.brandsError = ''; renderBrandDirectory(); loadBrandReps(); });
+      return;
+    }
+    var ed = canEdit();
+    var focusQ = document.activeElement && document.activeElement.id === 'bdirQ';
+    host.innerHTML = '<p class="hint sp-brep-note">Shared with Inventory. Any active rep listed here can open '
+      +   'that brand&rsquo;s shared proposals with the brand password.</p>'
+      + '<div class="sp-bdir-tools">'
+      +   '<input class="sp-in" id="bdirQ" type="search" placeholder="Search brands or reps" value="' + esc(brandDir.q) + '">'
+      +   (ed ? '<span class="sp-bdir-add"><input class="sp-in" id="bdirNew" placeholder="New brand name">'
+              + '<button type="button" class="gx-btn" id="bdirAdd">Add brand</button><span class="sp-brep-msg"></span></span>' : '')
+      + '</div>'
+      + '<div id="bdirList"></div>';
+    paintBrandList();
+
+    var q = $('#bdirQ');
+    q.addEventListener('input', function () { brandDir.q = q.value; paintBrandList(); });
+    if (focusQ) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+    var add = $('#bdirAdd');
+    if (add) add.addEventListener('click', function () {
+      var name = $('#bdirNew').value.trim();
+      if (!name) return;
+      brandDir.q = '';
+      brandCall('addBrand', { display_name: name }, add.parentNode, add).then(function (r) {
+        if (r && r.brand_id) { brandDir.open = r.brand_id; renderBrandDirectory(); }
+      });
+    });
+  }
+
+  function paintBrandList() {
+    var list = $('#bdirList');
+    if (!list) return;
+    var k = brandDir.q.trim().toLowerCase();
+    var shown = (state.brands || []).filter(function (b) {
+      if (!k) return true;
+      return [b.display_name].concat(b.aliases || []).concat((b.contacts || []).filter(function (c) { return c.active; })
+        .map(function (c) { return (c.name || '') + ' ' + c.email; })).join(' | ').toLowerCase().indexOf(k) >= 0;
+    });
+    // Turned-off brands last: they are history, not today's list.
+    shown.sort(function (a, b) { return (b.active - a.active) || a.display_name.localeCompare(b.display_name); });
+    if (!shown.length) {
+      list.innerHTML = '<p class="hint">' + (k ? 'No brand or rep matches &ldquo;' + esc(brandDir.q) + '&rdquo;.' : 'No brands yet.') + '</p>';
+      return;
+    }
+    list.innerHTML = shown.map(function (b) {
+      var live = (b.contacts || []).filter(function (c) { return c.active; });
+      var main = live[0];
+      return '<details class="sp-bdir' + (live.length ? '' : ' is-empty') + '" data-brand="' + esc(b.brand_id) + '"'
+        + (brandDir.open === b.brand_id ? ' open' : '') + '>'
+        + '<summary><b>' + esc(b.display_name) + '</b>'
+        +   (b.active ? '' : '<span class="sp-chip">off</span>')
+        +   '<span class="sp-bdir-sum">' + (live.length
+              ? live.length + ' rep' + (live.length === 1 ? '' : 's') + (main ? ' &middot; ' + esc(main.name || main.email) : '')
+              : 'no reps') + '</span></summary>'
+        + '<div class="sp-bdir-body"></div></details>';
+    }).join('');
+
+    $$('#bdirList details').forEach(function (d) {
+      if (d.open) paintBrandBody(d);
+      d.addEventListener('toggle', function () {
+        if (!d.open) { if (brandDir.open === d.dataset.brand) brandDir.open = ''; return; }
+        brandDir.open = d.dataset.brand;
+        $$('#bdirList details[open]').forEach(function (o) { if (o !== d) o.open = false; });
+        paintBrandBody(d);
+      });
+    });
+  }
+
+  function paintBrandBody(d) {
+    var b = (state.brands || []).filter(function (x) { return x.brand_id === d.dataset.brand; })[0];
+    var body = d.querySelector('.sp-bdir-body');
+    if (!b || !body) return;
+    var ro = canEdit() ? '' : ' readonly';
+    body.innerHTML = '<div class="sp-brep sp-bdir-info">'
+      + '<div class="sp-flds">'
+      +   '<label class="sp-fld"><span>Website</span><input class="sp-in" data-brand-f="website" value="' + esc(b.website) + '"' + ro + '></label>'
+      +   '<label class="sp-fld"><span>Other spellings</span><input class="sp-in" data-brand-f="aliases" value="'
+      +     esc((b.aliases || []).join(', ')) + '" placeholder="e.g. NCC, National Cannabis"' + ro + '></label>'
+      +   '<label class="sp-fld is-wide"><span>Notes</span><input class="sp-in" data-brand-f="notes" value="' + esc(b.notes) + '"' + ro + '></label>'
+      + '</div>'
+      + (canEdit() ? '<div class="sp-brep-actions"><span class="hint sp-bdir-why">Other spellings are how a program named '
+            + 'a little differently still finds this brand.</span>'
+            + '<button type="button" class="gx-btn" data-brand-act="save">Save brand</button><span class="sp-brep-msg"></span></div>' : '')
+      + '</div><div class="sp-bdir-reps"></div>';
+    repsEditor(body.querySelector('.sp-bdir-reps'), b);
+    var save = body.querySelector('[data-brand-act="save"]');
+    if (save) save.addEventListener('click', function () { saveBrandInfo(b, body.querySelector('.sp-bdir-info'), save); });
+  }
+
+  /* Blank means "leave it alone" to Core, so emptying a field that had a value is sent as a clear —
+     the same rule saveRep follows for a rep's phone. */
+  function saveBrandInfo(b, row, btn) {
+    var v = {};
+    row.querySelectorAll('[data-brand-f]').forEach(function (el) { v[el.dataset.brandF] = el.value.trim(); });
+    var aliases = v.aliases.split(/[,|]/).map(function (a) { return a.trim(); }).filter(Boolean);
+    var out = { brand_id: b.brand_id }, clear = [];
+    ['website', 'notes'].forEach(function (k) {
+      if (v[k] && v[k] !== (b[k] || '')) out[k] = v[k];
+      else if (!v[k] && b[k]) clear.push(k);
+    });
+    if (aliases.join('|') !== (b.aliases || []).join('|')) {
+      if (aliases.length) out.aliases = aliases;
+      else clear.push('aliases');
+    }
+    if (clear.length) out.clear = clear.join(',');
+    if (Object.keys(out).length === 1) { repMsg(row, 'Nothing changed', true); return; }
+    brandCall('saveBrand', { brand: JSON.stringify(out) }, row, btn);
   }
 
   function repRow(c) {

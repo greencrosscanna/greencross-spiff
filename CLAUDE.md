@@ -203,6 +203,11 @@ Google's consent HTML instead of JSON until the owner has authorized.
   rep would keep access for five minutes. Contact emails are half of a rep's login, so no route hands
   the list to an anonymous caller.
 
+  **Settings holds the brand directory** (Sky, 2026-09-15): every brand, searchable by brand or rep,
+  with reps and website / notes / other spellings editable (`saveBrand`). It deliberately cannot
+  rename a brand or turn one off — a program finds its brand by name, and turning a brand off locks
+  out all its reps; both are rare enough to do on purpose, not from a list.
+
   The 16 brands SPIFF had run programs on were seeded with no reps by `?action=seedBrands`
   (secret-gated, dry by default, skips anything Core already resolves). Pinned by
   `tests/brand_contacts_test.js`.

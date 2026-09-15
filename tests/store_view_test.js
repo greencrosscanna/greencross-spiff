@@ -191,7 +191,7 @@ ok('  …and refuses an unanswered registry rather than minting against nothing'
    list is a working screen you should not scroll past config to read. */
 const html = fs.readFileSync(__dirname + '/../index.html', 'utf8');
 ok('the kiosk panel lives in the Settings dialog',
-   /id="settingsBack"/.test(html) && /modal-body" id="kioskBody"/.test(html));
+   /id="settingsBack"/.test(html) && /<div id="settingsBack"[\s\S]*?id="kioskBody"/.test(html.replace('class="modal-back" ', '')));
 ok('  …and no longer sits under the programs list',
    !/id="kioskFold"/.test(html));
 ok('  …reached from the chip menu, editor-only',

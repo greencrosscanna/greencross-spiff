@@ -388,6 +388,7 @@ function doGet(e) {
          read, and editor-only writes that stamp the signed-in user as `by`. See BRAND CONTACTS. */
       case 'brands':      out = brandsRead_(p);                                     break;
       case 'addBrand':    out = addBrand_(p);                                       break;
+      case 'saveBrand':   out = saveBrand_(p);                                      break;
       case 'saveBrandContact':   out = saveBrandContact_(p);                        break;
       case 'removeBrandContact': out = removeBrandContact_(p);                      break;
       case 'seedBrands':  out = seedBrands_(p);                                     break;
@@ -4151,6 +4152,24 @@ function addBrand_(p) {
   var name = String(p.display_name || '').trim();
   if (!name) return { ok: false, error: 'display_name required' };
   try { return brandsChanged_(GXCore.gxUpsertBrand({ display_name: name, create: 1, by: who.user })); }
+  catch (e) { return { ok: false, error: 'GX Core unavailable: ' + scrubSecrets_(e && e.message || e) }; }
+}
+
+/* Edit a brand's own details from the Settings directory: website, notes, and other spellings.
+   NOT the display name, and not on/off. A program finds its brand BY NAME, so renaming "Gron" to
+   "Grön" without keeping the old spelling would quietly unhook every Gron program from its reps —
+   and turning a brand off locks all its reps out at once. Both are real, rare, and not this screen. */
+var BRAND_FIELDS = ['brand_id', 'website', 'notes', 'aliases', 'clear'];
+function saveBrand_(p) {
+  var who = brandEditor_(p);
+  if (who.denied) return who.denied;
+  var b = parseJson_(p.brand, null);
+  if (!b || !b.brand_id) return { ok: false, error: 'brand_id required' };
+  var out = { by: who.user };
+  BRAND_FIELDS.forEach(function (f) {
+    if (Object.prototype.hasOwnProperty.call(b, f) && b[f] != null) out[f] = b[f];
+  });
+  try { return brandsChanged_(GXCore.gxUpsertBrand(out)); }   // no create: an unknown brand_id is refused
   catch (e) { return { ok: false, error: 'GX Core unavailable: ' + scrubSecrets_(e && e.message || e) }; }
 }
 
