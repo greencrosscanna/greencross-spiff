@@ -133,8 +133,9 @@ console.log('\n1. the token is written to the key Leaderboard actually reads');
   ok('carries the deploy secret', /[?&]secret=S3CRET/.test(e.calls[0]));
   ok('sends notes=, so the kv row explains itself to the next reader',
      /[?&]notes=[^&]+/.test(e.calls[0]));
-  ok('slugs the store id rather than trusting the caller',
-     keyOf(engine({}).api.publish('  River-RD ', 't').ok ? engine({}).api.publish('  River-RD ', 't') && engine({}).calls[0] || 'x' : 'x') !== null);
+  /* The slug check lived here as a ternary that could only ever produce a non-null string, so it
+     passed whatever the code did. The real version is the block immediately below — this line is
+     gone rather than rewritten, because two checks of one fact is how a vacuous one survives. */
 }
 {
   const e = engine({});

@@ -240,12 +240,12 @@ ok('  …counted from the rows themselves',
    /sellers \+= \(r\.rows \|\| \[\]\)\.filter/.test(pull));
 ok('flat programs still pay per budtender who hit', /: rate \* hit/.test(pull));
 
-/* The arithmetic, on Portland Heights' real figures. */
-const units = 242, rate = 0.75, cost = 8.68, base = 206;
-ok('242 units at $0.75 is $181.50 of investment',
-   Math.abs(rate * units - 181.5) < 0.001);
-ok('  …and the ROI identity holds against last month',
-   Math.abs(((units - base) * cost - rate * units) - 130.98) < 0.01);
+/* THREE ASSERTIONS REMOVED HERE, 2026-09-15. They multiplied Portland Heights' figures together in
+   the test and checked the product against the answer written beside them — `rate * units - 181.5`
+   with rate and units declared two lines above. That is this file checking its own arithmetic: it
+   passes whatever the engine does, and it would keep passing if pullActuals stopped computing
+   anything at all. The same numbers are now asserted against the real payoutFactsOf_ in
+   closeout_money_test.js, which is where they can actually fail. */
 
 /* ══════════════ FOUR EM DASHES ON A PROGRAM THAT KNEW ITS OWN ANSWER ══════════════
  * Sky: "none of the kpi boxes are displaying info?"
@@ -271,9 +271,9 @@ ok('per-unit says what it paid per unit; flat says how many budtenders hit',
 /* Gross gain is not stored. It is the return plus the bounty that bought it — the same identity
    the model prices on, so the settled cards and the modelled ones cannot drift apart. */
 ok('revenue earned is derived as return + investment', /var sGross = sRoi \+ sInv/.test(rc));
-const phUnits = 242, phBase = 206, phInv = 181.5, phRoi = 130.98, phCost = 8.68;
-ok('  …and that identity holds on the real figures',
-   Math.abs((phRoi + phInv) - (phUnits - phBase) * phCost) < 0.01);
+/* The identity itself is checked where it is COMPUTED (calc_rounding_test.js runs calcModel); an
+   `Math.abs((phRoi + phInv) - …)` here would only confirm that five literals in this file agree
+   with each other. */
 
 /* The modeling gate must survive — it is what keeps a fresh Calculator from quoting -100% at a
    vendor. TIGHTENED 2026-09-11 (Tawny still saw −100%): an ask is a target ABOVE last month, which

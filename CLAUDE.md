@@ -246,6 +246,19 @@ Google's consent HTML instead of JSON until the owner has authorized.
   The 16 brands SPIFF had run programs on were seeded with no reps by `?action=seedBrands`
   (secret-gated, dry by default, skips anything Core already resolves). Pinned by
   `tests/brand_contacts_test.js`.
+- **A test RUNS the code, or says why it cannot** (2026-09-15, Sky's "flip the test ratio").
+  `tests/_gas.js` is the shared harness — it lifts a function out of `Code.gs` by name and runs it
+  with the sheet, the clock and GX Core stubbed at the edges, so what executes is the shipped path
+  rather than a restatement of it. The five money routes (rename, delete, orphan sweep, publish to
+  Core, the three vendor close-out documents) now run for real; `progress_cache`, `payout_math`,
+  `status_roll` and `window_and_goal` always did. **A source-text check is still right for two
+  things**: an architecture guard with no other enforcement (this field is not editable, this route
+  is not on the secret-only list, nothing calls a function that no longer exists), and screen
+  markup and click wiring, which cannot run here — mark those in the file rather than replacing them
+  with a regex that looks like coverage. What a regex must never stand in for is a number, an
+  ordering of writes, or a refusal: `indexOf(a) < indexOf(b)` on source text is equally true of a
+  route that moves the rows first and one whose loop never matches a row.
+
 - **SPIFF reads the roster, never writes it.** `employees` and `stores` come from GX Core; don't
   re-hardcode store names — Command Center edits must flow through on the next load.
 - **SPIFF PUBLISHES TO CORE NOW — the write contract exists as of 2026-09-08 (v1.374).** After every
