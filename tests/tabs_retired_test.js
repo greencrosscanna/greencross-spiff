@@ -27,6 +27,11 @@
  *      who is about to hit their number — the calculator showed nothing, and the Progress tab
  *      was the only view of it. Deleting the tab first and believing the premise would have
  *      removed the only per-budtender view of a live program. #calcLive is what closes that gap.
+ *
+ * SOURCE-SHAPED: this is a file about MARKUP — which buttons exist in index.html and which panels
+ * they reach. There is no value to compute; the assertions are "this element is here" and "that
+ * one is gone", which is what the source is. showTab and applyStatusView are DOM painters and stay
+ * with it. Declared under the rule in suite_shape_test.js.
  */
 'use strict';
 const fs = require('fs');

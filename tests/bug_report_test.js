@@ -101,6 +101,25 @@ console.log('\n1. bucketing: app=spiff, tab=spiff — its own board, like Price 
   eq(r.id, 'bug_test1', 'returns the id GX Core minted');
 }
 
+// ── 1b. the screenshot reaches the board ─────────────────────────────────────
+/* Found 2026-09-15 by core-admin: 140 reports across all seven apps, not one carrying an image.
+   The browser uploads the picture on its own call and puts the url on the payload; this engine
+   forwarded six named fields and `screenshot_url` was not among them, so the upload succeeded,
+   the url arrived, and the report reached the board without it. Leaderboard hit the same thing
+   in its own copy (v1.841). Nothing about it was visible from either end: the uploader reported
+   success and the board simply showed a report with no picture. */
+console.log('\n1b. the screenshot survives the hand-off to GX Core');
+{
+  reset();
+  S.reportBug_({ token: tok(), title: 'Progress shows zero units', desc: 'all stores',
+                 screenshot_url: 'https://drive.google.com/file/d/abc123/view' });
+  eq(ingest.payload.screenshot_url, 'https://drive.google.com/file/d/abc123/view',
+     'the Drive url is forwarded, not dropped one line short of the board');
+  reset();
+  S.reportBug_({ token: tok(), title: 'no picture this time' });
+  eq(ingest.payload.screenshot_url, '', 'a report with no screenshot sends an empty string, not undefined');
+}
+
 // ── 2. the client cannot change where a report lands ─────────────────────────
 console.log('\n2. bucketing is hardcoded, never taken from the caller');
 {

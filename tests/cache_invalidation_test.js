@@ -25,6 +25,13 @@
  * SO: this file names every function that writes to the programs sheet and insists each one busts
  * the cache. A new writer added later fails here rather than in six months, on a record somebody
  * is trying to reconcile against a vendor invoice.
+ *
+ * SOURCE-SHAPED: the legitimate case rather than a shortcut — the claim is that EVERY
+ * writer calls invalidatePrograms_, including writers nobody has written yet. An executed test can
+ * only ever prove it for the writers it thought to call, which is exactly the writer that will not
+ * be the one that forgets. The converted files each prove their own cache bust against a real
+ * cache (see rename, delete, save and record-actuals); this is the scan that catches the next one.
+ * Declared under the rule in suite_shape_test.js.
  */
 'use strict';
 const fs = require('fs');

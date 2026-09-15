@@ -5067,7 +5067,14 @@ function reportBug_(p) {
       priority: String(p.priority || 'normal'),
       tab:      'spiff',
       appVer:   String(p.appVer || ''),
-      context:  String(p.context || '')
+      context:  String(p.context || ''),
+      /* THE SCREENSHOT, which this dropped one line short of the board (2026-09-15, found by
+         core-admin: 140 reports across seven apps and not one carried an image). The browser
+         uploads the picture to Drive on its own call and puts the url on the payload as
+         `screenshot_url`; this forwarded six named fields and that was not among them, so the
+         upload succeeded, the url arrived here, and the board never saw it. Leaderboard fixed its
+         own copy in v1.841 and is the shape this follows. */
+      screenshot_url: String(p.screenshot_url || '')
     });
   } catch (e) {
     bugUnfiled_(auth.user, p, title, desc,

@@ -30,6 +30,12 @@
  * So: scan with a real tokenizer that knows regex-vs-division, and assert line alignment survives
  * it — a stripper that collapses newlines reports every line number wrong, which is how the same
  * bug hid the first time.
+ *
+ * SOURCE-SHAPED: by nature, and the one file where that is the whole point — it is a STATIC ANALYZER.
+ * It tokenizes spiff.js and Code.gs and checks that every name called is a name defined — a
+ * question about the text, which no amount of running can answer, because the missing function
+ * only throws on the one path that reaches it. That is how pullReference() stayed deleted and
+ * called for days without a single error anyone saw. Declared under the rule in suite_shape_test.js.
  */
 'use strict';
 const fs = require('fs');

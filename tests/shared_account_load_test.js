@@ -14,6 +14,11 @@
  *   3. The hourly job ran 13 times in 4 hours, with nothing stopping two runs overlapping.
  *
  * This pins the three fixes. Each assertion names what would make it fail.
+ *
+ * SOURCE-SHAPED: the subject is how MANY calls this app makes and how often its triggers fire —
+ * counted across the source, because the cost is the arrangement rather than any answer. Running
+ * it would need the shared Google account under load, which is the condition being avoided.
+ * Declared under the rule in suite_shape_test.js.
  */
 'use strict';
 const fs = require('fs');

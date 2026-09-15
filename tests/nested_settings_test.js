@@ -63,11 +63,55 @@ const wire = grab('wireSettings');
 ok('wireSettings binds it to openSettings — the same dialog, not a copy',
    /#btnSettingsNested/.test(wire) && /addEventListener\('click', openSettings\)/.test(wire));
 
-/* ══════════════════ 3. WHO GETS IT ══════════════════ */
-const sync = grab('syncNestedSettings');
-ok('syncNestedSettings shows it only to a signed-in editor', /session\(\)/.test(sync) && /canEdit\(\)/.test(sync));
-ok('  …the same predicate the chip menu uses for its Settings row',
-   /if \(canEdit\(\)\) items\.push\(\{ action: 'settings'/.test(grab('menuItems')));
+/* ══════════════════ 3. WHO GETS IT ══════════════════
+   RUN, not read (2026-09-15): both doors decide from the same session, and "the same predicate"
+   is a claim a regex can only make about spelling. syncNestedSettings and menuItems are lifted out
+   of spiff.js and given a two-property element and a session — the whole browser they need. */
+function doors(session) {
+  const button = { id: 'btnSettingsNested', hidden: true };
+  const api = new Function('$', 'session', 'canEdit', 'APP_VERSION', [
+    grab('syncNestedSettings'), grab('menuItems'),
+    'return { syncNestedSettings: syncNestedSettings, menuItems: menuItems };',
+  ].join('\n'))(
+    (sel) => (sel === '#btnSettingsNested' ? button : null),
+    () => session,
+    () => !!session && ['admin', 'editor', 'director'].indexOf(session.role) >= 0,
+    'v1.423');
+  return { api, button,
+           /* What the chip menu offers, as labels — the standalone door. */
+           menu: () => api.menuItems(null).map(x => x.action || '').filter(Boolean) };
+}
+{
+  const editor = doors({ user: 'tawny', role: 'editor' });
+  editor.api.syncNestedSettings();
+  ok('an editor is offered the nested gear', editor.button.hidden === false);
+  ok('  …and the Settings row in the chip menu, which is the standalone door',
+     editor.menu().indexOf('settings') >= 0);
+
+  const viewer = doors({ user: 'gx-dev', role: 'viewer' });
+  viewer.api.syncNestedSettings();
+  ok('a viewer is offered neither', viewer.button.hidden === true
+     && viewer.menu().indexOf('settings') < 0);
+
+  const out = doors(null);
+  out.api.syncNestedSettings();
+  ok('signed out, neither', out.button.hidden === true && out.menu().indexOf('settings') < 0);
+
+  /* The two doors cannot disagree — that is the whole reason they share canEdit. */
+  ['admin', 'editor', 'director', 'viewer', 'nonsense'].forEach(role => {
+    const d = doors({ user: 'x', role: role });
+    d.api.syncNestedSettings();
+    ok('the gear and the menu agree for role "' + role + '"',
+       (d.button.hidden === false) === (d.menu().indexOf('settings') >= 0));
+  });
+  /* An unknown role fails safe to read-only, the same way roleCanEdit does. */
+  const odd = doors({ user: 'x', role: 'superuser' });
+  odd.api.syncNestedSettings();
+  ok('an unknown role is offered nothing, rather than treated as an editor', odd.button.hidden === true);
+}
+/* Where the sync is CALLED from stays source-shaped: renderAuthChip paints the shared chip through
+   gx-topnav, which is loaded from Pages at runtime and not present here. What matters is that the
+   call sits before the early returns, or a session change would leave the gear behind. */
 const chip = grab('renderAuthChip');
 const syncAt = chip.indexOf('syncNestedSettings()'), firstReturn = chip.indexOf('return;');
 ok('renderAuthChip re-syncs it on every session change, before any early return',

@@ -17,6 +17,13 @@
  * THE SECOND HALF MATTERS AS MUCH. This now runs after every save, and rebuilding a <select>
  * drops its selection — so saving while looking at one program's grid would silently swing
  * Progress onto whichever program is running. A refill must not move you.
+ *
+ * SOURCE-SHAPED: every subject here is a browser function that paints <select> options and rebinds
+ * handlers — fillProgramPickers, saveEverything's repaint, the vendor typeahead. A DOM stub big
+ * enough to run them would be a second implementation of the browser to keep correct, and the
+ * thing being checked is that a save CALLS the repaint, which a stub answers by construction. The
+ * ENGINE half of a rename is executed end to end in rename_program_id_test.js. Verified in the
+ * browser instead when this ships. Declared under the rule in suite_shape_test.js.
  */
 'use strict';
 const fs = require('fs');

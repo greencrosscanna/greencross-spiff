@@ -22,6 +22,14 @@
  *
  * NO HARDCODED STORE TABLE. The suite rule: a cache expires and refreshes itself, a local table
  * silently outlives a Command Center edit. This checks the app did not grow one.
+ *
+ * SOURCE-SHAPED: boot() and startChrome() are the app's own start-up — they read the DOM, mount the
+ * shared chrome and fire the parallel loads, so running them here would mean standing up a browser
+ * for the privilege of watching four stubs get called. What this file holds is the SHAPE of the
+ * path (one stores call, cache first, nothing queued behind Core), which is a fact about how the
+ * calls are arranged rather than about a value any of them returns. The pieces that DO compute
+ * something — the pay-period grid, the store cache — are executed in window_and_goal_test.js and
+ * store_cache_fallback_test.js. Declared under the rule in suite_shape_test.js.
  */
 'use strict';
 const fs = require('fs');
