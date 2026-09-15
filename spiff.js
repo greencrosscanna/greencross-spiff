@@ -3220,7 +3220,7 @@
             ? esc(pick.catErr)
             : pick.loading
               ? 'Loading the product list from Dutchie&hellip;'
-              : 'No vendor in stock matches that.') + '</div>';
+              : 'No brand in stock matches that.') + '</div>';
       if (pick.stale) vMenu.innerHTML += '<div class="sp-pick-empty">Dutchie is not answering &mdash; '
         + 'this is the last product list that read cleanly, so stock and cost may be out of date.</div>';
     }
@@ -3255,7 +3255,7 @@
           + '<span class="sp-pick-check">' + (allOn ? '&#10003;' : '') + '</span>'
           + '<div class="sp-pick-body"><div class="sp-pick-1">'
           +   '<span class="sp-pick-name">All ' + esc(brandNow) + ' products</span></div>'
-          + '<div class="sp-pick-2">the SPIFF covers everything from this vendor, including lines '
+          + '<div class="sp-pick-2">the SPIFF covers everything from this brand, including lines '
           +   'added while it runs</div></div></div>'
         : '';
       var note = pickNote
@@ -3263,7 +3263,7 @@
 
       if (!groups.length) {
         pMenu.innerHTML = head + note + '<div class="sp-pick-empty">Nothing in stock matches that for '
-          + esc(pick.brand || 'this vendor') + '.</div>';
+          + esc(pick.brand || 'this brand') + '.</div>';
         return;
       }
       pMenu.innerHTML = head + note + groups.slice(0, 60).map(function (g, gi) {
@@ -3396,7 +3396,7 @@
       var body;
       if (c.all) {
         body = '<div class="sp-chosen-n">' + esc(c.label) + '</div>'
-             + '<div class="sp-chosen-m">every product we carry from this vendor'
+             + '<div class="sp-chosen-m">every product we carry from this brand'
              + (c.skus ? ' &mdash; ' + c.skus + ' in stock right now' : '')
              + ' &middot; new lines count automatically</div>';
       } else {
@@ -3489,7 +3489,7 @@
       renderChosen();
       pEl.disabled = false;
       pEl.placeholder = 'Search ' + name + '’s products…';
-      /* The hint is static markup reading "Pick a vendor first." — true before a vendor is
+      /* The hint is static markup reading "Pick a brand first." — true before a brand is
          chosen and stale advice the moment one is, which is exactly when somebody reads it. */
       if (hintEl) hintEl.textContent = 'Or leave it blank to cover everything from ' + name + '.';
       if (cfg.onVendor) cfg.onVendor(name);
@@ -3574,7 +3574,7 @@
       pEl.disabled = !name;
       if (hintEl) hintEl.textContent = name
         ? 'Or leave it blank to cover everything from ' + name + '.'
-        : 'Pick a vendor first.';
+        : 'Pick a brand first.';
       if (!name) return;
       pEl.placeholder = 'Search ' + name + '’s products…';
       /* Await, then paint if the menu is open by the time it lands. The mount callback above

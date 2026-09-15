@@ -55,8 +55,8 @@ function grab(name) {
 const deal = html.slice(html.indexOf('<h4 class="sp-h4">The deal</h4>'),
                         html.indexOf('id="calcGoalWrap"'));
 const at = (needle) => deal.indexOf(needle);
-ok('Vendor comes first in "The deal"',
-   at('<span>Vendor</span>') < at('<span>Program name</span>'));
+ok('Brand comes first in "The deal"',
+   at('<span>Brand</span>') < at('<span>Program name</span>'));
 ok('  …then the program name',
    at('<span>Program name</span>') < at('id="calcWhenHost"'));
 ok('  …then the program date',
@@ -65,10 +65,10 @@ ok('  …then the featured product',
    at('<span>Featured product</span>') < at('<span>Payout</span>'));
 ok('  …then the payout, with the goal after the whole block',
    at('<span>Payout</span>') > 0 && html.indexOf('id="calcGoalWrap"') > html.indexOf('<span>Payout</span>'));
-ok('the vendor field spans the row it now leads',
-   /class="sp-fld is-wide sp-pick"><span>Vendor<\/span>/.test(deal));
-ok('the name box asks for the program only, not the vendor too',
-   /id="cName" placeholder="Cloud Bars"/.test(deal) && /The vendor is added in front/.test(deal));
+ok('the brand field spans the row it now leads',
+   /class="sp-fld is-wide sp-pick"><span>Brand<\/span>/.test(deal));
+ok('the name box asks for the program only, not the brand too',
+   /id="cName" placeholder="Cloud Bars"/.test(deal) && /The brand is added in front/.test(deal));
 /* display:contents, or the select and its full-width note collapse into one grid cell. */
 ok('the when-host dissolves into the field grid rather than boxing its contents',
    /#calcWhenHost \{ display: contents; \}/.test(fs.readFileSync(__dirname + '/../spiff.css', 'utf8')));
