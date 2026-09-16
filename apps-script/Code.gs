@@ -2731,6 +2731,16 @@ function publishSpiffToCore_(opts) {
       refreshed_at: rows.reduce(function (n, r) {
         var t = String(r.refreshed_at || ''); return t > n ? t : n;
       }, ''),
+      /* The floor, scoped to this period's rows the same way the ceiling above is. It has to be
+         computed again here rather than copied off `all`, because `all` spans every period and a
+         consumer holding ONE publication would otherwise be told about staleness in a fortnight it
+         has no rows for. Present because the payload's promise is "the same keys ?action=progress
+         returns" — a field on one and not the other breaks exactly that, and this is the path the
+         kiosk board actually reads. */
+      oldest_refreshed_at: rows.reduce(function (o, r) {
+        var t = String(r.refreshed_at || '');
+        return t && (!o || t < o) ? t : o;
+      }, ''),
       /* Carried through verbatim: they describe the whole cache, not this slice, and a consumer
          that wants to refuse a payload with orphans needs to see them. */
       orphan_rows: all.orphan_rows || 0,
@@ -3294,7 +3304,15 @@ function spiffProgress_(p) {
   /* One roster read for the whole response, not one per row. See displayNameMap_. */
   var nameMap = displayNameMap_();
 
-  var rows = [], newest = '', orphans = Object.create(null), orphanRows = 0;
+  /* `oldest` beside `newest` (2026-09-16). `refreshed_at` is a MAXIMUM across the rows, so it
+     answers "when was any of this last touched" while reading like "how fresh is this". One store
+     that did not refresh hides behind five that did: the summary says just now, and the stale
+     store's own row carries the truth that nobody looks at. That was survivable while a store only
+     went unrefreshed by accident, but the sweep now skips stores DELIBERATELY when it runs out of
+     clock (SWEEP_WORK_MS), so the quiet case is the expected one. Additive on purpose — nothing
+     reads `oldest_refreshed_at` yet, no consumer has to change, and the honest floor is finally
+     available to the ones that want it. Pinned by tests/progress_cache_test.js. */
+  var rows = [], newest = '', oldest = '', orphans = Object.create(null), orphanRows = 0;
   vals.forEach(function (v) {
     var o = {};
     PROGRESS_HEADERS.forEach(function (h, i) { o[h] = v[i]; });
@@ -3334,6 +3352,10 @@ function spiffProgress_(p) {
     if (friendly) o.display_name = friendly;
     rows.push(o);
     if (o.refreshed_at > newest) newest = o.refreshed_at;
+    /* Guarded on truthiness, unlike `newest`. A blank stamp sorts below every real one, so an
+       unguarded minimum would latch on '' and report the payload as infinitely stale the first time
+       a row turned up without one — which is the same class of lie in the other direction. */
+    if (o.refreshed_at && (!oldest || o.refreshed_at < oldest)) oldest = o.refreshed_at;
   });
 
   /* One line per person, summed across programs — what Crew puts in the SPIFF column. Keyed on
@@ -3389,6 +3411,9 @@ function spiffProgress_(p) {
               the other breaks exactly that. */
            programs: programsFor_(rows),
            refreshed_at: newest,
+           /* The floor. `refreshed_at` stays the newest row so no consumer changes meaning under
+              them; this is the one to read to answer "is ANY of this stale". */
+           oldest_refreshed_at: oldest,
            orphan_program_ids: Object.keys(orphans), orphan_rows: orphanRows };
 }
 

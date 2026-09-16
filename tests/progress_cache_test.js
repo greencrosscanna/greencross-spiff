@@ -81,7 +81,10 @@ function load() {
     function listProgramsCached_() { return PROGRAMS(); }
     function sellthrough_(p) { return SELL(p); }
     function slug_(s) { return String(s || '').toLowerCase().trim().replace(/\\s+/g, '-'); }
-    function nowStamp_() { return '2026-08-27 12:00:00'; }
+    /* Movable so a test can run two sweeps an hour apart — which is what it takes to tell the
+       NEWEST row's stamp from the OLDEST one. Defaults to the fixed stamp every other assertion
+       in this file is written against. */
+    function nowStamp_() { return NOW(); }
     ${grab('payoutModelOf_')} ${grab('payoutRateOf_')}
     ${grab('progEarned_')} ${grab('stampOf_')} ${grab('textDate_')} ${grab('payPeriodMatches_')}
     ${grab('forceProgressTextDates_')} ${grab('refreshSpiffProgress_')}
@@ -106,9 +109,13 @@ function load() {
     const day = `${p.year}-${p.month}-${p.day}`;
     return fmt === 'yyyy-MM-dd' ? day : `${day} ${p.hour}:${p.minute}:${p.second}`;
   } };
-  return new Function('SHEET', 'PROGRAMS', 'SELL', 'PropertiesService', 'Utilities', 'Number', 'ROSTER', src)
-    (SHEET, (s) => PROGRAMS(s), (p) => SELL(p), PropertiesService, Utilities, Number, () => ROSTER);
+  return new Function('SHEET', 'PROGRAMS', 'SELL', 'PropertiesService', 'Utilities', 'Number', 'ROSTER', 'NOW', src)
+    (SHEET, (s) => PROGRAMS(s), (p) => SELL(p), PropertiesService, Utilities, Number, () => ROSTER, () => NOW);
 }
+
+/* The clock nowStamp_ reads. Fixed by default — every existing assertion in this file is written
+   against this exact stamp — and moved forward only by the freshness-floor section near the end. */
+let NOW = '2026-08-27 12:00:00';
 
 /* The roster displayNameMap_ reads. Empty by default: the baseline every existing assertion in
    this file relies on is that a name arrives exactly as Dutchie reported it. */
@@ -509,6 +516,57 @@ PROGRAMS = () => [RICH, Object.assign({}, RICH, { program_id: 'P2', program_name
 M = load();
 ok('only programs the rows actually belong to are described',
    M.spiffProgress_({}).programs.map(function (x) { return x.program_id; }).join() === 'P1');
+
+/* ── HOW STALE IS THE STALEST ROW (2026-09-16) ──
+   `refreshed_at` is a MAXIMUM, so it answers "when was any of this last touched" while being read
+   as "how fresh is this". One store that did not refresh hides behind the ones that did: the
+   summary says just now and the stale store's own row carries a truth nobody reads. It mattered
+   little while a store went unrefreshed only by accident; the sweep now skips stores deliberately
+   when it runs out of clock, so this is the expected case rather than the rare one. The kiosk
+   board staff read is drawn from this payload. */
+SHEET = makeSheet(HEADERS);
+PROGRAMS = () => [PROG];
+NOW = '2026-08-27 12:00:00';
+SELL = () => ({ ok: true, rows: [{ employee_id: 'a', name: 'A One', units: 6, target: 5, hit: true }] });
+M = load();
+M.refreshSpiffProgress_();                       // both stores measured at noon
+
+/* An hour later, one store does not answer — the exact shape of a budget-skipped store, which is
+   written the same way: not written at all, keeping the rows it already had. */
+NOW = '2026-08-27 13:00:00';
+SELL = (p) => p.store === 'bend'
+  ? { ok: false, error: 'GX Core unreachable' }
+  : { ok: true, rows: [{ employee_id: 'c', name: 'C Three', units: 9, target: 5, hit: true }] };
+M = load();
+M.refreshSpiffProgress_();
+
+read = M.spiffProgress_({ secret: 'SEKRET' });
+ok('refreshed_at still reports the newest row, so no consumer changes meaning under them',
+   read.refreshed_at === '2026-08-27 13:00:00');
+ok('…and the floor reports the stalest one (fails if one stale store hides behind a fresh one)',
+   read.oldest_refreshed_at === '2026-08-27 12:00:00');
+ok('the stale store really is the old one, not a relabeled fresh row',
+   read.rows.filter(x => x.store_id === 'bend')[0].refreshed_at === '2026-08-27 12:00:00');
+
+/* When everything refreshed together the two agree — a floor that always lags would be its own
+   false alarm, and a kiosk that cries stale every hour gets ignored. */
+NOW = '2026-08-27 14:00:00';
+SELL = () => ({ ok: true, rows: [{ employee_id: 'a', name: 'A One', units: 6, target: 5, hit: true }] });
+M = load();
+M.refreshSpiffProgress_();
+read = M.spiffProgress_({ secret: 'SEKRET' });
+ok('a fully refreshed payload reports the same stamp both ways',
+   read.refreshed_at === '2026-08-27 14:00:00' &&
+   read.oldest_refreshed_at === '2026-08-27 14:00:00');
+
+/* A blank stamp sorts below every real one, so an unguarded minimum would latch on '' and call a
+   healthy payload infinitely stale — the same lie in the other direction. */
+SHEET.rows.push(HEADERS.map(h => h === 'program_id' ? 'P1'
+  : h === 'store_id' ? 'bend' : h === 'refreshed_at' ? '' : h === 'name' ? 'D Four' : ''));
+M = load();
+read = M.spiffProgress_({ secret: 'SEKRET' });
+ok('a row with no stamp at all does not drag the floor to empty',
+   read.oldest_refreshed_at === '2026-08-27 14:00:00');
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nprogress cache: all passed');
 process.exit(fail ? 1 : 0);

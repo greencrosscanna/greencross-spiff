@@ -225,11 +225,19 @@ ok('  …and the fallback is the value live today, so a hiccup does not move the
      aug.by_employee.reduce((a, e) => a + e.earned, 0) === 9);
 
   /* The shape steps 3 and 4 are supposed to read without rewriting a parser. */
-  ['ok', 'pay_period', 'rows', 'by_employee', 'programs', 'refreshed_at',
+  ['ok', 'pay_period', 'rows', 'by_employee', 'programs', 'refreshed_at', 'oldest_refreshed_at',
    'orphan_rows', 'orphan_program_ids', 'published_by', 'published_at'].forEach(k =>
     ok('the payload carries `' + k + '`, as ?action=progress does', k in aug));
   ok('refreshed_at is the NEWEST row\'s stamp, so a consumer can age the whole payload',
      aug.refreshed_at === '2026-09-15 09:30:00');
+  /* THE FLOOR, and it has to be computed per SCOPE rather than copied off the whole cache — a
+     consumer holding one publication must not be told about staleness in a fortnight it has no
+     rows for. Without it a store the sweep skipped hides behind the ones it refreshed: the payload
+     reads as fresh as its newest row, and the kiosk draws hour-old numbers as current. */
+  ok('oldest_refreshed_at is the STALEST row\'s stamp, not the newest',
+     aug.oldest_refreshed_at === '2026-09-15 08:00:00');
+  ok('  …and is scoped to this period\'s rows, so one fortnight cannot age another',
+     sep.oldest_refreshed_at === '2026-09-15 08:00:00' && sep.refreshed_at === '2026-09-15 08:00:00');
   ok('who published and when are inside the payload, not only on Core\'s row',
      aug.published_by === 'spiff' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(aug.published_at));
   ok('orphan counts travel with it, so a consumer can refuse a payload it cannot vouch for',
