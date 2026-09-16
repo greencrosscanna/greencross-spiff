@@ -1657,7 +1657,7 @@ function progEarned_(prog, units, hit) {
  * sweep is ~9s per store per program and /exec dies at 60s, while a trigger gets six minutes.
  * `only` limits it to one program_id, which is what the on-demand refresh uses.
  */
-function refreshSpiffProgress_(only, onlyStore) {
+function refreshSpiffProgress_(only, onlyStore, opts) {
   /* The hourly sweep is ACTIVE-only, deliberately — closed programs do not move and re-measuring
      22 of them every hour is pure cost. But a program named EXPLICITLY is swept whatever its
      status: a vendor report is sent AFTER close, and the per-store breakdown on it has to come
@@ -1667,7 +1667,29 @@ function refreshSpiffProgress_(only, onlyStore) {
     return !only || String(p.program_id) === String(only);
   });
   var now = nowStamp_();
-  var written = [], failures = [];
+  var written = [], failures = [], skipped = [];
+
+  /* ── STOP ON THE CLOCK (2026-09-16) ──────────────────────────────────────────────────────────
+     Each store below is one HTTP call to GX Core, made one at a time, and the sweep does nothing
+     but wait for it. So this loop's duration is not a measure of how much work there is — it is a
+     readout of how slow Core is this hour. A week of hourly runs published the IDENTICAL result
+     (38 / 35 / 20 rows) in anywhere from 50s to 636.6s: same work, twelve times the wall clock.
+     Core is slowest exactly when the shared 30-execution account is busiest, so an unbounded sweep
+     made SPIFF hold its slot longest at the worst possible moment, firing more Core calls while it
+     waited. Two runs outlived the lease that is meant to keep one copy running (Sep 14 at 636.6s,
+     Sep 16 at 526.4s).
+
+     `deadline` is an ABSOLUTE stamp measured from the START OF THE RUN, not from the start of this
+     loop — the freeze phase ahead of it has its own budget, and what has to be bounded is the run.
+     The hourly trigger is the only caller that passes one; the manual single-store refresh is one
+     read that a human is waiting on, and truncating that would be a bug rather than a mercy.
+
+     WHAT A SKIPPED STORE COSTS, and it is the reason this is safe: nothing is deleted for it. The
+     replace below is scoped to the program+store pairs that actually came back, so a store this
+     loop never reaches keeps the rows it already had — exactly what a FAILED store has always
+     done. A store that did not answer is not a store that sold nothing. The price is a figure an
+     hour staler, which every consumer already reads off `age_minutes`. */
+  var deadline = Number((opts || {}).deadline) || 0;
 
   programs.forEach(function (prog) {
     var stores = prog.stores_json || [];
@@ -1675,6 +1697,13 @@ function refreshSpiffProgress_(only, onlyStore) {
       var slug = slug_(store && store.store_id ? store.store_id : store);
       if (!slug) return;
       if (onlyStore && slug !== slug_(onlyStore)) return;
+      /* Checked before the call rather than after, so the budget bounds what the run STARTS. The
+         loop still runs to the end — it costs nothing without a fetch, and finishing it is what
+         makes `skipped` a list of what was missed instead of a count that stops at the first one. */
+      if (deadline && Date.now() > deadline) {
+        skipped.push({ program_id: prog.program_id, store: slug });
+        return;
+      }
       var r;
       try { r = sellthrough_({ id: prog.program_id, store: slug }); }
       catch (e) { r = { ok: false, error: scrubSecrets_((e && e.message) || e) }; }
@@ -1725,6 +1754,11 @@ function refreshSpiffProgress_(only, onlyStore) {
   });
   return { ok: true, programs: programs.length, rows: written.length,
            failures: failures, refreshed_at: now,
+           /* Kept apart from `failures` on purpose. A failure is a store that answered badly and
+              will be retried next hour; a skip is a store that was never asked because the run ran
+              out of clock. They need different reactions, and a count that merges them would hide
+              a Core outage inside a busy afternoon. */
+           skipped: skipped, out_of_budget: skipped.length > 0,
            swept: seen, all_programs_by_status: byStatus };
 }
 
@@ -2802,10 +2836,33 @@ function dedupe_(a) {
 
    A LEASE IN A PROPERTY, NOT A SCRIPT LOCK HELD FOR THE RUN. The script lock is one lock for the
    whole project, so holding it for four minutes would block anything else that ever takes it (the
-   bug-mail dedupe does today). And a lease has an expiry, so a run killed at Google's six-minute
-   limit cannot wedge the job for good: after SWEEP_LEASE_MS the next hour takes over. */
+   bug-mail dedupe does today). And a lease has an expiry, so a run that dies without releasing
+   cannot wedge the job for good: after SWEEP_LEASE_MS the next hour takes over.
+
+   THE LEASE MUST OUTLIVE THE LONGEST RUN THAT IS STILL WORKING, and for a week it did not
+   (corrected 2026-09-16). It was 7 minutes, chosen against "a run takes up to ~4 minutes". Two runs
+   then took 636.6s (Sep 14) and 526.4s (Sep 16) — both finished normally, both outlived the lease,
+   and for those minutes the one-run-at-a-time guarantee was simply not held. Nothing collided,
+   because the runs are an hour apart and releaseSweepLease_ only ever clears its own; the guarantee
+   lapsed quietly rather than failing loudly, which is the kind of wrong you only find by looking.
+
+   The reasoning had a hole worth naming: it assumed the worst case was bounded by "a run killed at
+   Google's six-minute limit". THAT LIMIT DOES NOT APPLY HERE — this account gets thirty minutes for
+   a trigger, which is exactly why a 636-second run completed instead of being cut off. Nothing was
+   going to stop a slow sweep on its own, so the sweep now stops itself (SWEEP_WORK_MS, read by
+   refreshSpiffProgressTrigger) and the lease is set from that bound rather than from a guess:
+
+     SWEEP_WORK_MS   the sweep starts no NEW store read past this point into the run.
+     + one in-flight read   a single Core call is itself capped (GXCORE_FETCH_BUDGET_MS, 3 attempts)
+     + the publish          one more Core call at the end of the run
+     = SWEEP_LEASE_MS, with headroom, and comfortably under the hour between runs so a hung run is
+       still taken over by the next one.
+
+   Derived, not typed twice: widening the work bound without widening the lease would put the
+   lapse straight back. Pinned by tests/shared_account_load_test.js. */
 var SWEEP_LEASE_PROP = 'SWEEP_RUNNING_UNTIL';
-var SWEEP_LEASE_MS = 7 * 60 * 1000;
+var SWEEP_WORK_MS = 6 * 60 * 1000;
+var SWEEP_LEASE_MS = SWEEP_WORK_MS + 6 * 60 * 1000;
 
 function takeSweepLease_() {
   var props = PropertiesService.getScriptProperties();
@@ -2839,6 +2896,9 @@ function releaseSweepLease_(mine) {
 }
 
 function refreshSpiffProgressTrigger() {
+  /* Taken BEFORE the lease, so the sweep's deadline is measured from the start of the whole run —
+     the freeze and the audit ahead of it spend from the same budget. */
+  var runStart = Date.now();
   var lease = takeSweepLease_();
   if (!lease) return;
   try {
@@ -2892,7 +2952,17 @@ function refreshSpiffProgressTrigger() {
        refresh and the publish below it. */
     try { runPayoutAuditDaily_(); }
     catch (e) { console.warn('[spiff] payout audit failed: ' + ((e && e.message) || e)); }
-    refreshSpiffProgress_();
+    /* SAY IT WHEN THE CLOCK BIT. A truncated sweep is invisible from the outside — the rows it
+       skipped still hold last hour's figures, which is the whole point of stopping this way, and
+       the publish below still succeeds. So the only trace it leaves is this line, and without it a
+       sweep that had been running out of time for weeks would read exactly like a healthy one. */
+    var swept = refreshSpiffProgress_('', '', { deadline: runStart + SWEEP_WORK_MS });
+    if (swept && swept.out_of_budget) {
+      console.warn('[spiff] sweep ran out of time after '
+                   + Math.round((Date.now() - runStart) / 1000) + 's — '
+                   + swept.skipped.length + ' store read(s) not made, keeping the previous hour: '
+                   + swept.skipped.map(function (x) { return x.program_id + '/' + x.store; }).join(', '));
+    }
     /* PUBLISH LAST, after the cache has this hour's numbers in it. Wrapped so a Core outage costs
        the publish and not the refresh: the cache is this app's own source of truth and must land
        even when the hand-off cannot. A consumer sees the age go up, which is exactly what

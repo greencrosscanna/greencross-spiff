@@ -101,12 +101,17 @@ console.log('\n2. the hourly job takes a lease, and the installer is locked');
   const LockService = { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) };
   let ran = 0, inner = null;
   const src = [
-    line(gs, /^var SWEEP_LEASE_PROP\s*=.*$/m), line(gs, /^var SWEEP_LEASE_MS\s*=.*$/m),
+    line(gs, /^var SWEEP_LEASE_PROP\s*=.*$/m),
+    /* SWEEP_WORK_MS comes first because SWEEP_LEASE_MS is DERIVED from it — the lease is deliberately
+       not a second hand-typed number that can drift below the bound it is supposed to outlive. */
+    line(gs, /^var SWEEP_WORK_MS\s*=.*$/m), line(gs, /^var SWEEP_LEASE_MS\s*=.*$/m),
     grab(gs, 'takeSweepLease_'), grab(gs, 'releaseSweepLease_'),
     grab(gs, 'refreshSpiffProgressTrigger')
-      // Replace the work with a probe that tries to start a SECOND run while the first is inside.
-      .replace(/\{\n  var lease = takeSweepLease_\(\);\n  if \(!lease\) return;\n  try \{[\s\S]*\n  \} finally \{/,
-               '{\n  var lease = takeSweepLease_();\n  if (!lease) return;\n  try { work(); } finally {'),
+      /* Replace the work with a probe that tries to start a SECOND run while the first is inside.
+         Anchored on try/finally rather than on the exact preamble: the old pattern spelled out
+         every line above `try {`, so adding one (`var runStart`) silently made the replace a no-op
+         and ran the real body instead of the probe — a test that stops testing without failing. */
+      .replace(/try \{[\s\S]*\n  \} finally \{/, 'try { work(); } finally {'),
     'return refreshSpiffProgressTrigger;',
   ].join('\n');
   const quiet = { warn() {}, log() {} };
@@ -133,6 +138,34 @@ console.log('\n2. the hourly job takes a lease, and the installer is locked');
   ok('the installer takes the script lock around delete-then-create', /tryLock\(/.test(inst) && /releaseLock\(\)/.test(inst));
   ok('diag reports how many copies of the trigger exist, not just whether one does',
      /hourlyTriggerCopies/.test(grab(gs, 'diag_')));
+
+  /* ── the lease has to outlive a run that is still working (2026-09-16) ──────────────────────
+     It did not, for a week. At 7 minutes against an unbounded sweep, the runs of Sep 14 (636.6s)
+     and Sep 16 (526.4s) both finished normally having outlived their own lease — no collision,
+     because the runs are an hour apart, but no guarantee either. These pin the shape of the fix
+     rather than the numbers alone: the work is bounded, and the lease is derived from that bound. */
+  const W = new Function(line(gs, /^var SWEEP_WORK_MS\s*=.*$/m) + '\n'
+                       + line(gs, /^var SWEEP_LEASE_MS\s*=.*$/m)
+                       + '\nreturn { work: SWEEP_WORK_MS, lease: SWEEP_LEASE_MS };')();
+  const LONGEST_OBSERVED_MS = 636600;          // Sep 14 2026, the worst of 168 runs that week
+  ok('the sweep has a work bound at all (fails if SWEEP_WORK_MS is removed)', W.work > 0);
+  ok('the lease outlives the work bound (fails if they are typed independently and drift)',
+     W.lease > W.work);
+  ok('…with room for the last in-flight read and the publish after it',
+     W.lease - W.work >= 4 * 60 * 1000);
+  ok('the lease clears the longest run ever actually seen (636.6s)', W.lease > LONGEST_OBSERVED_MS);
+  ok('…and still expires well inside the hour between runs, so a dead run is taken over',
+     W.lease < 55 * 60 * 1000);
+
+  const trg = grab(gs, 'refreshSpiffProgressTrigger');
+  ok('the run measures its deadline from the START of the run, not from the sweep',
+     /var runStart = Date\.now\(\);/.test(trg) && /deadline: runStart \+ SWEEP_WORK_MS/.test(trg));
+  ok('a truncated sweep is logged (fails if a sweep can quietly stop refreshing stores)',
+     /out_of_budget/.test(trg) && /console\.warn/.test(trg));
+
+  /* The manual path must NOT inherit the budget — one store, a human waiting on it. */
+  ok('the manual single-store refresh passes no deadline',
+     /refreshSpiffProgress_\(p\.program \|\| '', p\.store\)/.test(gs));
 }
 
 /* ── 3. the browser never fans stores out six wide ───────────────────────────────────────────── */

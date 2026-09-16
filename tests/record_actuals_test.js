@@ -171,8 +171,12 @@ const FOUR = [
 }
 /* Where it runs from. Both are wiring rather than computation: the trigger's ORDER (freeze, then
    record, then refresh) and the route's gate live in functions whose other halves reach Google. */
+/* `refreshSpiffProgress_\(` and not `refreshSpiffProgress_\(\)`. The empty parens were never part of
+   the claim — the claim is that the record runs between the freeze and the refresh — but spelling
+   them made the test fail the moment the sweep took an argument (the clock budget, 2026-09-16), and
+   fail by reporting a broken ORDER, which was never what changed. Same lesson as the note below. */
 ok('the hourly trigger records, straight after the freeze and before the refresh',
-   /snapshot failed[\s\S]*recordMeasuredActuals_\(\{ apply: true \}\)[\s\S]*refreshSpiffProgress_\(\)/
+   /snapshot failed[\s\S]*recordMeasuredActuals_\(\{ apply: true \}\)[\s\S]*refreshSpiffProgress_\(/
      .test(G.grab('refreshSpiffProgressTrigger')));
 /* Read as the PARSED list. This was `/'recordActuals'\];/` — the action followed by the closing
    bracket — which stopped being true the moment another action was appended after it (auditPayouts,
