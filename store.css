@@ -1,142 +1,272 @@
-/* GX SPIFF — the kiosk view.
-   Built on flyer.css (same tokens, same card language) and only adds what a WALL SCREEN needs
-   that a phone does not: bigger type, more than one program at a time, and a tip list.
+/* GX SPIFF — the kiosk board.
+ *
+ * Redesigned 2026-09-16 from design_handoff_spiff_kiosk_board. Three stacked panels in one
+ * 720px column: what is running, where everyone stands, how to sell it. The board is the
+ * centerpiece — it used to be a footnote under the figures, and the board is what staff
+ * actually come to the screen for.
+ *
+ * ONE PROGRAM AT A TIME. The old `.st-wrap.is-multi` two-column grid and its 1100px media query
+ * are gone: only one program ever runs at a store, and a layout built for a case that does not
+ * happen is a layout nobody ever sees rendered.
+ *
+ * NO CHROME OF ITS OWN — no store name heading, no footer, no "as of" line. The kiosk opens this
+ * in a modal that already says "SPIFF · Century" with a Close button and a closing timer, and a
+ * page that repeats its own frame reads as two headers stacked.
+ *
+ * READ-ONLY AND NEVER TOUCHED. No hover states, no focus states, no controls, no links. Anything
+ * that looks tappable on a shared wall screen is a bug.
+ *
+ * Every color here is a token that EXISTS in gx-theme.css or spiff-tokens.css. flyer.css spent
+ * weeks rendering on --gx-panel / --gx-line / --gx-bg-soft, none of which are real, so each
+ * silently fell through to a literal fallback a shade off the rest of the suite. An undefined
+ * var() does not warn. The two raw hexes below are the partial bar fill, which lives in
+ * spiff-tokens.css only as half of the --sp-pace gradient, and the accent alphas gx-theme has
+ * no token for. */
 
-   Every color here is a token that EXISTS in gx-theme.css. flyer.css spent weeks rendering on
-   --gx-panel / --gx-line / --gx-bg-soft, none of which are real, so each silently fell through
-   to a literal fallback a shade off the rest of the suite. An undefined var() does not warn. */
-
-body.flyer.store { display: block; }
-
-.st-main { align-items: flex-start; padding: 22px 18px 40px; }
-
-.st-wrap { width: 100%; max-width: 900px; margin: 0 auto; }
-
-.st-top {
-  display: flex; align-items: baseline; gap: 12px;
-  margin: 0 0 14px; padding: 0 2px;
+body.flyer.store {
+  display: block;
+  font-family: var(--gx-font);
+  text-wrap: pretty;
 }
-.st-store {
-  font-family: Montserrat, Inter, system-ui, sans-serif;
-  font-weight: 800; font-size: 20px; letter-spacing: .01em;
-  color: var(--gx-text);
-}
-.st-count { font-size: 12px; color: var(--gx-text-mute); }
 
-.st-card {
+.st-main { align-items: flex-start; padding: 18px 16px 24px; }
+
+.st-wrap {
+  width: 100%; max-width: 720px; margin: 0 auto;
+  display: flex; flex-direction: column; gap: 12px;
+}
+
+/* Panels are flat. Separation is the border, never a shadow — a wall screen at an angle turns a
+   shadow into a smudge. */
+.st-card, .st-board, .st-tips, .st-msg {
   background: var(--gx-surface);
   border: 1px solid var(--gx-border);
-  border-radius: 16px;
-  padding: 20px 22px;
-  margin-bottom: 14px;
+  border-radius: var(--gx-radius-xl);
 }
 
-.st-head { margin-bottom: 16px; }
+/* ── 1. WHAT IS RUNNING ─────────────────────────────────────────────────────────────────────── */
+.st-card { padding: 18px 20px 20px; }
+
 .st-vendor {
-  font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
-  color: var(--gx-text-mute); margin-bottom: 4px;
-}
-.st-name {
-  font-family: Montserrat, Inter, system-ui, sans-serif;
-  font-weight: 900; font-size: 26px; line-height: 1.15; margin: 0 0 8px;
-  color: var(--gx-text);
-}
-.st-when { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.st-dates { font-size: 12px; color: var(--gx-text-mute); }
-
-.st-product {
-  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
-  padding: 11px 14px; margin-bottom: 14px;
-  background: var(--gx-bg); border: 1px solid var(--gx-border); border-radius: 10px;
-  font-size: 15px; color: var(--gx-text);
-}
-.st-product-l {
-  font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  font-size: 10px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase;
   color: var(--gx-text-mute);
 }
+.st-name {
+  font-family: var(--sp-display);
+  font-weight: 900; font-size: 30px; line-height: 1.12; letter-spacing: -.5px;
+  margin: 5px 0 0; color: var(--gx-text);
+}
+.st-when { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.st-live {
+  display: inline-flex; align-items: center;
+  padding: 4px 9px; border-radius: 5px;
+  background: rgba(74,222,128,.12); border: 1px solid rgba(74,222,128,.3);
+  font-size: 10px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase;
+  color: var(--gx-green-bright);
+}
+.st-dates { font-size: 12.5px; color: var(--gx-text-dim); font-variant-numeric: tabular-nums; }
 
-/* The numbers a budtender acts on. Two at most, deliberately — this is read from a few feet
-   away between customers, and a strip of six figures is a dashboard, not an instruction. */
-.st-figs { display: flex; gap: 12px; flex-wrap: wrap; }
+/* What to sell, in words — this screen has no filter to show. */
+.st-product {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  margin-top: 16px; padding: 12px 14px;
+  background: var(--sp-inset); border: 1px solid var(--gx-border); border-radius: 9px;
+}
+.st-product-l {
+  flex: none;
+  font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--gx-text-mute);
+}
+.st-product b { font-size: 15px; font-weight: 600; color: var(--gx-text); }
+
+/* THE THREE THINGS A BUDTENDER ACTS ON: what it pays, how far they have to go, how long they
+   have. Three and no more — this is read from a few feet away between customers, and a strip of
+   six figures is a dashboard, not an instruction. */
+.st-figs {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px;
+}
 .st-fig {
-  flex: 1 1 160px;
-  padding: 14px 16px;
-  background: var(--gx-bg); border: 1px solid var(--gx-border); border-radius: 12px;
+  padding: 15px 16px 14px;
+  background: var(--sp-inset); border: 1px solid var(--gx-border); border-radius: 9px;
 }
 .st-fig-v {
-  font-family: Montserrat, Inter, system-ui, sans-serif;
-  font-weight: 900; font-size: 34px; line-height: 1; color: var(--gx-text);
+  font-family: var(--sp-display);
+  font-weight: 900; font-size: 40px; line-height: 1; letter-spacing: -1px;
+  color: var(--gx-text); font-variant-numeric: tabular-nums;
 }
-.st-fig-l { margin-top: 5px; font-size: 12px; color: var(--gx-text-mute); }
+.st-fig-l { margin-top: 7px; font-size: 12px; line-height: 1.35; color: var(--gx-text-dim); }
 /* What it pays is the one figure worth color. */
-.st-fig.is-pay { border-color: var(--gx-green-line, var(--gx-border-strong)); }
+.st-fig.is-pay { border-color: rgba(74,222,128,.32); }
 .st-fig.is-pay .st-fig-v { color: var(--gx-green); }
+/* …and the clock is the one figure worth a warning, at three days out. */
+.st-fig.is-soon .st-fig-v { color: var(--gx-gold); }
 
-.st-store-goal { margin-top: 12px; font-size: 12.5px; color: var(--gx-text-mute); }
-.st-store-goal b { color: var(--gx-text); }
+/* ── 2. THE BOARD — the centerpiece ─────────────────────────────────────────────────────────── */
+.st-board { padding: 16px 20px 18px; }
+.st-board-h {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+}
+.st-board-t {
+  font-family: var(--sp-display);
+  font-weight: 800; font-size: 17px; letter-spacing: -.2px; color: var(--gx-text);
+}
+.st-board-n {
+  font-size: 12.5px; font-weight: 700; color: var(--gx-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.st-board-n.is-hit { color: var(--gx-green-bright); }
 
-.st-tips { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--gx-border); }
-.st-tips-h {
-  font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
-  color: var(--gx-text-mute); margin-bottom: 9px;
+/* The store's number is context, not a headline — nobody sells against a chain figure. A thin
+   track in the store's own registry color, above the rule that starts the people. */
+.st-store-row {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--sp-divider);
 }
-.st-tip-list { margin: 0; padding-left: 20px; }
-.st-tip-list li {
-  font-size: 15px; line-height: 1.5; color: var(--gx-text);
-  margin-bottom: 7px;
+.st-store-l {
+  flex: none;
+  font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--gx-text-mute);
 }
-.st-tip-list li::marker { color: var(--gx-green); }
+.st-store-bar {
+  flex: 1 1 auto; min-width: 40px; height: 5px;
+  border-radius: var(--gx-radius-pill); background: var(--gx-surface-3); overflow: hidden;
+}
+/* The store color comes from the GX Core registry via the payload, never hardcoded per screen —
+   a seventh store inherits its own without this file being opened. Green only if the registry
+   could not be read. */
+.st-store-bar > i {
+  display: block; height: 100%; border-radius: var(--gx-radius-pill);
+  background: var(--st-color, var(--gx-green));
+}
+.st-store-n {
+  flex: none;
+  font-size: 12.5px; color: var(--gx-text-dim); font-variant-numeric: tabular-nums;
+}
 
-/* ── THE TEAM ROWS ──────────────────────────────────────────────────────────────────────────
-   Read from across a shop floor, so the name and the number carry the weight and the bar is the
-   quick scan between them. A row that has hit turns green whole — at kiosk distance a small tick
-   is invisible. */
-.st-crew { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--gx-border); }
-.st-crew-h {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-  font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
-  color: var(--gx-text-mute); margin-bottom: 9px;
-}
-.st-crew-at { font-weight: 600; letter-spacing: .04em; text-transform: none; }
+.st-rows { display: flex; flex-direction: column; margin-top: 4px; }
+
+/* RANKED, one row per person at the store, everyone included — a board that lists only sellers
+   cannot tell you whether you are behind or simply missing.
+
+   The units column is a FIXED 64px, not auto: with auto, a two-digit leader resized its own row's
+   columns and knocked its bar ~10px off the axis of the rows below it, on a screen whose whole
+   job is row-to-row comparison. */
 .st-bt {
-  display: grid; grid-template-columns: minmax(90px, 1fr) minmax(60px, 2fr) auto;
-  align-items: center; gap: 10px; padding: 5px 0;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) minmax(52px, 1.5fr) 64px;
+  align-items: center; gap: 12px;
+  min-height: 46px; padding: 0 10px; margin: 0 -10px; border-radius: 7px;
 }
+.st-bt-r {
+  font-family: var(--sp-display);
+  font-weight: 800; font-size: 13px; text-align: right;
+  color: var(--gx-text-mute); font-variant-numeric: tabular-nums;
+}
+/* A name is never --gx-text-mute: at 16px on the panel that is ~3.2:1 and fails contrast. It is
+   the micro-label color, not a data color. Somebody at zero reads dim, not unreadable. */
 .st-bt-n {
-  font-size: 15px; color: var(--gx-text);
+  font-size: 16px; font-weight: 600; color: var(--gx-text-dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.st-bt-bar { height: 8px; border-radius: 999px; background: var(--gx-border); overflow: hidden; }
-.st-bt-bar i { display: block; height: 100%; background: var(--gx-green-dim); border-radius: 999px; }
-.st-bt-bar.is-none { visibility: hidden; }
-.st-bt-u { font-size: 15px; font-weight: 700; color: var(--gx-text); font-variant-numeric: tabular-nums; }
+.st-bt-bar {
+  height: 8px; border-radius: var(--gx-radius-pill);
+  background: var(--gx-surface-3); overflow: hidden;
+}
+.st-bt-bar > i {
+  display: block; height: 100%; border-radius: var(--gx-radius-pill);
+  background: var(--gx-surface-3);
+}
+.st-bt-u {
+  font-size: 16px; font-weight: 700; text-align: right;
+  color: var(--gx-text-dim); font-variant-numeric: tabular-nums;
+}
 .st-bt-u small { font-weight: 600; color: var(--gx-text-mute); }
-/* A NAME MUST NOT BE CLIPPED TO FIT A BAR. The popup the kiosk opens can be narrow, and at 375px
-   the three-way split cut "Jayce Alexander" to "Jayce Alex…" — which is the one thing on the row a
-   person scans for. The bar gives up its width first; it is the quick read, not the fact. */
-@media (max-width: 560px) {
-  .st-bt { grid-template-columns: minmax(0, 1fr) 70px auto; gap: 8px; }
-}
+
+/* Selling: the name comes up to full strength and the bar takes the flat half of the pace
+   gradient. #265939 is the dark stop of --sp-pace; gx-theme has no token for it alone, and
+   spiff.css carries the same literal for the same reason. */
+.st-bt.is-selling .st-bt-n,
+.st-bt.is-selling .st-bt-u { color: var(--gx-text); }
+.st-bt.is-selling .st-bt-bar > i { background: #265939; }
+
+/* Hit: the whole row goes green. At arm's reach a small tick is invisible — "done" has to be
+   readable as a shape, not found by squinting at an icon. */
+.st-bt.is-hit { background: var(--gx-green-soft); }
+.st-bt.is-hit .st-bt-r { color: var(--gx-green); }
 .st-bt.is-hit .st-bt-n,
-.st-bt.is-hit .st-bt-u { color: var(--gx-green); }
-.st-bt.is-hit .st-bt-bar i { background: var(--gx-green); }
-
-.st-foot { margin: 18px 2px 0; font-size: 12px; color: var(--gx-text-mute); }
-.st-foot b { color: var(--gx-text); }
-
-/* A kiosk is a big screen in landscape; a phone still has to work, because Tawny will open this
-   link to check what a store is showing. */
-@media (max-width: 560px) {
-  .st-name { font-size: 22px; }
-  .st-fig-v { font-size: 28px; }
-  .st-figs { flex-direction: column; }
+.st-bt.is-hit .st-bt-u { color: var(--gx-green-bright); }
+.st-bt.is-hit .st-bt-bar > i {
+  background: var(--sp-pace);
+  animation: gxaheadglow 2.6s ease-in-out infinite;
 }
-/* Wall screens: two programs side by side rather than one very wide card — but ONLY when there
-   are two. Applied unconditionally, a single running program got one column of a two-column grid
-   and rendered at half width with an empty half beside it, which reads as a card that failed to
-   load rather than a chain running one SPIFF. `is-multi` is set by store.js from the count. */
-@media (min-width: 1100px) {
-  .st-wrap.is-multi { max-width: 1180px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  .st-wrap.is-multi .st-top, .st-wrap.is-multi .st-foot { grid-column: 1 / -1; }
-  .st-wrap.is-multi .st-card { margin-bottom: 0; }
+
+/* ── 3. HOW TO SELL IT ──────────────────────────────────────────────────────────────────────── */
+.st-tips { padding: 16px 20px 18px; }
+.st-tips-h {
+  font-size: 10px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase;
+  color: var(--gx-text-mute);
+}
+.st-tip-list {
+  list-style: none; margin: 12px 0 0; padding: 0;
+  display: flex; flex-direction: column; gap: 11px;
+}
+.st-tip { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 10px; align-items: start; }
+.st-tip-n {
+  font-family: var(--sp-display);
+  font-weight: 800; font-size: 11px; line-height: 1.55;
+  color: var(--gx-green); font-variant-numeric: tabular-nums;
+}
+.st-tip-t { font-size: 15px; line-height: 1.55; color: var(--gx-text); }
+
+/* ── NOTHING RUNNING, AND EVERY OTHER MESSAGE ───────────────────────────────────────────────── */
+.st-msg { padding: 40px 28px; text-align: center; }
+.st-msg-h {
+  font-family: var(--sp-display);
+  font-weight: 800; font-size: 26px; letter-spacing: -.5px; color: var(--gx-text);
+}
+.st-msg-b { margin-top: 10px; font-size: 15px; line-height: 1.6; color: var(--gx-text-dim); }
+/* How the store finished the last one, so an empty board is still a board. */
+.st-last {
+  margin-top: 22px; display: inline-flex; align-items: baseline; gap: 10px;
+  padding: 12px 16px;
+  background: var(--sp-inset); border: 1px solid var(--gx-border); border-radius: 9px;
+}
+.st-last-l {
+  font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--gx-text-mute);
+}
+.st-last-p { font-size: 13px; color: var(--gx-text); }
+.st-last-r { font-size: 13px; font-weight: 700; color: var(--gx-green); }
+
+/* ── THE FIRST SECOND ───────────────────────────────────────────────────────────────────────── */
+/* Skeleton geometry, not a spinner and not the word "Loading". It has to match what replaces it
+   or the panel jumps on arrival. .sp-skel is in spiff-tokens.css. */
+.st-skel-name { height: 30px; width: 62%; }
+.st-skel-line { height: 13px; width: 38%; margin-top: 12px; }
+.st-skel-well { height: 42px; margin-top: 16px; }
+.st-skel-fig  { height: 76px; }
+.st-skel-row  { height: 22px; margin: 12px 0; }
+.st-skel-row:first-child { margin-top: 4px; }
+
+/* ── MOTION ─────────────────────────────────────────────────────────────────────────────────── */
+/* The glow is an idle loop that never stops, on a screen that is never closed — exactly what
+   vestibular-triggered users ask not to have on a wall. */
+@media (prefers-reduced-motion: reduce) {
+  .st-bt.is-hit .st-bt-bar > i { animation: none !important; }
+}
+
+/* ── NARROW ─────────────────────────────────────────────────────────────────────────────────── */
+/* The popup the kiosk opens can be narrow, and Tawny opens the same link on a phone to check what
+   a store is showing. Names and figures never shrink; the bar gives up its width first. It is the
+   quick read, not the fact — at 375px the three-way split cut "Jayce Alexander" to "Jayce Alex…",
+   which is the one thing on the row a person scans for. */
+@media (max-width: 560px) {
+  .st-main { padding: 14px 12px 20px; }
+  .st-card { padding: 16px 16px 18px; }
+  .st-board, .st-tips { padding: 14px 16px 16px; }
+  .st-figs { grid-template-columns: 1fr; }
+  /* The bar goes to a FIXED, small width rather than a share of the row: as a fraction it kept
+     taking half, and "Sunshine Gonzalez" still came out "Sunshine G…" at 375px. The name gets
+     everything left over. */
+  .st-bt { grid-template-columns: 20px minmax(0, 1fr) 52px 52px; gap: 8px; }
 }

@@ -35,6 +35,7 @@ const ok = (l, c) => c ? console.log('  ✓ ' + l) : (fail++, console.log('  ✗
 const gs    = fs.readFileSync(__dirname + '/../apps-script/Code.gs', 'utf8');
 const js    = fs.readFileSync(__dirname + '/../spiff.js', 'utf8');
 const sjs   = fs.readFileSync(__dirname + '/../store.js', 'utf8');
+const scss  = fs.readFileSync(__dirname + '/../store.css', 'utf8');
 const shtml = fs.readFileSync(__dirname + '/../store.html', 'utf8');
 
 function grab(src, name) {
@@ -96,14 +97,14 @@ const PROGRAMS = [
 function kiosk(opts) {
   const o = opts || {};
   return G.load({
-    real: ['storeView_', 'storePeople_', 'productLabelOf_', 'payoutModelOf_', 'normalizePitch_',
-           'slug_', 'userKey_', 'stampOf_', 'friendlyName_'],
+    real: ['storeView_', 'storePeople_', 'lastClosedFor_', 'productLabelOf_', 'payoutModelOf_',
+           'normalizePitch_', 'slug_', 'userKey_', 'stampOf_', 'friendlyName_'],
     vars: ['PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
     stubs: {
       storeLinkRows_: () => (o.links || [{ store_id: 'river-rd', token: 'live-token', revoked_at: '' },
                                          { store_id: 'bend', token: 'dead-token', revoked_at: '2026-09-01' }]),
       gxStores_: () => (o.stores === undefined
-        ? [{ store_id: 'river-rd', display_name: 'River Rd' }] : o.stores),
+        ? [{ store_id: 'river-rd', display_name: 'River Rd', color: '#22D3EE' }] : o.stores),
       listPrograms_: () => (o.programs || PROGRAMS),
       progressRowsFor_: () => (o.rows === undefined ? [
         cachedRow('river-rd', 'e1', 'SKYLER P', 9, 25),
@@ -127,8 +128,16 @@ const board = kiosk().storeView_({ t: 'live-token' });
 
 ok('the board answers for the store the token belongs to',
    board.ok === true && board.store_id === 'river-rd' && board.store_name === 'River Rd');
+/* `store_color` joined the envelope 2026-09-16 with the board redesign: the store's own registry
+   color draws its attainment track. It comes off the SAME registry row the display name does —
+   the alternative was loading gx-stores.js on the kiosk page, a second GX Core call from six shop
+   screens for a value already in hand. Still a closed list, and still the point of this check. */
 ok('  …and the envelope carries nothing else',
-   Object.keys(board).sort().join(',') === 'ok,programs,store_id,store_name,today');
+   Object.keys(board).sort().join(',') === 'ok,programs,store_color,store_id,store_name,today');
+ok('the store draws in its own registry color, never one hardcoded per screen',
+   board.store_color === '#22D3EE');
+ok('  …and a registry that did not answer sends no color rather than a wrong one',
+   kiosk({ stores: [] }).storeView_({ t: 'live-token' }).store_color === '');
 
 const prog = board.programs.filter(x => x.program_id === 'mule-0831')[0];
 const PROGRAM_ALLOWED = ['program_id', 'vendor', 'program_name', 'start_date', 'end_date',
@@ -272,10 +281,20 @@ ok('  …and has no sign-in of any kind',
 ok('  …and says so in the markup, so the next reader does not add one',
    /no sign-in/.test(shtml) && /never shows anyone's earnings/.test(shtml));
 ok('nothing on the kiosk renders money for a PERSON',
-   !/money\(/.test(grab(sjs, 'crew')));
-ok('the page draws no bar when there is no personal goal to draw it against',
-   /goal > 0/.test(sjs) && /is-none/.test(sjs));
-ok('  …and shows how old the figures are', /as of /.test(sjs));
+   !/money\(/.test(grab(sjs, 'board')));
+/* MOVED 2026-09-16 from "draws no bar when there is no personal goal". That rule was right when
+   the bar could only mean "units against YOUR goal" — with no goal, a full-width empty track read
+   as "you have sold nothing", so the bar was hidden. The redesign gives a goal-less (per-unit)
+   program a bar scaled to the LEADER, which means "how you compare" and is the only question the
+   screen can answer there. What has to stay true is that nothing is measured against a goal that
+   does not exist: no `/goal` suffix and no hit state. */
+{
+  const b = grab(sjs, 'board');
+  ok('a per-unit program\'s bars are scaled to the leader, not to a goal of zero',
+     /goal > 0 \? goal : \(leader \|\| 1\)/.test(b));
+  ok('  …and nothing is measured against a goal that does not exist',
+     /goal > 0 \? '<small>\//.test(b) && /goal > 0 \? \(hits/.test(b));
+}
 ok('it reads the hourly cache, not a live Dutchie pull — six kiosks polling sell-through would crawl',
    /progressRowsFor_\(/.test(G.grab('storePeople_')) && G.grab('storePeople_').indexOf('sellthrough_') < 0);
 
@@ -368,16 +387,16 @@ ok('  …at a gentle interval, since nothing on it moves by the minute',
 ok('a failure says the plain thing rather than showing a stack trace on the floor',
    /Can’t reach the SPIFF board/.test(sjs));
 ok('nothing running is stated, not left blank',
-   /No SPIFF running right now/.test(sjs));
+   /Nothing running right now/.test(sjs));
 /* A SHARED screen must not send the room to a page that needs a personal sign-in — most readers
    cannot follow that where they are standing, and it invited somebody to sign in on a kiosk
    everybody uses. Removed 2026-09-08 (Sky), alongside the nav entry. */
-/* Checked against the RENDERED footer, not the file — the comment above it names My SPIFF to
-   explain the removal, and a bare substring search flags that prose. A test that cries about a
-   comment is a test people learn to loosen. */
-const foot = /st-foot">([^<]*)</.exec(sjs);
-ok('the kiosk footer no longer sends the room to a personal login',
-   !!foot && !/My SPIFF/.test(foot[1]));
+/* STRENGTHENED 2026-09-16: there is no footer at all now. It used to be checked against the
+   RENDERED footer rather than the file, because the comment above it names My SPIFF to explain the
+   removal and a bare substring search flagged that prose — the same care applies to the check
+   below, which looks for the CLASS, not for the words. */
+ok('the kiosk has no footer to send the room to a personal login',
+   sjs.indexOf('st-foot') < 0);
 /* And nothing NAVIGATES there either. Checked as a link, not as a substring: the header comment
    names flyer.html to explain the split, and flagging that would be a test crying about prose. */
 ok('  …and nothing on the page links or navigates to it',
@@ -391,6 +410,118 @@ ok('days left is inclusive of the end date, like the operator app',
 /* One name for a program across both screens. */
 ok('the kiosk joins vendor and name the same way the operator app does',
    /name\.toLowerCase\(\)\.indexOf\(vendor\.toLowerCase\(\)\) === 0/.test(sjs));
+
+/* ══════════════════ 6. THE BOARD REDESIGN (2026-09-16) ══════════════════
+ * design_handoff_spiff_kiosk_board. The people were a footnote under the figures and are now the
+ * centerpiece: ranked, 46px rows, the store's own color on the attainment track. Three of these
+ * are behavior, not paint, and each reverses something this file used to assert — so each says
+ * what it replaced.
+ */
+{
+  const bd = grab(sjs, 'board');
+  const pp = grab(sjs, 'programPanel');
+
+  /* THE THIRD FIGURE. Two before (goal, payout); now what it pays, how far to go, and how long is
+     left — the three things a budtender acts on, confirmed with Sky. */
+  ok('the program panel carries three figures, the clock among them',
+     (pp.match(/st-fig-v/g) || []).length === 3 && /daysLeft\(p\.end_date, today\)/.test(pp));
+  ok('  …and the clock turns gold at three days out, where it changes what somebody does today',
+     /left <= 3 \? ' is-soon'/.test(pp));
+  ok('  …counted inclusive of the end date, like the operator app', /\+ 1;/.test(grab(sjs, 'daysLeft')));
+
+  /* RANKED. The rank number beside a name has to be the position the row is actually in, so the
+     page sorts rather than trusting the order a payload arrived in — even though the engine sorts
+     too, and section 1b holds that end of it. */
+  ok('the board ranks the room, most sold first', /people\.sort\(/.test(bd) && /st-bt-r/.test(bd));
+  ok('  …with a stable tiebreak, so equal rows do not swap between refreshes',
+     /localeCompare/.test(bd));
+  ok('a row that has hit reads as done from arm\'s reach — the whole row, not a tick',
+     /is-hit/.test(bd) && /\.st-bt\.is-hit \{ background: var\(--gx-green-soft\)/.test(scss));
+  ok('  …and the glow stops for anyone who asked for less motion',
+     /prefers-reduced-motion[\s\S]{0,200}st-bt\.is-hit[\s\S]{0,60}animation: none/.test(scss));
+
+  /* THE STORE LINE. Context under the title, not a headline — nobody sells against a chain figure.
+     Absent rather than "42 of 0" when the program carried no store goal. */
+  ok('the store\'s own number sits under the board title in its registry color',
+     /st-store-bar/.test(bd) && /var\(--st-color/.test(scss) && /--st-color:/.test(grab(sjs, 'render')));
+  ok('  …and is absent, not zero, when the program set no store goal', /storeGoal\s*\n?\s*\?/.test(bd));
+
+  /* ONE PROGRAM. The two-column grid is gone — only one ever runs at a store, and a layout built
+     for a case that does not happen is a layout nobody sees rendered. Two would STACK, though:
+     hiding the second to protect a layout would take a live program off a shop floor. */
+  /* The SELECTOR and the class the page would set, not the words — both files explain the removal
+     in prose above the code, and a test that cries about a comment is one people learn to loosen. */
+  ok('the two-column grid for a second program is gone',
+     !/\.st-wrap\.is-multi\s*\{/.test(scss) && !/'\s*is-multi'/.test(sjs)
+     && grab(sjs, 'render').indexOf('is-multi') < 0);
+  ok('  …but a second program would still be drawn, not dropped',
+     /list\.map\(function \(p\)/.test(grab(sjs, 'render')));
+
+  /* NO CHROME OF ITS OWN. The kiosk modal already says "SPIFF · Century" and carries Close and a
+     closing timer. Sky, 2026-09-16, chose to drop the "as of 11:00am" stamp with it — so the
+     assertion that used to require it is gone rather than quietly inverted. What replaced it is
+     this: the page states no freshness it cannot keep, and the figures are still the hourly cache
+     (section 1b), not a live pull. */
+  ok('the page draws no header of its own over the modal\'s',
+     sjs.indexOf('st-store"') < 0 && sjs.indexOf('st-count') < 0);
+  ok('  …and claims no freshness now that it does not show one', !/as of /.test(sjs));
+
+  /* THE FIRST SECOND is skeleton geometry, not the word "Loading". */
+  /* Checked as RENDERED text and as the class — the comment above the markup names the word
+     "Loading" to explain why it is not there. */
+  ok('the boot state is skeleton geometry matching the layout',
+     /sp-skel st-skel-fig/.test(shtml) && /sp-skel st-skel-row/.test(shtml)
+     && !/>\s*Loading/.test(shtml) && shtml.indexOf('fl-boot') < 0);
+}
+
+/* ══════════════════ 6b. NOTHING RUNNING IS STILL A SCREEN ══════════════════
+ * The empty board used to be a dead page. It now says how the store finished the last one — which
+ * only the engine knows, so the page must not infer it. Run for real, because the interesting half
+ * is which program is chosen and what attainment is measured against. */
+{
+  const CLOSED = { program_id: 'wyld-0824', vendor: 'Wyld', program_name: 'Wyld 5pc Gummies',
+                   status: 'closed', start_date: '2026-08-24', end_date: '2026-09-06',
+                   stores_json: ['river-rd'], target_json: { by_store: { 'river-rd': 50 } } };
+  const OLDER  = Object.assign({}, CLOSED, { program_id: 'gron-0810', program_name: 'Grön older',
+                                             end_date: '2026-08-23' });
+  const rows = [{ program_id: 'wyld-0824', store_id: 'river-rd', employee_id: 'e1', name: 'SKYLER P',
+                  units: 33, target: 5, hit: true, earned: 25, refreshed_at: '2026-09-06 20:00:00' },
+                { program_id: 'wyld-0824', store_id: 'river-rd', employee_id: 'e2', name: 'TAWNY R',
+                  units: 23, target: 5, hit: true, earned: 25, refreshed_at: '2026-09-06 20:00:00' },
+                { program_id: 'wyld-0824', store_id: 'bend', employee_id: 'e7', name: 'ELSEWHERE',
+                  units: 99, target: 5, hit: true, earned: 25, refreshed_at: '2026-09-06 20:00:00' }];
+  const quiet = kiosk({ programs: [CLOSED, OLDER, PROGRAMS[3], PROGRAMS[4]], rows })
+                  .storeView_({ t: 'live-token' });
+
+  ok('a store with nothing running still gets an answer, not a blank',
+     quiet.ok === true && quiet.programs.length === 0 && !!quiet.last_program);
+  ok('  …naming the program that finished most recently, not the first one found',
+     quiet.last_program.program_name === 'Wyld 5pc Gummies' && quiet.last_program.end_date === '2026-09-06');
+  ok('  …with how THIS store did, measured the way the live board measures it',
+     quiet.last_program.store_pct === 112);
+  ok('  …counting only this store\'s rows, never the chain\'s',
+     JSON.stringify(quiet.last_program).indexOf('99') < 0);
+  const LAST_ALLOWED = ['vendor', 'program_name', 'end_date', 'store_pct'];
+  ok('  …and carrying nothing a finished program has no business putting on a wall',
+     Object.keys(quiet.last_program).every(k => LAST_ALLOWED.indexOf(k) >= 0));
+
+  /* No percentage rather than a wrong one, and no chip rather than a guessed one. */
+  const noGoal = kiosk({ programs: [Object.assign({}, CLOSED, { target_json: {} })], rows })
+                   .storeView_({ t: 'live-token' });
+  ok('a program that set no store goal reports no percentage rather than a made-up one',
+     !('store_pct' in noGoal.last_program));
+  const none = kiosk({ programs: [PROGRAMS[3]] }).storeView_({ t: 'live-token' });
+  ok('a store that has never run one gets the two lines and no chip', !('last_program' in none));
+  /* A closed program whose end date has not passed is a closed-early program, not the last one to
+     finish — and it is still the future to a screen reading dates as text. */
+  const early = kiosk({ programs: [PROGRAMS[2]] }).storeView_({ t: 'live-token' });
+  ok('a program closed ahead of its end date is not offered as the last one to finish',
+     !('last_program' in early));
+  ok('the chip is not computed at all while something is running — it costs a read',
+     !('last_program' in board));
+  ok('the page joins its name with the same rule a live program uses, not a second one',
+     /programLabel\(last\)/.test(grab(sjs, 'emptyBoard')));
+}
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nstore view: all passed');
 process.exit(fail ? 1 : 0);

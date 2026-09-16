@@ -938,7 +938,11 @@ body.is-gated .workspace { display: none !important; }
   content: 'still editable';
   margin-left: 8px; padding: 1px 6px; border-radius: 999px;
   font-size: 10px; letter-spacing: .04em; text-transform: uppercase;
-  color: var(--gx-text-mute); border: 1px solid var(--gx-line);
+  /* --gx-line is not a token and never was: with no fallback the whole `border` declaration was
+     invalid at computed-value time, so this chip has been drawing with NO border since it shipped.
+     Same failure flyer.css spent weeks on. Found 2026-09-16 by a sweep of every --gx-* this app
+     reads against what gx-theme defines; it was the only one left. */
+  color: var(--gx-text-mute); border: 1px solid var(--gx-border-strong);
 }
 .sp-lock-dot {
   display: inline-block; width: 7px; height: 7px; border-radius: 50%;

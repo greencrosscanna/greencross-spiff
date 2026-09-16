@@ -4456,10 +4456,16 @@ function storeView_(p) {
      somebody looking for a problem with the shop rather than with the URL. */
   if (!hit) return { ok: false, error: 'This link is no longer active. Ask Tawny for a new one.' };
 
-  var store = hit.store_id, storeLabel = store;
+  var store = hit.store_id, storeLabel = store, storeColor = '';
   try {
     (gxStores_() || []).forEach(function (x) {
-      if (slug_(x.store_id) === store && x.display_name) storeLabel = x.display_name;
+      if (slug_(x.store_id) !== store) return;
+      if (x.display_name) storeLabel = x.display_name;
+      /* The store's own color, read from the SAME registry row the name comes from. The page
+         draws its store track in it, and a seventh store inherits its own without either file
+         being opened. The alternative was loading gx-stores.js on the kiosk page, which is a
+         second GX Core call from six shop screens for a value already in hand here. */
+      if (x.color) storeColor = String(x.color);
     });
   } catch (e) { /* the slug is a poor label, but better than none */ }
 
@@ -4502,7 +4508,56 @@ function storeView_(p) {
 
   /* Soonest to end first — the one closest to its deadline is the one worth pushing today. */
   out.sort(function (x, y) { return String(x.end_date).localeCompare(String(y.end_date)); });
-  return { ok: true, store_id: store, store_name: storeLabel, today: today, programs: out };
+
+  var res = { ok: true, store_id: store, store_name: storeLabel, store_color: storeColor,
+              today: today, programs: out };
+  /* NOTHING RUNNING IS STILL A SCREEN. How the store finished the last one is the one thing worth
+     saying to a room with no SPIFF on today, and only the engine knows it — the page cannot infer
+     it and must not fake it. Computed ONLY on the empty path: it costs a progress read, and on any
+     normal day there is a program and this never runs. */
+  if (!out.length) {
+    var last = lastClosedFor_(store, today);
+    if (last) res.last_program = last;
+  }
+  return res;
+}
+
+/* The most recently finished program at one store, and how the store did on it.
+ *
+ * Attainment is measured the same way the live board measures it — the store's cached progress
+ * rows against the program's per-store goal — rather than from `actual_json`, whose `units_sold`
+ * is the whole chain. Two answers to "how did this store do" is the failure this app keeps paying
+ * for. No percentage rather than a wrong one when the program carried no store goal. */
+function lastClosedFor_(store, today) {
+  var best = null;
+  listPrograms_().forEach(function (pr) {
+    if (String(pr.status || '').toLowerCase() !== 'closed') return;
+    var end = pr.end_date || '';
+    if (!end || end > today) return;
+    var mine = (pr.stores_json || []).some(function (x) { return slug_(x && x.store_id ? x.store_id : x) === store; });
+    if (!mine) return;
+    if (!best || end > best.end_date) best = pr;
+  });
+  if (!best) return null;
+
+  var goal = Number(((best.target_json || {}).by_store || {})[store]) || 0;
+  var pct = null;
+  if (goal > 0) {
+    var sold = 0;
+    try {
+      (progressRowsFor_(best.program_id) || []).forEach(function (r) {
+        if (slug_(r.store_id) === store) sold += Number(r.units) || 0;
+      });
+      pct = Math.round((sold / goal) * 100);
+    } catch (e) { pct = null; }
+  }
+  /* Name and vendor separately, so the page joins them with the ONE rule both screens share. No
+     units, no payout, no cost — a finished program is even less a kiosk's business than a live
+     one, and this chip exists to say the board is not broken, not to report on it. */
+  var chip = { vendor: best.vendor || '', program_name: best.program_name || best.title || '',
+               end_date: best.end_date || '' };
+  if (pct != null) chip.store_pct = pct;
+  return chip;
 }
 
 /* What the SPIFF is ON, in words, for a screen that cannot show a filter. Mirrors the operator

@@ -20,6 +20,13 @@
  * worst there. The engine's `storeView` route returns none of it, so this page cannot leak it even
  * if it is edited carelessly later: scope lives on the server and this file only has to render
  * honestly. The personal view is flyer.html, which keeps its sign-in and shows what YOU are owed.
+ *
+ * REDESIGNED 2026-09-16 (design_handoff_spiff_kiosk_board). Three panels: what is running, where
+ * everyone stands, how to sell it. The board was a footnote under the figures and is now the
+ * centerpiece — ranked, because it is what staff come to the screen for. The page-level store
+ * name, the "as of" stamp and the footer line are gone (Sky, 2026-09-16): the kiosk opens this in
+ * a modal that already says "SPIFF · Century" and carries its own Close and closing timer, and a
+ * page that repeats its own frame reads as two headers stacked.
  */
 'use strict';
 (function () {
@@ -67,133 +74,185 @@
     return vendor + ' - ' + name;
   }
 
-  function msg(title, note) {
+  /* Every state that is not a board uses the same panel, so a kiosk showing a problem still looks
+     like a screen somebody designed rather than a page that failed. */
+  function msg(title, note, extra) {
     $('#main').innerHTML =
-      '<div class="fl-card fl-card-msg">'
-      +   '<h1 class="fl-h1">' + esc(title) + '</h1>'
-      +   (note ? '<p class="fl-note">' + esc(note) + '</p>' : '')
+      '<div class="st-wrap">'
+      + '<div class="st-msg">'
+      +   '<div class="st-msg-h">' + esc(title) + '</div>'
+      +   (note ? '<div class="st-msg-b">' + esc(note) + '</div>' : '')
+      +   (extra || '')
+      + '</div>'
       + '</div>';
   }
 
-  function card(p, today) {
+  /* ── 1. WHAT IS RUNNING ───────────────────────────────────────────────────────────────────── */
+  function programPanel(p, today) {
     var perUnit = String(p.payout_type || 'flat').toLowerCase() === 'per_unit';
-    var left = daysLeft(p.end_date, today);
-    /* The goal a budtender can act on is THEIRS. The store's number is shown underneath as
-       context, not as the headline — nobody sells against a chain figure. */
     var bt = Number(p.bt_goal) || 0;
-    var store = Number(p.store_goal) || 0;
+    var left = daysLeft(p.end_date, today);
+
+    /* A per-unit program has no individual target to clear — everyone earns from the first unit —
+       so a goal of 0 would read as "you are not in this one". Say what it actually pays. */
+    var goalFig = perUnit ? 'Any' : (bt ? bt.toLocaleString() : '&mdash;');
+    var goalLabel = perUnit ? 'unit pays &mdash; no personal goal'
+                            : (bt ? 'units to hit your bonus' : 'no personal goal set');
+    var daysFig = left == null ? '&mdash;' : String(left);
+    var daysLabel = (left == null ? 'ends ' : (left === 1 ? 'day left, ends ' : 'days left, ends '))
+                  + esc(prettyDay(p.end_date));
 
     return '<article class="st-card">'
-      + '<header class="st-head">'
-      +   '<div class="st-vendor">' + esc(p.vendor || '') + '</div>'
-      +   '<h2 class="st-name">' + esc(programLabel(p)) + '</h2>'
-      +   '<div class="st-when">'
-      +     '<span class="fl-tag is-live">Running now</span>'
-      +     '<span class="st-dates">' + esc(prettyDay(p.start_date)) + ' &ndash; ' + esc(prettyDay(p.end_date))
-      +       (left == null ? '' : ' &middot; ' + left + (left === 1 ? ' day left' : ' days left'))
-      +     '</span>'
-      +   '</div>'
-      + '</header>'
+      + '<div class="st-vendor">' + esc(p.vendor || '') + '</div>'
+      + '<h1 class="st-name">' + esc(programLabel(p)) + '</h1>'
+      + '<div class="st-when">'
+      +   '<span class="st-live">Running now</span>'
+      +   '<span class="st-dates">' + esc(prettyDay(p.start_date)) + ' &ndash; ' + esc(prettyDay(p.end_date)) + '</span>'
+      + '</div>'
 
       + (p.product ? '<div class="st-product"><span class="st-product-l">Sell</span>'
                    + '<b>' + esc(p.product) + '</b></div>' : '')
 
-      /* THE TWO NUMBERS THAT MATTER, and nothing else in this row. Per-unit programs have no
-         individual target to clear — everyone earns from the first unit — so showing a goal of
-         0 would read as "you are not in this one". Say what it actually pays instead. */
+      /* THE THREE THINGS A BUDTENDER ACTS ON, and nothing else. What it pays, how far they have to
+         go, how long they have. Three, not six: this is read from a few feet away between
+         customers, and a strip of figures is a dashboard rather than an instruction. */
       + '<div class="st-figs">'
-      +   (perUnit
-            ? '<div class="st-fig is-pay"><div class="st-fig-v">' + money(p.payout) + '</div>'
-              + '<div class="st-fig-l">for every unit you sell</div></div>'
-            : '<div class="st-fig"><div class="st-fig-v">' + (bt ? bt.toLocaleString() : '&mdash;') + '</div>'
-              + '<div class="st-fig-l">' + (bt ? 'units to hit your bonus' : 'no personal goal set') + '</div></div>'
-              + '<div class="st-fig is-pay"><div class="st-fig-v">' + money(p.payout) + '</div>'
-              + '<div class="st-fig-l">when you hit it</div></div>')
+      +   '<div class="st-fig is-pay"><div class="st-fig-v">' + money(p.payout) + '</div>'
+      +     '<div class="st-fig-l">' + (perUnit ? 'for every unit you sell' : 'when you hit your goal') + '</div></div>'
+      +   '<div class="st-fig"><div class="st-fig-v">' + goalFig + '</div>'
+      +     '<div class="st-fig-l">' + goalLabel + '</div></div>'
+      /* The clock turns gold at three days out — the one figure on the screen that changes what
+         somebody does today rather than what they know. */
+      +   '<div class="st-fig' + (left != null && left <= 3 ? ' is-soon' : '') + '">'
+      +     '<div class="st-fig-v">' + daysFig + '</div>'
+      +     '<div class="st-fig-l">' + daysLabel + '</div></div>'
       + '</div>'
-
-      + (store ? '<div class="st-store-goal">Store target: <b>' + store.toLocaleString()
-               + '</b> units</div>' : '')
-
-      /* TAWNY'S TIPS. The reason this page exists beyond the numbers — the numbers say what the
-         deal is, these say how to sell it. Absent rather than an empty heading when she has not
-         written any: a "Selling tips" label over nothing reads as a broken page. */
-      /* THE TEAM, one row each. Everyone at the store is here, including whoever has not sold any
-         yet — a board that lists only sellers cannot tell you whether you are behind or missing.
-         No money per person: this screen faces the room. */
-      + crew(p)
-
-      + ((p.tips || []).length
-          ? '<div class="st-tips">'
-            + '<div class="st-tips-h">How to sell it</div>'
-            + '<ul class="st-tip-list">'
-            +   p.tips.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('')
-            + '</ul>'
-            + '</div>'
-          : '')
       + '</article>';
   }
 
-  /* "2026-09-11 11:00:32" → "11:00am". The figures come from the hourly refresh, not live, and a
-     board that does not say so is a board that gets trusted to the minute. */
-  function prettyStamp(s) {
-    var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(String(s || ''));
-    if (!m) return '';
-    var h = Number(m[4]), ap = h >= 12 ? 'pm' : 'am';
-    return ((h % 12) || 12) + ':' + m[5] + ap;
-  }
-
-  function crew(p) {
-    var people = p.people || [];
+  /* ── 2. THE BOARD ─────────────────────────────────────────────────────────────────────────────
+     THE TEAM, ranked, one row each. Everyone at the store is here, including whoever has not sold
+     any yet — a board that lists only sellers cannot tell you whether you are behind or missing.
+     No money per person: this screen faces the room. */
+  function board(p) {
+    var people = (p.people || []).slice();
     if (!people.length) return '';
     var goal = Number(p.bt_goal) || 0;
-    var perUnit = String(p.payout_type || 'flat').toLowerCase() === 'per_unit';
-    var at = prettyStamp(p.measured_at);
+    var storeGoal = Number(p.store_goal) || 0;
 
-    return '<div class="st-crew">'
-      + '<div class="st-crew-h">'
-      +   '<span>' + (perUnit ? 'Sold so far' : 'How everyone is doing') + '</span>'
-      +   (at ? '<span class="st-crew-at">as of ' + esc(at) + '</span>' : '')
+    /* The engine sorts too, and this repeats it on purpose rather than trusting the order a
+       payload happened to arrive in — the ranking is the screen's own claim, and the rank number
+       beside a name has to be the position the row is actually in. */
+    people.sort(function (a, b) {
+      var d = (Number(b.units) || 0) - (Number(a.units) || 0);
+      return d || String(a.name).localeCompare(String(b.name));
+    });
+
+    var sold = people.reduce(function (s, e) { return s + (Number(e.units) || 0); }, 0);
+    var hits = people.filter(function (e) { return !!e.hit; }).length;
+    /* With no personal goal there is nothing to hit, so the count says what there IS to say. */
+    var count = goal > 0 ? (hits + ' of ' + people.length + ' hit')
+                         : (sold.toLocaleString() + (sold === 1 ? ' unit sold' : ' units sold'));
+    var leader = Number(people[0] && people[0].units) || 0;
+
+    return '<section class="st-board">'
+      + '<div class="st-board-h">'
+      +   '<div class="st-board-t">' + (goal > 0 ? 'Where everyone stands' : 'Sold so far') + '</div>'
+      +   '<div class="st-board-n' + (goal > 0 && hits ? ' is-hit' : '') + '">' + esc(count) + '</div>'
       + '</div>'
-      + people.map(function (e) {
+
+      /* The store's number is context under the title, not a headline — nobody sells against a
+         chain figure. Absent rather than "42 of 0" when no store goal was set. */
+      + (storeGoal
+          ? '<div class="st-store-row">'
+            + '<span class="st-store-l">Store</span>'
+            + '<span class="st-store-bar"><i style="width:'
+            +   Math.max(0, Math.min(100, (sold / storeGoal) * 100)).toFixed(1) + '%"></i></span>'
+            + '<span class="st-store-n">' + sold.toLocaleString() + ' of '
+            +   storeGoal.toLocaleString() + ' units</span>'
+            + '</div>'
+          : '')
+
+      + '<div class="st-rows">'
+      + people.map(function (e, i) {
           var units = Number(e.units) || 0;
-          /* Against a goal of zero there is nothing to draw — a full-width empty track reads as
-             "you have sold nothing" on a program that has no personal target at all. */
-          var pct = goal > 0 ? Math.max(0, Math.min(100, (units / goal) * 100)) : 0;
-          return '<div class="st-bt' + (e.hit ? ' is-hit' : '') + '">'
+          var hit = !!e.hit;
+          /* A per-unit program has no goal to draw against, so the bars are scaled to the leader —
+             a row is then "how you compare", which is the only question the screen can answer. A
+             full-width empty track against a goal of zero read as "you have sold nothing". */
+          var ref = goal > 0 ? goal : (leader || 1);
+          var pct = Math.max(0, Math.min(100, (units / ref) * 100));
+          var state = hit ? ' is-hit' : (units ? ' is-selling' : '');
+          return '<div class="st-bt' + state + '">'
+            + '<span class="st-bt-r">' + (i + 1) + '</span>'
             + '<span class="st-bt-n">' + esc(e.name) + '</span>'
-            + (goal > 0
-                ? '<span class="st-bt-bar"><i style="width:' + pct.toFixed(1) + '%"></i></span>'
-                : '<span class="st-bt-bar is-none"></span>')
+            + '<span class="st-bt-bar"><i style="width:' + pct.toFixed(1) + '%"></i></span>'
             + '<span class="st-bt-u">' + units.toLocaleString()
             +   (goal > 0 ? '<small>/' + goal.toLocaleString() + '</small>' : '')
             + '</span>'
             + '</div>';
         }).join('')
-      + '</div>';
+      + '</div>'
+      + '</section>';
+  }
+
+  /* ── 3. TAWNY'S TIPS ──────────────────────────────────────────────────────────────────────────
+     The reason this page exists beyond the numbers — the numbers say what the deal is, these say
+     how to sell it. The whole panel is ABSENT rather than an empty heading when she has written
+     none: a "How to sell it" label over nothing reads as a broken page. */
+  function tips(p) {
+    var list = p.tips || [];
+    if (!list.length) return '';
+    return '<section class="st-tips">'
+      + '<div class="st-tips-h">How to sell it &middot; from Tawny</div>'
+      + '<ol class="st-tip-list">'
+      + list.map(function (t, i) {
+          return '<li class="st-tip">'
+            + '<span class="st-tip-n">' + (i + 1) + '</span>'
+            + '<span class="st-tip-t">' + esc(t) + '</span>'
+            + '</li>';
+        }).join('')
+      + '</ol>'
+      + '</section>';
+  }
+
+  /* NOTHING RUNNING IS A SCREEN, not a blank. How the store finished the last one is the one thing
+     worth saying to a room with no SPIFF on today — and it comes from the engine, which is the
+     only place that knows it. No chip rather than a guessed one when it did not send it. */
+  function emptyBoard(d) {
+    var last = d.last_program;
+    var chip = '';
+    if (last && (last.program_name || last.vendor)) {
+      chip = '<div class="st-last">'
+        + '<span class="st-last-l">Last one</span>'
+        /* Joined by the same rule as a live program, so the board calls a SPIFF one thing whether
+           it is running or finished. */
+        + '<span class="st-last-p">' + esc(programLabel(last))
+        +   (last.end_date ? ', ended ' + esc(prettyDay(last.end_date)) : '') + '</span>'
+        + (last.store_pct != null
+            ? '<span class="st-last-r">store hit ' + Math.round(Number(last.store_pct)) + '%</span>'
+            : '')
+        + '</div>';
+    }
+    msg('Nothing running right now',
+        'The next SPIFF at ' + (d.store_name || 'this store')
+        + ' shows up here on its own. Nothing to do but sell.',
+        chip);
   }
 
   function render(d) {
     var list = d.programs || [];
-    if (!list.length) {
-      msg('No SPIFF running right now',
-          'Nothing on the board at ' + (d.store_name || 'this store') + ' today. '
-          + 'Check back — this screen updates on its own.');
-      return;
-    }
+    if (!list.length) { emptyBoard(d); return; }
+
+    /* ONE PROGRAM AT A TIME is the case this is designed for — Sky, 2026-09-16 — so there is no
+       two-column grid any more. If the engine ever answers with two, they stack: hiding the second
+       to protect a layout would take a live program off a shop floor. */
     $('#main').innerHTML =
-      /* Two columns only when there are two programs — see store.css. One program in a
-         two-column grid rendered at half width beside an empty half, which reads as a card that
-         failed to load rather than a chain running one SPIFF. */
-      '<div class="st-wrap' + (list.length > 1 ? ' is-multi' : '') + '">'
-      + '<div class="st-top">'
-      +   '<span class="st-store">' + esc(d.store_name || d.store_id) + '</span>'
-      +   '<span class="st-count">' + list.length + (list.length === 1 ? ' program' : ' programs') + ' running</span>'
-      + '</div>'
-      + list.map(function (p) { return card(p, d.today); }).join('')
-      /* No pointer to My SPIFF (Sky, 2026-09-08). This is a SHARED screen: sending the room to a
-         page that needs a personal sign-in is an instruction most readers cannot follow where
-         they are standing, and it invited somebody to sign in on a kiosk everybody uses. */
-      + '<p class="st-foot">Ask Tawny about any of these.</p>'
+      '<div class="st-wrap"'
+      + (d.store_color ? ' style="--st-color:' + esc(d.store_color) + '"' : '') + '>'
+      + list.map(function (p) {
+          return programPanel(p, d.today) + board(p) + tips(p);
+        }).join('')
       + '</div>';
   }
 
@@ -217,9 +276,9 @@
   }
 
   /* A KIOSK IS NEVER RELOADED BY HAND, so it refreshes itself. Ten minutes: goals and tips
-     change when Tawny edits them, which is rarely, and this screen shows nothing that moves by
-     the minute — no live sell-through, no earnings. Frequent polling would buy nothing and put
-     six shop screens on the engine's neck all day. */
+     change when Tawny edits them, which is rarely, and the sell-through behind the board is the
+     hourly cache, not a live pull. Frequent polling would buy nothing and put six shop screens on
+     the engine's neck all day. */
   var REFRESH_MS = 10 * 60 * 1000;
   setInterval(load, REFRESH_MS);
   /* …and immediately when the screen is woken, so a kiosk that slept overnight is not showing

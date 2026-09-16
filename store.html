@@ -11,9 +11,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.426"/>
-<link rel="stylesheet" href="flyer.css?v=1.426"/>
-<link rel="stylesheet" href="store.css?v=1.426"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.429"/>
+<link rel="stylesheet" href="flyer.css?v=1.429"/>
+<link rel="stylesheet" href="store.css?v=1.429"/>
 </head>
 <body class="flyer store">
 
@@ -30,8 +30,32 @@
 
      The personal view is flyer.html and keeps its own sign-in. These two answer different
      questions on purpose; merging them would put earnings on a wall. -->
+<!-- The first second is SKELETON GEOMETRY, not the word "Loading" and not a spinner. It matches the
+     shape of what replaces it — program card, three figures, a board of rows — so the panel does
+     not jump when the payload lands. Nobody stands at a kiosk waiting for it; what this buys is a
+     screen that looks like itself from the first paint. aria-hidden because it is scaffolding:
+     there is nothing here to read out. -->
 <main class="fl-main st-main" id="main">
-  <div class="fl-boot" id="boot">Loading&hellip;</div>
+  <div class="st-wrap" id="boot" aria-hidden="true">
+    <div class="st-card">
+      <div class="sp-skel st-skel-name"></div>
+      <div class="sp-skel st-skel-line"></div>
+      <div class="sp-skel st-skel-well"></div>
+      <div class="st-figs">
+        <div class="sp-skel st-skel-fig"></div>
+        <div class="sp-skel st-skel-fig"></div>
+        <div class="sp-skel st-skel-fig"></div>
+      </div>
+    </div>
+    <div class="st-board">
+      <div class="sp-skel st-skel-row"></div>
+      <div class="sp-skel st-skel-row"></div>
+      <div class="sp-skel st-skel-row"></div>
+      <div class="sp-skel st-skel-row"></div>
+      <div class="sp-skel st-skel-row"></div>
+      <div class="sp-skel st-skel-row"></div>
+    </div>
+  </div>
 </main>
 
 <script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-client.js"></script>
@@ -41,6 +65,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="store.js?v=1.426"></script>
+<script src="store.js?v=1.429"></script>
 </body>
 </html>

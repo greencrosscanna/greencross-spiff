@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800;900&display=swap" rel="stylesheet"/>
+<style>
+  body { margin: 0; background: #050706; -webkit-font-smoothing: antialiased; }
+  a { color: #4ade80; text-decoration: none; }
+  a:hover { color: #5ee68f; }
+  @keyframes gxpulse { 0% { box-shadow: 0 0 0 0 rgba(74,222,128,.5) } 70% { box-shadow: 0 0 0 7px rgba(74,222,128,0) } 100% { box-shadow: 0 0 0 0 rgba(74,222,128,0) } }
+  @keyframes gxaheadglow { 0%,100% { box-shadow: 0 0 10px rgba(74,222,128,.45) } 50% { box-shadow: 0 0 18px rgba(74,222,128,.8) } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important } }
+</style>
+</helmet>
+<div style="min-height: 100%; background: #050706; padding: 18px 16px 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #e6ece9; text-wrap: pretty;">
+  <div style="max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px;">
+
+    <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+      <div style="background: #121715; border: 1px solid #232a27; border-radius: 12px; padding: 40px 28px; text-align: center;">
+        <div style="font-family: Montserrat, sans-serif; font-weight: 800; font-size: 26px; letter-spacing: -.5px; color: #e6ece9;">Nothing running right now</div>
+        <div style="margin-top: 10px; font-size: 15px; line-height: 1.6; color: #8a958f;">The next SPIFF at {{ storeName }} shows up here on its own. Nothing to do but sell.</div>
+        <div style="margin-top: 22px; display: inline-flex; align-items: baseline; gap: 10px; padding: 12px 16px; background: #0d1211; border: 1px solid #232a27; border-radius: 9px;">
+          <span style="font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: #5e6864;">Last one</span>
+          <span style="font-size: 13px; color: #e6ece9;">{{ lastProgram }}</span>
+          <span style="font-size: 13px; font-weight: 700; color: #4ade80;">{{ lastResult }}</span>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isLive }}" hint-placeholder-val="{{ true }}">
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+
+        <div style="background: #121715; border: 1px solid #232a27; border-radius: 12px; padding: 18px 20px 20px;">
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; color: #5e6864;">{{ vendor }}</div>
+          <div style="font-family: Montserrat, sans-serif; font-weight: 900; font-size: 30px; line-height: 1.12; letter-spacing: -.5px; margin-top: 5px; color: #e6ece9;">{{ programName }}</div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
+            <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 5px; background: rgba(74,222,128,.12); border: 1px solid rgba(74,222,128,.3); font-size: 10px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; color: #5ee68f;">Running now</span>
+            <span style="font-size: 12.5px; color: #8a958f; font-variant-numeric: tabular-nums;">{{ dateRange }}</span>
+          </div>
+
+          <div style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-top: 16px; padding: 12px 14px; background: #0d1211; border: 1px solid #232a27; border-radius: 9px;">
+            <span style="font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: #5e6864; flex: none;">Sell</span>
+            <span style="font-size: 15px; font-weight: 600; color: #e6ece9;">{{ product }}</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px;">
+            <div style="padding: 15px 16px 14px; background: #0d1211; border: 1px solid rgba(74,222,128,.32); border-radius: 9px;">
+              <div style="font-family: Montserrat, sans-serif; font-weight: 900; font-size: 40px; line-height: 1; letter-spacing: -1px; color: #4ade80; font-variant-numeric: tabular-nums;">{{ payFig }}</div>
+              <div style="margin-top: 7px; font-size: 12px; line-height: 1.35; color: #8a958f;">{{ payLabel }}</div>
+            </div>
+            <div style="padding: 15px 16px 14px; background: #0d1211; border: 1px solid #232a27; border-radius: 9px;">
+              <div style="font-family: Montserrat, sans-serif; font-weight: 900; font-size: 40px; line-height: 1; letter-spacing: -1px; color: #e6ece9; font-variant-numeric: tabular-nums;">{{ goalFig }}</div>
+              <div style="margin-top: 7px; font-size: 12px; line-height: 1.35; color: #8a958f;">{{ goalLabel }}</div>
+            </div>
+            <div style="padding: 15px 16px 14px; background: #0d1211; border: 1px solid #232a27; border-radius: 9px;">
+              <div style="font-family: Montserrat, sans-serif; font-weight: 900; font-size: 40px; line-height: 1; letter-spacing: -1px; font-variant-numeric: tabular-nums; color: {{ daysColor }};">{{ daysFig }}</div>
+              <div style="margin-top: 7px; font-size: 12px; line-height: 1.35; color: #8a958f;">{{ daysLabel }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: #121715; border: 1px solid #232a27; border-radius: 12px; padding: 16px 20px 18px;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+            <div style="font-family: Montserrat, sans-serif; font-weight: 800; font-size: 17px; letter-spacing: -.2px; color: #e6ece9;">{{ boardTitle }}</div>
+            <div style="font-size: 12.5px; font-weight: 700; color: {{ hitCountColor }}; font-variant-numeric: tabular-nums;">{{ hitCount }}</div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-bottom: 14px; border-bottom: 1px solid #1c2320;">
+            <span style="font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: #5e6864; flex: none;">Store</span>
+            <span style="flex: 1 1 auto; height: 5px; border-radius: 999px; background: #1a221f; overflow: hidden; min-width: 40px;">
+              <i style="display: block; height: 100%; border-radius: 999px; background: {{ storeColor }}; width: {{ storePct }}%;"></i>
+            </span>
+            <span style="font-size: 12.5px; color: #8a958f; font-variant-numeric: tabular-nums; flex: none;">{{ storeLine }}</span>
+          </div>
+
+          <div style="display: flex; flex-direction: column; margin-top: 4px;">
+            <sc-for list="{{ rows }}" as="row" hint-placeholder-count="7">
+              <div style="display: grid; grid-template-columns: 26px minmax(0, 1fr) minmax(52px, 1.5fr) 64px; align-items: center; gap: 12px; min-height: 46px; padding: 0 10px; margin: 0 -10px; border-radius: 7px; background: {{ row.bg }};">
+                <span style="font-family: Montserrat, sans-serif; font-weight: 800; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; color: {{ row.rankColor }};">{{ row.rank }}</span>
+                <span style="font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: {{ row.nameColor }};">{{ row.name }}</span>
+                <span style="height: 8px; border-radius: 999px; background: #1a221f; overflow: hidden;">
+                  <i style="display: block; height: 100%; border-radius: 999px; background: {{ row.fill }}; width: {{ row.pct }}%; animation: {{ row.anim }};"></i>
+                </span>
+                <span style="font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; color: {{ row.unitsColor }};">{{ row.units }}<span style="font-weight: 600; color: #5e6864;">{{ row.goalSuffix }}</span></span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <sc-if value="{{ showTips }}" hint-placeholder-val="{{ true }}">
+          <div style="background: #121715; border: 1px solid #232a27; border-radius: 12px; padding: 16px 20px 18px;">
+            <div style="font-size: 10px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; color: #5e6864;">How to sell it &middot; from Tawny</div>
+            <div style="display: flex; flex-direction: column; gap: 11px; margin-top: 12px;">
+              <sc-for list="{{ tips }}" as="tip" hint-placeholder-count="3">
+                <div style="display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 10px; align-items: start;">
+                  <span style="font-family: Montserrat, sans-serif; font-weight: 800; font-size: 11px; line-height: 1.55; color: #4ade80; font-variant-numeric: tabular-nums;">{{ tip.n }}</span>
+                  <span style="font-size: 15px; line-height: 1.55; color: #e6ece9;">{{ tip.text }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:760,&quot;height&quot;:1180},&quot;store&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Century&quot;,&quot;Center&quot;,&quot;Commercial&quot;,&quot;Baseline&quot;,&quot;Portland&quot;,&quot;River&quot;],&quot;default&quot;:&quot;Century&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Board&quot;},&quot;payoutType&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;flat&quot;,&quot;per_unit&quot;],&quot;default&quot;:&quot;flat&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Board&quot;},&quot;boardState&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;live&quot;,&quot;empty&quot;],&quot;default&quot;:&quot;live&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Board&quot;},&quot;showTips&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Board&quot;}}">
+const STORES = {
+  Century: '#22D3EE', Center: '#3B82F6', Commercial: '#A855F7',
+  Baseline: '#6366F1', Portland: '#D946EF', River: '#EC4899'
+};
+
+const PEOPLE = [
+  { name: 'Jayce Alexander', units: 11 },
+  { name: 'Marisol Vega', units: 9 },
+  { name: 'Devon Pratt', units: 8 },
+  { name: 'Priya Raman', units: 6 },
+  { name: 'Colton Reed', units: 5 },
+  { name: 'Amber Liu', units: 3 },
+  { name: 'Noah Whitfield', units: 0 }
+];
+
+const TIPS = [
+  'Lead with the 10-pack. Same shelf price as two 5-packs, and the math sells itself.',
+  'Sour Apple moves fastest with first-time gummy buyers. Ask what they have tried.',
+  'Anyone already holding a Wyld 5pc is one sentence from the upgrade: twice the pieces, four dollars more.'
+];
+
+class Component extends DCLogic {
+  renderVals() {
+    const p = this.props;
+    const storeName = p.store ?? 'Century';
+    const storeColor = STORES[storeName] || STORES.Century;
+    const perUnit = (p.payoutType ?? 'flat') === 'per_unit';
+    const isEmpty = (p.boardState ?? 'live') === 'empty';
+    const goal = perUnit ? 0 : 8;
+    const days = 6;
+
+    const sorted = PEOPLE.slice().sort((a, b) => b.units - a.units);
+    const sold = sorted.reduce((s, e) => s + e.units, 0);
+    const storeGoal = 60;
+    const hits = goal ? sorted.filter(e => e.units >= goal).length : 0;
+
+    const rows = sorted.map((e, i) => {
+      const hit = goal > 0 && e.units >= goal;
+      const ref = goal > 0 ? goal : (sorted[0].units || 1);
+      const pct = Math.max(0, Math.min(100, (e.units / ref) * 100));
+      return {
+        rank: i + 1,
+        name: e.name,
+        units: e.units.toLocaleString(),
+        goalSuffix: goal > 0 ? ('/' + goal) : '',
+        pct: pct.toFixed(1),
+        fill: hit ? 'linear-gradient(90deg, #265939, #4ade80)' : (e.units ? '#265939' : '#1a221f'),
+        anim: hit ? 'gxaheadglow 2.6s ease-in-out infinite' : 'none',
+        bg: hit ? 'rgba(74,222,128,.10)' : 'transparent',
+        nameColor: hit ? '#5ee68f' : (e.units ? '#e6ece9' : '#8a958f'),
+        unitsColor: hit ? '#5ee68f' : (e.units ? '#e6ece9' : '#8a958f'),
+        rankColor: hit ? '#4ade80' : '#5e6864'
+      };
+    });
+
+    return {
+      storeName, storeColor,
+      isEmpty, isLive: !isEmpty,
+      asOf: 'as of 11:00am',
+      vendor: 'Wyld',
+      programName: 'Wyld 10pc Gummies',
+      product: 'Wyld Sour Apple 10pc Gummies',
+      dateRange: 'Sep 8 – Sep 21',
+      payFig: perUnit ? '$3' : '$25',
+      payLabel: perUnit ? 'for every unit you sell' : 'when you hit your goal',
+      goalFig: perUnit ? 'Any' : String(goal),
+      goalLabel: perUnit ? 'unit pays — no personal goal' : 'units to hit your bonus',
+      daysFig: String(days),
+      daysLabel: days === 1 ? 'day left, ends Sep 21' : 'days left, ends Sep 21',
+      daysColor: days <= 3 ? '#d4a847' : '#e6ece9',
+      boardTitle: perUnit ? 'Sold so far' : 'Where everyone stands',
+      hitCount: goal ? (hits + ' of ' + sorted.length + ' hit') : (sold.toLocaleString() + ' units sold'),
+      hitCountColor: goal && hits ? '#5ee68f' : '#8a958f',
+      storePct: Math.min(100, (sold / storeGoal) * 100).toFixed(1),
+      storeLine: sold + ' of ' + storeGoal + ' units',
+      rows,
+      showTips: p.showTips ?? true,
+      tips: TIPS.map((t, i) => ({ n: i + 1, text: t })),
+      lastProgram: 'Wyld 5pc Gummies, ended Sep 7',
+      lastResult: 'store hit 112%'
+    };
+  }
+}
+</script>
+</body>
+</html>
