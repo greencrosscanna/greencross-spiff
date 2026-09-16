@@ -120,7 +120,7 @@ CONTROLS.forEach(sel => {
       Dutchie and re-runs the plan off it — on a settled program that silently re-prices something
       already reported and paid. The early return is what keeps one field to one field. */
 ok('picking a product on a CLOSED program does not touch cost or the plan',
-   /if \(calc\.locked\) \{ renderCalcEditing\(\); return; \}[\s\S]{0,120}calc\.cost = cost/
+   /if \(calc\.locked\) \{ renderProgramBar\(\); return; \}[\s\S]{0,120}calc\.cost = cost/
      .test(js));
 
 /* 2. The save must narrow, whatever the DOM allowed. This is the half that does not depend on
@@ -131,16 +131,28 @@ ok('a locked save carries match_json and nothing else',
 ok('  …and it filters the PATCH, so an unchanged filter still writes nothing',
    save.indexOf('calcModelPatch(prog, payload)') < save.indexOf('if (calc.locked)'));
 
-/* ── the door ── */
-const editing = grab('renderCalcEditing');
-ok('a locked program offers an unlock', /calcUnlock/.test(editing));
+/* ── the door ──
+   The unlock lived in renderCalcEditing, which painted the editing chip AND bound its buttons on
+   every repaint. The program bar's actions are static markup bound once, so the door is now in
+   wireProgramBar and the bar only toggles whether it is showing. Same two guarantees: it is
+   offered only on a locked program, and taking it re-applies the lock rather than flipping a
+   flag nothing reads. */
+const wire = grab('wireProgramBar');
+const bar  = grab('renderProgramBar');
+ok('a locked program offers an unlock', /calcUnlock/.test(wire));
+ok('  …shown only while the program is locked',
+   /if \(un\) un\.hidden = !calc\.locked/.test(bar));
 ok('  …behind a confirm that names what the program is',
-   /confirm\(/.test(editing) && /reported to the vendor/.test(editing));
+   /confirm\(/.test(wire) && /reported to the brand/.test(wire));
 ok('  …and unlocking re-applies rather than just setting a flag',
-   /calc\.locked = false;\s*\n\s*renderCalcEditing\(\);\s*\n\s*applyCalcLock\(\)/.test(editing));
+   /calc\.locked = false;\s*\n\s*renderProgramBar\(\);\s*\n\s*applyCalcLock\(\)/.test(wire));
 ok('stopping editing clears the lock as well as the id',
-   /calc\.editingId = null; calc\.window = null; calc\.locked = false/.test(editing));
-ok('the banner says CLOSED rather than "Editing" when locked', /Closed &middot; /.test(editing));
+   /calc\.editingId = null; calc\.window = null; calc\.locked = false/.test(wire));
+/* The bar says CLOSED in the status pill now, where it says it for every status, rather than as a
+   "Closed · " prefix that only existed in the locked branch of the chip. */
+ok('the bar states the status rather than only flagging the locked case',
+   /pill\.textContent = st\.toUpperCase\(\)/.test(bar)
+   && /pill\.className = 'sp-pbar-pill is-' \+ \(st \|\| 'draft'\)/.test(bar));
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nclosed lock: all passed');
 process.exit(fail ? 1 : 0);

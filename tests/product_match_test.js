@@ -132,15 +132,19 @@ ok('Progress knows a per-unit program when it sees one',
    /normalModel\(\(prog\.payout_json \|\| \{\}\)\.model \|\| prog\.payout_type\) === 'per_unit'/.test(paint));
 ok('earned so far is UNITS × rate for per-unit, not hit × rate',
    /var earned  = perUnit \? units \* rate : hit \* rate/.test(paint));
+/* paintProgress still does the ARITHMETIC; the captions moved to the program bar's rail with the
+   figures they describe (liveRail), so the two cannot drift apart into a number and a caption that
+   disagree. Both halves are still checked — the sums here, the words there. */
+const live = grab('liveRail');
 ok('  …and the caption says so, so the figure can be checked by hand',
-   /'earned so far, ' \+ units\.toLocaleString\(\) \+ ' × '/.test(paint));
+   /'so far, ' \+ t\.units\.toLocaleString\(\) \+ ' × '/.test(live));
 ok('"budtenders at their target" becomes who is EARNING — everyone who sold',
-   /budtenders earning — everyone who sold/.test(paint));
+   /brail\('Earning'/.test(live) && /t\.sellers\.toLocaleString\(\)/.test(live));
 ok('and "if everyone lands it" — a flat idea — is replaced by the rate',
-   /per unit sold, from the first one/.test(paint));
+   /per unit sold, from the first one/.test(live));
 /* With no chain target set, "242 / 0" is worse than "242". */
 ok('the units tile drops the "/ target" half when there is no target',
-   /target \? ' <small>\/ '/.test(paint));
+   /t\.target \? ' <small>\/ '/.test(live));
 
 const card = grab('pgCard');
 ok('each store card reports who is earning rather than who "hit"',
@@ -160,9 +164,10 @@ ok('no progress bar is drawn when there is no goal to draw it against',
 /* The flat path must be untouched — 22 of the 24 programs are flat. */
 ok('flat programs still report hit against target',
    /r\.hit \+ ' of ' \+ all\.length \+ ' hit<\/span>'/.test(card) &&
-   /budtenders at their target/.test(paint));
+   /budtenders at their target/.test(live));
 ok('  …and still price the ceiling as everyone landing it',
-   /money\(btsAll \* rate\)/.test(paint));
+   /committed: perUnit \? 0 : btsAll \* rate/.test(paint)
+   && /if everyone lands it/.test(live));
 
 /* ══════════════ "IT SCALES WITH SUCCESS" SCALED BACKWARDS ══════════════
  * The panel above the Present-to-vendor button asks "how many budtenders hit their number", and
@@ -259,18 +264,26 @@ ok('flat programs still pay per budtender who hit', /: rate \* hit/.test(pull));
  * in actual_json. Portland Heights was both, so the top of the screen showed four dashes above a
  * record that had just measured itself at 242 units and $181.50.
  */
+/* The four cards are the program bar's rail now, and the two tenses are two functions rather than
+   two branches of one: settledRail reads actual_json, modelRail projects. statusView owns the
+   "is this settled" test that used to be computed inline here — one answer, used by the rail, the
+   section order and the model fold alike. */
 const rc = grab('recalc');
+const settledRail = grab('settledRail');
+const modelRail = grab('modelRail');
+const sv = grab('statusView');
 ok('a closed program with actuals reports what HAPPENED',
-   /var settled = !!\(act && String\(recNow\.status \|\| ''\)\.toLowerCase\(\) === 'closed'/.test(rc));
-ok('  …and only when there are actuals to report', /Number\(act\.units_sold\) > 0/.test(rc));
+   /settled: !!\(st === 'closed' && has\)/.test(sv) && /v\.settled \? settledRail/.test(grab('renderProgramBar')));
+ok('  …and only when there are actuals to report',
+   /if \(!sUnits\)/.test(settledRail) && /not measured yet/.test(settledRail));
 ok('  …in the past tense, so it cannot be read as a projection',
-   /'You funded'/.test(rc) && /'Revenue it earned'/.test(rc));
+   /'They funded'/.test(settledRail) && /'Revenue it earned'/.test(settledRail));
 ok('per-unit says what it paid per unit; flat says how many budtenders hit',
-   /money\(sRate\) \+ ' on each of '/.test(rc) && /budtenders at ' \+ money\(sRate\)/.test(rc));
+   /money\(sRate\) \+ ' on each of '/.test(settledRail) && /budtenders at ' \+ money\(sRate\)/.test(settledRail));
 
 /* Gross gain is not stored. It is the return plus the bounty that bought it — the same identity
    the model prices on, so the settled cards and the modelled ones cannot drift apart. */
-ok('revenue earned is derived as return + investment', /var sGross = sRoi \+ sInv/.test(rc));
+ok('revenue earned is derived as return + investment', /var sGross = sRoi \+ sInv/.test(settledRail));
 /* The identity itself is checked where it is COMPUTED (calc_rounding_test.js runs calcModel); an
    `Math.abs((phRoi + phInv) - …)` here would only confirm that five literals in this file agree
    with each other. */
@@ -281,11 +294,11 @@ ok('revenue earned is derived as return + investment', /var sGross = sRoi \+ sIn
    including the target the app itself fills in at 0% growth — and that case buys no extra units,
    so the return is exactly minus the bounty: −100%, in front of a vendor. */
 ok('an unsettled program requires an ask ABOVE last month before it projects',
-   /var hasAsk  = hasBase && \(Number\(calc\.target\) \|\| 0\) > m\.baseUnits/.test(rc));
+   /var hasAsk = hasBase && \(Number\(calc\.target\) \|\| 0\) > m\.baseUnits/.test(modelRail));
 ok('  …and says "not yet" rather than a confident zero',
-   /set a target above last month/.test(rc) && /pick a product to pull last month/.test(rc));
+   /set a target above last month/.test(modelRail) && /pick a product to pull last month/.test(modelRail));
 ok('  …distinguishing "no product yet" from "no ask yet", which need different actions',
-   /pick a product first/.test(rc) && /needs a target above last month/.test(rc));
+   /pick a product first/.test(modelRail) && /needs a target above last month/.test(modelRail));
 
 /* ══════════════ THREE PRODUCTS, ONE NAME ══════════════
  * Sky, 2026-09-02, setting up the LIVE Mule programme: "selecting Mule Extracts - Tank (28) is

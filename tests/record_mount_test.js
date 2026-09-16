@@ -104,9 +104,15 @@ ok('a NEW program still gets a window — the whole reason it moved',
    /periodByIndex\(Number\(sel\)\)/.test(when) && /p \? \(toISODate/.test(when));
 ok('  …and the mount paints it whether or not a saved program is open',
    sync.indexOf('renderWhen(p)') >= 0 && sync.indexOf('renderWhen(p)') < sync.indexOf("body.innerHTML = ''"));
-ok('the collector reads BOTH hosts, so a moved field cannot stop saving',
-   /REC\.hosts\s*=\s*\[REC\.body, REC\.when\]/.test(js)
+/* Three hosts since the actuals became a figure strip of their own. The claim is unchanged and is
+   the reason the list exists at all: a field that MOVES must not stop saving. Every host the record
+   paints into has to be in this list, so the check is that the strip joined it — not that the list
+   is still two long. */
+ok('the collector reads EVERY host, so a moved field cannot stop saving',
+   /REC\.hosts\s*=\s*\[REC\.body, REC\.when, REC\.act\]/.test(js)
    && /recFields\(\)\.forEach/.test(grab('collectPatch')));
+ok('  …including the actuals strip, which is where the money fields live now',
+   /act:\s*'#actStrip'/.test(js) && /id="actStrip"/.test(html));
 ok('  …and a create carries the window, since it has no record half to save it',
    /start_date: \(recField\$\('start_date'\)/.test(grab('saveCalcProgram')));
 /* Found by creating a program end-to-end in Chrome: the record saved Sep 14 → Sep 27 correctly and
@@ -116,8 +122,18 @@ ok('  …and a create carries the window, since it has no record half to save it
    cannot disagree with what was sent. */
 ok('  …and adopts it into the editing bar, which used to read "no dates set" after a create',
    /calc\.window = \{ start: \(sd && sd\.value\)/.test(grab('saveCalcProgram')));
-ok('and the contact, the actuals and the vendor link',
-   /rBrandReps/.test(render) && /rPullActuals/.test(render) && /btnShare/.test(render));
+/* ── WHAT THE RECORD STILL HOLDS, AND WHAT LEFT IT ───────────────────────────────────────────
+   Two of these three moved, and the moves are the point of the redesign rather than losses:
+   the brand reps are edited once per BRAND in Settings (one list, one door), and the actuals are
+   a figure strip near the top of a closed program, where they are what you came to read. The
+   vendor link stays — it is minted per program and belongs to nothing else. The guarantee that
+   replaces "they are all here" is that each now has exactly one home, checked here. */
+ok('the record still mints the brand link',
+   /btnShare/.test(render));
+ok('  …the brand reps have exactly one editor, and it is Settings',
+   !/rBrandReps/.test(render) && /repsEditor\(/.test(grab('paintBrandBody')));
+ok('  …and the actuals have exactly one, and it is the strip',
+   !/actField\(/.test(render) && /actField\(/.test(grab('renderActuals')));
 
 /* ── EVERY WAY IN LANDS ON THE CALCULATOR ── */
 ok('openProgram is the single way in',

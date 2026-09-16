@@ -82,21 +82,23 @@ ok('locked fields are styled as unavailable, not merely inert',
 /* ══════════════════ 2. THE UNLOCK IS SCOPED TO ONE RECORD ══════════════════ */
 ok('the unlock is held as a program id, never a bare boolean',
    /actualsOpenFor: null/.test(js) && !/actualsUnlocked:\s*(true|false)/.test(js));
-const render = grab('renderRecord');
+/* The actuals are their own figure strip now (renderActuals), not a block inside the record form.
+   Every rule below is the rule it always was — what changed is which function to read it out of. */
+const render = grab('renderActuals');
+const wire = grab('wireProgramBar');
 ok('  …and is compared against THIS record on every paint',
    /calc\.actualsOpenFor === p\.program_id/.test(render));
 ok('  …so switching programs re-locks with nothing to remember to reset',
-   /var actualsOpen = canEdit\(\) && calc\.actualsOpenFor === p\.program_id/.test(render));
-ok('a viewer never gets the unlock at all', /actualsOpen = canEdit\(\) &&/.test(render));
-ok('  …nor the button offering it', /canEdit\(\) && !actualsOpen/.test(render));
+   /var open = canEdit\(\) && calc\.actualsOpenFor === p\.program_id/.test(render));
+ok('a viewer never gets the unlock at all', /var open = canEdit\(\) &&/.test(render));
+ok('  …nor the button offering it', /unlock\.hidden = !\(canEdit\(\) && !open\)/.test(render));
 ok('the unlock is spent once the correction saves',
    /calc\.actualsOpenFor = null;/.test(grab('saveEverything')));
 
 /* ══════════════════ 3. THE SANCTIONED PATH IS UNTOUCHED ══════════════════ */
 /* Measuring is the way these are meant to be filled, so it must not need the unlock. */
 ok('Pull live from Dutchie is offered whether or not the fields are unlocked',
-   /id="rPullActuals"/.test(render)
-   && render.indexOf('rPullActuals') > render.indexOf('actualsOpen'));
+   /pull\.hidden = !canEdit\(\)/.test(render) && !/open/.test(/pull\.hidden = [^;]*/.exec(render)[0]));
 const pull = grab('pullActuals');
 ok('  …and still writes every figure through setRecField',
    ['units_sold','revenue','bts_hit','spiff_amount','investment','roi','roi_pct']
@@ -120,8 +122,11 @@ ok('  …with revenue derived as units × cost, the identity the model documents
 ok('  …and still says nothing is saved until the save button is pressed',
    /nothing saved until you press ' \+ saveBtnLabel\(\)/.test(pull));
 const lbl = grab('saveBtnLabel');
+/* The wording shortened when the button moved into the program bar; what this pins is not the
+   string but the two things that made the bug: the label VARIES with whether a record is open
+   (update vs fork), and the hint and the button read it from the same helper. */
 ok('  …naming it from the one helper that also labels the button',
-   /calc\.editingId \? 'Update this program' : 'Save as program'/.test(lbl)
+   /calc\.editingId \? '[^']+' : '[^']+'/.test(lbl)
    && /btn\.textContent = saveBtnLabel\(\)/.test(js));
 ok('  …so no caller hardcodes a label beside it',
    js.indexOf("'Save changes'") < 0);
@@ -166,15 +171,17 @@ ok('  …and no longer offers undercounted totals as a result',
    !/these totals undercount</.test(pull));
 
 /* ══════════════════ 4. A CLOSED PROGRAM ASKS FIRST ══════════════════ */
+/* The unlock handler is bound once on the bar's static button rather than rebuilt with the strip,
+   so the dialog lives in wireProgramBar. Same two guarantees. */
 ok('unlocking a CLOSED program confirms, naming what those figures are',
-   /closed && !confirm\(/.test(render)
-   && /figures the brand was \'\s*\+\s*\'sent and the budtenders were paid against/.test(render.replace(/\n\s*\+\s*/g, ' + ')));
+   /closed && !confirm\(/.test(wire)
+   && /figures the brand was \'\s*\+\s*\'sent and the budtenders were paid against/.test(wire.replace(/\n\s*\+\s*/g, ' + ')));
 ok('  …and points at the measured alternative instead of typing',
-   /Pull live from Dutchie re-measures them instead/.test(render));
+   /Pull live from Dutchie re-measures them instead/.test(wire));
 /* A draft or running program has been reported to nobody — a dialog there teaches people to
    dismiss dialogs. */
 ok('a draft or running program unlocks without a dialog',
-   /var closed = String\(p\.status \|\| ''\)\.toLowerCase\(\) === 'closed'/.test(render));
+   /var closed = String\(p\.status \|\| ''\)\.toLowerCase\(\) === 'closed'/.test(wire));
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nactuals locked: all passed');
 process.exit(fail ? 1 : 0);

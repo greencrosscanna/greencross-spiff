@@ -114,8 +114,11 @@ console.log('program record');
 /* Found in the browser: SPIFF already had a `loadBrands` (the product picker's), and a second function
    declaration of the same name in one scope silently REPLACES the first. The rep section sat on
    "Loading" forever while every test passed. Each name below must be declared exactly once. */
+/* renderBrandReps left this list on 2026-09-16 with the function itself: the program screen stopped
+   editing reps, so the editor has one caller and Settings is the only door. repsEditor takes its
+   place here — it is the implementation both used, and the one that must stay singular. */
 ['loadBrandReps', 'brandNameOf', 'brandFold', 'brandOf', 'activeReps', 'needsRep', 'primaryRep',
- 'renderBrandReps', 'repRow', 'repMsg', 'brandCall', 'saveRep', 'removeRep', 'restoreRep', 'addBrandFor', 'loadBrands']
+ 'repsEditor', 'repRow', 'repMsg', 'brandCall', 'saveRep', 'removeRep', 'restoreRep', 'addBrandFor', 'loadBrands']
   .forEach(function (n) {
     ok('spiff.js declares ' + n + ' exactly once', (js.match(new RegExp('function ' + n + '\\s*\\(', 'g')) || []).length === 1);
   });
@@ -174,8 +177,14 @@ ok('an emptied email is refused on the screen, never sent', call === null);
 console.log('settings directory');
 ok('Settings holds the brand directory above the kiosk links',
    /id="brandDir"[\s\S]*id="kioskBody"/.test(fs.readFileSync(__dirname + '/../index.html', 'utf8')));
-ok('the program screen and the directory share ONE reps editor',
-   /repsEditor\(host, b\)/.test(grab(js, 'renderBrandReps')) && /repsEditor\(/.test(grab(js, 'paintBrandBody')));
+/* It used to be shared by the program screen and the directory, and the check was that neither had
+   forked its own copy. The program screen's editor is gone, so the claim tightens rather than
+   loosens: the directory is the ONLY caller, and nothing on the program screen edits a rep. */
+ok('the directory is the only reps editor on the page',
+   /repsEditor\(/.test(grab(js, 'paintBrandBody'))
+   /* one declaration, one call — anything else is a second door */
+   && (js.match(/repsEditor\(/g) || []).length === 2
+   && !/id="rBrandReps"/.test(fs.readFileSync(__dirname + '/../index.html', 'utf8')));
 ok('a load repaints the directory', /renderBrandDirectory\(\)/.test(grab(js, 'repaintBrands')) && /repaintBrands\(\)/.test(grab(js, 'loadBrandReps')));
 
 /* ── a save is quick and says so (Sky, 2026-09-15: "once i click to add it takes a while to load") ──

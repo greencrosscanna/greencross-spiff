@@ -71,10 +71,18 @@ ok('  …and no Progress tab', tabs.indexOf('progress') < 0);
 /* The panel is the screen. Removing it would take the whole calculator with it. */
 ok('the Calculator PANEL still exists — it was the tab that went, not the screen',
    /id="panel-calculator"/.test(html));
-ok('  …and its subnav too, which carries Save and Present to vendor',
-   /id="subnavCalculator"/.test(html) && /id="calcSave"/.test(html) && /id="calcPresent"/.test(html));
-/* showTab mounts the subnav by name, so a calculator opened without a tab still gets its bar. */
-ok('  …mounted by showTab from the panel name, so no button is needed to reveal it',
+/* ── SAVE AND PRESENT MOVED, THEY DID NOT GO ──────────────────────────────────────────────────
+   This used to assert #subnavCalculator existed, because that bar was where the two actions
+   lived. The program-bar redesign deleted the bar and moved both into #calcBar — so the check
+   that matters is that the two BUTTONS survive and sit in the program bar, not that a particular
+   container is still on the page. A subnav for this tab would now be an empty strip: showTab
+   hides every .sp-subnav that is not the active tab's and finds none for this one. */
+ok('  …and Save and Present survive, in the program bar',
+   !/id="subnavCalculator"/.test(html) && /id="calcSave"/.test(html) && /id="calcPresent"/.test(html));
+ok('  …both inside #calcBar rather than loose on the panel',
+   /id="calcBar"[\s\S]*id="calcSave"/.test(html) && /id="calcBar"[\s\S]*id="calcPresent"/.test(html));
+/* showTab still mounts a subnav by name for the tabs that have one (programs, reports, history). */
+ok('  …and showTab still mounts the other tabs’ subnavs by name',
    /subnavIdFor\(name\)/.test(grab('showTab')) && /'subnav' \+ tab/.test(grab('subnavIdFor')));
 
 /* The Progress panel and its picker are genuinely gone, not merely unreachable. */
@@ -130,8 +138,20 @@ ok('  …and no longer hangs off which tab you are on',
 
 /* The live grid renders into the calculator, scoped to the program already on screen. */
 ok('the live grid has a home on the calculator', /id="calcLive"/.test(html));
-ok('  …with the budtender grid, the stats and the note that were the Progress panel',
-   /id="pgBody"/.test(html) && /id="pgStats"/.test(html) && /id="pgNote"/.test(html));
+ok('  …carrying the budtender grid that was the Progress panel',
+   /id="pgBody"/.test(html));
+/* ── THE STATS AND THE NOTE MOVED UP, THEY DID NOT GO ─────────────────────────────────────────
+   This used to require #pgStats and #pgNote on the page, which was the right check while they
+   were the only place a running program's figures appeared. The program bar shows the same four
+   figures for every status, so keeping the strip meant a reader met "642 units sold" twice on one
+   screen — and the second copy was the reason the running screen scrolled. The figures are the
+   bar's rail now and the currency stamp is its meta line; the rest of the note is on #pgInfo.
+   What this still guards is that none of it was simply deleted. */
+ok('  …while its four figures moved into the program bar rather than being dropped',
+   !/id="pgStats"/.test(html) && /id="calcBarRail"/.test(html)
+   && /pgStat\(/.test(js) && /calcBarRail/.test(js));
+ok('  …and its note survives, split between the bar meta and the grid’s ⓘ',
+   !/id="pgNote"/.test(html) && /id="pgInfo"/.test(html) && /id="calcBarMeta"/.test(html));
 ok('  …and Refresh, which still goes past the cache',
    /id="pgRefresh"/.test(html) && /loadProgress\(\{ force: true \}\)/.test(grab('wireProgress')));
 ok('  …and per-store retry, so one failed store does not cost the other five',

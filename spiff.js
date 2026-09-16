@@ -525,7 +525,7 @@
        pick across incidental repaints, and "start a new program" is the one moment that is
        wrong — otherwise the last program's fortnight follows the next one in. */
     var wh = $(REC.when); if (wh) wh.innerHTML = '';
-    renderCalcEditing();
+    renderProgramBar();
     applyCalcLock();
     applyStatusView();
     syncRecordMount();
@@ -1171,9 +1171,13 @@
      what collectPatch and every read-back iterate: a field that lived in only one of them would
      be a field that silently stops saving, which is the exact failure mode the single-host move
      in v1.338 was undoing. Add a host here or it does not exist. */
-  var REC = { body: '#calcRecordBody', when: '#calcWhenHost',
+  var REC = { body: '#calcRecordBody', when: '#calcWhenHost', act: '#actStrip',
               msg: '#calcRecordMsg', signIn: '#calcRecordSignIn' };
-  REC.hosts = [REC.body, REC.when];
+  /* THREE HOSTS, NOT TWO. The actuals moved out of the record body into their own figure strip
+     near the top of a closed program, where they are what you came to read. They are still the
+     same [data-key] inputs — adding the strip here is what keeps recFields, recField$,
+     setRecField, pullActuals and collectPatch all reaching them without knowing they moved. */
+  REC.hosts = [REC.body, REC.when, REC.act];
 
   /* Every [data-key] across both hosts, in one list. */
   function recFields() {
@@ -1196,7 +1200,7 @@
      otherwise. EMPTIED, not hidden — the form is read back by id, and a hidden copy still answers
      a lookup, which is how a stale form silently becomes the one being saved. */
   function syncRecordMount() {
-    var wrap = $('#calcRecordWrap'), body = $(REC.body);
+    var wrap = $('#calcRecordFold'), body = $(REC.body);
     if (!wrap || !body) return;
     var p = calc.editingId
       ? (state.programs || []).filter(function (x) { return x.program_id === calc.editingId; })[0]
@@ -1209,11 +1213,15 @@
       body.innerHTML = '';
       wrap.hidden = true;
       state.record = null;
+      renderRecordSummary(null);
       return;
     }
     state.record = p;
     wrap.hidden = false;
     renderRecord(p);
+    /* The fold's summary is the record for anyone not opening it, so it is painted with the body
+       rather than by whoever happens to collapse the section. */
+    renderRecordSummary(p);
   }
 
   /* ── THE WAY INTO A PROGRAM ───────────────────────────────────────────────────────────────
@@ -1275,13 +1283,84 @@
      when locked, deliberately: pullActuals writes through setRecField and collectPatch reads
      back by [data-key], and a readonly input does both while refusing the keyboard. Swapping
      in a <span> would have silently cut the measured figures out of the save. */
-  function actField(label, key, value, open) {
+  function actField(label, key, value, open, shown) {
     return '<label class="sp-fld sp-act' + (open ? '' : ' is-locked') + '"><span>' + esc(label) + '</span>'
+      /* ── LOCKED, THE CELL SHOWS A FIGURE AND HIDES THE INPUT ────────────────────────────────
+         The input is still there, still carrying [data-key], because it IS the save path:
+         pullActuals writes through setRecField and collectPatch reads back by key, and swapping
+         in a span would silently cut the measured figures out of the save. What changes is which
+         of the two a reader sees. `shown` is the formatted figure — "$275", "1,176%", "11 / 14" —
+         which a raw number input cannot render and which is the whole point of the strip. */
+      + (open || shown == null ? ''
+         : '<span class="sp-act-v" aria-hidden="true">' + shown + '</span>')
       + '<input class="sp-in sp-num-in" data-key="' + esc(key) + '" type="number"'
       + ' value="' + esc(value == null ? '' : value) + '"'
       + (open && canEdit() ? '' : ' readonly')
       + (open ? '' : ' tabindex="-1" title="Measured, not typed — press Correct by hand to edit"')
       + '></label>';
+  }
+
+  /* ── ACTUALS, AS A FIGURE STRIP ───────────────────────────────────────────────────────────
+     Same seven fields, same save path, different default posture. They were seven open number
+     boxes two-across on every record — 400px of form — including a CLOSED one whose figures had
+     already gone out on an invoice. Read-only was already the rule; this makes the default state
+     LOOK like what it is: six figures you read, and a seventh (revenue) that nothing reads.
+
+     Revenue is on the ⓘ rather than in the strip. Nothing consumes it — the brand report derives
+     added_revenue fresh — and it is the field that rotted unnoticed for a month because it was
+     the only one a pull could not reach. Out of the six-across row, still in the DOM, still
+     saved, still corrected by hand when the strip is unlocked. */
+  function renderActuals(p) {
+    var host = $(REC.act);
+    if (!host || !p) return;
+    var a = p.actual_json || {};
+    var open = canEdit() && calc.actualsOpenFor === p.program_id;
+    var per = normalModel((p.payout_json || {}).model || p.payout_type) === 'per_unit';
+    var planned = (p.target_json || {}).budtenders || 0;
+
+    var note = $('#actNote'), info = $('#actInfo'), unlock = $('#actUnlock'), pull = $('#actPull');
+    if (note) note.textContent = open
+      ? 'open for hand correction — these are the figures the brand was sent'
+      : a.units_sold == null ? 'not recorded yet'
+        : a.source === 'measured'
+          ? 'recorded from the close-out measurement' + (a.at ? ', ' + String(a.at).slice(0, 16).replace('T', ' ') : '')
+          : 'recorded';
+    if (info) {
+      info.innerHTML = '&#9432;';
+      info.title = 'These are what the brand was sent and what the budtenders were paid against. '
+        + 'A closed program records them by itself from its close-out measurement — nobody has to '
+        + 'remember to. Revenue (units × cost) is saved but shown only here: nothing reads it, '
+        + 'because the close-out report derives added revenue fresh.'
+        + (a.revenue != null ? ' It currently holds ' + money(a.revenue) + '.' : '');
+    }
+    if (unlock) unlock.hidden = !(canEdit() && !open);
+    if (pull) pull.hidden = !canEdit();
+
+    host.className = 'sp-act-strip' + (open ? ' is-unlocked' : '');
+    host.innerHTML =
+        actField('Units sold', 'actual_json.units_sold', a.units_sold, open,
+                 a.units_sold == null ? '—' : Number(a.units_sold).toLocaleString())
+      + actField(per ? 'Budtenders earning' : 'Hit their goal', 'actual_json.bts_hit', a.bts_hit, open,
+                 a.bts_hit == null ? '—'
+                   : Number(a.bts_hit).toLocaleString()
+                     + (!per && planned ? ' <small>/ ' + planned + '</small>' : ''))
+      + actField('Rate paid', 'actual_json.spiff_amount', a.spiff_amount, open,
+                 a.spiff_amount == null ? '—' : money(a.spiff_amount))
+      + actField('Investment', 'actual_json.investment', a.investment, open,
+                 a.investment == null ? '—' : money(a.investment))
+      + actField('ROI $', 'actual_json.roi', a.roi, open,
+                 a.roi == null ? '—' : money(a.roi))
+      + actField('ROI %', 'actual_json.roi_pct', a.roi_pct, open,
+                 a.roi_pct == null ? '—' : pctWhole(Number(a.roi_pct) || 0))
+      /* SEVENTH, and it was the one that got left behind once already. setRecField writes by
+         [data-key] and silently does nothing when the field is not on the panel — so revenue was
+         the only figure a pull could not reach, and it kept whatever the row already held. Drops
+         corrected to 698 units on 2026-09-09 and its revenue stayed at 2537.42, which is 289
+         units of a program it was never part of. It stays mounted for exactly that reason; it is
+         only the six-across row it is out of. */
+      + '<div class="sp-act-rev' + (open ? '' : ' is-tucked') + '">'
+      +   actField('Revenue (units × cost)', 'actual_json.revenue', a.revenue, open, null)
+      + '</div>';
   }
 
   function recField(label, key, value, type, cls) {
@@ -1383,7 +1462,7 @@
       if (b) b.value = chosen.end;
       /* The editing bar reads calc.window, so it would keep showing the old dates until a
          reload otherwise. */
-      if (calc.editingId) { calc.window = { start: chosen.start, end: chosen.end }; renderCalcEditing(); }
+      if (calc.editingId) { calc.window = { start: chosen.start, end: chosen.end }; renderProgramBar(); }
     });
   }
 
@@ -1412,7 +1491,10 @@
   }
   function repaintBrands() {
     try { if (state.programs && state.programs.length) renderPrograms(); } catch (e) {}
-    if (state.record) renderBrandReps(state.record);
+    /* The program screen no longer edits reps — Settings is the one door — but it still REPORTS
+       on them: needsRep drives the notice on a draft and the dot on the collapsed Record bar, and
+       both are answers about a brand list that has only just arrived. */
+    if (state.record) renderRecordSummary(state.record);
     renderBrandDirectory();
   }
 
@@ -1468,39 +1550,18 @@
   // Core sorts the main contact first, so a brand with one has it at [0].
   function primaryRep(p) { return activeReps(p)[0] || null; }
 
-  function renderBrandReps(p) {
-    var host = $('#rBrandReps');
-    if (!host || !p || host.dataset.program !== p.program_id) return;
-    var name = brandNameOf(p), ed = canEdit();
-    host.onclick = null;
+  /* ── THE PROGRAM SCREEN'S REP EDITOR IS GONE (2026-09-16) ─────────────────────────────────
+     renderBrandReps painted this same editor into #rBrandReps on the program screen. Reps belong
+     to the BRAND — one list, shared with Inventory, edited once — and a second editor sitting on a
+     program implied otherwise, so the program was the place people went to fix a brand-wide fact.
+     The Settings brand directory has done the job since 2026-09-15; this leaves it as the only
+     door. What the program screen still does is REPORT: needsRep drives a notice on a draft and a
+     dot on the collapsed Record bar, and "Add in Settings" opens the directory.
 
-    if (!state.brands) {
-      host.innerHTML = '<p class="hint">' + (state.brandsError
-        ? 'Couldn’t load the shared brand list: ' + esc(state.brandsError)
-        : 'Loading this brand’s reps…') + '</p>';
-      return;
-    }
-    if (!name) {
-      host.innerHTML = '<p class="hint">Set the brand in the Calculator above, then add its reps here.</p>';
-      return;
-    }
-    var b = brandOf(p);
-    if (!b) {
-      host.innerHTML = '<p class="hint"><b>' + esc(name) + '</b> isn’t in the shared brand list yet.</p>'
-        + (ed ? '<div class="sp-brep-actions"><button type="button" class="gx-btn" data-rep-act="brand">Add '
-              + esc(name) + ' to the brand list</button><span class="sp-brep-msg"></span></div>' : '');
-      host.onclick = function (ev) {
-        var btn = ev.target.closest('[data-rep-act="brand"]');
-        if (btn) addBrandFor(name, btn);
-      };
-      return;
-    }
+     repsEditor below is unchanged, and is still the one implementation. */
 
-    repsEditor(host, b);
-  }
-
-  /* The reps for one brand — list, add, removed — painted into `host` and wired there. Shared by the
-     program screen and the Settings directory, so the two can never disagree about what a save sends. */
+  /* The reps for one brand — list, add, removed — painted into `host` and wired there. One editor,
+     so there is nowhere for two versions of "what a save sends" to disagree. */
   function repsEditor(host, b) {
     var ed = canEdit();
     var live = (b.contacts || []).filter(function (c) { return c.active; });
@@ -1878,17 +1939,27 @@
     brandCall('addBrand', { display_name: name }, btn.parentNode, btn);
   }
 
-  function renderRecord(p) {
+  /* ── THE WARNINGS SIT ABOVE THE FOLD ──────────────────────────────────────────────────────
+     They used to open the record body. The record collapses now, and a warning about money that
+     may already have gone out is the last thing that should be reachable only by opening a
+     drawer — so they paint into #calcNotices, which is not part of the staged order and always
+     sits directly under the program bar.
+     BOTH ARE STILL DERIVED, never stored: annotateActuals_ recomputes them on every read and
+     programToRow_ strips them before any write. Don't re-add them as columns — a stored flag can
+     only be cleared on the row somebody edited, leaving its partner still pointing at a program
+     that no longer matches. */
+  function renderNotices(p) {
+    var host = $('#calcNotices');
+    if (!host) return;
+    if (!p) { host.innerHTML = ''; return; }
     var a = p.actual_json || {};
     var warn = '';
-    /* Per PROGRAM, so unlocking one record does not leave the next one open. */
-    var actualsOpen = canEdit() && calc.actualsOpenFor === p.program_id;
 
     if (a.duplicate_of && a.duplicate_of.length) {
       warn += '<div class="sp-notice is-bad"><span class="sp-notice-l">Actuals look copied</span>'
         + 'Identical units sold, budtenders hit and investment as <b>' + esc(a.duplicate_of.join(', ')) + '</b>. '
         + 'Duplicating a tab copies its typed cells while formulas recalculate, so these numbers may belong to '
-        + 'another program. Pull live actuals below, or correct them by hand — the brand close-out PDF in Drive '
+        + 'another program. Pull live actuals above, or correct them by hand — the brand close-out PDF in Drive '
         + 'is the reliable source.</div>';
     }
     if (a.rate_changed) {
@@ -1896,13 +1967,31 @@
         + 'Modeled at ' + money(p.payout_json && p.payout_json.amount)
         + ', settled at ' + money(a.spiff_amount) + '.</div>';
     }
-    if (needsRep(p)) {
+    /* A DRAFT ONLY. While a program is being set up this is a task with somewhere to go; after
+       that it is a standing fact about a brand, and it rides as a dot on the Record bar. */
+    if (needsRep(p) && String(p.status || 'draft').toLowerCase() === 'draft') {
       warn += '<div class="sp-notice is-warn"><span class="sp-notice-l">No brand rep</span>'
-        + 'A brand link opens nothing without one &mdash; the rep signs in with their own address.</div>';
+        + 'A brand link opens nothing without one &mdash; the rep signs in with their own address.'
+        + (canEdit() ? '<button type="button" class="gx-btn sp-notice-act" id="calcAddRep">Add in Settings</button>' : '')
+        + '</div>';
     }
+    host.innerHTML = warn;
+    /* Rebuilt with the notice, so bound with it — unlike the bar's actions, which are static. */
+    var add = $('#calcAddRep');
+    if (add) add.addEventListener('click', function () {
+      /* Land on THIS brand, not on an alphabetical list she then has to find it in. The directory
+         filters off brandDir.q, so seeding it and repainting is the whole handoff. */
+      if (p.vendor) brandDir.q = p.vendor;
+      openSettings();
+    });
+  }
 
-    $(REC.body).innerHTML = warn
-      + '<h4 class="sp-h4">The program</h4>'
+  function renderRecord(p) {
+    var a = p.actual_json || {};
+    renderNotices(p);
+
+    $(REC.body).innerHTML =
+      '<h4 class="sp-h4">The program</h4>'
       + '<div class="sp-flds">'
       /* NO NAME AND NO VENDOR. The Calculator has its own boxes for both, directly above this
          form, and both halves of the screen save `program_name` and `vendor` — so a second pair
@@ -1926,12 +2015,13 @@
          The split it used to describe is still real and still the point: the model above saves
          wholesale, this form saves only what changed. What is gone is the second, weaker copy. */
 
-      /* THE BRAND'S REPS, NOT THIS PROGRAM'S (2026-09-15). They live in GX Core's shared brand list,
-         so they are filled in once per brand instead of once per program, and Inventory sees the same
-         people. Rendered by renderBrandReps, which saves each rep on its own button — never through
-         collectPatch, so none of these inputs carry data-key. */
-      + '<h4 class="sp-h4">Brand reps</h4>'
-      + '<div id="rBrandReps" data-program="' + esc(p.program_id) + '"></div>'
+      /* ── THE REP EDITOR LEFT THIS SCREEN (2026-09-16) ────────────────────────────────────────
+         They are the BRAND's reps, not this program's — filled in once per brand, shared with
+         Inventory, and edited from the Settings directory since 2026-09-15. A second editor here
+         meant one list with two doors, and the door on a program implied the reps belonged to that
+         program. repsEditor now has a single caller.
+         needsRep(p) still fires: the notice above on a draft, a dot on the collapsed Record bar
+         everywhere else. Reporting on a fact is not the same as being the place to change it. */
 
       /* ── ACTUALS ARE MEASURED, NOT TYPED (Sky, 2026-09-08: "remove actuals from edit mode") ──
          These six are what the vendor was told and what the budtenders were paid against, and
@@ -1952,56 +2042,18 @@
          reads back to collectPatch. Typing needs one deliberate click, the same shape as
          "Unlock the goals too" on a closed model, so the pattern is one somebody has already
          met. */
-      + '<div class="sp-h4-row"><h4 class="sp-h4">Actuals</h4>'
-      +   '<span class="sp-h4-note" id="rActualsNote">'
-      +     (actualsOpen
-              ? 'open for hand correction &mdash; these are the figures the brand was sent'
-              : 'measured, not typed &mdash; pull them from Dutchie, or unlock to correct by hand')
-      +   '</span>'
-      +   (canEdit() && !actualsOpen
-              ? '<button type="button" class="gx-btn" id="rUnlockActuals">Correct by hand</button>'
-              : '')
-      +   '<button type="button" class="gx-btn" id="rPullActuals" style="margin-left:auto">Pull live from Dutchie</button>'
-      + '</div>'
-      + '<div class="sp-flds' + (actualsOpen ? ' is-unlocked' : '') + '" id="rActuals">'
-      +   actField('Units sold', 'actual_json.units_sold', a.units_sold, actualsOpen)
-      /* SEVENTH, and it was the one that got left behind. setRecField writes by [data-key]
-         and silently does nothing when the field is not on the panel — so revenue was the
-         only figure a pull could not reach, and it kept whatever the row already held. Drops
-         corrected to 698 units on 2026-09-09 and its revenue stayed at 2537.42, which is
-         289 units of a program it was never part of. Dead today (nothing reads it; the vendor
-         report derives added_revenue fresh), and that is exactly why it rotted unnoticed. */
-      +   actField('Revenue (units × cost)', 'actual_json.revenue', a.revenue, actualsOpen)
-      +   actField('Budtenders hitting goal', 'actual_json.bts_hit', a.bts_hit, actualsOpen)
-      +   actField('Rate paid', 'actual_json.spiff_amount', a.spiff_amount, actualsOpen)
-      +   actField('Investment', 'actual_json.investment', a.investment, actualsOpen)
-      +   actField('ROI $', 'actual_json.roi', a.roi, actualsOpen)
-      +   actField('ROI % (decimal)', 'actual_json.roi_pct', a.roi_pct, actualsOpen)
-      + '</div>';
+      /* ── THE ACTUALS MOVED OUT (2026-09-16) ──────────────────────────────────────────────────
+         They are a figure strip near the top of a closed program now — see renderActuals — because
+         on a settled program they are what you came to read, and down here they were 400px of form
+         below a fold. #actStrip is a REC host, so the same [data-key] inputs are still collected,
+         still written through by pullActuals, and still unlocked by one deliberate click. */
+      ;
 
     /* The saved match travels in a hidden field so collectPatch picks it up with everything
        else, instead of needing its own save path that could disagree about what changed. */
     $(REC.body).insertAdjacentHTML('beforeend',
       '<input type="hidden" data-key="match_json" value="' + esc(JSON.stringify(p.match_json || {})) + '">');
 
-    var pull = $('#rPullActuals');
-    if (pull) pull.addEventListener('click', function () { pullActuals(p, pull); });
-
-    /* ONE DELIBERATE CLICK, and a confirm on a CLOSED program only. A draft or a running
-       program's actuals have not been reported to anybody, so guarding those would be a dialog
-       that teaches people to dismiss dialogs. A closed one has been paid and invoiced. */
-    var unlock = $('#rUnlockActuals');
-    if (unlock) unlock.addEventListener('click', function () {
-      var closed = String(p.status || '').toLowerCase() === 'closed';
-      if (closed && !confirm('Correct the actuals on ' + (programLabel(p) || 'this program') + ' by hand?\n\n'
-            + 'It closed on ' + prettyDay(p.end_date) + '. These are the figures the brand was '
-            + 'sent and the budtenders were paid against.\n\n'
-            + 'Pull live from Dutchie re-measures them instead, without typing.')) return;
-      calc.actualsOpenFor = p.program_id;
-      renderRecord(p);
-      var first = $(REC.body + ' .sp-act input');
-      if (first) first.focus();
-    });
 
     /* ── WHAT THE KIOSK SAYS ──────────────────────────────────────────────────────────────────
        Sky, 2026-09-08: "for Staff to be able to click a SPIFF button from the Kiosk and see the
@@ -2067,8 +2119,6 @@
       $('#btnShare').addEventListener('click', function () { makeShare(p, this); });
       if (p.share_token) $('#btnRevoke').addEventListener('click', function () { revokeShare(p, this); });
     }
-
-    renderBrandReps(p);
 
     /* ── Deleting ─────────────────────────────────────────────────────────────────────────────
        Last thing in the panel, because it is the last thing anyone should reach for. A closed
@@ -2930,66 +2980,16 @@
        gets turned around to face a vendor. Zero growth is not a deal; an em dash says "not yet". */
     var hasAsk  = hasBase && (Number(calc.target) || 0) > m.baseUnits;
 
-    /* ── A CLOSED PROGRAM HAS ALREADY ANSWERED THESE FOUR QUESTIONS ───────────────────────────
-       All four cards are gated on an ASK — a target above last month — because a projection with
-       nothing to project from was announcing "Your return -100%" on a fresh Calculator. That gate
-       is right for modeling and wrong for everything else, in two ways that met on Portland
-       Heights: a PER-UNIT program sets no target by design, so the gate never opens; and a CLOSED
-       program does not need projecting at all, because it has settled figures sitting in
-       actual_json. The result was four em dashes at the top of a program that had just measured
-       itself at 242 units and $181.50.
-       So: if the program is closed and has actuals, these say what HAPPENED, in the past tense.
-       Revenue increase and unit lift are derived rather than stored — gross gain is the return
-       plus the bounty that bought it, which is the same identity the model prices on. */
-    var recNow = calc.editingId
-      ? (state.programs || []).filter(function (x) { return x.program_id === calc.editingId; })[0]
-      : null;
-    var act = (recNow && recNow.actual_json) || null;
-    var settled = !!(act && String(recNow.status || '').toLowerCase() === 'closed'
-                        && Number(act.units_sold) > 0);
-
-    var stats = $('#calcStats');
-    if (stats && settled) {
-      var sUnits = Number(act.units_sold) || 0;
-      var sInv   = Number(act.investment) || 0;
-      var sRoi   = Number(act.roi) || 0;
-      var sRate  = Number(act.spiff_amount) || 0;
-      var sBase  = Number((recNow.baseline_json || {}).units) || 0;
-      var sGross = sRoi + sInv;                       // what the extra units earned, before the bounty
-      var sLift  = sUnits - sBase;
-      var sPer   = normalModel((recNow.payout_json || {}).model || recNow.payout_type) === 'per_unit';
-      stats.innerHTML =
-          cstat('You funded', money(sInv),
-                sPer ? money(sRate) + ' on each of ' + sUnits.toLocaleString() + ' units sold'
-                     : (act.bts_hit || 0) + ' budtenders at ' + money(sRate) + ' each', '')
-        + cstat('Revenue it earned', money(sGross),
-                sBase ? sLift.toLocaleString() + ' units over last month' : 'against last month', '')
-        + cstat('Your return', sInv ? pctWhole(Number(act.roi_pct) || 0) : '—',
-                money(sRoi) + ' net of the bounty', sRoi < 0 ? 'is-neg' : 'is-hero')
-        + cstat('Unit lift', (sLift > 0 ? '+' : '') + sLift.toLocaleString(),
-                sBase ? pct(sBase ? sLift / sBase : 0) + ' over last month'
-                      : 'no last-month figure to compare', '');
-    } else if (stats) stats.innerHTML =
-        cstat('You fund, at most', hasAsk ? money(m.invest) : '—',
-              !hasAsk ? (hasBase ? 'set a target above last month' : 'pick a product first')
-                : calc.model === 'per_unit'
-                  ? money(calc.spiff) + ' on each of ' + m.goalUnits.toLocaleString() + ' units'
-                  : 'only if all ' + m.bts + ' reach their target', '')
-      + cstat('Your revenue increase', hasAsk ? money(m.revInc) : '—',
-              hasAsk ? money(m.baseRev) + ' → ' + money(m.targetRev)
-                : hasBase ? 'needs a target above last month' : 'needs last month and a target', '')
-      + cstat('Your return', hasAsk && m.invest ? pctWhole(m.roiPct) : '—',
-              hasAsk ? money(m.roi) + ' net of the bounty' : 'once there is an ask to price',
-              !hasAsk ? '' : m.roi < 0 ? 'is-neg' : 'is-hero')
-      /* Unit lift needs an ASK, not just a base — the same rule as the three cards beside it,
-         which it was left out of. A product pulled with no target yet leaves the model's target
-         at 0, so this card read −100.0% over last month under a headline of −1,000: the app
-         telling a vendor their product had stopped selling outright, when in fact nothing had
-         been asked for yet. Zero is not a target, and an em dash says "not yet". */
-      + cstat('Unit lift', hasAsk ? (m.unitInc > 0 ? '+' : '') + m.unitInc.toLocaleString() : '—',
-              hasAsk ? pct(m.growth) + ' over last month'
-                : hasBase ? 'set a target above last month to see the lift'
-                  : 'pick a product to pull last month', '');
+    /* ── THE FOUR FIGURES ARE THE PROGRAM BAR'S NOW ───────────────────────────────────────────
+       They used to be a four-card strip rendered right here, and a second strip (#pgStats) said
+       four more a screen below it. Both are the bar's rail — see renderProgramBar, modelRail and
+       settledRail, which kept every rule this block had learned: the ASK gate (a target above
+       last month, not above zero, or a fresh model announces "−100%" to a brand), and the closed
+       branch that reads actual_json in the past tense instead of projecting a program that has
+       already happened.
+       recalc still OWNS the trigger, because these figures move with the model and nothing else
+       repaints on a keystroke. */
+    renderProgramBar();
 
     /* ---- the goal bar, which is also the goal CONTROL.
        The track is a units axis: 0 .. lastMonth × (1 + GOAL_MAX). That makes the dark segment
@@ -3381,7 +3381,7 @@
 
   /* Which stat cards a given input actually moves, so the gxpulse lands on those and not
      on the whole strip. A pulse on everything says nothing about what changed. */
-  var PULSE_ALL = ['#calcStats'];
+  var PULSE_ALL = ['#calcBarRail'];
 
   /* The slider's ceiling, in percent growth. 150% covers every program in the imported
      history with headroom; the typed Growth field is NOT capped by it, and a value past the
@@ -3521,7 +3521,7 @@
            a settled program would quietly re-price a deal that has already been reported and
            paid. The one field outside the lock has to stay one field: set the filter, leave the
            cost, the target and the per-store goals exactly as the vendor agreed them. */
-        if (calc.locked) { renderCalcEditing(); return; }
+        if (calc.locked) { renderProgramBar(); return; }
         calc.cost = cost;
         $('#cCost').value = cost;
         recalc(PULSE_ALL);
@@ -4322,7 +4322,7 @@
     closeSignIn();                     // in case the program was opened from behind the dialog
     showTab('calculator');
     recalc(PULSE_ALL);
-    renderCalcEditing();
+    renderProgramBar();
     applyCalcLock();
     applyStatusView();
     syncRecordMount();
@@ -4330,35 +4330,276 @@
 
   /* WHAT THE SAVE BUTTON SAYS, in one place. pullActuals' hint has to name this button, and it
      used to name "Save changes" — a label the button has never carried in either state. A
-     correct pull therefore sat unsaved on screen pointing at a control that does not exist. */
-  function saveBtnLabel() { return calc.editingId ? 'Update this program' : 'Save as program'; }
+     correct pull therefore sat unsaved on screen pointing at a control that does not exist.
 
-  /* The Calculator has to say WHICH program it is editing, or "Save as program" silently forks
-     a duplicate off a record Tawny thought she was updating. */
-  function renderCalcEditing() {
-    var btn = $('#calcSave'), bar = $('#calcEditing');
-    var editing = !!calc.editingId;
+     SHORTENED for the program bar (2026-09-16): "Update this program" / "Save as program" were
+     ~140px of a row that also holds four figures, and they pushed the actions onto a second line
+     at 1440px. The distinction they carry — am I updating this record or forking a new one — is
+     the reason the label varies at all, so it is kept; what is dropped is the part the bar now
+     says better than the button ever did, which is WHICH program. */
+  function saveBtnLabel() { return calc.editingId ? 'Update' : 'Save program'; }
+
+  /* ── ONE RAIL CELL ────────────────────────────────────────────────────────────────────────
+     `value` is trusted HTML so a figure can carry its own <small> denominator ("642 / 1,139");
+     every caller builds it from numbers it has just formatted, never from a stored string. */
+  function brail(label, value, sub, cls, frac) {
+    return '<div class="sp-rail ' + (cls || '') + '">'
+      + '<span class="sp-rail-l">' + esc(label) + '</span>'
+      + '<span class="sp-rail-v">' + value + '</span>'
+      + (frac == null ? ''
+         : '<span class="sp-rail-bar"><i style="width:'
+           + Math.max(0, Math.min(100, frac * 100)).toFixed(1) + '%"></i></span>')
+      + (sub ? '<span class="sp-rail-s">' + esc(sub) + '</span>' : '')
+      + '</div>';
+  }
+
+  /* ── THE PROGRAM BAR ──────────────────────────────────────────────────────────────────────
+     Replaces three surfaces that each said part of what this screen is about: the four-card
+     stat strip (what the deal is worth), the editing chip in the subnav (which program, and the
+     way out of it), and the fold header. Between them they took 160px before the page said
+     anything, and they disagreed about which program was on screen often enough that the chip
+     existed to settle it.
+
+     THE RAIL FOLLOWS THE STATUS, and that is the whole idea. A draft is being priced, so it
+     shows what is being asked for. A running program is being watched, so it shows where it
+     stands — the same four figures #pgStats used to repeat further down the page. A closed one
+     is being read, so it shows what it paid, in the past tense. Same bar, same geometry, so the
+     figures move but the screen does not.
+
+     It still has to say WHICH program, or "Save as program" silently forks a duplicate off a
+     record Tawny thought she was updating. */
+  function renderProgramBar() {
+    var btn = $('#calcSave');
     if (btn) btn.textContent = saveBtnLabel();
-    if (!bar) return;
-    bar.hidden = !editing;
-    if (!editing) return;
+
+    var rail = $('#calcBarRail');
+    if (!rail) return;
+    var v = statusView();
+    var editing = !!calc.editingId;
+    var st = editing ? (v.status || 'draft') : '';
+    var running = st === 'active';
+
+    var pill = $('#calcBarPill'), nameEl = $('#calcBarName'), metaEl = $('#calcBarMeta');
+    if (nameEl) nameEl.textContent =
+      programLabel({ program_name: calc.name, vendor: calc.vendor })
+      || (editing ? 'this program' : 'New program');
+    if (pill) {
+      pill.hidden = !editing;
+      pill.textContent = st.toUpperCase();
+      pill.className = 'sp-pbar-pill is-' + (st || 'draft');
+    }
+    if (metaEl) metaEl.innerHTML = barMeta(v, running);
+
+    rail.innerHTML = running ? liveRail() : v.settled ? settledRail(v) : modelRail();
+
+    /* ── THE ACTIONS ARE TOGGLED, NEVER REBUILT ─────────────────────────────────────────────
+       Their handlers are bound once, at init, by id. Rewriting this row as innerHTML would drop
+       every listener on the floor on each repaint — and this function runs on every save, every
+       sign-in and every status change. */
+    var stop = $('#calcStopEditing'), un = $('#calcUnlock'), ref = $('#pgRefresh'), rep = $('#calcReport');
+    if (stop) stop.hidden = !editing;
+    /* The button says what is still SHUT, not what the screen is. The featured product is
+       editable without it now, so "Unlock to re-model" over a live product field read as a
+       contradiction — you were already editing the thing it claimed to be guarding. */
+    if (un) un.hidden = !calc.locked;
+    if (ref) ref.hidden = !running;
+    /* The close-out is the ONLY thing you do to a settled program, so it earns the bar. It is
+       not a second report generator — it lands on Reports with this program already picked. */
+    if (rep) rep.hidden = !v.settled;
+  }
+
+  /* The meta line: window, where in it we are, and what the numbers beside it are made of.
+     On a running program this is where #pgNote's "hourly figures as of 2:09 PM" and its
+     "5 of 6 stores have come back" ended up — they are facts about whether the rail can be
+     trusted, so they belong next to the rail rather than a section lower down. */
+  function barMeta(v, running) {
+    var bits = [];
     var win = calc.window && calc.window.start
       ? prettyDay(calc.window.start) + ' → ' + prettyDay(calc.window.end || '?')
-      : 'no dates set';
-    bar.innerHTML = (calc.locked ? '<span class="sp-lock-dot" aria-hidden="true"></span>Closed &middot; ' : 'Editing ')
-      + '<b>' + esc(programLabel({ program_name: calc.name, vendor: calc.vendor }) || 'this program') + '</b> &middot; ' + esc(win)
-      /* The button says what is still SHUT, not what the screen is. The featured product is
-         editable without it now, so "Unlock to re-model" over a live product field read as a
-         contradiction — you were already editing the thing it claimed to be guarding. */
-      + (calc.locked
-          ? ' <button type="button" class="gx-btn" id="calcUnlock">Unlock the goals too</button>'
-          : '')
-      + ' <button type="button" class="gx-btn" id="calcStopEditing">Stop editing</button>';
-    $('#calcStopEditing').addEventListener('click', function () {
+      : (calc.editingId ? 'no dates set' : '');
+
+    if (running && v.rec) {
+      var d = dayOfWindow(v.rec.start_date, v.rec.end_date);
+      if (d) bits.push('Day ' + d.day + ' of ' + d.days);
+    }
+    if (win) bits.push(win);
+
+    if (running && pgRun && pgRun.tot) {
+      if (pgRun.cachedAt) bits.push('saved figures from ' + String(pgRun.cachedAt).slice(0, 10));
+      else if (pgRun.hourlyAt) bits.push('hourly figures as of ' + clockLabel(pgRun.hourlyAt));
+      bits.push(pgRun.tot.back + ' of ' + pgRun.stores.length + ' stores reporting');
+    } else if (v.settled && v.rec) {
+      if (v.rec.end_date) bits.push('closed ' + prettyDay(v.rec.end_date));
+      if (v.snap && v.snap.at) bits.push('measured ' + String(v.snap.at).slice(0, 10));
+    } else if (!calc.editingId) {
+      bits.push('nothing saved yet');
+    } else {
+      var start = v.rec && v.rec.start_date;
+      if (start && start > today()) {
+        var away = daysBetween(today(), start);
+        bits.push(away === 1 ? 'starts tomorrow' : 'starts in ' + away + ' days');
+      }
+      if (calc.product && calc.product.label) bits.push(calc.product.label);
+    }
+
+    var m = calcModel();
+    if (!running && !v.settled) {
+      bits.push(calc.model === 'per_unit' ? money(calc.spiff) + ' per unit' : money(calc.spiff) + ' flat');
+      bits.push(m.plan.length + ' stores, ' + m.bts + ' budtenders');
+    }
+    return bits.map(esc).join(' &middot; ');
+  }
+
+  /* Draft / unsaved: what is being ASKED FOR. The same four figures the card strip showed, and
+     the same gate — an ask is a target above last month, not a target above zero, or a fresh
+     model announces "Their return −100%" on a screen that gets turned around to face a brand. */
+  function modelRail() {
+    var m = calcModel();
+    var hasBase = m.baseUnits > 0;
+    var hasAsk = hasBase && (Number(calc.target) || 0) > m.baseUnits;
+    return brail('They fund', hasAsk ? money(m.invest) : '—',
+                 !hasAsk ? (hasBase ? 'set a target above last month' : 'pick a product first')
+                   : calc.model === 'per_unit'
+                     ? money(calc.spiff) + ' on each of ' + m.goalUnits.toLocaleString() + ' units'
+                     : 'only if all ' + m.bts + ' reach their target', '')
+      + brail('Revenue up', hasAsk ? money(m.revInc) : '—',
+              hasAsk ? money(m.baseRev) + ' → ' + money(m.targetRev)
+                : hasBase ? 'needs a target above last month' : 'needs last month and a target', '')
+      + brail('Their return', hasAsk && m.invest ? pctWhole(m.roiPct) : '—',
+              hasAsk ? money(m.roi) + ' net of the bounty' : 'once there is an ask to price',
+              !hasAsk ? '' : m.roi < 0 ? 'is-neg' : 'is-hero')
+      /* Unit lift needs an ASK, not just a base — the same rule as the three beside it, which it
+         was left out of once. A product pulled with no target yet leaves the model's target at 0,
+         so this read −100.0% over last month under a headline of −1,000: the app telling a brand
+         their product had stopped selling outright, when nothing had been asked for yet.
+         The two "not yet" captions say DIFFERENT things on purpose — one wants a product, the
+         other wants a target, and they are different actions for the person reading it. */
+      + brail('Unit lift', hasAsk ? (m.unitInc > 0 ? '+' : '') + m.unitInc.toLocaleString() : '—',
+              hasAsk ? pct(m.growth) + ' over last month'
+                : hasBase ? 'set a target above last month to see the lift'
+                  : 'pick a product to pull last month', '');
+  }
+
+  /* Running: WHERE IT STANDS. Fed from the totals paintProgress has already computed, rather
+     than recomputing them here — two answers to "how many units" is how a vendor gets billed the
+     wrong one. Empty until the first paint, which is the honest state: nothing has been measured
+     yet this session. */
+  function liveRail() {
+    var t = pgRun && pgRun.tot;
+    if (!t) {
+      return brail('Units sold', '—', 'pulling from Dutchie', '')
+        + brail('At target', '—', '', '')
+        + brail('Earned', '—', '', '')
+        + brail('Pace', '—', '', '');
+    }
+    /* PER-UNIT PAYS ON VOLUME, so the flat program's figures are not merely unhelpful for it —
+       they are wrong. "Earned so far" as hit × rate reads $0 for a program that owes real money,
+       and "at their target" counts against a threshold that does not exist: a per-unit SPIFF has
+       no individual goal, so everyone who sold anything has earned. Portland Heights, 2026-09-02:
+       $0.75 a unit across 242 units, where this strip would have shown $0 and 0 of 38.
+       Each caption states the arithmetic that produced the figure beside it, so a number on a
+       screen that gets turned around to face a brand can be checked by hand. */
+    return brail('Units sold',
+                 t.units.toLocaleString() + (t.target ? ' <small>/ ' + t.target.toLocaleString() + '</small>' : ''),
+                 '', '', t.target ? t.units / t.target : null)
+      + (t.perUnit
+          ? brail('Earning', t.sellers.toLocaleString(),
+                  money(t.rate) + ' per unit sold, from the first one', '')
+          : brail('At target', t.hit + ' <small>/ ' + t.btsAll + '</small>',
+                  'budtenders at their target', '', t.btsAll ? t.hit / t.btsAll : null))
+      + brail('Earned', money(t.earned),
+              t.perUnit ? 'so far, ' + t.units.toLocaleString() + ' × ' + money(t.rate)
+                : t.committed ? 'of ' + money(t.committed) + ' if everyone lands it' : '', 'is-pos')
+      + paceRail(t);
+  }
+
+  /* ── PACE ─────────────────────────────────────────────────────────────────────────────────
+     New with the redesign (Sky, 2026-09-16: yes). Derived, not stored, and from nothing the
+     screen did not already have: how far through the window we are, against how much of the
+     target has sold. A program 9 days into 14 that has sold 56% of its units is behind.
+
+     IT IS A JUDGMENT THE APP MAKES OUT LOUD, so it is bounded by what it can actually know:
+       • no window or no target → no pace. There is nothing to be ahead OF.
+       • before the window opens → no pace, rather than "0% of the way in, 100% behind".
+       • after it closes → measured against the whole window, which is just the final result.
+       • a PARTIAL pull is still paced, but the sub-line says so — the shortfall it reports may
+         be a store that has not come back rather than units nobody sold. Silently pacing an
+         undercount is how a vendor gets told a program missed.
+     The expected figure is prorated by DAY, inclusive on both ends, the same arithmetic the
+     status roll uses for "is this program still running". */
+  function paceRail(t) {
+    if (!t.days || !t.target) return brail('Pace', '—', 'needs a window and a target', '');
+    var expected = t.target * (t.day / t.days);
+    if (!expected) return brail('Pace', '—', 'has not started', '');
+    var off = t.units - expected;
+    var rel = off / expected;
+    var short = Math.round(Math.abs(off));
+    var sub = short === 0 ? 'exactly on pace'
+      : (off > 0 ? 'ahead by ' : 'behind by ') + short.toLocaleString() + ' units';
+    if (t.missing > 0) sub += ' — ' + t.missing + ' store' + (t.missing === 1 ? '' : 's') + ' not in yet';
+    return brail('Pace', (rel > 0 ? '+' : rel < 0 ? '−' : '') + Math.abs(Math.round(rel * 100)) + '%',
+                 sub, rel < -0.02 ? 'is-neg' : rel > 0.02 ? 'is-hero' : '');
+  }
+
+  /* Closed: what it PAID, in the past tense, off actual_json. Same four questions as the model
+     rail answers in the future tense, which is why the labels rhyme. */
+  function settledRail(v) {
+    var rec = v.rec || {}, act = rec.actual_json || {};
+    var sUnits = Number(act.units_sold) || 0;
+    var sInv   = Number(act.investment) || 0;
+    var sRoi   = Number(act.roi) || 0;
+    var sRate  = Number(act.spiff_amount) || 0;
+    var sBase  = Number((rec.baseline_json || {}).units) || 0;
+    var sGross = sRoi + sInv;                       // what the extra units earned, before the bounty
+    var sLift  = sUnits - sBase;
+    var sPer   = normalModel((rec.payout_json || {}).model || rec.payout_type) === 'per_unit';
+    if (!sUnits) {
+      return brail('They funded', '—', 'not measured yet', '')
+        + brail('Revenue it earned', '—', '', '')
+        + brail('Their return', '—', '', '')
+        + brail('Unit lift', '—', '', '');
+    }
+    return brail('They funded', money(sInv),
+                 sPer ? money(sRate) + ' on each of ' + sUnits.toLocaleString() + ' units'
+                      : (act.bts_hit || 0) + ' budtenders at ' + money(sRate), '')
+      + brail('Revenue it earned', money(sGross),
+              sBase ? sLift.toLocaleString() + ' units over last month' : 'against last month', '')
+      + brail('Their return', sInv ? pctWhole(Number(act.roi_pct) || 0) : '—',
+              money(sRoi) + ' net of the bounty', sRoi < 0 ? 'is-neg' : 'is-hero')
+      + brail('Unit lift', (sLift > 0 ? '+' : '') + sLift.toLocaleString(),
+              sBase ? pct(sBase ? sLift / sBase : 0) + ' over last month' : 'no last-month figure', '');
+  }
+
+  /* Inclusive on both ends, like every other window question in this app — a program ending on
+     the 30th is still running on the 30th. Returns null when there is no window to be inside. */
+  function dayOfWindow(start, end) {
+    if (!start || !end) return null;
+    var days = daysBetween(start, end) + 1;
+    if (days <= 0) return null;
+    var day = Math.min(days, Math.max(1, daysBetween(start, today()) + 1));
+    return { day: day, days: days };
+  }
+
+  /* Whole days from a to b, both TEXT yyyy-mm-dd. Parsed as UTC noon so a DST boundary inside
+     the window cannot round the difference to a day either way — the dates are calendar days in
+     Los Angeles and this is arithmetic on them, not on instants. */
+  function daysBetween(a, b) {
+    if (!a || !b) return 0;
+    var ms = Date.UTC(+a.slice(0, 4), +a.slice(5, 7) - 1, +a.slice(8, 10), 12);
+    var ns = Date.UTC(+b.slice(0, 4), +b.slice(5, 7) - 1, +b.slice(8, 10), 12);
+    return Math.round((ns - ms) / 86400000);
+  }
+
+  /* Bound ONCE. renderProgramBar only toggles [hidden] on these, so the listeners outlive every
+     repaint — the reason the buttons are static markup rather than part of the bar's innerHTML. */
+  function wireProgramBar() {
+    var stop = $('#calcStopEditing');
+    if (stop) stop.addEventListener('click', function () {
       calc.editingId = null; calc.window = null; calc.locked = false;
-      renderCalcEditing();
+      renderProgramBar();
       applyCalcLock();
       syncRecordMount();               // nothing is being edited — take the section away
+      applyStatusView();               // …and put the screen back to a blank model
     });
     var un = $('#calcUnlock');
     if (un) un.addEventListener('click', function () {
@@ -4367,8 +4608,49 @@
       if (!confirm('This program is closed. Its goals were reported to the brand and paid '
                  + 'against.\n\nUnlock and re-model it anyway?')) return;
       calc.locked = false;
-      renderCalcEditing();
+      renderProgramBar();
       applyCalcLock();
+    });
+    var rep = $('#calcReport');
+    if (rep) rep.addEventListener('click', function () {
+      if (!calc.editingId) return;
+      showTab('reports');
+      var sel = $('#repProgram');
+      if (sel) { sel.value = calc.editingId; sel.dispatchEvent(new Event('change')); }
+    });
+
+    /* ── THE ACTUALS STRIP'S TWO ACTIONS ────────────────────────────────────────────────────
+       Static markup like the rest of the bar's buttons, so these bind once. They read the open
+       program at CLICK time rather than closing over one — renderActuals repaints the strip on
+       every status change, and a handler holding the program it was built with would act on a
+       record that is no longer on screen. */
+    function openProgramNow() {
+      return calc.editingId
+        ? (state.programs || []).filter(function (x) { return x.program_id === calc.editingId; })[0]
+        : null;
+    }
+    var pull = $('#actPull');
+    if (pull) pull.addEventListener('click', function () {
+      var p = openProgramNow();
+      if (p) pullActuals(p, pull);
+    });
+
+    /* ONE DELIBERATE CLICK, and a confirm on a CLOSED program only. A draft or a running
+       program's actuals have not been reported to anybody, so guarding those would be a dialog
+       that teaches people to dismiss dialogs. A closed one has been paid and invoiced. */
+    var un2 = $('#actUnlock');
+    if (un2) un2.addEventListener('click', function () {
+      var p = openProgramNow();
+      if (!p) return;
+      var closed = String(p.status || '').toLowerCase() === 'closed';
+      if (closed && !confirm('Correct the actuals on ' + (programLabel(p) || 'this program') + ' by hand?\n\n'
+            + 'It closed on ' + prettyDay(p.end_date) + '. These are the figures the brand was '
+            + 'sent and the budtenders were paid against.\n\n'
+            + 'Pull live from Dutchie re-measures them instead, without typing.')) return;
+      calc.actualsOpenFor = p.program_id;
+      renderActuals(p);
+      var first = $(REC.act + ' .sp-act input');
+      if (first) first.focus();
     });
   }
 
@@ -4476,20 +4758,104 @@
              settled: !!(st === 'closed' && has) };
   }
 
+  /* ── THE STATUS DECIDES THE ORDER ─────────────────────────────────────────────────────────
+     Every section sat in the same sequence whatever the program was doing, so a running program
+     opened on a page and a half of settled decisions and a closed one opened on a screenful of
+     locked controls. Three orders, one rule: the thing you came to the page FOR goes first, and
+     everything else collapses to a line that still states its facts.
+
+     REORDERED, NOT DUPLICATED. There is only ever one of each section — a second "what sold" that
+     happened to be higher up would be a second answer. appendChild MOVES a node, so this is a
+     reorder and not a rebuild: the per-store table keeps its focus, the goal slider keeps a drag
+     in progress, and not one listener is dropped. */
+  var STAGE = { draft:   ['calcModelFold', 'calcLive', 'calcActuals', 'calcResults', 'calcRecordFold'],
+                running: ['calcLive', 'calcModelFold', 'calcActuals', 'calcResults', 'calcRecordFold'],
+                settled: ['calcActuals', 'calcResults', 'calcLive', 'calcModelFold', 'calcRecordFold'] };
+
+  function stageSections(which) {
+    var panel = $('#panel-calculator');
+    if (!panel) return;
+    (STAGE[which] || STAGE.draft).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) panel.appendChild(el);
+    });
+  }
+
+  /* ── WHAT THE COLLAPSED DEAL SAYS ─────────────────────────────────────────────────────────
+     Every term that was negotiated, in one line: the product, what we pay for it, what a
+     budtender earns, the target and the growth it represents, and how many people are chasing it.
+     A fold that hides facts is worse than no fold — this is what makes closing it free.
+     Read off the SAVED record where there is one, so a collapsed deal states what the program is
+     rather than what the live controls currently hold. */
+  function dealLine(v) {
+    var rec = v.rec;
+    var m = calcModel();
+    var bits = [];
+    var prod = calc.product && calc.product.label;
+    if (prod) bits.push(prod);
+    if (Number(calc.cost)) bits.push(money(calc.cost) + '/unit');
+    bits.push(calc.model === 'per_unit' ? money(calc.spiff) + ' per unit' : money(calc.spiff) + ' flat');
+    var target = (rec && (rec.target_json || {}).units) || Number(calc.target) || 0;
+    if (target) {
+      bits.push('target ' + target.toLocaleString()
+        + (m.baseUnits ? ' (' + pct(m.growth) + ')' : ''));
+    }
+    bits.push(m.plan.length + ' stores, ' + m.bts + ' budtenders');
+    return bits.join(' · ');
+  }
+
+  /* ── WHAT THE COLLAPSED RECORD SAYS ───────────────────────────────────────────────────────
+     Status, window, and what has happened to the measurement — the three things you would open
+     it to check. `needsRep` rides along as a DOT rather than the three-line gold notice it gets
+     on a draft: on a program you are not currently setting up it is a fact, not a task, and a
+     panel for it pushed the work down the page on every repaint. */
+  function renderRecordSummary(p) {
+    var sum = $('#calcRecordSummary'), dot = $('#calcRecordDot');
+    if (!sum) return;
+    if (!p) { sum.textContent = ''; if (dot) dot.hidden = true; return; }
+    var st = String(p.status || 'draft').toLowerCase();
+    var bits = [st.charAt(0).toUpperCase() + st.slice(1)];
+    if (p.start_date && p.end_date) bits.push(prettyDay(p.start_date) + ' → ' + prettyDay(p.end_date));
+    else bits.push('no window set');
+    var a = p.actual_json || {};
+    if (a.units_sold != null) bits.push('actuals recorded');
+    else if (st === 'closed') bits.push('not yet recorded');
+    else if (st === 'active') bits.push('actuals record themselves when it closes');
+    else bits.push('nothing measured yet');
+    sum.textContent = bits.join(' · ');
+    if (dot) {
+      var needs = needsRep(p);
+      dot.hidden = !needs;
+      dot.textContent = needs ? 'no brand rep on ' + (p.vendor || 'this brand') : '';
+    }
+  }
+
   function applyStatusView() {
     var v = statusView();
     var fold = $('#calcModelFold'), results = $('#calcResults');
     if (!fold || !results) return;
 
+    var runningNow = v.status === 'active';
+    var draft = !runningNow && !v.settled;
+    stageSections(v.settled ? 'settled' : runningNow ? 'running' : 'draft');
+
     /* Only ever set open/closed from the STATUS on load — never on every repaint, or expanding the
-       model on a closed program would slam shut on the next keystroke. renderCalcEditing calls
-       this once per program. */
-    fold.open = !v.settled;
-    var t = $('#calcFoldTitle'), n = $('#calcFoldNote');
-    if (t) t.textContent = v.settled ? 'The model, as agreed' : 'The model';
-    if (n) n.textContent = v.settled
-      ? 'collapsed — this program is settled'
-      : 'product, cost, payout, goal and the per-store table';
+       model on a closed program would slam shut on the next keystroke. renderProgramBar calls
+       this once per program.
+       OPEN ONLY ON A DRAFT NOW. A running program's model is as agreed as a closed one's — the
+       deal was struck before it started — and it is not what anybody opened the screen to read. */
+    fold.open = draft;
+    var t = $('#calcFoldTitle'), n = $('#calcFoldNote'), cta = $('#calcFoldCta');
+    if (t) t.textContent = v.settled ? 'The deal, as agreed' : 'The deal';
+    /* Collapsed, it has to STATE the deal rather than label a drawer. "product, cost, payout, goal
+       and the per-store table" is a table of contents; what a reader wants without opening it is
+       the terms themselves. */
+    if (n) n.textContent = draft ? 'what was agreed with the brand' : dealLine(v);
+    if (cta) {
+      cta.hidden = draft;
+      cta.textContent = v.settled ? 'View' : 'Edit model';
+      cta.classList.toggle('is-locked', !!v.settled);
+    }
 
     /* ── LIVE WHILE IT RUNS, FROZEN ONCE IT IS DONE ────────────────────────────────────────
        Two grids, never both. The frozen one is read off the program's own row and needs no
@@ -4508,6 +4874,19 @@
          pull is six stores at ~9s — restarting it on each would keep the grid permanently
          mid-pull and hammer Dutchie for numbers already on screen. */
       if (running && (!pgRun || pgRun.id !== v.rec.program_id)) loadProgress();
+    }
+
+    /* ── THE ACTUALS STRIP ────────────────────────────────────────────────────────────────────
+       It is the first thing on a closed program and nowhere on a draft. A running program keeps
+       it hidden too: its actuals record themselves when it closes (recordMeasuredActuals_), so a
+       strip of blanks halfway through a program would read as a measurement that failed rather
+       than one that has not happened yet — the same distinction the unmeasured grid makes. */
+    var actWrap = $('#calcActuals');
+    if (actWrap) {
+      var showAct = !!(v.rec && (v.settled || v.canMeasure
+                                 || (v.rec.actual_json && v.rec.actual_json.units_sold != null)));
+      actWrap.hidden = !showAct;
+      if (showAct) renderActuals(v.rec);
     }
 
     /* The section shows for a program that HAS been measured, and for one that can be but has
@@ -4979,7 +5358,7 @@
         ? 'Saved, but ' + failed.join(' and ') + ' failed'
         : changed.length ? 'Saved ' + changed.length + ' change' + (changed.length === 1 ? '' : 's')
                          : 'Nothing changed';
-      setTimeout(function () { renderCalcEditing(); btn.disabled = false; }, 2600);
+      setTimeout(function () { renderProgramBar(); btn.disabled = false; }, 2600);
     }
     var msg = $(REC.msg);
     if (msg) msg.textContent = failed.length ? '' : (changed.length ? 'Saved: ' + changed.join(', ') : '');
@@ -5083,13 +5462,13 @@
       await loadPrograms();
       renderPrograms();
       fillProgramPickers();
-      setTimeout(function () { renderCalcEditing(); btn.disabled = false; }, 2500);
+      setTimeout(function () { renderProgramBar(); btn.disabled = false; }, 2500);
       return { changed: r.changed || [] };
     } catch (err) {
       console.error('[spiff] save program failed:', err);
       if (opts.silent) return { error: String((err && err.message) || err) };
       btn.textContent = 'Save failed';
-      setTimeout(function () { renderCalcEditing(); btn.disabled = false; }, 2500);
+      setTimeout(function () { renderProgramBar(); btn.disabled = false; }, 2500);
       return { error: String((err && err.message) || err) };
     }
   }
@@ -5972,41 +6351,53 @@
       if (r) sellers += (r.rows || []).filter(function (x) { return x.units > 0; }).length;
     });
 
-    /* Totals cover only the stores that came back. Saying so is not a nicety -- an
-       undercount that looks authoritative is how a vendor gets billed the wrong number. */
-    $('#pgStats').innerHTML =
-        pgStat(units.toLocaleString() + (target ? ' <small>/ ' + target.toLocaleString() + '</small>' : ''),
-               'units sold', target ? units / target : 0, '')
-      + (perUnit
-          ? pgStat(sellers.toLocaleString(), 'budtenders earning — everyone who sold', null, '')
-          : pgStat(hit + ' <small>/ ' + btsAll + '</small>', 'budtenders at their target',
-                   btsAll ? hit / btsAll : 0, ''))
-      + pgStat(money(earned),
-               perUnit ? 'earned so far, ' + units.toLocaleString() + ' × ' + money(rate)
-                       : 'earned so far, ' + hit + ' × ' + money(rate), null, 'is-pos')
-      + (perUnit
-          ? pgStat(money(rate), 'per unit sold, from the first one', null, '')
-          : pgStat(money(btsAll * rate), 'if everyone lands it', null, ''));
-
     var missing = stores.length - back;
+    var win = dayOfWindow(prog.start_date, prog.end_date);
+
+    /* ── THE TOTALS ARE PUBLISHED, NOT PAINTED ────────────────────────────────────────────────
+       They used to go straight into #pgStats here. The program bar shows the same four figures
+       for every status, so a running program was stating each of them twice on one screen — and
+       the lower copy was the reason you had to scroll past a screenful of numbers to reach the
+       store cards. paintProgress still OWNS the arithmetic; it hands the answer up rather than
+       letting the bar recompute it, because two computations of "how many units" is how a brand
+       gets billed the wrong one.
+       Totals cover only the stores that came back, and `missing` travels with them so the bar's
+       pace figure can say so — a shortfall that is really an absent store must not read as units
+       nobody sold. */
+    pgRun.tot = {
+      units: units, target: target, hit: hit, btsAll: btsAll,
+      earned: earned, committed: perUnit ? 0 : btsAll * rate,
+      perUnit: perUnit, sellers: sellers, rate: rate,
+      back: back, missing: missing,
+      day: win ? win.day : 0, days: win ? win.days : 0
+    };
+
     /* SAY WHEN THE NUMBERS ARE REMEMBERED RATHER THAN MEASURED. A cached figure and a live one
        look identical on screen, and "is this current?" is the first question anyone asks of a
-       progress grid — so the answer is on it, next to the control that re-pulls. */
-    var cachedNote = pgRun && pgRun.cachedAt
-      ? ' · <b>saved figures</b> from ' + esc(String(pgRun.cachedAt).slice(0, 10))
-        + ' — this program is closed, so they cannot have moved. Refresh re-pulls from Dutchie.'
-      : (pgRun && pgRun.hourlyAt && stores.some(function (st) { return (pgRun.results[st] || {}).hourly; }))
-      ? ' · <b>hourly figures</b> as of ' + esc(clockLabel(pgRun.hourlyAt))
-        + ' — the engine re-measures running programs every hour. Refresh pulls live from Dutchie.'
-      : '';
-    $('#pgNote').innerHTML = esc(prettyDay(prog.start_date)) + ' → ' + esc(prettyDay(prog.end_date))
-      + ' · green means that person has already earned the bounty.'
-      + (missing > 0
-          ? ' Totals cover the ' + back + ' store' + (back === 1 ? '' : 's') + ' that ' + (back === 1 ? 'has' : 'have') + ' come back.'
-          : '')
-      + cachedNote;
+       progress grid. The stamp itself is in the bar's meta line, beside the figures it qualifies
+       and next to Refresh; what stays here is the explanation of what that stamp MEANS, on the ⓘ,
+       where it costs nothing until somebody wants it. */
+    var info = $('#pgInfo');
+    if (info) {
+      info.innerHTML = '&#9432;';
+      info.title = 'Green means that person has already earned the bounty.'
+        + (missing > 0
+            ? ' Totals cover the ' + back + ' store' + (back === 1 ? '' : 's') + ' that '
+              + (back === 1 ? 'has' : 'have') + ' come back, so they undercount.'
+            : '')
+        + (pgRun.cachedAt
+            ? ' These are saved figures from ' + String(pgRun.cachedAt).slice(0, 10)
+              + ' — this program is closed, so they cannot have moved. Refresh re-pulls from Dutchie.'
+            : (pgRun.hourlyAt && stores.some(function (st) { return (pgRun.results[st] || {}).hourly; }))
+              ? ' These are hourly figures — the engine re-measures running programs every hour.'
+                + ' Refresh pulls live from Dutchie.'
+              : '');
+    }
 
     $('#pgBody').innerHTML = '<div class="sp-pg-grid">' + stores.map(pgCard).join('') + '</div>';
+
+    /* The bar reads pgRun.tot, which only exists once this has run. */
+    renderProgramBar();
 
     /* The Programs hero reads the same run, so it has to repaint as stores land — otherwise the
        landing page keeps showing an empty bar while Progress fills in behind it. Guarded on the
@@ -6474,6 +6865,9 @@
     wireTabs();
     wirePrograms();
     wireCalculator();
+    /* AFTER wireCalculator, which binds Save and Present — the other four buttons in the same row
+       belong to the program bar, and both sets are static markup bound exactly once here. */
+    wireProgramBar();
     wireReports();
     wireHistory();
     wireProgress();

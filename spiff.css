@@ -517,7 +517,13 @@ body.is-gated .workspace { display: none !important; }
   border: 1px solid var(--gx-border); border-left: 3px solid var(--gx-border-strong);
   border-radius: var(--gx-radius-lg); background: var(--gx-surface);
   padding: 12px 14px; font-size: 12.5px; color: var(--gx-text-dim);
+  margin-bottom: 14px;
 }
+/* A notice that offers somewhere to GO puts the label and the text on one line with the action at
+   the right, rather than stacking three rows for one sentence. The label keeps its own line
+   whenever there is no action, which is every notice that is purely a statement. */
+.sp-notice:has(.sp-notice-act) { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sp-notice:has(.sp-notice-act) .sp-notice-l { display: inline; margin-bottom: 0; }
 .sp-notice.is-warn { border-left-color: var(--gx-gold); }
 .sp-notice.is-bad  { border-left-color: var(--gx-red); }
 .sp-notice-l {
@@ -703,33 +709,105 @@ body.is-gated .workspace { display: none !important; }
    table runs full width underneath. The old layout had two separate store lists whose
    first two columns duplicated each other with no headers — hence one table now. */
 
-.sp-calc-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 26px; }
-.sp-cstat {
-  padding: 16px 18px; border: 1px solid var(--gx-border); border-radius: var(--gx-radius-xl);
-  background: var(--gx-surface); display: flex; flex-direction: column; gap: 5px;
+/* ── THE PROGRAM BAR ──────────────────────────────────────────────────────────────────────────
+   One row: who this program is on the left, its four figures in the middle, its actions on the
+   right. It replaced .sp-calc-stats (four 90px cards) and the editing chip, so the four figures
+   are a rail of label-over-value pairs rather than cards — same information, a third of the
+   height, and on screen for every status instead of only while modeling. */
+.sp-pbar {
+  display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
+  padding: 13px 16px; margin-bottom: 14px;
+  border: 1px solid var(--gx-border); border-radius: var(--gx-radius-xl);
+  background: var(--gx-surface);
 }
-.sp-cstat-l { font-size: 10px; text-transform: uppercase; letter-spacing: 1.1px; color: var(--gx-text-mute); font-weight: 700; }
-.sp-cstat-v { font-family: var(--sp-display); font-size: 30px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
-.sp-cstat-s { font-size: 12px; color: var(--gx-text-dim); font-variant-numeric: tabular-nums; }
-/* Only the ROI card is tinted. It is the one figure the vendor is being asked to accept. */
-.sp-cstat.is-hero { border-color: rgba(74,222,128,.35); background: var(--gx-green-soft); }
-.sp-cstat.is-hero .sp-cstat-v { color: var(--gx-green-bright); }
-.sp-cstat.is-neg .sp-cstat-v { color: var(--gx-red); }
+/* flex, not a min-width plus margin-right:auto — that pushed the rail and the actions right and
+   then wrapped them onto a second row the moment the three together exceeded the bar, which at
+   1440px they do. Shrinking the identity is the right thing to give up first: the program's name
+   can ellipsize, a figure cannot. */
+/* Grows faster than the rail shrinks, so the program's NAME is the last thing to be given up —
+   it is the one thing on the bar a reader needs before anything else on the screen means
+   something. */
+.sp-pbar-id { flex: 3 1 380px; min-width: 0; }
+.sp-pbar-t b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-pbar-t { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.sp-pbar-t b { font-family: var(--sp-display); font-size: 16px; font-weight: 700; letter-spacing: -.2px; min-width: 0; }
+.sp-pbar-meta { font-size: 11px; color: var(--gx-text-mute); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.sp-pbar-pill {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+  padding: 3px 9px 3px 7px; border-radius: var(--gx-radius-pill);
+  border: 1px solid var(--gx-border-strong); background: var(--gx-surface-3);
+  color: var(--gx-text-dim); display: inline-flex; align-items: center; gap: 6px;
+}
+/* The dot is the status; the word is there for anyone who cannot use the color. */
+.sp-pbar-pill::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+}
+.sp-pbar-pill.is-active { color: var(--gx-green); border-color: rgba(74,222,128,.35); }
+.sp-pbar-pill.is-closed { color: var(--gx-text-mute); }
+.sp-pbar-pill.is-draft  { color: var(--gx-gold); border-color: rgba(212,168,71,.3); }
 
-.sp-calc-grid { display: grid; grid-template-columns: minmax(340px, 400px) 1fr; gap: 28px; align-items: start; margin-bottom: 26px; }
-.sp-calc-left { display: flex; flex-direction: column; gap: 20px; }
+.sp-pbar-rail { display: flex; align-items: stretch; }
+/* CAPPED, or the longest caption sets the width. "of $1,800 if everyone lands it" on one line
+   made the rail 589px of a 1320px bar and squeezed the program's name down to an ellipsis — the
+   sub-line is the least important thing in the cell and is the right thing to wrap. */
+.sp-rail {
+  display: flex; flex-direction: column; gap: 2px; justify-content: center;
+  padding: 0 18px; min-width: 96px; max-width: 152px;
+  border-left: 1px solid var(--gx-border);
+}
+.sp-rail:first-child { border-left: 0; }
+.sp-rail-l { font-size: 9.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--gx-text-mute); }
+.sp-rail-v { font-family: var(--sp-display); font-size: 20px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.sp-rail-v small { font-size: 12px; font-weight: 600; color: var(--gx-text-mute); }
+.sp-rail-s { font-size: 10.5px; color: var(--gx-text-mute); font-variant-numeric: tabular-nums; }
+/* 3px, not the 4px the cards used: at this size the bar is a hint under a figure rather than a
+   readout of its own. */
+.sp-rail-bar { height: 3px; border-radius: var(--gx-radius-pill); background: var(--gx-surface-3); overflow: hidden; margin-top: 4px; }
+.sp-rail-bar > i { display: block; height: 100%; background: var(--sp-pace, linear-gradient(90deg,#265939,#4ade80)); border-radius: var(--gx-radius-pill); }
+/* Only ONE figure is ever tinted — the one being argued for. Tinting more says nothing. */
+.sp-rail.is-hero .sp-rail-v { color: var(--gx-green-bright); }
+.sp-rail.is-pos  .sp-rail-v { color: var(--gx-green); }
+.sp-rail.is-neg  .sp-rail-v { color: var(--gx-red); }
+
+.sp-pbar-act { display: flex; align-items: center; gap: 8px; }
+.sp-pbar-act .gx-btn, .sp-pbar-act .sp-btn-gold { white-space: nowrap; }
+
+@media (max-width: 1100px) {
+  /* The rail wraps under the identity rather than squeezing four figures into a phone width —
+     the dividers become a row of their own, which still reads as one group. */
+  .sp-pbar-id { min-width: 100%; margin-right: 0; }
+  .sp-pbar-rail { flex-wrap: wrap; }
+  .sp-rail { padding: 0 14px 0 0; border-left: 0; min-width: 84px; }
+}
+
+.sp-calc-grid { display: grid; grid-template-columns: 288px 320px 1fr; gap: 18px; align-items: start; margin-bottom: 22px; }
+/* One bordered panel per column, and no well around each field inside it — a border around every
+   input inside a border around the group is two frames drawing the same boundary. */
+.sp-calc-col {
+  border: 1px solid var(--gx-border); border-radius: var(--gx-radius-xl);
+  background: var(--gx-surface); padding: 14px 16px;
+}
+.sp-calc-col > .sp-h4, .sp-calc-col > .sp-h4-row { margin-bottom: 12px; }
+@media (max-width: 1180px) { .sp-calc-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 820px)  { .sp-calc-grid { grid-template-columns: 1fr; } }
 .sp-h4 { margin: 0 0 10px; font-size: 10px; text-transform: uppercase; letter-spacing: 1.1px; color: var(--gx-text-mute); font-weight: 700; }
 .sp-h4-row { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; }
 .sp-h4-row .sp-h4 { margin: 0; }
 .sp-h4-note { font-size: 11px; color: var(--gx-text-mute); }
 
-/* Field cards: a labeled well per input. Only program identity gets this treatment —
-   the per-store numbers are a table, because they are compared down a column. */
+/* Field rows: label above input. The WELL around each field is gone inside the model columns —
+   .sp-calc-col already draws the group's boundary, and a second one per field made a form of
+   eight inputs look like eight cards. The record body keeps the well treatment, where the fields
+   are not inside a column panel. */
 .sp-flds { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .sp-fld {
   display: flex; flex-direction: column; gap: 5px;
   background: var(--gx-surface); border: 1px solid var(--gx-border);
   border-radius: 9px; padding: 11px 13px;
+}
+.sp-calc-col .sp-flds { gap: 11px; }
+.sp-calc-col .sp-fld {
+  background: none; border: 0; border-radius: 0; padding: 0; gap: 4px;
 }
 .sp-fld.is-wide { grid-column: span 2; }
 .sp-fld > span {
@@ -743,7 +821,14 @@ body.is-gated .workspace { display: none !important; }
   width: 100%; box-sizing: border-box; color-scheme: dark;
 }
 .sp-fld input:focus, .sp-in:focus { border-color: var(--gx-green); }
-.sp-fld .sp-hint { font-size: 10.5px; color: var(--gx-text-mute); }
+/* A hint is a SENTENCE, not a label. `.sp-fld > span` uppercases and letter-spaces every direct
+   span so the field labels read as labels, and the hints are direct spans too — so "You pay $25 to
+   each budtender who reaches their own target" was being shouted in 9.5px caps. The hint rule
+   already overrode the size and color and simply never put the casing back. */
+.sp-fld .sp-hint {
+  font-size: 10.5px; color: var(--gx-text-mute);
+  text-transform: none; letter-spacing: 0; font-weight: 400; line-height: 1.45;
+}
 /* A value the app WORKED OUT, not one you type. The program window is derived from the pay
    periods picked above it, so it has to read as an answer rather than as an empty box somebody
    forgot to fill — a plain readonly input is visually identical to an editable one and invites a
@@ -781,10 +866,46 @@ body.is-gated .workspace { display: none !important; }
 .sp-fold > summary::-webkit-details-marker { display: none; }
 .sp-fold-h { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
 .sp-fold > summary:focus-visible { outline: 2px solid var(--gx-green); outline-offset: -2px; }
-.sp-fold-t { font-size: 11.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--gx-text); }
-.sp-fold-n { font-size: 12px; color: var(--gx-text-mute); }
-.sp-fold-chev { margin-left: auto; color: var(--gx-text-mute); transition: transform .15s ease; }
+.sp-fold-t { font-size: 11.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--gx-text); white-space: nowrap; }
+/* Collapsed, this line IS the section — it states the deal's terms or the record's facts, so it
+   gets the room rather than the chevron. Truncated with an ellipsis at a narrow width instead of
+   wrapping the bar to two lines. */
+.sp-fold-n {
+  font-size: 12px; color: var(--gx-text-mute); font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+/* LEADS the row now. It was pushed to the right end by margin-left:auto, which put the control
+   that opens the fold as far as possible from the words describing what it opens. */
+.sp-fold-chev { color: var(--gx-text-mute); transition: transform .15s ease; flex: none; }
 .sp-fold[open] .sp-fold-chev { transform: rotate(90deg); }
+/* A span, not a button — <summary> is the control. Styled as the affordance it stands in for. */
+.sp-fold-cta {
+  margin-left: auto; flex: none;
+  font-size: 11px; font-weight: 600; color: var(--gx-text-dim);
+  border: 1px solid var(--gx-border-strong); border-radius: var(--gx-radius);
+  padding: 4px 10px; background: var(--gx-surface-3);
+}
+.sp-fold > summary:hover .sp-fold-cta { color: var(--gx-text); border-color: var(--gx-text-mute); }
+.sp-fold-cta.is-locked { opacity: .75; }
+/* The needsRep dot on a collapsed Record bar — a fact, where a draft gets the full notice. */
+.sp-fold-dot {
+  flex: none; font-size: 11px; color: var(--gx-gold);
+  display: inline-flex; align-items: center; gap: 6px; margin-left: auto;
+}
+.sp-fold-dot::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.sp-fold-dot + .sp-fold-cta { margin-left: 12px; }
+
+/* ── ⓘ ────────────────────────────────────────────────────────────────────────────────────────
+   Where the long explanatory notes went. Each was five or more lines of prose read once, by
+   whoever first met the section, and then vertical distance forever after. The title attribute is
+   the floor the design allows; the affordance has to be visible and focusable so the text is not
+   simply lost to anyone not using a mouse. */
+.sp-info {
+  flex: none; cursor: help; color: var(--gx-text-mute); font-size: 12px; line-height: 1;
+  border-radius: 50%;
+}
+.sp-info:hover, .sp-info:focus-visible { color: var(--gx-green); }
+.sp-info:focus-visible { outline: 2px solid var(--gx-green); outline-offset: 2px; }
 .sp-fold-b { padding: 4px 14px 16px; border-top: 1px solid var(--gx-border); }
 
 /* The frozen results header: when it was measured, and the way back to re-measuring it. */
@@ -903,11 +1024,27 @@ body.is-gated .workspace { display: none !important; }
 .sp-tbl input { width: 74px; padding: 5px 8px; font-size: 12.5px; }
 .sp-tbl input.narrow { width: 52px; }
 
-.sp-two-up { margin-top: 16px; display: flex; gap: 12px; }
-.sp-mini { flex: 1; padding: 14px 16px; border: 1px solid var(--gx-border); border-radius: var(--gx-radius-lg); background: var(--gx-surface); }
-.sp-mini-l { font-size: 10px; text-transform: uppercase; letter-spacing: 1.1px; color: var(--gx-text-mute); font-weight: 700; }
-.sp-mini-v { font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 5px; }
-.sp-mini-s { font-size: 11.5px; color: var(--gx-text-mute); margin-top: 2px; }
+/* ── WHAT THE GOAL MEANS ──────────────────────────────────────────────────────────────────────
+   Four derived figures under the goal control: where the goal lands, what each budtender hears,
+   cost per extra unit, break-even. They were two cards ("two-up") parked under the scales table
+   in the far column, which is where there was room rather than where they belong — beside the
+   argument they read as part of it, when every one of them is an answer to the target typed
+   directly above. Inset ROWS now, not cards: a label and a figure per line, so four of them cost
+   what two cards did and the column stays a column. */
+.sp-two-up { margin-top: 12px; display: flex; flex-direction: column; gap: 1px; }
+.sp-mini {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 8px 11px; background: var(--sp-inset, #0d1211);
+  border: 1px solid var(--gx-border); border-radius: 0; margin-top: -1px;
+}
+.sp-mini:first-child { border-radius: 9px 9px 0 0; margin-top: 0; }
+.sp-mini:last-child  { border-radius: 0 0 9px 9px; }
+.sp-mini:only-child  { border-radius: 9px; }
+.sp-mini-l { font-size: 11px; text-transform: none; letter-spacing: 0; color: var(--gx-text-mute); font-weight: 500; order: 1; }
+.sp-mini-v { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 0; order: 3; white-space: nowrap; }
+/* The sub-line is the only thing that could not fit on one row; it rides under the label rather
+   than pushing the figure out of line. */
+.sp-mini-s { font-size: 10.5px; color: var(--gx-text-mute); margin-top: 0; order: 2; flex: 1; }
 
 /* One-shot confirmation on a figure that just changed. Re-armed by removing and
    re-adding the class, since an animation does not restart on a class that is already there. */
@@ -1005,7 +1142,7 @@ body.is-gated .workspace { display: none !important; }
 .sp-pg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: start; }
 .sp-pgcard { border: 1px solid var(--gx-border); border-radius: var(--gx-radius-xl); background: var(--gx-surface); overflow: hidden; }
 .sp-pgcard.is-failed { border-color: var(--gx-red); }
-.sp-pgcard-h { padding: 14px 15px 12px; border-bottom: 1px solid var(--sp-divider); }
+.sp-pgcard-h { padding: 11px 13px 10px; border-bottom: 1px solid var(--sp-divider); }
 .sp-pgcard-t { display: flex; align-items: center; gap: 8px; }
 .sp-pgcard-t .sp-dot { width: 8px; height: 8px; }
 .sp-pgcard-t b { font-size: 13.5px; }
@@ -1026,14 +1163,16 @@ body.is-gated .workspace { display: none !important; }
 }
 .sp-pgcard-f .done { color: var(--gx-green); }
 .sp-pgcard-f span:last-child { font-variant-numeric: tabular-nums; }
-.sp-pgcard-b { padding: 8px; }
+.sp-pgcard-b { padding: 6px; }
 
 /* Budtender rows. At or above target the row is tinted and the figures go green — that IS
-   the answer to "what have I got coming", so it must read without counting. */
-.sp-bt { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: 7px; }
+   the answer to "what have I got coming", so it must read without counting.
+   DENSITY ONLY in the redesign: every state the card had, at about four fifths the height, so six
+   stores fit a screen beside the bar instead of running past the fold. */
+.sp-bt { display: flex; align-items: center; gap: 9px; padding: 5px 7px; border-radius: 7px; }
 .sp-bt.is-hit { background: var(--gx-green-soft); }
 .sp-bt-av {
-  width: 22px; height: 22px; border-radius: 50%; flex: none;
+  width: 20px; height: 20px; border-radius: 50%; flex: none;
   background: linear-gradient(135deg, #3a5a4a, #1e2a26); border: 1px solid var(--gx-border-strong);
   color: var(--gx-text-dim); font-weight: 700; font-size: 9px;
   display: flex; align-items: center; justify-content: center;
@@ -1261,7 +1400,49 @@ body.is-gated .workspace { display: none !important; }
 .sp-act.is-locked input { opacity: .7; cursor: default; background: transparent; border-color: transparent; }
 .sp-act.is-locked input:focus { border-color: transparent; outline: none; }
 /* Unlocked reads as live and slightly alarming, on purpose. */
-.sp-flds.is-unlocked .sp-act input { border-color: var(--gx-amber, var(--gx-gold)); }
+.sp-flds.is-unlocked .sp-act input,
+.sp-act-strip.is-unlocked .sp-act input { border-color: var(--gx-amber, var(--gx-gold)); }
+
+/* ── THE FIGURE STRIP ─────────────────────────────────────────────────────────────────────────
+   Six figures across, read-only, at the top of a closed program — where they are what you came
+   to the page for. Locked, each cell hides its input and shows .sp-act-v instead; unlocked, the
+   input comes back and the strip becomes the form it always was underneath. The input is never
+   removed from the DOM, because it IS the save path. */
+.sp-act-strip {
+  display: grid; grid-template-columns: repeat(6, 1fr);
+  border: 1px solid var(--gx-border); border-radius: var(--gx-radius-xl);
+  background: var(--gx-surface); overflow: hidden; margin-bottom: 16px;
+}
+.sp-act-strip .sp-act {
+  border: 0; border-left: 1px solid var(--gx-border); border-radius: 0;
+  background: none; padding: 13px 16px; gap: 3px;
+  flex-direction: column-reverse;         /* value above its label, as a figure reads */
+  justify-content: flex-end;
+}
+.sp-act-strip .sp-act:first-child { border-left: 0; }
+.sp-act-strip .sp-act.is-locked { border-style: solid; }
+.sp-act-strip .sp-act.is-locked input { display: none; }
+.sp-act-v {
+  font-family: var(--sp-display); font-size: 20px; font-weight: 800; line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.sp-act-v small { font-size: 12px; font-weight: 600; color: var(--gx-text-mute); }
+/* Revenue is saved, corrected by hand when unlocked, and read by nothing — so it is out of the
+   six-across row and off the screen until the strip is unlocked, rather than deleted. Its value
+   is on the section's ⓘ for anyone who wants it. */
+.sp-act-rev.is-tucked { display: none; }
+.sp-act-rev { grid-column: 1 / -1; border-top: 1px solid var(--gx-border); padding: 4px 16px 12px; }
+@media (max-width: 1100px) { .sp-act-strip { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 640px)  { .sp-act-strip { grid-template-columns: repeat(2, 1fr); } }
+
+/* Underlined text rather than a second button: correcting by hand is the rare path, and two
+   equal buttons made it read as the ordinary way to fill these in. */
+.sp-linkbtn {
+  background: none; border: 0; padding: 0; font: inherit; font-size: 11px;
+  color: var(--gx-text-dim); text-decoration: underline; cursor: pointer;
+}
+.sp-linkbtn:hover { color: var(--gx-text); }
+.sp-notice-act { margin-left: auto; align-self: center; }
 /* Tawny's selling tips: one textarea, because she is writing a short list rather than filling
    five slots. Monospace-ish line height so five lines look like five lines. */
 .sp-tips-in {

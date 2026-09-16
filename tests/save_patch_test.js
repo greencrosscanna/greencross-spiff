@@ -239,12 +239,13 @@ ok('  …and there is no second load path left to drift from it',
    calling it before loadPrograms would repaint from the stale list and look identical to the
    bug. */
 const saveAll = grab('saveEverything');
-ok('a save repaints the stat strip, not just the lists',
+ok('a save repaints the headline figures, not just the lists',
    /recalc\(PULSE_ALL\)/.test(saveAll));
 ok('  …after the programs are reloaded, or it repaints the stale row',
    saveAll.indexOf('recalc(PULSE_ALL)') > saveAll.indexOf('await loadPrograms()'));
-ok('  …and PULSE_ALL is that strip, so the changed cards say so',
-   /var PULSE_ALL = \['#calcStats'\]/.test(js));
+/* The four-card strip became the program bar's rail, so the pulse follows the figures. */
+ok('  …and PULSE_ALL is the bar\'s rail, so the changed figures say so',
+   /var PULSE_ALL = \['#calcBarRail'\]/.test(js));
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nsave patch: all passed');
 process.exit(fail ? 1 : 0);

@@ -425,7 +425,13 @@ ok('a snapshot with no stores counts as unmeasured', v.snap === null && v.canMea
 ok('nothing open at all yields nothing to show', view(null).canMeasure === false);
 
 const apply = grabJs('applyStatusView');
-ok('the fold follows settled-ness', /fold\.open = !v\.settled/.test(apply));
+/* Tightened with the staged redesign: the fold used to open for anything that was not settled,
+   which meant a RUNNING program also opened on its model. A running program's deal was agreed
+   before it started, so the only status that opens the model is the one still being modeled. */
+ok('the fold opens only on a draft, the one status still being modeled',
+   /var draft = !runningNow && !v\.settled/.test(apply) && /fold\.open = draft/.test(apply));
+ok('  …and the section order follows the status too',
+   /stageSections\(v\.settled \? 'settled' : runningNow \? 'running' : 'draft'\)/.test(apply));
 ok('the section shows when there is a snapshot OR one can be made',
    /results\.hidden = !v\.canMeasure/.test(apply) && /renderUnmeasured\(v\)/.test(apply));
 ok('  …and it is only set on load, never on every repaint',

@@ -56,17 +56,21 @@ ok('a real ask still computes: +302 units, 30% growth',
 const below = model(1000, 800);
 ok('a target genuinely BELOW last month is still negative, not clamped', below.unitInc === -202);
 
-/* ── 2. the guards that keep it off the screen ────────────────────────────────────────────────── */
+/* ── 2. the guards that keep it off the screen ──────────────────────────────────────────────────
+   The four cards became the program bar's rail (modelRail for an unsettled program, settledRail
+   for a closed one), so the two labels that used to collide inside recalc now live in separate
+   functions. That makes the deliberate pick below unnecessary — but the RULE is unchanged and is
+   the whole point of this file: the projecting figure must be gated on an ASK (a target above
+   last month), never on merely having a baseline, or a fresh model tells a brand its product has
+   stopped selling. */
 const recalc = grab('recalc');
+const modelRail = grab('modelRail');
+const settledRail = grab('settledRail');
 
-/* TWO cards carry this label since v1.348: one reports a CLOSED program's settled lift from
-   actual_json, the other projects an unsettled one. Only the projecting card needs the ask gate —
-   the settled card is reporting something that already happened — so pick it deliberately rather
-   than letting the regex take whichever comes first. */
-const lifts = recalc.match(/cstat\('Unit lift',[\s\S]*?\);/g) || [];
-ok('the Unit lift card exists', lifts.length >= 1);
-const lift = [ (lifts.filter(function (x) { return /hasAsk/.test(x); })[0] || '') ];
-ok('one Unit lift card is the MODELLED one, gated on an ask', !!lift[0]);
+const lift = [ (modelRail.match(/brail\('Unit lift',[\s\S]*?\);/) || [''])[0] ];
+ok('the modelled Unit lift figure exists, in the rail', !!lift[0]);
+ok('  …and the settled one is a separate function, not a second branch beside it',
+   /brail\('Unit lift'/.test(settledRail) && !/hasAsk/.test(settledRail));
 if (lift[0]) {
   ok('Unit lift gates its VALUE on an ask, not just a base', /hasAsk \?/.test(lift[0]));
   ok('Unit lift gates its CAPTION on an ask too', (lift[0].match(/hasAsk \?/g) || []).length >= 2);
@@ -81,11 +85,10 @@ if (belowLine) {
      /calc\.target/.test(belowLine[1]));
 }
 
-/* Everything in the strip that prints a number must sit behind hasAsk. This is the check that
-   catches the NEXT card someone adds on the weaker guard. */
-const strip = recalc.slice(recalc.indexOf("var stats = $('#calcStats')"), recalc.indexOf("var base = $('#cGoalBase')"));
-ok('no stat card renders money() or a percent under hasBase alone',
-   !/hasBase \? (?:money\(|pct\(|pctWhole\()/.test(strip));
+/* Everything in the rail that prints a number must sit behind hasAsk. This is the check that
+   catches the NEXT figure someone adds on the weaker guard. */
+ok('no rail figure renders money() or a percent under hasBase alone',
+   !/hasBase \? (?:money\(|pct\(|pctWhole\()/.test(modelRail));
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nall good');
 process.exit(fail ? 1 : 0);

@@ -31,8 +31,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=1.427"/>
-<link rel="stylesheet" href="spiff.css?v=1.427"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=1.428"/>
+<link rel="stylesheet" href="spiff.css?v=1.428"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -121,17 +121,14 @@
     </div>
   </div>
 
-  <div class="sp-subnav" id="subnavCalculator" hidden>
-    <!-- "Modeling: model from a past program" was removed 2026-09-11 (Sky, after watching Tawny
-         use it). It seeded a NEW deal from an old one's numbers — a shortcut that read as "open
-         this program", sat where the editing state belongs, and was the first control on the
-         screen. History is where a past program is opened; a new deal starts from the vendor. -->
-    <span class="sp-editing" id="calcEditing" hidden></span>
-    <div class="sp-subnav-right">
-      <button class="gx-btn" id="calcSave">Save as program</button>
-      <button class="sp-btn-gold" id="calcPresent" title="Full-screen, no chrome — what the brand sees">&#9656; Present to brand</button>
-    </div>
-  </div>
+  <!-- NO SUB-NAV ON THE PROGRAM SCREEN. It held the editing chip and the two actions, and all
+       three are in the program bar now (see #calcBar) — which is where they belong, because they
+       are about the PROGRAM rather than about the tab. showTab hides every .sp-subnav that is not
+       the active tab's and simply finds none for this one, so its absence needs no special case.
+       "Modeling: model from a past program" was removed 2026-09-11 (Sky, after watching Tawny
+       use it). It seeded a NEW deal from an old one's numbers — a shortcut that read as "open
+       this program", sat where the editing state belongs, and was the first control on the
+       screen. History is where a past program is opened; a new deal starts from the vendor. -->
 
   <div class="sp-subnav" id="subnavReports" hidden>
     <select class="sp-in sp-progpick" id="repProgram" title="Which program to close out"></select>
@@ -172,24 +169,85 @@
     <!-- The vendor-facing ROI model. Every input recomputes cost, investment, ROI and
          per-store / per-budtender targets live — it is a sales tool as much as a form. -->
     <section class="panel" id="panel-calculator">
-      <!-- Stat strip: what the vendor is asked for, and what it returns. -->
-      <div class="sp-calc-stats" id="calcStats"></div>
 
-      <!-- ---- THE MODEL, FOLDABLE ----
+      <!-- ---- THE PROGRAM BAR ----
+           One bar, three jobs: what this program IS (status, name, window), what it is DOING
+           (four figures), and what you can do to it. It replaces three separate surfaces that
+           each answered part of that — the four-card stat strip, the editing chip in the subnav,
+           and the fold header — and which between them took 160px before the screen said anything.
+
+           THE FIGURES CHANGE WITH THE STATUS, the bar does not. A draft shows what is being asked
+           for, a running program shows where it stands, a closed one shows what it paid. Same
+           renderer, same rail, one `mode` — see renderProgramBar. Three strips was the duplication
+           that made the running screen scroll: #pgStats said "642 units sold" nine inches below a
+           card already saying it.
+
+           THE ACTION BUTTONS ARE STATIC MARKUP, deliberately. Their click handlers are bound once
+           at init by id; rendering them as innerHTML would destroy and rebuild the nodes on every
+           repaint and take the listeners with them. renderProgramBar only ever toggles [hidden]
+           and rewrites labels. -->
+      <div class="sp-pbar" id="calcBar">
+        <div class="sp-pbar-id">
+          <div class="sp-pbar-t">
+            <span class="sp-pbar-pill" id="calcBarPill" hidden></span>
+            <b id="calcBarName">New program</b>
+          </div>
+          <div class="sp-pbar-meta" id="calcBarMeta"></div>
+        </div>
+        <div class="sp-pbar-rail" id="calcBarRail"></div>
+        <div class="sp-pbar-act">
+          <!-- Refresh means REFRESH: it goes past the cache, or the one control that exists to
+               get newer numbers hands back the ones it just showed. -->
+          <button class="gx-btn" id="pgRefresh" hidden>&#8635; Refresh</button>
+          <button class="gx-btn" id="calcUnlock" hidden>Unlock the goals too</button>
+          <button class="gx-btn" id="calcStopEditing" hidden>Stop editing</button>
+          <button class="gx-btn" id="calcReport" hidden>Close-out report</button>
+          <button class="sp-btn-gold" id="calcPresent" title="Full-screen, no chrome — what the brand sees">&#9656; Present</button>
+          <button class="gx-btn gx-btn-green" id="calcSave">Save</button>
+        </div>
+      </div>
+
+      <!-- ---- WHAT IS WRONG WITH THIS RECORD ----
+           Directly under the bar and NOT in the staged order, so a warning cannot end up inside a
+           collapsed fold. Two of these are about money that may already have gone out — actuals
+           that look copied from another program, and a rate that differs from what was modeled —
+           and a fold is exactly where a reader would never meet them.
+           The third, "no brand rep", shows here only while a program is a DRAFT: that is when
+           somebody is setting it up and it is a task. Once it is running or closed it is a fact
+           about a brand, and it rides as a dot on the collapsed Record bar instead of a gold panel
+           pushing the work down the page on every repaint. -->
+      <div id="calcNotices"></div>
+
+
+      <!-- ---- THE DEAL, FOLDABLE ----
            A closed program's inputs are the record of what was AGREED, so they stay reachable —
            but they are not what you came to the page for once it has settled, and a screenful of
-           locked controls above the results is a screenful of things you cannot do. Open by
-           default; collapsed only when the program is closed. See applyStatusView. -->
+           locked controls above the results is a screenful of things you cannot do.
+
+           NOW IT FOLDS FOR A RUNNING PROGRAM TOO, not only a closed one. While a program runs the
+           question on the screen is "how is it going", and the model is a page and a half of
+           settled decisions in front of the answer. Collapsed it still STATES those decisions —
+           product, cost, payout, target, store and budtender counts — so folding it hides no fact,
+           only the controls. Open by default on a draft, where modeling IS the task.
+           See applyStatusView, which owns open/closed and the section order both. -->
       <details class="sp-fold" id="calcModelFold" open>
         <summary class="sp-fold-h">
-          <span class="sp-fold-t" id="calcFoldTitle">The model</span>
-          <span class="sp-fold-n" id="calcFoldNote"></span>
           <span class="sp-fold-chev" aria-hidden="true">&#9656;</span>
+          <span class="sp-fold-t" id="calcFoldTitle">The deal</span>
+          <span class="sp-fold-n" id="calcFoldNote"></span>
+          <!-- A SPAN, NOT A BUTTON. The whole summary is already the toggle — a real button inside
+               it would swallow the click that opens the fold, and then need its own handler to put
+               it back. This is the affordance; <summary> is the control. -->
+          <span class="sp-fold-cta" id="calcFoldCta" hidden>Edit model</span>
         </summary>
         <div class="sp-fold-b">
+      <!-- THREE COLUMNS, NOT TWO. The deal, the goal and the argument are three separate things
+           and were stacked two-over-one, so the goal sat below the fold on a laptop while a third
+           of the row beside it was empty. Each column is one bordered panel; the per-field wells
+           are dropped, because a border around every input inside a border around the group is two
+           frames saying the same thing. -->
       <div class="sp-calc-grid">
-        <div class="sp-calc-left">
-          <div>
+          <div class="sp-calc-col">
             <h4 class="sp-h4">The deal</h4>
             <div class="sp-flds">
               <!-- ── VENDOR FIRST ──────────────────────────────────────────────────────────
@@ -273,7 +331,7 @@
             </div>
           </div>
 
-          <div id="calcGoalWrap">
+          <div class="sp-calc-col" id="calcGoalWrap">
             <h4 class="sp-h4">The goal</h4>
             <div class="sp-goal">
               <div class="sp-goal-row">
@@ -303,33 +361,51 @@
               </div>
               <div class="sp-goal-foot" id="cGoalFoot"></div>
             </div>
+            <!-- ── THE DERIVED FIGURES BELONG TO THE GOAL ──────────────────────────────────────
+                 "Goal lands at", "Each budtender hears", "Cost per extra unit" and "Break-even"
+                 are all answers to the target typed six inches above them. They sat under the
+                 scales table in the far column because that is where there was room, which made
+                 them read as part of the vendor argument — they are not; they are what the goal
+                 means. recalc fills this. -->
+            <div class="sp-two-up" id="calcMinis"></div>
           </div>
-        </div>
 
-        <div>
-          <div class="sp-h4-row">
-            <h4 class="sp-h4">It scales with success</h4>
-            <span class="sp-h4-note">you fund results, not attempts</span>
+          <div class="sp-calc-col">
+            <div class="sp-h4-row">
+              <h4 class="sp-h4">It scales with success</h4>
+              <!-- The prose that used to sit under this table is on the ⓘ. What stays in the
+                   footer is the one sentence of the argument that is a FIGURE claim — the
+                   invariant percentage return — because it changes with the model and a reader
+                   checking it should not have to hover to see it move. -->
+              <span class="sp-info" id="calcScaleInfo" tabindex="0" role="button"
+                    aria-label="How this table works">&#9432;</span>
+              <span class="sp-h4-note" style="margin-left:auto">they fund results, not attempts</span>
+            </div>
+            <div class="sp-tbl-wrap" id="calcScale"></div>
+            <p class="sp-argue" id="calcArgue"></p>
           </div>
-          <div class="sp-tbl-wrap" id="calcScale"></div>
-          <p class="sp-argue" id="calcArgue"></p>
-          <div class="sp-two-up" id="calcMinis"></div>
-        </div>
       </div>
 
+      <!-- ── FIVE LINES OF PROSE ONTO THE ⓘ ──────────────────────────────────────────────────
+           The note below the table explained five separate rules and was read once, by whoever
+           first met the table. After that it was five lines of vertical distance between the
+           numbers and whatever came next, on a screen whose whole problem is length.
+
+           IT IS NOT DELETED, and that distinction is the rule: several of these notes are the
+           only place a rule is written down for the person reading the screen. It moves to a
+           hover, so it costs nothing until it is wanted. -->
       <div class="sp-h4-row">
         <h4 class="sp-h4">Per store</h4>
-        <span class="sp-h4-note">last-month and budtender counts are editable — every store runs the program</span>
-        <!-- Names what the dimming is for. Dimming alone reads as "disabled", not "loading". -->
-        <span class="sp-waiting" id="calcWaiting" hidden></span>
+        <span class="sp-info" id="calcTableInfo" tabindex="0" role="button"
+              aria-label="How the per-store table works"
+              title="&ldquo;Last month&rdquo; is what this product actually sold at that store, pulled from Dutchie — 28 days halved, so it compares like-for-like against a two-week SPIFF window. The figure under each cell shows the full 28-day number it came from. Type over it and it becomes your number instead. Goals divide by that store's own budtender count, which is why the count is editable here rather than assumed even, and BT unit increase is the ask each budtender actually hears. A new store joins by appearing in the GX Core registry — the table grows with it.">&#9432;</span>
+        <span class="sp-h4-note">last-month and budtender counts are editable</span>
+        <!-- Names what the dimming is for. Dimming alone reads as "disabled", not "loading".
+             Pushed to the right end of the heading row: it is a status about the table, and it
+             was interrupting the sentence that describes it. -->
+        <span class="sp-waiting" id="calcWaiting" style="margin-left:auto" hidden></span>
       </div>
       <div class="sp-tbl-wrap" id="calcTable"></div>
-      <p class="sp-tbl-note">&ldquo;Last month&rdquo; is what this product actually sold at that store, pulled
-        from Dutchie &mdash; 28 days halved, so it compares like-for-like against a two-week SPIFF window.
-        The figure under each cell shows the full 28-day number it came from. Type over it and it becomes
-        your number instead. Goals divide by that store&rsquo;s own budtender count, which is why the count is
-        editable here rather than assumed even, and <b>BT unit increase</b> is the ask each budtender actually
-        hears. A new store joins by appearing in the GX Core registry &mdash; the table grows with it.</p>
         </div>
       </details>
 
@@ -344,17 +420,23 @@
            time a program is actually running — exactly when Tawny is watching to see who is
            about to hit their number. Deleting the tab without this would have removed the only
            view of it. -->
+      <!-- ── #pgStats IS GONE, AND THAT IS THE POINT ──────────────────────────────────────────
+           Its four figures — units sold, at target, earned so far, if everyone lands it — are the
+           program bar's rail on a running program. Two strips of the same four numbers, one above
+           the other, is what made this screen scroll: a reader reaching the store cards had passed
+           "642 units sold" twice. The bar won because it is on screen whatever the status is.
+           Refresh went up with them; it is an action on the program, not on this section.
+           #pgNote's prose (the window, what green means, the hourly stamp) is split: the stamp and
+           the store count are facts about currency and are in the bar's meta line, and the rest is
+           on the ⓘ. paintProgress writes both. -->
       <div id="calcLive" hidden>
         <div class="sp-h4-row">
-          <h4 class="sp-h4">What&rsquo;s selling</h4>
+          <h4 class="sp-h4">Where it stands</h4>
+          <span class="sp-info" id="pgInfo" tabindex="0" role="button"
+                aria-label="How to read this grid"></span>
           <span class="sp-h4-note" id="pgLive"></span>
           <span class="sp-pg-pulled" id="pgPulled"></span>
-          <!-- Refresh means REFRESH: it goes past the cache, or the one control that exists to
-               get newer numbers hands back the ones it just showed. -->
-          <button class="gx-btn" id="pgRefresh" style="margin-left:auto">&#8635; Refresh</button>
         </div>
-        <div class="sp-pg-stats" id="pgStats"></div>
-        <p class="sp-pg-note" id="pgNote"></p>
         <div id="pgBody"></div>
       </div>
 
@@ -377,17 +459,54 @@
            answers to "what is this program", and the weaker one wins whenever it is the one
            somebody happens to open.
            Only ONE of the two hosts is mounted at a time; see syncRecordMount. -->
-      <div id="calcRecordWrap" hidden>
+      <!-- ---- ACTUALS, AS A FIGURE STRIP ----
+           What the brand was sent and what the budtenders were paid against. It was seven open
+           number boxes two-across, 400px of form, on every record including a closed one whose
+           figures had already gone out on an invoice. Read-only by default was already the rule
+           (v1.4xx); this makes the DEFAULT STATE LOOK like what it is — six figures you read —
+           instead of a form that happens to refuse the keyboard.
+
+           THE INPUTS ARE STILL THE SAVE PATH. Each cell carries both a formatted figure and the
+           real [data-key] input; the unlock swaps which one is visible. #actStrip is a third
+           REC host, so recFields/recField$ reach them exactly as they did inside the record body —
+           pullActuals still writes through setRecField, collectPatch still reads back. Rendering
+           the strip as spans alone would have silently cut the measured figures out of the save,
+           which is the trap the original actField comment was written to prevent. -->
+      <div id="calcActuals" hidden>
         <div class="sp-h4-row">
-          <h4 class="sp-h4">This program</h4>
-          <span class="sp-h4-note">identity, dates, contact and actuals &mdash; saved separately from the model above</span>
+          <h4 class="sp-h4">Actuals</h4>
+          <span class="sp-info" id="actInfo" tabindex="0" role="button"
+                aria-label="Where these figures come from"></span>
+          <span class="sp-h4-note" id="actNote"></span>
+          <!-- Underlined text, not a button: correcting by hand is the rare path, and two equal
+               buttons side by side made "Correct by hand" read as the ordinary way to fill these
+               in. Re-measure is the ordinary way. -->
+          <button type="button" class="sp-linkbtn" id="actUnlock" style="margin-left:auto" hidden>Correct by hand</button>
+          <button type="button" class="gx-btn" id="actPull" hidden>Pull live from Dutchie</button>
         </div>
-        <div id="calcRecordBody"></div>
-        <div class="sp-rec-foot">
-          <span class="modal-msg" id="calcRecordMsg"></span>
-          <button class="gx-btn" id="calcRecordSignIn" hidden>Sign in to edit</button>
-        </div>
+        <div class="sp-act-strip" id="actStrip"></div>
       </div>
+
+      <details class="sp-fold" id="calcRecordFold" hidden>
+        <summary class="sp-fold-h">
+          <span class="sp-fold-chev" aria-hidden="true">&#9656;</span>
+          <span class="sp-fold-t">Record</span>
+          <span class="sp-fold-n" id="calcRecordSummary"></span>
+          <!-- needsRep as a DOT, not a notice block. On a draft it is a thing to go and fix and
+               gets the full notice; everywhere else it is a fact about a program you are not
+               currently setting up, and a three-line gold panel for it pushed the work down the
+               page every time. See renderRecordSummary. -->
+          <span class="sp-fold-dot" id="calcRecordDot" hidden></span>
+          <span class="sp-fold-cta">Status, window, delete</span>
+        </summary>
+        <div class="sp-fold-b">
+          <div id="calcRecordBody"></div>
+          <div class="sp-rec-foot">
+            <span class="modal-msg" id="calcRecordMsg"></span>
+            <button class="gx-btn" id="calcRecordSignIn" hidden>Sign in to edit</button>
+          </div>
+        </div>
+      </details>
     </section>
 
     <!-- ============ REPORTS ============ -->
@@ -536,6 +655,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="spiff.js?v=1.427"></script>
+<script src="spiff.js?v=1.428"></script>
 </body>
 </html>
