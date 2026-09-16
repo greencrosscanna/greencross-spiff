@@ -174,8 +174,13 @@ const FOUR = [
 ok('the hourly trigger records, straight after the freeze and before the refresh',
    /snapshot failed[\s\S]*recordMeasuredActuals_\(\{ apply: true \}\)[\s\S]*refreshSpiffProgress_\(\)/
      .test(G.grab('refreshSpiffProgressTrigger')));
-ok('the on-demand route is secret-gated and dry unless asked',
-   /'recordActuals'\];/.test(gs) && /apply: String\(p\.apply \|\| ''\) === '1'/.test(G.grab('recordActualsWeb_')));
+/* Read as the PARSED list. This was `/'recordActuals'\];/` — the action followed by the closing
+   bracket — which stopped being true the moment another action was appended after it (auditPayouts,
+   2026-09-15). The claim is membership, not position. */
+ok('the on-demand route is on the secret-only list',
+   G.grabVar('SECRET_ACTIONS').indexOf('recordActuals') >= 0);
+ok('  …and is dry unless asked',
+   /apply: String\(p\.apply \|\| ''\) === '1'/.test(G.grab('recordActualsWeb_')));
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nrecord actuals: all passed');
 process.exit(fail ? 1 : 0);

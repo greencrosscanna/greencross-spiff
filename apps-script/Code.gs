@@ -321,7 +321,7 @@ var GATED_WRITES = ['snapshotProgress'];
    all three; see guard_. */
 var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses',
                       'sweepOrphanProgress', 'publishToCore', 'backfillPayPeriods',
-                      'publishKioskTokens', 'seedBrands', 'recordActuals'];
+                      'publishKioskTokens', 'seedBrands', 'recordActuals', 'auditPayouts'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -492,6 +492,8 @@ function doGet(e) {
       case 'payouts':     out = notImplemented_('payouts');                         break;
       case 'history':     out = { ok: true, programs: listPrograms_('closed') };    break;
       case 'flyer':       out = flyer_(p);                                          break;
+      /* Does every closed program still add up? Report-only — see auditClosedPayouts_. */
+      case 'auditPayouts': out = auditPayoutsWeb_(p);                               break;
       default:            out = { ok: false, error: 'Unknown action: ' + (p.action || '(none)') };
     }
   } catch (err) {
@@ -2195,6 +2197,202 @@ function recordActualsWeb_(p) {
   return recordMeasuredActuals_({ apply: String(p.apply || '') === '1', program: p.program });
 }
 
+/* ═════════════════ DOES A CLOSED PROGRAM STILL ADD UP? ═════════════════════════════════════════
+ * Sky, 2026-09-09: "nothing checks whether SPIFF's numbers still agree with each other. The hourly
+ * trigger measures and publishes; it never asks whether what it published reconciles."
+ *
+ * The three things that sat for weeks and would each have been one line of this:
+ *   · the vendor email, PDF and gift-card list computing a per-unit program's credit with the FLAT
+ *     formula — $28.50 against $181.50 owed, on a document headed "Credit due Green Cross"
+ *   · a flat program's report ticking 18 people as hitting a target of zero
+ *   · programs whose measured units still disagree with what the vendor was told
+ *
+ * WHAT IT DOES. For each CLOSED program it recomputes the payout INDEPENDENTLY — the sum of what
+ * each person earned, off the frozen snapshot — and compares it against the figure on the record.
+ * It does the same for units. That is a second opinion from the measurement itself, which is the
+ * only thing in this app that can disagree with `actual_json` in a useful way.
+ *
+ * IT REPORTS AND NEVER CORRECTS. These are settled records that went to a vendor; a job that
+ * quietly rewrites one is worse than the drift it fixes. Sky's own standing rule on the copied-
+ * actuals group is that the numbers are a business judgement and a human checks them.
+ *
+ * WHAT IT REFUSES TO JUDGE, which is most of History. Thirteen of the twenty-four closed programs
+ * on 2026-09-15 cannot be compared at all: nine were never measured (they predate the snapshot),
+ * and four measured zero because stores refused. Those are a closed decision — see the note on not
+ * retrofitting the historical records — so they are COUNTED and named, never flagged. Comparing
+ * against a measurement that does not exist would produce thirteen findings a day, forever, and a
+ * daily report nobody can act on is how the one real finding gets missed.
+ *
+ * THE THRESHOLDS (Sky, 2026-09-15). Money: any gap over a cent, because a cent is not a rounding
+ * story on a figure a vendor was invoiced. Units: over 2% AND at least 5 units, which catches
+ * Grön's 13 and ignores Hellavated's 1. The two are independent, so a payout error cannot hide
+ * under the unit threshold.
+ */
+var AUDIT_STATE_PROP = 'PAYOUT_AUDIT_STATE';     // { on: 'YYYY-MM-DD', fp: '<findings>' }
+var AUDIT_UNIT_PCT = 0.02, AUDIT_UNIT_MIN = 5;
+
+function auditClosedPayouts_() {
+  var out = { ok: true, at: nowStamp_(), closed: 0, compared: 0,
+              findings: [], not_comparable: [] };
+  var progs;
+  try { progs = listPrograms_('closed'); }
+  catch (e) { return { ok: false, error: 'could not read the programs tab: ' + scrubSecrets_(e && e.message || e) }; }
+  out.closed = progs.length;
+
+  progs.forEach(function (p) {
+    var snap = p.progress_json && p.progress_json.stores ? p.progress_json : null;
+    var skip = function (why) { out.not_comparable.push({ program_id: p.program_id, why: why }); };
+    if (!snap) return skip('never measured');
+    if ((snap.partial || []).length) {
+      /* A REFUSED STORE IS NOT A ZERO — the same rule the snapshot and the actuals recorder
+         follow. A five-store total compared against a six-store record is a manufactured gap. */
+      return skip('measurement incomplete — ' + snap.partial.join(', ') + ' did not answer');
+    }
+    var stores = snap.stores || [];
+    var measuredUnits = 0, measuredEarned = 0, people = 0;
+    stores.forEach(function (st) {
+      measuredUnits += Number(st.units) || 0;
+      (st.rows || []).forEach(function (r) {
+        measuredEarned += Number(r.earned) || 0;
+        if ((Number(r.earned) || 0) > 0) people++;
+      });
+    });
+    measuredEarned = Math.round(measuredEarned * 100) / 100;
+    if (!measuredUnits) return skip('measured zero units — its filter matches nothing');
+
+    var a = p.actual_json || {};
+    var recUnits = Number(a.units_sold) || 0, recPaid = Number(a.investment) || 0;
+    if (!recUnits && !recPaid) return skip('no recorded actuals to compare against');
+
+    out.compared++;
+    var flags = [];
+    var payGap = Math.round((measuredEarned - recPaid) * 100) / 100;
+    if (Math.abs(payGap) > 0.01) {
+      flags.push({ kind: 'payout', measured: measuredEarned, recorded: recPaid, gap: payGap });
+    }
+    var unitGap = measuredUnits - recUnits;
+    if (Math.abs(unitGap) > Math.max(AUDIT_UNIT_MIN, AUDIT_UNIT_PCT * recUnits)) {
+      flags.push({ kind: 'units', measured: measuredUnits, recorded: recUnits, gap: unitGap });
+    }
+    if (flags.length) {
+      out.findings.push({ program_id: p.program_id,
+                          program_name: p.program_name || p.title || p.program_id,
+                          vendor: p.vendor || '', window: [p.start_date, p.end_date],
+                          measured_at: String(snap.at || '').slice(0, 10),
+                          earners: people, flags: flags });
+    }
+  });
+  return out;
+}
+
+/* A stable identity for a set of findings, so "the same disagreement as yesterday" can be told
+ * from "a new one". The GAPS are in it, rounded: correcting a record clears its finding, and
+ * changing one re-raises it rather than passing as already-reported. */
+function auditFingerprint_(findings) {
+  return (findings || []).map(function (f) {
+    return f.program_id + ':' + f.flags.map(function (x) {
+      return x.kind + '=' + (Math.round(Number(x.gap) * 100) / 100);
+    }).sort().join(',');
+  }).sort().join('|');
+}
+
+/* The daily run. ONCE a day off the hourly trigger, and it writes a brain note only when the set
+ * of disagreements has CHANGED (Sky, 2026-09-15). A note every day would put today's Grön line in
+ * the inbox until it is dealt with, and a line you have already decided about teaches you to skim
+ * the inbox — which is the failure mode that let a stuck sweep run for a week. A clean run logs.
+ */
+function runPayoutAuditDaily_(opts) {
+  opts = opts || {};
+  var props = PropertiesService.getScriptProperties();
+  var today = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd');
+  var state = {};
+  try { state = JSON.parse(props.getProperty(AUDIT_STATE_PROP) || '{}'); } catch (e) {}
+  if (!opts.force && state.on === today) return { ok: true, skipped: 'already ran today' };
+
+  var rep = auditClosedPayouts_();
+  if (!rep.ok) return rep;
+  var fp = auditFingerprint_(rep.findings);
+  rep.noted = false;
+  rep.unchanged = (fp === (state.fp || '')) && !!fp;
+
+  if (fp && !rep.unchanged) {
+    try {
+      GXCore.gxAddNote('spiff', 'spiff', auditNoteTitle_(rep), auditNoteBody_(rep), '', 'ask');
+      rep.noted = true;
+    } catch (e) {
+      /* A note that could not be written must not be recorded as written, or the change is
+         swallowed and the next run calls it unchanged. Leave the fingerprint alone and say so. */
+      rep.note_error = scrubSecrets_(e && e.message || e);
+      console.warn('[spiff] payout audit could not write its note: ' + rep.note_error);
+    }
+  }
+  /* The DATE always moves, so a failed note is retried tomorrow rather than every hour. The
+     FINGERPRINT moves only when the note landed — and an empty one clears it, so a disagreement
+     that comes back is reported again instead of being remembered as already told. */
+  var save = { on: today, fp: rep.note_error ? (state.fp || '') : fp };
+  try { props.setProperty(AUDIT_STATE_PROP, JSON.stringify(save)); } catch (e) {}
+
+  if (!rep.findings.length) {
+    console.log('[spiff] payout audit: ' + rep.compared + ' of ' + rep.closed
+                + ' closed programs reconcile; ' + rep.not_comparable.length + ' not comparable.');
+  } else {
+    console.warn('[spiff] payout audit: ' + rep.findings.length + ' disagreement(s) — '
+                 + rep.findings.map(function (f) { return f.program_id; }).join(', ')
+                 + (rep.noted ? ' (noted)' : rep.unchanged ? ' (unchanged since the last note)' : ''));
+  }
+  return rep;
+}
+
+function auditNoteTitle_(rep) {
+  var n = rep.findings.length;
+  return n === 1
+    ? 'A closed program does not add up: ' + rep.findings[0].program_name
+    : n + ' closed programs do not add up';
+}
+
+/* The note is what a human reads, so it states the numbers and what to do with them — not a count
+ * and a route to go and run. */
+function auditNoteBody_(rep) {
+  var lines = [];
+  lines.push('The daily reconciliation recomputed every closed program\'s payout from its own frozen '
+           + 'measurements and compared it against the record. These disagree:');
+  lines.push('');
+  rep.findings.forEach(function (f) {
+    lines.push('• ' + f.program_name + (f.vendor && f.vendor !== f.program_name ? ' (' + f.vendor + ')' : '')
+               + '  ' + (f.window[0] || '?') + ' → ' + (f.window[1] || '?'));
+    f.flags.forEach(function (x) {
+      if (x.kind === 'payout') {
+        lines.push('    payout: the measurements add up to ' + moneyStr_(x.measured)
+                 + ', the record says ' + moneyStr_(x.recorded)
+                 + ' (' + (x.gap > 0 ? '+' : '') + moneyStr_(x.gap) + ')');
+      } else {
+        lines.push('    units: measured ' + x.measured + ', recorded ' + x.recorded
+                 + ' (' + (x.gap > 0 ? '+' : '') + x.gap + ')');
+      }
+    });
+    lines.push('    measured ' + (f.measured_at || 'unknown') + ' · ' + f.earners + ' people earned');
+    lines.push('    id: ' + f.program_id);
+  });
+  lines.push('');
+  lines.push('NOTHING WAS CHANGED. These records were reported to a vendor and paid, so the figures '
+           + 'are yours to settle, not the job\'s. Fix the record and this clears itself.');
+  lines.push('');
+  lines.push(rep.compared + ' of ' + rep.closed + ' closed programs were comparable. '
+           + rep.not_comparable.length + ' could not be judged (never measured, an incomplete '
+           + 'measurement, or a filter that matches nothing) and are deliberately not flagged.');
+  lines.push('Run it yourself any time: ?action=auditPayouts');
+  return lines.join('\n');
+}
+
+function auditPayoutsWeb_(p) {
+  var want = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  if (!want || String(p.secret || '') !== want) return { ok: false, error: 'Unauthorized' };
+  /* Plain read by default. `run=1` is the daily pass with its once-a-day gate and its note;
+     `force=1` runs that pass even if today's has already gone. */
+  if (String(p.run || '') === '1') return runPayoutAuditDaily_({ force: String(p.force || '') === '1' });
+  return auditClosedPayouts_();
+}
+
 /* ===================== SCHEDULED STATUS ROLL =====================
  * A program's status was a thing somebody had to remember to change. Nothing moved a draft to
  * active on its start date and nothing closed a program when its window ran out, so the landing
@@ -2687,6 +2885,13 @@ function refreshSpiffProgressTrigger() {
                      + rec.needs_person.map(function (x) { return x.program_id + ' — ' + x.why; }).join('; '));
       }
     } catch (e) { console.warn('[spiff] recording actuals failed: ' + ((e && e.message) || e)); }
+    /* ONCE A DAY, and AFTER the recorder: a program measured and recorded this hour should be
+       reconciled against the figure that was just written, not against the blank it had an hour
+       ago. Reads the rows already on the sheet — no Dutchie calls, no Core calls unless it has
+       something to say. Its own try/catch, because a reconciliation that throws must not cost the
+       refresh and the publish below it. */
+    try { runPayoutAuditDaily_(); }
+    catch (e) { console.warn('[spiff] payout audit failed: ' + ((e && e.message) || e)); }
     refreshSpiffProgress_();
     /* PUBLISH LAST, after the cache has this hour's numbers in it. Wrapped so a Core outage costs
        the publish and not the refresh: the cache is this app's own source of truth and must land
