@@ -716,10 +716,16 @@ body.is-gated .workspace { display: none !important; }
    height, and on screen for every status instead of only while modeling. */
 .sp-pbar {
   display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
-  padding: 13px 16px; margin-bottom: 14px;
+  padding: 13px 16px; margin-bottom: 20px;
   border: 1px solid var(--gx-border); border-radius: var(--gx-radius-xl);
   background: var(--gx-surface);
 }
+/* 20px, not 14: the gap between the folds is 20 (.sp-fold's margin-bottom), so at 14 the FIRST
+   section on the screen sat 6px tighter than every section under it — and "The deal" is the one
+   section that has nothing above it to compare against except the bar. Sky, 2026-09-16.
+   The spacing above a section lives on whatever precedes it, so the last notice needs the same
+   number: with a warning on screen it is the notice, not the bar, that sets that gap. */
+#calcNotices > .sp-notice:last-child { margin-bottom: 20px; }
 /* flex, not a min-width plus margin-right:auto — that pushed the rail and the actions right and
    then wrapped them onto a second row the moment the three together exceeded the bar, which at
    1440px they do. Shrinking the identity is the right thing to give up first: the program's name
@@ -862,6 +868,16 @@ body.is-gated .workspace { display: none !important; }
    A closed program's inputs stay reachable but stop taking the page. The summary row has to read
    as a control rather than a heading, or nobody discovers the model is still in there. */
 .sp-fold { border: 1px solid var(--gx-border); border-radius: var(--gx-radius-md, 10px); background: var(--gx-surface-2); margin-bottom: 20px; }
+/* ONE RHYTHM DOWN THE CALCULATOR PANEL, 20px, which is the fold's own margin above. The three
+   section blocks between the bar and the folds are plain divs with no styling of their own, so
+   they sat FLUSH against whatever followed them — on a running program that is "Where it stands"
+   against "The deal", a gap of exactly 0 immediately above a section whose next gap is 20. Sky
+   reported it as "add space above The Deal, same as the space between The Deal and Record", and
+   the space above The Deal is whichever of these happens to precede it: applyStatusView reorders
+   the sections by status, so naming one of them would fix one status and leave the others.
+   A hidden block is display:none and contributes nothing, which is why the draft case (bar
+   straight into The deal) is carried by .sp-pbar above rather than here. */
+#calcLive, #calcResults, #calcActuals { margin-bottom: 20px; }
 .sp-fold > summary { list-style: none; cursor: pointer; }
 .sp-fold > summary::-webkit-details-marker { display: none; }
 .sp-fold-h { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
