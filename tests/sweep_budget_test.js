@@ -148,5 +148,60 @@ console.log('\n4. a run that is already out of time reads nothing and deletes no
      rowsFor(h.sheet, 'p1', 'river-rd')[0][H('units')] === 11);
 }
 
+/* ── 5. the hourly run SAYS what did not refresh, and says which kind ──────────────────────────── */
+console.log('\n5. the hourly run reports skipped and failed stores, and keeps them apart');
+{
+  /* Runs the real trigger with its phases stubbed at the edges, and captures what it logged.
+     The sweep has always collected `failures`; until today the trigger discarded them, so a store
+     failing every hour left no trace at all — its rows silently kept last week's numbers while the
+     run reported success. */
+  const run = (sweptResult) => {
+    const warns = [];
+    const T = load({
+      real: ['refreshSpiffProgressTrigger'],
+      vars: ['SWEEP_WORK_MS'],
+      stubs: {
+        takeSweepLease_: () => 'mine', releaseSweepLease_: () => {},
+        rollProgramStatuses_: () => ({}), warmBrandsCache_: () => {},
+        quietHours_: () => false,
+        snapshotPending_: () => ({ done: [], failed: [], remaining: 0, refused_skipped: 0 }),
+        recordMeasuredActuals_: () => ({ recorded: [], needs_person: [] }),
+        runPayoutAuditDaily_: () => ({ ok: true }),
+        refreshSpiffProgress_: () => sweptResult,
+        publishSpiffToCore_: () => ({ ok: true, published: [] }),
+      },
+      globals: { console: { warn: (m) => warns.push(String(m)), log: () => {} } },
+    });
+    T.refreshSpiffProgressTrigger();
+    return warns.join('\n');
+  };
+
+  const clean = run({ ok: true, rows: 9, failures: [], skipped: [], out_of_budget: false });
+  ok('a clean run says nothing about skips or failures',
+     !/ran out of time/.test(clean) && !/FAILED/.test(clean));
+
+  const failed = run({ ok: true, rows: 6, skipped: [], out_of_budget: false,
+    failures: [{ program_id: 'p1', store: 'bend', error: 'GX Core unreachable' }] });
+  ok('a failed store is reported at all (fails if the trigger drops `failures` again)',
+     /FAILED/.test(failed));
+  ok('…naming the store', /p1\/bend/.test(failed));
+  ok('…and what went wrong, so the hunt does not just move elsewhere',
+     /GX Core unreachable/.test(failed));
+  ok('…and saying those rows will read stale until it clears',
+     /previous rows/.test(failed) && /stale/.test(failed));
+
+  /* The two are different problems: a skip clears itself next quiet hour, a failure repeats until
+     a person looks. A run that hits both must not report them as one number. */
+  const both = run({ ok: true, rows: 3, out_of_budget: true,
+    skipped: [{ program_id: 'p2', store: 'river-rd' }],
+    failures: [{ program_id: 'p1', store: 'bend', error: 'timeout' }] });
+  ok('a run that both skipped and failed reports them separately',
+     /ran out of time/.test(both) && /FAILED/.test(both) &&
+     /p2\/river-rd/.test(both) && /p1\/bend/.test(both));
+
+  const noFailField = run({ ok: true, rows: 9, skipped: [], out_of_budget: false });
+  ok('a sweep result carrying no failures list does not throw', typeof noFailField === 'string');
+}
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nall passed');
 process.exit(fail ? 1 : 0);

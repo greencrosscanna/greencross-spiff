@@ -2978,6 +2978,24 @@ function refreshSpiffProgressTrigger() {
                    + swept.skipped.length + ' store read(s) not made, keeping the previous hour: '
                    + swept.skipped.map(function (x) { return x.program_id + '/' + x.store; }).join(', '));
     }
+    /* SAY WHICH STORES DID NOT ANSWER (2026-09-16, Sky). refreshSpiffProgress_ has always collected
+       `failures` — a store whose read threw or came back not-ok — and the hourly job has always
+       thrown the list away. So a store failing EVERY hour left no trace anywhere: its rows quietly
+       keep last week's numbers, the sweep reports success because the other stores wrote, and the
+       payload's `refreshed_at` reads as the newest row. Three independent layers, each individually
+       correct, adding up to a store that stops updating and never says so.
+
+       Distinct from the budget skip above, and worth keeping distinct: a skip means SPIFF chose not
+       to ask, and clears on its own the next quiet hour. A failure means SPIFF asked and Dutchie or
+       Core would not answer, and repeats until someone looks. The error text is included because
+       "which store" without "what went wrong" just moves the hunt somewhere else. */
+    if (swept && swept.failures && swept.failures.length) {
+      console.warn('[spiff] ' + swept.failures.length + ' store read(s) FAILED — those stores keep '
+                   + 'their previous rows and will read stale until this clears: '
+                   + swept.failures.map(function (f) {
+                       return f.program_id + '/' + f.store + ' (' + (f.error || 'failed') + ')';
+                     }).join('; '));
+    }
     /* PUBLISH LAST, after the cache has this hour's numbers in it. Wrapped so a Core outage costs
        the publish and not the refresh: the cache is this app's own source of truth and must land
        even when the hand-off cannot. A consumer sees the age go up, which is exactly what
