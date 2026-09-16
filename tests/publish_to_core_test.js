@@ -87,9 +87,12 @@ function publisher(opts) {
 /* Two fortnights of real shape: Portland Heights (Aug 17 → Aug 30) and Mule (Aug 31 → Sep 13),
    with one person who worked both — so a mis-grouping shows up as money in the wrong period. */
 function row(programId, start, end, employee, earned, extra) {
+  /* `status` is carried because spiffProgress_ resolves it onto every row it returns, and the
+     publish reads through that function — a fixture without it is a row this route never sees.
+     It is load-bearing now: the freshness floor counts active rows only. */
   return Object.assign({ program_id: programId, start_date: start, end_date: end,
                          employee_id: employee, name: 'BT ' + employee, store_id: 'river-rd',
-                         units: 6, target: 6, hit: true, earned: earned,
+                         units: 6, target: 6, hit: true, earned: earned, status: 'active',
                          vendor: 'Vendor', program_name: programId,
                          refreshed_at: '2026-09-15 08:00:00' }, extra || {});
 }
@@ -238,6 +241,34 @@ ok('  …and the fallback is the value live today, so a hiccup does not move the
      aug.oldest_refreshed_at === '2026-09-15 08:00:00');
   ok('  …and is scoped to this period\'s rows, so one fortnight cannot age another',
      sep.oldest_refreshed_at === '2026-09-15 08:00:00' && sep.refreshed_at === '2026-09-15 08:00:00');
+
+  /* A CLOSED PROGRAM MUST NOT DRAG THE FLOOR. Its rows are frozen the day it closes and are never
+     swept again, correctly — so counting them makes the floor a clock running permanently
+     backwards. Measured live when this field first shipped: taken over all rows it read two weeks
+     stale and would have read staler every day, telling any consumer "something is stale" forever.
+     An alarm that is always on is one nobody reads. */
+  {
+    const q = publisher({ progress: { ok: true, orphan_rows: 0, orphan_program_ids: [], rows: [
+      row('portland-heights', '2026-08-17', '2026-08-30', 'e1', 4.5,
+          { status: 'closed', refreshed_at: '2026-09-02 15:30:14' }),
+      row('portland-heights', '2026-08-17', '2026-08-30', 'e2', 4.5,
+          { refreshed_at: '2026-09-15 09:30:00' }),
+    ] } });
+    q.api.publishSpiffToCore_({});
+    const p0 = q.publications()[0].payload;
+    ok('a closed program\'s frozen rows do not drag the floor backwards',
+       p0.oldest_refreshed_at === '2026-09-15 09:30:00');
+    ok('  …while refreshed_at still spans every row, closed included',
+       p0.refreshed_at === '2026-09-15 09:30:00' && p0.rows.length === 2);
+  }
+  {
+    const q = publisher({ progress: { ok: true, orphan_rows: 0, orphan_program_ids: [], rows: [
+      row('portland-heights', '2026-08-17', '2026-08-30', 'e1', 4.5, { status: 'closed' }),
+    ] } });
+    q.api.publishSpiffToCore_({});
+    ok('a period with nothing active reports no floor at all, rather than a false alarm',
+       q.publications()[0].payload.oldest_refreshed_at === '');
+  }
   ok('who published and when are inside the payload, not only on Core\'s row',
      aug.published_by === 'spiff' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(aug.published_at));
   ok('orphan counts travel with it, so a consumer can refuse a payload it cannot vouch for',

@@ -2738,6 +2738,11 @@ function publishSpiffToCore_(opts) {
          returns" — a field on one and not the other breaks exactly that, and this is the path the
          kiosk board actually reads. */
       oldest_refreshed_at: rows.reduce(function (o, r) {
+        /* Active only, for the same reason as the route: a closed program's rows are frozen on
+           purpose and can only get older, so counting them makes the floor a clock that never
+           stops running backwards. A period holding nothing active reports blank — nothing in it
+           is expected to move. */
+        if (String(r.status || '') !== 'active') return o;
         var t = String(r.refreshed_at || '');
         return t && (!o || t < o) ? t : o;
       }, ''),
@@ -3352,10 +3357,22 @@ function spiffProgress_(p) {
     if (friendly) o.display_name = friendly;
     rows.push(o);
     if (o.refreshed_at > newest) newest = o.refreshed_at;
-    /* Guarded on truthiness, unlike `newest`. A blank stamp sorts below every real one, so an
-       unguarded minimum would latch on '' and report the payload as infinitely stale the first time
-       a row turned up without one — which is the same class of lie in the other direction. */
-    if (o.refreshed_at && (!oldest || o.refreshed_at < oldest)) oldest = o.refreshed_at;
+    /* ACTIVE ROWS ONLY, and this is the whole difference between a useful field and a permanent
+       false alarm. The hourly sweep is active-only by design: a closed program's rows are frozen
+       the day it closed and are never touched again, correctly. Measured on the live route the
+       moment this shipped — a floor taken over ALL rows read 2026-09-02, two weeks back, and would
+       have read further back every day forever, because the closed Portland Heights rows can only
+       age. A consumer asking "is any of this stale" would have been told yes for the rest of time,
+       which is worse than not asking: an alarm that is always on is an alarm nobody reads.
+       So the floor answers the question worth asking — how stale is the stalest row that is
+       SUPPOSED to be fresh. No active rows means nothing is expected to move, and it stays blank.
+
+       Guarded on truthiness, unlike `newest`: a blank stamp sorts below every real one, so an
+       unguarded minimum would latch on '' and call the payload infinitely stale — the same lie in
+       the other direction. */
+    if (o.status === 'active' && o.refreshed_at && (!oldest || o.refreshed_at < oldest)) {
+      oldest = o.refreshed_at;
+    }
   });
 
   /* One line per person, summed across programs — what Crew puts in the SPIFF column. Keyed on
