@@ -59,6 +59,32 @@ function snap(stores, partial, at) {
                                                  units: e[0], hit: e[1] > 0, earned: e[1] })) })) };
 }
 
+/* ── The clock, pinned where Los Angeles and UTC disagree ───────────────────────────────────────
+ * `runPayoutAuditDaily_` stamps the once-a-day gate with today's date, and the suite's first date
+ * convention says a calendar day is Los Angeles while an instant is UTC. This instant is
+ * 22:30 on the 15th in Los Angeles and 05:30 on the 16th in UTC, so the two answers differ: the
+ * engine's `Utilities.formatDate(new Date(), 'America/Los_Angeles', …)` yields 2026-09-15, and the
+ * `new Date().toISOString().slice(0,10)` that this convention exists to forbid would yield
+ * 2026-09-16. Asserting the LA day therefore FAILS if anyone reaches for the UTC shorthand.
+ *
+ * It is pinned rather than read off the wall clock, and that is the whole point of this block:
+ * unpinned, the assertion below read `=== '2026-09-15'` against whatever day the suite happened to
+ * run on. It passed on 2026-09-15 by coincidence, went red at the rollover to 2026-09-16 and
+ * blocked a push — while proving nothing about the timezone on any of the days it was green,
+ * because the code and the test were reading the same real clock through the same formatter.
+ */
+const AT_UTC = Date.parse('2026-09-16T05:30:00Z');   // = 2026-09-15 22:30 America/Los_Angeles
+const LA_DAY = '2026-09-15';
+function pinnedClock(at) {
+  const R = Date;
+  function D() { return arguments.length ? new R(...arguments) : new R(at); }
+  D.prototype = R.prototype;          /* so `v instanceof Date` still holds inside the engine */
+  D.now = () => at;
+  D.parse = R.parse;
+  D.UTC = R.UTC;
+  return D;
+}
+
 function auditor(programs, opts) {
   const o = opts || {};
   const sheet = G.makeSheet(PH, programs.map(row));
@@ -77,6 +103,7 @@ function auditor(programs, opts) {
       nowStamp_: () => '2026-09-15 23:00:00',
     },
     globals: {
+      Date: pinnedClock(o.at === undefined ? AT_UTC : o.at),
       PropertiesService: props.PropertiesService,
       console: { log: (m) => logs.push(m), warn: (m) => logs.push(m) },
       GXCore: { gxAddNote: (from, to, title, body, bugId, kind) => {
@@ -274,7 +301,15 @@ const ALL = [GRON, PORTLAND, NEVER_MEASURED, INCOMPLETE, MEASURED_ZERO, NO_ACTUA
   ok('  …the fingerprint is left alone, so tomorrow tries again',
      JSON.parse(a.props.props.PAYOUT_AUDIT_STATE).fp === '');
   ok('  …while the DATE moves, so it retries tomorrow rather than every hour',
-     JSON.parse(a.props.props.PAYOUT_AUDIT_STATE).on === '2026-09-15');
+     JSON.parse(a.props.props.PAYOUT_AUDIT_STATE).on === LA_DAY);
+  /* The clock is pinned at 22:30 Los Angeles / 05:30 UTC the next day, so the line above is also
+     the timezone test: a UTC-derived day would stamp 2026-09-16 here, the gate would think it had
+     already run, and the retry this block exists to guarantee would be skipped for the rest of the
+     evening — seven hours a day, every day, and silently. */
+  ok('  …and that date is the LOS ANGELES day, not the UTC one it is 05:30 on',
+     LA_DAY !== G.Utilities.formatDate(new Date(AT_UTC), 'UTC', 'yyyy-MM-dd')
+     && JSON.parse(a.props.props.PAYOUT_AUDIT_STATE).on
+        === G.Utilities.formatDate(new Date(AT_UTC), 'America/Los_Angeles', 'yyyy-MM-dd'));
 }
 {
   /* An unreadable programs tab is not a clean bill of health. */
