@@ -2124,8 +2124,15 @@ function snapshotPending_(opts) {
          failure and must be retried next hour — writing it off here would turn one bad afternoon
          at Dutchie into a program that is never measured again. */
       if (res.refused) {
+        /* SCRUBBED AT THE WRITE, not at whatever reads it back. snapshotProgram_ can fail with a
+           UrlFetchApp exception carrying the whole URL, deploy secret included, and this parks that
+           text in the refusals memory. Nothing reads it out to a person TODAY — which is exactly
+           the reasoning that cost crew: it had this identical shape, "no reader", and a health
+           check turned out to fold the stored error into a reason a weekly recap rendered into an
+           email. The exit test cannot see a store, only an escape, so a store has to be scrubbed on
+           the way in or it is waiting for its first reader. */
         refused[prog.program_id] = { fp: fp, at: nowStamp_(), reason: res.refused,
-                                     error: String(res.error || '').slice(0, 200) };
+                                     error: scrubSecrets_(String(res.error || '')).slice(0, 200) };
         refusalsMoved = true;
       }
       continue;
@@ -5722,9 +5729,36 @@ function bugUnannounced_(user, p, title, desc, res) {
 
 /* The body both notices share — same fields, same order, in one place. They differ only in the
    paragraph at the top saying which failure this was and what to do about it. */
+/* ── THE ONE DOOR MAIL LEAVES BY ────────────────────────────────────────────────────────────────
+ *
+ * MAIL IS THE WORSE EXIT. A screen shows an error once, to whoever was standing there; an email is
+ * forwarded, quoted, and stays searchable in an inbox forever. The message that lands here is built
+ * from a caught exception — `bugUnfiled_` is handed String(e.message) off a failed GXCore call, and
+ * a GXCore call wraps UrlFetchApp, which puts the WHOLE URL into its exception text. So a transient
+ * network failure while filing a bug report mailed GX_DEPLOY_SECRET to a person's inbox. That
+ * secret opens every secret-gated route in GX Core, the payroll-shaped reads included.
+ *
+ * ONE SEND SITE, SCRUBBED HERE, rather than a scrub at each caller. SPIFF has exactly one send
+ * today and the temptation is to fix it where it is — crew is the argument against that: it had
+ * SEVEN sends and exactly ONE scrubbed, the one somebody had happened to look at. A funnel makes
+ * the second send inherit the fix instead of needing to remember it. Every field is scrubbed, not
+ * just the body, because a subject carries the bug title and a title is typed by a person.
+ *
+ * Copies the message rather than mutating the caller's object: a caller that logs what it sent
+ * should not find its own fields rewritten underneath it. Scrubbing is idempotent, so a caller that
+ * already scrubbed loses nothing by coming through here. */
+function sendMail_(msg) {
+  var out = {};
+  for (var k in msg) { if (Object.prototype.hasOwnProperty.call(msg, k)) out[k] = msg[k]; }
+  if (out.subject   != null) out.subject   = scrubSecrets_(out.subject);
+  if (out.body      != null) out.body      = scrubSecrets_(out.body);
+  if (out.htmlBody  != null) out.htmlBody  = scrubSecrets_(out.htmlBody);
+  MailApp.sendEmail(out);
+}
+
 function bugNotify_(subject, lead, user, p, title, desc) {
   try {
-    MailApp.sendEmail({
+    sendMail_({
       to: BUG_WATCH_EMAIL,
       subject: subject,
       body: lead.concat([
@@ -5923,8 +5957,28 @@ function parseJson_(s, fallback) {
 function today_()    { return Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd'); }
 function nowStamp_() { return Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd HH:mm:ss'); }
 
+/* ── EVERY REPLY LEAVES THROUGH THE SCRUB, AND IT IS THE SERIALIZED BODY THAT GOES THROUGH IT ────
+ *
+ * Scrubbing the whole JSON rather than each catch is the point. Every named leak path in this file
+ * already scrubs at its own catch — libVersion_, the router, publishSpiffToCore_, the store pulls —
+ * and that is exactly the arrangement that keeps failing: a scrub at one exit says nothing about
+ * the next one somebody adds. Four apps were audited by hand on 2026-09-17 and every one had an
+ * exit nobody had counted. Doing it here makes "no reply field may carry a raw credential" true by
+ * CONSTRUCTION, so a route added next month that returns an exception from somewhere new cannot
+ * reintroduce the leak, whatever its author remembered.
+ *
+ * The per-catch scrubs stay. They shape the message a human reads ("GX Core unreachable: …") and
+ * they are what the executing tests pin; this is the floor underneath them, not a replacement.
+ * scrubSecrets_ is idempotent — `secret=[redacted]` re-scrubs to itself — so running both is free.
+ *
+ * SAFE ON THE SERIALIZED FORM because the pattern needs a literal `name=value`, and JSON writes its
+ * own fields as `"name":"value"`. The only `=` in a reply is inside a string, which in practice
+ * means a URL somebody's exception dragged in. The kiosk and vendor links this app hands the
+ * browser are built browser-side from a bare `token` FIELD (`store.html?t=` / `client.html?t=`), so
+ * nothing legitimate in a payload is shaped like a credential parameter. A vendor note someone
+ * typed containing `key=…` would be redacted; that is the trade, and it is the right way round. */
 function reply_(obj, callback) {
-  var json = JSON.stringify(obj);
+  var json = scrubSecrets_(JSON.stringify(obj));
   if (callback) {
     return ContentService.createTextOutput(callback + '(' + json + ')')
       .setMimeType(ContentService.MimeType.JAVASCRIPT);

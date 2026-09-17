@@ -275,6 +275,92 @@ ok('no fetch-error path still interpolates a raw exception message',
      && /secret=\[redacted\]/.test(sent[1].error));
 }
 
+/* ── 3b. THE TWO EXITS THEMSELVES ────────────────────────────────────────────────────────────────
+ *
+ * Everything above asks whether a NAMED path scrubs. This asks the question the other way round,
+ * which is the one that kept getting the wrong answer: whatever a route returns, and whatever this
+ * app mails, has been through the scrub — no matter which catch built it or whether anybody
+ * remembered. Four apps were audited by hand on 2026-09-17 and every one had an exit nobody had
+ * counted, none of them for want of a scrub function.
+ *
+ * The fixture is deliberately an error NOTHING ELSE IN THIS FILE SCRUBS: a raw exception message
+ * parked on a field by a route that has no redaction of its own. If these pass, it is the exit
+ * doing the work and not a caller that happened to be careful.
+ */
+console.log('\n3b. every reply, and every mail');
+
+const RAW = 'Address unavailable: https://script.google.com/macros/s/AK/exec'
+  + '?action=publish_spiff_progress&secret=' + FAKE_SECRET + '&scope=2026-09-01';
+
+{
+  const made = [];
+  const ContentService = {
+    createTextOutput: (s) => { made.push(s); return { setMimeType: function () { return this; } }; },
+    MimeType: { JAVASCRIPT: 'application/javascript', JSON: 'application/json' },
+  };
+  const api = G.load({
+    real: ['reply_', 'scrubSecrets_'],
+    globals: { ContentService },
+  });
+
+  /* The plain JSON door. */
+  api.reply_({ ok: false, error: RAW });
+  ok('a reply cannot carry the deploy secret, whichever catch built it',
+     made.length === 1 && made[0].indexOf(FAKE_SECRET) < 0);
+  ok('  …and still says what failed', /secret=\[redacted\]/.test(made[0])
+     && made[0].indexOf('Address unavailable') >= 0);
+
+  /* The JSONP door, which is the one the browser actually uses — writes ride on GET here. */
+  api.reply_({ ok: false, error: RAW }, 'cb7');
+  ok('the JSONP door scrubs too, not just the JSON one',
+     made.length === 2 && made[1].indexOf(FAKE_SECRET) < 0 && made[1].indexOf('cb7(') === 0);
+
+  /* NESTED, because a payload is not flat: publishToCore returns a `failed` array of per-scope
+     errors, and a scrub applied to the top-level `error` field would miss every one of them. The
+     serialized body is what goes through the scrub precisely so depth cannot matter. */
+  api.reply_({ ok: true, failed: [{ scope: '2026-09-01', error: RAW }], note: { why: RAW } });
+  ok('a secret nested anywhere in the payload goes too, not just a top-level error',
+     made[2].indexOf(FAKE_SECRET) < 0);
+
+  /* The trade has to stay small: a reply that redacts the answer is its own failure. */
+  const ok_payload = { ok: true, rows: [{ employee: 'tawny', units: 12, earned: 25 }],
+                       token: 'abc123def', program_id: 'portland-heights-2026-08-17-2026-08-30' };
+  api.reply_(ok_payload);
+  ok('an ordinary payload is untouched — the kiosk token is a FIELD, not a query parameter',
+     made[3] === JSON.stringify(ok_payload));
+}
+
+{
+  /* MAIL IS THE WORSE EXIT: a screen shows an error once, an email is forwarded and stays
+     searchable. Run from bugUnfiled_ — the real caller, whose `why` is String(e.message) off a
+     failed GXCore.gxIngestBug — rather than from sendMail_ alone, so what is pinned is that the
+     notice goes THROUGH the funnel and not that the funnel would scrub if anything called it. */
+  const sent = [];
+  const api = G.load({
+    real: ['bugUnfiled_', 'bugNotify_', 'sendMail_', 'scrubSecrets_'],
+    vars: ['BUG_WATCH_EMAIL'],
+    stubs: { bugMailOnce_: () => true, nowStamp_: () => '2026-09-17 21:00:00' },
+    globals: { MailApp: { sendEmail: (m) => { sent.push(m); } } },
+  });
+  api.bugUnfiled_('tawny', { priority: 'high', appVer: 'v1.434', context: '' },
+                  'Progress grid is empty', 'nothing loads',
+                  'GX Core could not be reached: ' + RAW);
+  ok('the unfiled-bug notice does not mail the deploy secret to an inbox',
+     sent.length === 1 && String(sent[0].body).indexOf(FAKE_SECRET) < 0);
+  ok('  …and still carries the failure and the report it is preserving',
+     String(sent[0].body).indexOf('Address unavailable') >= 0
+     && String(sent[0].body).indexOf('nothing loads') >= 0);
+  ok('  …and went to the watch address', sent[0].to === 'sky@greencrosscanna.com');
+
+  /* THE SUBJECT TOO. It carries the bug title, and a title is typed by a person who may well have
+     pasted the error they were shown into it. */
+  sent.length = 0;
+  api.bugNotify_('⚠️ UNFILED SPIFF bug: ' + RAW, ['x'], 'tawny',
+                 { priority: 'normal', appVer: '', context: '' }, 't', 'd');
+  ok('a subject is scrubbed as well as a body',
+     sent.length === 1 && String(sent[0].subject).indexOf(FAKE_SECRET) < 0);
+}
+
 /* ── 4. THE FILE ON DISK ─────────────────────────────────────────────────────────────────────── */
 console.log('\n4. the secret never enters the repo');
 const ignored = fs.readFileSync(__dirname + '/../.gitignore', 'utf8');

@@ -122,8 +122,10 @@ function sweeper(rows, answers, memory) {
   const store = memory || {};
   const calls = [];
   const api = G.load({
+    /* scrubSecrets_ is REAL, not stubbed, because the refusal memory below is written through it —
+       a stub would let a fake scrub vouch for the thing the refusal assertions are checking. */
     real: ['snapshotPending_', 'rowToProgram_', 'snapshotFingerprint_', 'textDate_', 'parseJson_',
-           'normalizePitch_', 'slug_'],
+           'normalizePitch_', 'slug_', 'scrubSecrets_'],
     vars: ['PROGRAM_HEADERS', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
     stubs: {
       dataSheet_: () => sheet,
@@ -214,6 +216,26 @@ const FLAKY = { ok: false, error: 'bend did not answer' };
                          { unmeasurable: REFUSED, waiting: GOOD }, s.memory);
   const r3 = behind.api.snapshotPending_({ max: 1 });
   ok('  …while the program behind it is measured normally', r3.done.length === 1);
+}
+/* WHAT THE MEMORY IS ALLOWED TO HOLD. snapshotProgram_ can fail with a UrlFetchApp exception, and
+   Apps Script puts the WHOLE url — deploy secret and all — into that message. This is a STORE, so
+   the exit-scrub test cannot see it: that one finds escapes, not accumulations. Crew's identical
+   "stored error with no reader" turned out to have one, a health check that folded it into a reason
+   a weekly recap mailed out, which is why this is scrubbed at the write rather than at whichever
+   reader appears first. Scrubbed BEFORE the 200-char truncation, or a long url would be cut
+   mid-secret and stored as a fragment nothing would ever redact. */
+{
+  const SECRET = 'NOT-A-REAL-SECRET-0000000000000';
+  const LEAKY = { ok: false, refused: 'zero_vs_record',
+                  error: 'Address unavailable: https://script.google.com/macros/s/AK/exec'
+                         + '?action=sales_by_employee&secret=' + SECRET + '&stores=bend' };
+  const s = sweeper([progRow('leaky')], { leaky: LEAKY });
+  s.api.snapshotPending_({ max: 5 });
+  const stored = s.memory.leaky || {};
+  ok('a remembered refusal does not park the deploy secret in the memory',
+     !!stored.error && String(stored.error).indexOf(SECRET) < 0);
+  ok('  …and still says what failed, so the next reader can act on it',
+     /secret=\[redacted\]/.test(stored.error) && stored.error.indexOf('stores=bend') >= 0);
 }
 {
   /* A TRANSIENT failure is NOT remembered — writing those off would turn one bad afternoon at

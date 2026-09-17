@@ -17,7 +17,9 @@
  *
  * WHAT IT ASKS. Every tests/*_test.js either
  *   · EXECUTES engine or page code — it requires ./_gas, or assembles source with new Function/vm —
- *   · or carries the line `SOURCE-SHAPED:` in its header, followed by the reason.
+ *   · or carries the line `SOURCE-SHAPED:` in its header, followed by the reason,
+ *   · or is a verbatim shared test from gx-theme, whose header says where it came from — see SHARED
+ *     below, and note that the declaration is then core-admin's to write, not ours.
  *
  * The marker is not a loophole, it is the point: a file that cannot run its subject should say so
  * where the next reader will see it, rather than looking like coverage. Three shapes legitimately
@@ -43,11 +45,25 @@ const files = fs.readdirSync(dir).filter(f => /_test\.js$/.test(f) && f !== path
    fact about the files. It is the one place where source text is the thing being measured. */
 const EXECUTES = /require\(['"]\.\/_gas['"]\)|new Function\(|require\(['"]vm['"]\)|vm\.run/;
 const MARKER = /SOURCE-SHAPED:\s*\S/;
+/* A THIRD WAY TO BE DECLARED: the file is a verbatim copy of a gx-theme shared test, and its shape
+   is not this repo's decision to make.
+ *
+ * `tests/exit_scrub_test.js` is the case. It is a static analyzer — it finds every reply and every
+ * mail exit in the engine and asks whether that one scrubs — so it genuinely cannot run its subject,
+ * which is the shape the marker exists to declare, and its own header says so at length. What it
+ * does not carry is the literal token, because the file belongs to core-admin: five apps run the
+ * same copy and editing ours would fork a test whose whole value is that every app runs the same one.
+ *
+ * MATCHED ON THE PROVENANCE LINE, NOT ON A FILENAME. A name list would exempt whatever anybody
+ * later called `exit_scrub_test.js`; this exempts a file that states upstream ownership in its
+ * header, which is the thing that makes the marker somebody else's to add. Asked of core-admin
+ * 2026-09-17 — when the token lands upstream this clause can go, and nothing breaks if it does. */
+const SHARED = /synced from greencross-gx-theme\//;
 
 const silent = [];
 files.forEach(f => {
   const src = fs.readFileSync(path.join(dir, f), 'utf8');
-  if (EXECUTES.test(src) || MARKER.test(src)) return;
+  if (EXECUTES.test(src) || MARKER.test(src) || SHARED.test(src)) return;
   silent.push(f);
 });
 ok('every test file runs the code, or says in its header why it cannot' +
