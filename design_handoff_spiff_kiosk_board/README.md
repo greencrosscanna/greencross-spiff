@@ -165,9 +165,20 @@ Replaces the three panels with one: `#121715`, `1px solid #232a27`, radius `12px
   two body lines are a complete screen on their own. **Never infer the chip client-side** — the
   page cannot know attainment, and a guessed number on a wall screen is worse than no chip.
 
-  *This paragraph told you the opposite until 2026-09-17, and it was wrong the day it was written:
-  the field shipped in the same commit as this file. Leaderboard read it, believed it, and
-  correctly dropped the chip from the panel now live on six wall screens.*
+  **Reading the publication instead of the route?** Then the key you want is `last_programs`, a
+  per-store map on the published payload — `last_programs[store_id]` holds exactly the object above.
+  Every published scope carries the same map, because "how did this store finish its last one" is a
+  per-store fact that belongs to no pay period; read it off whichever scope you already have.
+  Presence means the same thing on both pipes: a store appears only when nothing is running there
+  today. The one case it cannot cover is a cache holding no rows with a usable window at all —
+  nothing publishes then, so there is no chip, and the two body lines stand alone.
+
+  *This paragraph told you the opposite until 2026-09-17, and it was wrong twice. It was wrong the
+  day it was written: the field shipped in the same commit as this file, and Leaderboard correctly
+  dropped the chip on its word. Then the correction was wrong too — it said the work was done
+  because the ROUTE carried the field, when Leaderboard's consumer is the publication and always
+  was. Leaderboard caught that one by reading our source rather than taking the correction at face
+  value. `last_programs` was added to the publication on 2026-09-17.*
 
 ### Kiosk board — per-unit program (`screens/kiosk-board-per-unit.png`)
 Same layout. Differences are listed inline above: pays figure and label, `Any` goal figure,

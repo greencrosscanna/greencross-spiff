@@ -97,7 +97,8 @@ const PROGRAMS = [
 function kiosk(opts) {
   const o = opts || {};
   return G.load({
-    real: ['storeView_', 'storePeople_', 'lastClosedFor_', 'productLabelOf_', 'payoutModelOf_',
+    real: ['storeView_', 'storePeople_', 'lastClosedFor_', 'programRunsAt_', 'programCoversStore_',
+           'productLabelOf_', 'payoutModelOf_',
            'normalizePitch_', 'slug_', 'userKey_', 'stampOf_', 'friendlyName_'],
     vars: ['PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
     stubs: {

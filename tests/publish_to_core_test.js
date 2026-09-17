@@ -59,15 +59,20 @@ function publisher(opts) {
   const sent = [];
   const props = G.makeProps({ GX_DEPLOY_SECRET: o.secret === undefined ? 'SEKRET' : o.secret });
   const api = G.load({
+    /* `nowStamp_` is real unless a test pins the clock. The per-store chip is a NOW-fact — whether
+       something is running today decides whether a store appears at all — so those cases cannot be
+       left to the machine's calendar. */
     real: ['publishSpiffToCore_', 'publishToCore_', 'previewSpiffPublish_', 'byEmployee_',
            'programsFor_', 'dedupe_', 'periodStartFor_', 'textDate_', 'normalizePitch_',
-           'payoutRateOf_', 'payoutModelOf_', 'productLabelOf_', 'nowStamp_', 'scrubSecrets_'],
+           'payoutRateOf_', 'payoutModelOf_', 'productLabelOf_', 'scrubSecrets_',
+           'lastProgramsByStore_', 'lastClosedFor_', 'programRunsAt_', 'programCoversStore_',
+           'slug_'].concat(o.today ? [] : ['nowStamp_']),
     vars: ['GX_SECRET_PROP', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
-    stubs: {
+    stubs: Object.assign({
       spiffProgress_: (arg) => { sent.push({ readWith: arg }); return o.progress; },
       listProgramsCached_: () => (o.programs || []),
       payPeriodCfg_: () => ({ anchor: '2026-05-11', days: 14 }),
-    },
+    }, o.today ? { nowStamp_: () => o.today + ' 09:00:00' } : {}),
     globals: {
       PropertiesService: props.PropertiesService,
       console: { warn() {}, log() {} },
@@ -389,6 +394,101 @@ ok('the secret gate still comes first', router.indexOf('Unauthorized') < router.
 ok('publishToCore is listed as a secret action, or the router would refuse it first',
    /SECRET_ACTIONS = \[[^\]]*'publishToCore'/.test(gs));
 ok('  …and is not public', !/PUBLIC_ACTIONS[^\n]*publishToCore/.test(gs));
+
+/* ══════════════════ 8. THE EMPTY-BOARD CHIP, ON THE PIPE LEADERBOARD ACTUALLY READS ══════════════════
+ * Leaderboard's kiosk panel reads the PUBLICATION, not `storeView`. `last_program` shipped on the
+ * route in v1.429 and we reported the work done — it was not, because the route was never their
+ * consumer. Run for real, because the interesting half is WHICH stores get an entry and what
+ * attainment is measured against, and because the presence of a key is the whole contract.
+ */
+{
+  const CLOSED = { program_id: 'wyld-0824', vendor: 'Wyld', program_name: 'Wyld 5pc Gummies',
+                   status: 'closed', start_date: '2026-08-24', end_date: '2026-09-06',
+                   stores_json: ['river-rd', 'bend'],
+                   target_json: { by_store: { 'river-rd': 50, bend: 100 } } };
+  const OLDER  = { program_id: 'gron-0810', vendor: 'Grön', program_name: 'Grön older',
+                   status: 'closed', start_date: '2026-08-01', end_date: '2026-08-23',
+                   stores_json: ['river-rd'], target_json: { by_store: { 'river-rd': 10 } } };
+  /* Running at bend only — so bend must be ABSENT from the map while river-rd is present. */
+  const LIVE   = { program_id: 'mule-0910', vendor: 'Mule', program_name: 'Mule 2g',
+                   status: 'active', start_date: '2026-09-08', end_date: '2026-09-21',
+                   stores_json: ['bend'], target_json: { by_store: { bend: 40 } } };
+
+  const closedRow = (store, employee, units) =>
+    row('wyld-0824', '2026-08-24', '2026-09-06', employee, 25,
+        { store_id: store, units: units, status: 'closed' });
+  const progress = {
+    ok: true,
+    rows: [closedRow('river-rd', 'e1', 33), closedRow('river-rd', 'e2', 23),
+           closedRow('bend', 'e7', 99),
+           row('mule-0910', '2026-09-08', '2026-09-21', 'e7', 25, { store_id: 'bend' })],
+    orphan_rows: 0, orphan_program_ids: [],
+  };
+
+  const q = publisher({ progress, programs: [CLOSED, OLDER, LIVE], today: '2026-09-10' });
+  q.api.publishSpiffToCore_({});
+  const pubs = q.publications();
+  const map = pubs[0].payload.last_programs;
+
+  ok('the publication carries the per-store chip, not just the kiosk route', !!map);
+  ok('  …for a store with nothing running', !!map['river-rd']);
+  ok('  …naming the program that finished most recently, not the first one found',
+     map['river-rd'].program_name === 'Wyld 5pc Gummies'
+     && map['river-rd'].end_date === '2026-09-06');
+  ok('  …with how THAT store did, against ITS goal and only its own rows',
+     map['river-rd'].store_pct === 112);
+  /* bend's own rows total 99 against a goal of 100. If the map leaked across stores, river-rd
+     would read (33+23+99)/50 and bend would exist at all — both are checked. */
+  ok('a store with a program running gets no chip, so no reader can draw one beside a live board',
+     !('bend' in map));
+  const LAST_ALLOWED = ['vendor', 'program_name', 'end_date', 'store_pct'];
+  ok('the chip carries nothing a finished program has no business putting on a wall',
+     Object.keys(map['river-rd']).every(k => LAST_ALLOWED.indexOf(k) >= 0));
+
+  /* Presence is the signal, so the two pipes must agree on what "nothing running" means. Same
+     fixture with the live program removed: bend appears, measured against its own goal. */
+  const quiet = publisher({ progress, programs: [CLOSED, OLDER], today: '2026-09-10' });
+  quiet.api.publishSpiffToCore_({});
+  const qmap = quiet.publications()[0].payload.last_programs;
+  ok('the store appears the moment nothing is running there', !!qmap.bend);
+  ok('  …measured against its own goal, never the chain\'s', qmap.bend.store_pct === 99);
+
+  /* No percentage rather than a wrong one — the same rule the route follows. */
+  const noGoal = publisher({ progress, programs: [Object.assign({}, CLOSED, { target_json: {} })],
+                             today: '2026-09-10' });
+  noGoal.api.publishSpiffToCore_({});
+  const ngmap = noGoal.publications()[0].payload.last_programs;
+  ok('a program that set no store goal reports no percentage rather than a made-up one',
+     !!ngmap['river-rd'] && !('store_pct' in ngmap['river-rd']));
+
+  /* A store that has never finished one gets no entry, so the consumer's empty state stays plain
+     rather than drawing a chip with blanks in it. */
+  const never = publisher({ progress, programs: [LIVE, Object.assign({}, CLOSED,
+                             { stores_json: ['bend'], target_json: { by_store: { bend: 100 } } })],
+                            today: '2026-09-10' });
+  never.api.publishSpiffToCore_({});
+  ok('a store that has never finished one is absent, not present and empty',
+     !('river-rd' in never.publications()[0].payload.last_programs));
+
+  /* It is a now-fact, not a slice of a period — so every scope carries the same map. A consumer
+     reading a lookback must not get a different answer depending on which one it looks at. */
+  const two = publisher({ progress: TWO_PERIODS, programs: [CLOSED, OLDER], today: '2026-09-10' });
+  two.api.publishSpiffToCore_({});
+  const maps = two.publications().map(x => JSON.stringify(x.payload.last_programs));
+  ok('every scope carries the same map, because the chip belongs to no period',
+     maps.length === 2 && maps[0] === maps[1]);
+
+  /* THE DEPARTURE FROM "SAME KEYS", asserted so it stays deliberate. `?action=progress` takes
+     filters, and a map computed from a filtered slice is quietly wrong rather than absent. */
+  ok('the filtered route does not carry it — a filtered slice cannot compute it honestly',
+     !/last_programs/.test(grab('spiffProgress_')));
+  ok('  …and the publisher computes it from the UNFILTERED read it already makes',
+     /lastProgramsByStore_\(all\.rows/.test(grab('publishSpiffToCore_')));
+  /* The presence rule is shared code, not a second copy — see programRunsAt_. */
+  ok('both pipes decide "nothing running" with the one predicate',
+     /programRunsAt_\(/.test(grab('storeView_'))
+     && /programRunsAt_\(/.test(grab('lastProgramsByStore_')));
+}
 
 /* ══════════════════ 7. THE STORED COLUMN IS LEFT ALONE ══════════════════ */
 /* Correcting program records is a separate, visible job — not a side effect of a plumbing change. */

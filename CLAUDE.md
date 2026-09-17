@@ -289,6 +289,22 @@ Google's consent HTML instead of JSON until the owner has authorized.
   the same shape `?action=progress` already served, deliberately, so a consumer changes its source
   and not its parser.
 
+  **THE PUBLICATION IS THE CONSUMER, NOT `storeView` — check the pipe, not the route** (2026-09-17).
+  Leaderboard's kiosk panel and Crew's incentive column read the PUBLICATION. `storeView` is the
+  kiosk *page's* own route and is nobody else's source. This was got wrong twice in one week: a
+  field was added to `storeView`, the work was reported done, and the consumer could not see it —
+  after the same confusion had already happened over the program sidecar. Leaderboard found both by
+  reading this repo's source instead of taking the answer. **Before telling another app a field is
+  available, grep for what THEY call**, not for what the field is on.
+
+  `last_programs` is the field that came out of it: a per-store map on every published scope,
+  `last_programs[store_id]` → `{vendor, program_name, end_date, store_pct?}`, for the kiosk's
+  "nothing running" chip. It is deliberately **not** on `?action=progress` — that route takes
+  `pay_period` / `program` / `status` filters and a map computed from a filtered slice is quietly
+  wrong rather than absent, which is worse than the broken "same keys" promise. A store appears only
+  when nothing is running there, and `programRunsAt_` is shared by both pipes so the two can never
+  disagree about what that means. Pinned by `tests/publish_to_core_test.js`.
+
   **Two things that bite.** The new failure mode is **silent staleness** — nothing throws if
   publishing stops, the payload just ages — so every read must check `age_minutes`. And the
   **`pay_period` column is unusable as a scope**: live rows hold `"2026-08-17 - 2026-08-30"` (a

@@ -2715,6 +2715,12 @@ function publishSpiffToCore_(opts) {
              undated_program_ids: dedupe_(undated) };
   }
 
+  /* ONE COMPUTATION FOR EVERY SCOPE. The per-store chip is a now-fact, not a slice of any period's
+     rows, so it is identical on each payload — see lastProgramsByStore_ for why it rides here at all
+     and why presence means "nothing running". Computed from the UNFILTERED read above. */
+  var lastByStore = lastProgramsByStore_(all.rows || [], listProgramsCached_(),
+                                         nowStamp_().slice(0, 10));
+
   var done = [], failed = [];
   scopes.forEach(function (scope) {
     var rows = byPeriod[scope];
@@ -2750,6 +2756,10 @@ function publishSpiffToCore_(opts) {
          that wants to refuse a payload with orphans needs to see them. */
       orphan_rows: all.orphan_rows || 0,
       orphan_program_ids: all.orphan_program_ids || [],
+      /* THE EMPTY-BOARD CHIP, one entry per store with nothing running — the same shape and the
+         same presence rule as `storeView`'s `last_program`. Whole-cache like the orphan fields
+         above, not scoped to this period, for the reason lastProgramsByStore_ sets out. */
+      last_programs: lastByStore,
       /* WHO said so and WHEN, inside the payload as well as on Core's row. A consumer holding a
          payload out of context should not have to trust the envelope it arrived in. */
       published_by: 'spiff', published_at: nowStamp_()
@@ -4604,12 +4614,7 @@ function storeView_(p) {
   var today = nowStamp_().slice(0, 10);
   var out = [];
   listPrograms_().forEach(function (pr) {
-    var st = String(pr.status || '').toLowerCase();
-    var a = pr.start_date || '', b = pr.end_date || '';
-    if (st === 'closed' || !a || !b) return;
-    if (!(a <= today && today <= b)) return;
-    var mine = (pr.stores_json || []).some(function (x) { return slug_(x && x.store_id ? x.store_id : x) === store; });
-    if (!mine) return;
+    if (!programRunsAt_(pr, store, today)) return;
 
     var tgt = pr.target_json || {};
     var pitch = normalizePitch_(pr.pitch_json);
@@ -4626,7 +4631,7 @@ function storeView_(p) {
       /* The joined label is built in the browser from vendor + name, exactly as the operator app
          does it — one rule, not two that agree by luck. */
       vendor: pr.vendor || '', program_name: pr.program_name || pr.title || '',
-      start_date: a, end_date: b,
+      start_date: pr.start_date || '', end_date: pr.end_date || '',
       product: productLabelOf_(pr),
       store_goal: Number((tgt.by_store || {})[store]) || 0,
       bt_goal:    Number((tgt.per_bt   || {})[store]) || 0,
@@ -4652,20 +4657,51 @@ function storeView_(p) {
   return res;
 }
 
+/* IS THIS PROGRAM AT THIS STORE, and IS IT RUNNING TODAY. Extracted 2026-09-17 so the two places
+ * that answer "nothing is running here" cannot drift: the kiosk route, and the per-store chip now
+ * carried on the publication. The chip's whole contract is that its PRESENCE means nothing is
+ * running, so a second copy of this predicate would eventually draw a finished program beside a
+ * live board.
+ *
+ * Dates are TEXT and compared as text — lexicographic order IS chronological for YYYY-MM-DD, so
+ * this never coerces a Date and never trips the timezone shift.
+ *
+ * NOT-CLOSED rather than active-only, deliberately, and unchanged from what storeView_ did inline:
+ * a draft whose window covers today is a program a budtender can sell into, and the status roll
+ * activates it within the hour anyway. Hiding it would take a live program off a shop floor to
+ * satisfy a status column. */
+function programCoversStore_(pr, store) {
+  return ((pr && pr.stores_json) || []).some(function (x) {
+    return slug_(x && x.store_id ? x.store_id : x) === store;
+  });
+}
+function programRunsAt_(pr, store, today) {
+  var st = String((pr && pr.status) || '').toLowerCase();
+  var a = (pr && pr.start_date) || '', b = (pr && pr.end_date) || '';
+  if (st === 'closed' || !a || !b) return false;
+  if (!(a <= today && today <= b)) return false;
+  return programCoversStore_(pr, store);
+}
+
 /* The most recently finished program at one store, and how the store did on it.
  *
  * Attainment is measured the same way the live board measures it — the store's cached progress
  * rows against the program's per-store goal — rather than from `actual_json`, whose `units_sold`
  * is the whole chain. Two answers to "how did this store do" is the failure this app keeps paying
- * for. No percentage rather than a wrong one when the program carried no store goal. */
-function lastClosedFor_(store, today) {
+ * for. No percentage rather than a wrong one when the program carried no store goal.
+ *
+ * `src` (added 2026-09-17) lets a caller that ALREADY HOLDS the programs list and the cached rows
+ * hand them in rather than making this read the sheets again — the publisher computes one chip per
+ * store and would otherwise do two reads per store for data it is holding. Omitted, it reads for
+ * itself exactly as before, which is what the kiosk route does. Injecting data is not a second
+ * implementation; a second `lastClosedFor_` written for the publisher would have been. */
+function lastClosedFor_(store, today, src) {
   var best = null;
-  listPrograms_().forEach(function (pr) {
+  ((src && src.programs) || listPrograms_()).forEach(function (pr) {
     if (String(pr.status || '').toLowerCase() !== 'closed') return;
     var end = pr.end_date || '';
     if (!end || end > today) return;
-    var mine = (pr.stores_json || []).some(function (x) { return slug_(x && x.store_id ? x.store_id : x) === store; });
-    if (!mine) return;
+    if (!programCoversStore_(pr, store)) return;
     if (!best || end > best.end_date) best = pr;
   });
   if (!best) return null;
@@ -4675,7 +4711,10 @@ function lastClosedFor_(store, today) {
   if (goal > 0) {
     var sold = 0;
     try {
-      (progressRowsFor_(best.program_id) || []).forEach(function (r) {
+      var rows = (src && src.rowsFor)
+        ? src.rowsFor(best.program_id)
+        : progressRowsFor_(best.program_id);
+      (rows || []).forEach(function (r) {
         if (slug_(r.store_id) === store) sold += Number(r.units) || 0;
       });
       pct = Math.round((sold / goal) * 100);
@@ -4688,6 +4727,78 @@ function lastClosedFor_(store, today) {
                end_date: best.end_date || '' };
   if (pct != null) chip.store_pct = pct;
   return chip;
+}
+
+/* ═════════ THE SAME CHIP, FOR EVERY STORE, ON THE PUBLICATION ═════════
+ * Leaderboard asked for this on 2026-09-17 and the request is worth writing down properly, because
+ * the obvious reading of it was wrong and cost a round trip.
+ *
+ * THE MISTAKE. `last_program` shipped on `storeView` in v1.429 and we told Leaderboard the work was
+ * done. It was not: THEY DO NOT READ `storeView`. Since Sky's 2026-09-16 decision their kiosk panel
+ * reads the PUBLICATION — `GXCore.publishedSpiffProgress(secret, scope)` — which is the whole point
+ * of the consolidation, and the published payload had no such key and never had. Checking the route
+ * and reporting on the consumer is the second time in one week a fact about `storeView` was read as
+ * a fact about the publication. They caught it; we did not.
+ *
+ * WHY IT IS NOT SIMPLY "ADD THE FIELD". The publication's unit is A PAY PERIOD'S ROWS, grouped by
+ * period derived from each row's start date. "How did this store finish its last one" is a PER-STORE
+ * fact that outlives every period, and the empty board exists exactly when that store contributes no
+ * rows. Mirroring the storeView shape onto one period's payload would put a field on a payload whose
+ * existence depends on the field being unnecessary — so it goes on as its OWN per-store map, keyed by
+ * store, carried by every scope rather than belonging to any of them.
+ *
+ * PRESENCE IS THE SIGNAL, exactly as on `storeView`: a store appears here only when NOTHING IS
+ * RUNNING there today. That is why `programRunsAt_` was extracted rather than re-typed — a consumer's
+ * rule is then identical on both pipes (key present → draw the chip), and no reader can end up
+ * drawing a finished program beside a live board.
+ *
+ * THE ONE CASE IT DOES NOT COVER, stated rather than discovered later: when the cache holds no rows
+ * with a usable window at all, `publishSpiffToCore_` publishes nothing, so there is no payload to
+ * carry this and no chip anywhere. Loosening that early return would mean publishing a rows-empty
+ * payload under a live scope, and Crew reads this pipe for money — blanking a period that Core
+ * already holds rows for is a far worse failure than a plainer empty screen. It is also close to
+ * unreachable: a closed program's rows stay in the cache, so the chain would have to have no
+ * measured history whatsoever.
+ *
+ * NOT ON `?action=progress`, and this is a departure from that payload's "same keys" promise, made
+ * on purpose. That route takes `pay_period`, `program` and `status` FILTERS, and a map computed from
+ * a filtered slice is quietly wrong rather than absent — `?status=active` holds no closed rows, so
+ * every percentage would come back null and read as "no goal was set". A field that is right only
+ * when nobody passed an argument is worse than a field that is somewhere else. The publisher reads
+ * unfiltered, which is the one caller that can compute this honestly. */
+function lastProgramsByStore_(rows, programs, today) {
+  var out = Object.create(null);
+  var list = programs || [];
+
+  /* The store set comes from the PROGRAMS' own stores, not from the GX Core registry. A store with
+     no finished program gets no entry either way, so asking Core would be a call per publish for a
+     list that cannot change the answer — and this runs on the hourly trigger, on the shared 30-at-once
+     account. */
+  var stores = Object.create(null);
+  list.forEach(function (pr) {
+    ((pr && pr.stores_json) || []).forEach(function (x) {
+      var id = slug_(x && x.store_id ? x.store_id : x);
+      if (id) stores[id] = 1;
+    });
+  });
+
+  /* One pass over the cached rows, bucketed by program, rather than a sheet read per store —
+     `lastClosedFor_` would otherwise read the progress sheet once for every store on the chain. */
+  var byProgram = Object.create(null);
+  (rows || []).forEach(function (r) {
+    var id = String((r && r.program_id) || '');
+    if (!id) return;
+    (byProgram[id] || (byProgram[id] = [])).push(r);
+  });
+  var src = { programs: list, rowsFor: function (id) { return byProgram[String(id)] || []; } };
+
+  Object.keys(stores).forEach(function (store) {
+    var running = list.some(function (pr) { return programRunsAt_(pr, store, today); });
+    if (running) return;
+    var last = lastClosedFor_(store, today, src);
+    if (last) out[store] = last;
+  });
+  return out;
 }
 
 /* What the SPIFF is ON, in words, for a screen that cannot show a filter. Mirrors the operator
