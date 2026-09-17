@@ -40,6 +40,7 @@
  * period ends up on the right rows.
  */
 'use strict';
+const fs = require('fs');
 const G = require('./_gas');
 
 let fail = 0;
@@ -488,6 +489,28 @@ ok('  …and is not public', !/PUBLIC_ACTIONS[^\n]*publishToCore/.test(gs));
   ok('both pipes decide "nothing running" with the one predicate',
      /programRunsAt_\(/.test(grab('storeView_'))
      && /programRunsAt_\(/.test(grab('lastProgramsByStore_')));
+
+  /* ── THE PUBLISHED KEY LIST IS CLOSED (Leaderboard's ask, 2026-09-17) ────────────────────────
+     Their words: "the two payloads have diverged once per week since they both existed." This is
+     the route-envelope check from store_view_test.js applied to the pipe consumers actually read.
+     It is not about leaks — it is about a consumer being told what it may read and that list
+     drifting. A key added here without a deliberate edit is a field no consumer knows exists; a
+     key REMOVED is a consumer's parser breaking silently, which is the worse half and the half
+     nothing else catches.
+
+     Taken from the payload as PUBLISHED, so it cannot be satisfied by a list in this file. */
+  const PUBLISHED_KEYS = ['ok', 'pay_period', 'status', 'rows', 'by_employee', 'programs',
+                          'refreshed_at', 'oldest_refreshed_at', 'orphan_rows',
+                          'orphan_program_ids', 'last_programs', 'published_by', 'published_at'];
+  const actual = Object.keys(pubs[0].payload).sort();
+  ok('the published payload carries exactly the documented key list' +
+     (actual.join(',') === PUBLISHED_KEYS.slice().sort().join(',')
+        ? '' : ' — got ' + actual.join(',')),
+     actual.join(',') === PUBLISHED_KEYS.slice().sort().join(','));
+  /* And the contract is written down where a consumer looks, not only here. */
+  const claude = fs.readFileSync(__dirname + '/../CLAUDE.md', 'utf8');
+  ok('  …and CLAUDE.md names the pipe consumers read, so the next field goes to the right one',
+     /last_programs/.test(claude) && /THE PUBLICATION IS THE CONSUMER/.test(claude));
 }
 
 /* ══════════════════ 7. THE STORED COLUMN IS LEFT ALONE ══════════════════ */
