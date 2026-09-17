@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; background:#050706; color:#e6ece9;
+         font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; }
+  a { color:#4ade80; text-decoration:none; }
+  a:hover { color:#5ee68f; }
+  @keyframes gxskel { 0%,100% { opacity:.25 } 50% { opacity:.6 } }
+  @keyframes gxaheadglow { 0%,100% { box-shadow:0 0 10px rgba(74,222,128,.45) } 50% { box-shadow:0 0 18px rgba(74,222,128,.8) } }
+  @keyframes gxpulse { 0% { box-shadow:0 0 0 0 rgba(74,222,128,.5) } 70% { box-shadow:0 0 0 7px rgba(74,222,128,0) } 100% { box-shadow:0 0 0 0 rgba(74,222,128,0) } }
+</style>
+</helmet>
+
+<section style="padding:40px; display:flex; flex-direction:column; gap:28px">
+
+  <div style="display:flex; align-items:baseline; gap:14px; max-width:900px">
+    <span style="font-family:'Montserrat',sans-serif; font-size:22px; font-weight:800; letter-spacing:-.4px">Program editor, tightened</span>
+    <span style="font-size:13px; color:#8a958f; line-height:1.55; text-wrap:pretty">One screen, staged by status. The status decides what is open and what collapses to a line — so a draft opens on the model, a running program opens on sell-through, and a closed one opens on what it paid. Explanatory prose moved onto <span style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; border:1px solid #2e3733; color:#5e6864; font-size:9px; vertical-align:middle">i</span> affordances. Brand reps are gone from here — they live in Settings, keyed by brand.</span>
+  </div>
+
+  <div style="display:flex; flex-wrap:wrap; gap:36px; align-items:flex-start">
+
+  <!-- ══════════════════════════════════════════════ 1a  DRAFT ══ -->
+  <div id="1a">
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px">
+      <span style="font-family:'Montserrat',sans-serif; font-size:11px; font-weight:800; letter-spacing:1.4px; color:#06210f; background:#4ade80; border-radius:5px; padding:3px 8px">1a</span>
+      <span style="font-size:13px; font-weight:700">Draft — modeling with the brand in the room</span>
+      <span style="font-size:12px; color:#5e6864">the model is the screen; everything else is a line</span>
+    </div>
+
+    <div style="width:1440px; box-sizing:border-box; border:1px solid #232a27; border-radius:14px; overflow:hidden; background:#0a0e0d; box-shadow:0 28px 70px rgba(0,0,0,.5)">
+      <header style="display:flex; align-items:center; gap:14px; min-height:52px; padding:0 20px; background:#121715; border-bottom:1px solid #232a27">
+        <div style="display:flex; align-items:center; gap:10px">
+          <img src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross" style="height:22px; display:block">
+          <span style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864">SPIFF</span>
+        </div>
+        <nav style="display:flex; align-items:center; gap:2px; margin-left:8px">
+          <button style="border:0; background:transparent; height:40px; padding:6px 12px; font:inherit; font-size:13px; font-weight:600; color:#e6ece9; cursor:pointer">Programs</button>
+          <button style="border:0; background:transparent; height:40px; padding:6px 12px; font:inherit; font-size:13px; font-weight:600; color:#5e6864; cursor:pointer">Reports</button>
+          <button style="border:0; background:transparent; height:40px; padding:6px 12px; font:inherit; font-size:13px; font-weight:600; color:#5e6864; cursor:pointer">History</button>
+        </nav>
+        <div style="margin-left:auto; display:flex; align-items:center; gap:14px">
+          <div style="text-align:right">
+            <div style="font-size:14px; font-weight:700; font-variant-numeric:tabular-nums">2:14 PM</div>
+            <div style="font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:#5e6864">Tue Sep 15</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; background:#1a221f; border:1px solid #232a27; border-radius:999px; padding:4px 11px 4px 5px">
+            <span style="width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-size:10px; font-weight:800; display:flex; align-items:center; justify-content:center">TW</span>
+            <span style="font-size:12.5px; font-weight:600">Tawny Wan</span>
+          </div>
+        </div>
+      </header>
+
+      <main style="padding:18px 24px 28px; display:flex; flex-direction:column; gap:14px">
+
+        <!-- PROGRAM BAR -->
+        <div style="display:flex; align-items:center; gap:22px; background:#121715; border:1px solid #232a27; border-radius:12px; padding:12px 16px">
+          <div style="min-width:0">
+            <div style="display:flex; align-items:center; gap:9px">
+              <span style="display:inline-flex; align-items:center; gap:6px; font-size:10px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#8a958f; border:1px solid #2e3733; border-radius:5px; padding:2px 7px"><span style="width:6px; height:6px; border-radius:50%; background:#8a958f"></span>Draft</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:16px; font-weight:700; letter-spacing:-.2px">Hellavated — Cloud Bars</span>
+            </div>
+            <div style="margin-top:4px; font-size:11.5px; color:#5e6864; font-variant-numeric:tabular-nums">Sep 7 &rarr; Sep 20 &middot; starts in 3 days &middot; Cloud Bar 2pc &middot; $25 flat &middot; 6 stores, 18 budtenders</div>
+          </div>
+          <div style="margin-left:auto; display:flex; align-items:stretch; gap:0">
+            <div style="display:flex; flex-direction:column; gap:3px; padding:0 18px; border-left:1px solid #232a27">
+              <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">They fund</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:20px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">$425</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:3px; padding:0 18px; border-left:1px solid #232a27">
+              <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Revenue up</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:20px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">$3,240</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:3px; padding:0 18px; border-left:1px solid #232a27">
+              <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Their return</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:20px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums; color:#5ee68f">662%</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:3px; padding:0 18px; border-left:1px solid #232a27">
+              <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Unit lift</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:20px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">+324</span>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; padding-left:18px; border-left:1px solid #232a27">
+            <button style="display:inline-flex; align-items:center; gap:6px; background:transparent; color:#d4a847; border:1px solid rgba(212,168,71,.35); border-radius:6px; padding:7px 12px; font:inherit; font-size:12px; font-weight:600; cursor:pointer">&#9656; Present</button>
+            <button style="border:1px solid #4ade80; background:#4ade80; color:#06210f; border-radius:6px; padding:7px 14px; font:inherit; font-size:12px; font-weight:700; cursor:pointer">Save</button>
+          </div>
+        </div>
+
+        <!-- notice, one line -->
+        <div style="display:flex; align-items:center; gap:10px; background:#121715; border:1px solid #232a27; border-left:3px solid #d4a847; border-radius:9px; padding:9px 14px">
+          <span style="font-size:10px; font-weight:700; letter-spacing:.9px; text-transform:uppercase; color:#d4a847">No brand rep</span>
+          <span style="font-size:12px; color:#8a958f">A brand link opens nothing without one — the rep signs in with their own address.</span>
+          <button style="margin-left:auto; border:1px solid #2e3733; background:#1a221f; color:#e6ece9; border-radius:6px; padding:5px 11px; font:inherit; font-size:11.5px; font-weight:600; cursor:pointer">Add in Settings</button>
+        </div>
+
+        <!-- THE MODEL — open, three columns -->
+        <div style="display:grid; grid-template-columns:288px 320px 1fr; gap:14px; align-items:stretch">
+
+          <!-- deal -->
+          <div style="background:#121715; border:1px solid #232a27; border-radius:12px; padding:14px 16px 16px">
+            <div style="display:flex; align-items:center; gap:7px; margin-bottom:12px">
+              <h4 style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">The deal</h4>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:11px">
+              <label style="display:block">
+                <span style="display:block; margin-bottom:4px; font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Brand</span>
+                <input value="Hellavated" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px; font:inherit; font-size:13.5px; outline:none; width:100%; box-sizing:border-box">
+              </label>
+              <label style="display:block">
+                <span style="display:block; margin-bottom:4px; font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Program name</span>
+                <input value="Cloud Bars" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px; font:inherit; font-size:13.5px; outline:none; width:100%; box-sizing:border-box">
+              </label>
+              <label style="display:block">
+                <span style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Pay period
+                  <span title="A SPIFF is settled against payroll, so its window is a whole pay period. The start and end dates follow from this." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; border:1px solid #2e3733; color:#5e6864; font-size:9px; font-weight:700; letter-spacing:0; cursor:help">i</span>
+                </span>
+                <select style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px; font:inherit; font-size:13.5px; outline:none; width:100%; box-sizing:border-box; color-scheme:dark"><option>Sep 7 &rarr; Sep 20, 2026 &middot; current</option></select>
+              </label>
+              <label style="display:block">
+                <span style="display:block; margin-bottom:4px; font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Featured product</span>
+                <input value="Cloud Bar 2pc" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px; font:inherit; font-size:13.5px; outline:none; width:100%; box-sizing:border-box">
+              </label>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
+                <label style="display:block">
+                  <span style="display:flex; align-items:center; gap:6px; margin-bottom:4px; font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Cost / unit
+                    <span title="What we pay for one, wholesale. Filled from Dutchie when a product is picked; type over it to override." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; border:1px solid #2e3733; color:#5e6864; font-size:9px; font-weight:700; letter-spacing:0; cursor:help">i</span>
+                  </span>
+                  <span style="position:relative; display:block">
+                    <i style="position:absolute; left:8px; top:50%; transform:translateY(-50%); font-style:normal; color:#5e6864; font-size:12.5px">$</i>
+                    <input value="10.00" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px 7px 20px; font:inherit; font-size:13.5px; outline:none; width:100%; box-sizing:border-box; font-variant-numeric:tabular-nums; text-align:right">
+                  </span>
+                </label>
+                <label style="display:block">
+                  <span style="display:block; margin-bottom:4px; font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Payout</span>
+                  <span style="position:relative; display:block">
+                    <i style="position:absolute; left:8px; top:50%; transform:translateY(-50%); font-style:normal; color:#5e6864; font-size:12.5px">$</i>
+                    <input value="25" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 9px 7px 20px; font:inherit; font-size:13.5px; outline:none; width:100%; box-sizing:border-box; font-variant-numeric:tabular-nums; text-align:right">
+                  </span>
+                </label>
+              </div>
+              <div style="display:flex; align-items:center; gap:9px">
+                <div style="display:flex; background:#161c1a; border:1px solid #232a27; border-radius:7px; padding:2px; flex:none">
+                  <button style="border:0; border-radius:5px; padding:5px 11px; font:inherit; font-size:11.5px; font-weight:600; line-height:1; cursor:pointer; background:#232a27; color:#e6ece9">Flat</button>
+                  <button style="border:0; border-radius:5px; padding:5px 11px; font:inherit; font-size:11.5px; font-weight:600; line-height:1; cursor:pointer; background:transparent; color:#8a958f">Per unit</button>
+                </div>
+                <span style="font-size:11px; color:#5e6864; line-height:1.4">to each budtender who reaches their own target</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- goal -->
+          <div style="background:#121715; border:1px solid #232a27; border-radius:12px; padding:14px 16px 16px; display:flex; flex-direction:column">
+            <h4 style="margin:0 0 12px; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">The goal</h4>
+            <div style="display:flex; gap:10px; align-items:flex-end">
+              <label style="display:block; flex:1">
+                <span style="display:block; margin-bottom:4px; font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Target units</span>
+                <input value="1,134" style="background:#1a221f; border:1px solid #2f8a52; box-shadow:0 0 0 3px rgba(74,222,128,.10); border-radius:6px; color:#e6ece9; padding:7px 9px; font:inherit; font-size:15px; font-weight:700; outline:none; width:100%; box-sizing:border-box; font-variant-numeric:tabular-nums; text-align:right">
+              </label>
+              <span style="padding-bottom:9px; color:#5e6864; font-size:11px; letter-spacing:.6px; text-transform:uppercase">or</span>
+              <label style="display:block; flex:1">
+                <span style="display:block; margin-bottom:4px; font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Growth</span>
+                <span style="position:relative; display:block">
+                  <input value="40" style="background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:7px 24px 7px 9px; font:inherit; font-size:15px; font-weight:700; outline:none; width:100%; box-sizing:border-box; font-variant-numeric:tabular-nums; text-align:right">
+                  <i style="position:absolute; right:8px; top:50%; transform:translateY(-50%); font-style:normal; color:#5e6864; font-size:12.5px">%</i>
+                </span>
+              </label>
+            </div>
+            <div style="margin-top:14px; position:relative; height:8px; border-radius:5px; background:#1a221f">
+              <div style="position:absolute; left:0; top:0; bottom:0; width:40%; background:#265939; border-radius:5px 0 0 5px"></div>
+              <div style="position:absolute; left:40%; top:0; bottom:0; width:16%; background:linear-gradient(90deg,#4ade80,#5ee68f); animation:gxaheadglow 2.6s ease-in-out infinite"></div>
+              <span style="position:absolute; left:56%; top:50%; transform:translate(-50%,-50%); width:16px; height:16px; border-radius:50%; background:#e6ece9; box-shadow:0 1px 4px rgba(0,0,0,.6)"></span>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-top:8px; font-size:10.5px; color:#5e6864; font-variant-numeric:tabular-nums">
+              <span>810 last month</span>
+              <span style="color:#4ade80">+324 asked for</span>
+            </div>
+            <div style="margin-top:14px; display:flex; flex-direction:column; gap:7px">
+              <div style="display:flex; align-items:baseline; gap:8px; padding:10px 11px; background:#0d1211; border-radius:9px">
+                <span style="flex:1; font-size:11px; color:#5e6864">Goal lands at</span>
+                <span style="font-size:14px; font-weight:700; font-variant-numeric:tabular-nums">1,139</span>
+                <span title="Budtender goals are whole numbers, so the split rarely divides evenly. Every figure on this screen prices this total, not the one typed above." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; border:1px solid #2e3733; color:#5e6864; font-size:9px; font-weight:700; cursor:help">i</span>
+              </div>
+              <div style="display:flex; align-items:baseline; gap:8px; padding:10px 11px; background:#0d1211; border-radius:9px">
+                <span style="flex:1; font-size:11px; color:#5e6864">Each budtender hears</span>
+                <span style="font-size:14px; font-weight:700; font-variant-numeric:tabular-nums; color:#4ade80">+18 units</span>
+              </div>
+              <div style="display:flex; align-items:baseline; gap:8px; padding:10px 11px; background:#0d1211; border-radius:9px">
+                <span style="flex:1; font-size:11px; color:#5e6864">Cost per extra unit</span>
+                <span style="font-size:14px; font-weight:700; font-variant-numeric:tabular-nums">$1.31</span>
+                <span title="$425 across 324 extra units." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; border:1px solid #2e3733; color:#5e6864; font-size:9px; font-weight:700; cursor:help">i</span>
+              </div>
+              <div style="display:flex; align-items:baseline; gap:8px; padding:10px 11px; background:#0d1211; border-radius:9px">
+                <span style="flex:1; font-size:11px; color:#5e6864">Break-even</span>
+                <span style="font-size:14px; font-weight:700; font-variant-numeric:tabular-nums">43 units</span>
+                <span title="Against last month, chain-wide." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; border:1px solid #2e3733; color:#5e6864; font-size:9px; font-weight:700; cursor:help">i</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- scales -->
+          <div style="background:#121715; border:1px solid #232a27; border-radius:12px; padding:14px 16px 14px; display:flex; flex-direction:column">
+            <div style="display:flex; align-items:center; gap:7px; margin-bottom:12px">
+              <h4 style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">It scales with success</h4>
+              <span title="The brand only pays a bounty on a budtender who actually reaches their number, so their downside is capped and their cost rises only alongside the sell-through that pays for it. Under a flat bounty the percentage return does not move with the hit rate." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; border:1px solid #2e3733; color:#5e6864; font-size:9px; font-weight:700; cursor:help">i</span>
+              <span style="margin-left:auto; font-size:11px; color:#5e6864">they fund results, not attempts</span>
+            </div>
+            <table style="width:100%; border-collapse:collapse; font-size:13px">
+              <thead>
+                <tr>
+                  <th style="text-align:left; padding:6px 10px 8px; font-size:9.5px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid #232a27">Budtenders who hit</th>
+                  <th style="text-align:right; padding:6px 10px 8px; font-size:9.5px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid #232a27">They fund</th>
+                  <th style="text-align:right; padding:6px 10px 8px; font-size:9.5px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid #232a27">Units that implies</th>
+                  <th style="text-align:right; padding:6px 10px 8px; font-size:9.5px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid #232a27">Their net gain</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="padding:8px 10px; border-bottom:1px solid #1c2320; font-weight:700">All 17</td>
+                  <td style="padding:8px 10px; border-bottom:1px solid #1c2320; text-align:right; font-weight:700; font-variant-numeric:tabular-nums">$425</td>
+                  <td style="padding:8px 10px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">1,139</td>
+                  <td style="padding:8px 10px; border-bottom:1px solid #1c2320; text-align:right; color:#4ade80; font-weight:700; font-variant-numeric:tabular-nums">$2,815</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 10px; border-bottom:1px solid #1c2320; color:#8a958f">13 of 17</td>
+                  <td style="padding:8px 10px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">$325</td>
+                  <td style="padding:8px 10px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">1,072</td>
+                  <td style="padding:8px 10px; border-bottom:1px solid #1c2320; text-align:right; color:#4ade80; font-weight:700; font-variant-numeric:tabular-nums">$2,295</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 10px; border-bottom:1px solid #1c2320; color:#8a958f">9 of 17</td>
+                  <td style="padding:8px 10px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">$225</td>
+                  <td style="padding:8px 10px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">1,005</td>
+                  <td style="padding:8px 10px; border-bottom:1px solid #1c2320; text-align:right; color:#4ade80; font-weight:700; font-variant-numeric:tabular-nums">$1,775</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 10px; border-bottom:1px solid #1c2320; color:#8a958f">4 of 17</td>
+                  <td style="padding:8px 10px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">$100</td>
+                  <td style="padding:8px 10px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">894</td>
+                  <td style="padding:8px 10px; border-bottom:1px solid #1c2320; text-align:right; color:#4ade80; font-weight:700; font-variant-numeric:tabular-nums">$740</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 10px; color:#8a958f">Nobody</td>
+                  <td style="padding:8px 10px; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">$0</td>
+                  <td style="padding:8px 10px; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">810</td>
+                  <td style="padding:8px 10px; text-align:right; color:#8a958f">costs them nothing</td>
+                </tr>
+              </tbody>
+            </table>
+            <div style="margin-top:auto; padding-top:12px; display:flex; align-items:center; gap:10px">
+              <span style="font-size:11.5px; color:#8a958f; line-height:1.5; text-wrap:pretty">Under a flat bounty their percentage return does not move with the hit rate &mdash; it stays at <b style="color:#e6ece9">662%</b> whether three budtenders hit or all 17 do.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- PER STORE -->
+        <div>
+          <div style="display:flex; align-items:center; gap:8px; margin:4px 0 8px">
+            <h4 style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Per store</h4>
+            <span title="&ldquo;Last month&rdquo; is what this product actually sold at that store, pulled from Dutchie — 28 days halved, so it compares like-for-like against a two-week SPIFF window. Type over it and it becomes your number instead. Goals divide by that store's own budtender count, which is why the count is editable. A new store joins by appearing in the GX Core registry." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; border:1px solid #2e3733; color:#5e6864; font-size:9px; font-weight:700; cursor:help">i</span>
+            <span style="font-size:11px; color:#5e6864">last-month and budtender counts are editable</span>
+            <span style="margin-left:auto; display:inline-flex; align-items:center; gap:7px; font-size:11px; color:#d4a847"><span style="width:7px; height:7px; border-radius:50%; background:#d4a847; animation:gxskel 1.2s ease-in-out infinite"></span>pulling last month — 1 of 6 stores to go</span>
+          </div>
+          <div style="border:1px solid #232a27; border-radius:12px; overflow:hidden; background:#121715">
+            <table style="width:100%; border-collapse:collapse; font-size:13px">
+              <thead>
+                <tr>
+                  <th style="text-align:left; padding:8px 14px; font-size:9.5px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27; white-space:nowrap">Store</th>
+                  <th style="text-align:right; padding:8px 14px; font-size:9.5px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27; white-space:nowrap">Last month</th>
+                  <th style="text-align:right; padding:8px 14px; font-size:9.5px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27; white-space:nowrap">BTs</th>
+                  <th style="text-align:right; padding:8px 14px; font-size:9.5px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27; white-space:nowrap">Goal</th>
+                  <th style="text-align:right; padding:8px 14px; font-size:9.5px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27; white-space:nowrap">per BT now</th>
+                  <th style="text-align:right; padding:8px 14px; font-size:9.5px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27; white-space:nowrap">per BT goal</th>
+                  <th style="text-align:right; padding:8px 14px; font-size:9.5px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27; white-space:nowrap">BT unit increase</th>
+                  <th style="text-align:right; padding:8px 14px; font-size:9.5px; font-weight:700; color:#5e6864; text-transform:uppercase; letter-spacing:1px; background:#0d1211; border-bottom:1px solid #232a27; white-space:nowrap">Goal value</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320"><span style="display:inline-flex; align-items:center; gap:9px; font-size:13px"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#22D3EE"></span>Century</span></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="182" style="width:68px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums"></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="4" style="width:44px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums"></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; font-weight:700; font-variant-numeric:tabular-nums">256</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">46</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="64" style="width:44px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums"></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#4ade80; font-weight:700; font-variant-numeric:tabular-nums">+18</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">$2,560</td>
+                </tr>
+                <tr>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320"><span style="display:inline-flex; align-items:center; gap:9px; font-size:13px"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#3B82F6"></span>Center</span></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="168" style="width:68px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums"></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="4" style="width:44px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums"></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; font-weight:700; font-variant-numeric:tabular-nums">236</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">42</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="59" style="width:44px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums"></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#4ade80; font-weight:700; font-variant-numeric:tabular-nums">+17</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">$2,360</td>
+                </tr>
+                <tr>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320"><span style="display:inline-flex; align-items:center; gap:9px; font-size:13px"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#A855F7"></span>Commercial</span></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="155" style="width:68px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums"></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="3" style="width:44px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums"></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; font-weight:700; font-variant-numeric:tabular-nums">217</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">52</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><span style="display:inline-flex; align-items:center; gap:4px; justify-content:flex-end"><input value="72" style="width:44px; background:#1a221f; border:1px solid #4ade80; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; font-weight:700; text-align:right; outline:none; font-variant-numeric:tabular-nums"><button title="Pinned by hand — back to the split by last month" style="background:none; border:0; padding:0 2px; cursor:pointer; line-height:1; color:#5e6864; font-size:11px">&#10005;</button></span></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#4ade80; font-weight:700; font-variant-numeric:tabular-nums">+20</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">$2,170</td>
+                </tr>
+                <tr>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320"><span style="display:inline-flex; align-items:center; gap:9px; font-size:13px"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#6366F1"></span>Baseline</span></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="130" style="width:68px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums"></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="3" style="width:44px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums"></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; font-weight:700; font-variant-numeric:tabular-nums">182</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">43</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="61" style="width:44px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums"></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#4ade80; font-weight:700; font-variant-numeric:tabular-nums">+18</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">$1,820</td>
+                </tr>
+                <tr>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320"><span style="display:inline-flex; align-items:center; gap:9px; font-size:13px"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#D946EF"></span>Portland</span></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="102" style="width:68px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums"></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="2" style="width:44px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums"></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; font-weight:700; font-variant-numeric:tabular-nums">143</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">51</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="72" style="width:44px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums"></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#4ade80; font-weight:700; font-variant-numeric:tabular-nums">+21</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">$1,430</td>
+                </tr>
+                <tr>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320"><span style="display:inline-flex; align-items:center; gap:9px; font-size:13px"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#EC4899"></span>River<span style="font-size:9.5px; letter-spacing:.8px; text-transform:uppercase; color:#5e6864; border:1px solid #2e3733; border-radius:4px; padding:1px 5px">DC</span></span></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><span style="display:inline-block; width:68px; height:24px; border-radius:6px; background:#1a221f; animation:gxskel 2.4s ease-in-out infinite"></span></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="2" style="width:44px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums"></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; font-weight:700; font-variant-numeric:tabular-nums">105</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">38</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right"><input value="53" style="width:44px; background:#1a221f; border:1px solid #232a27; border-radius:6px; color:#e6ece9; padding:4px 8px; font:inherit; font-size:12.5px; text-align:right; outline:none; font-variant-numeric:tabular-nums"></td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#4ade80; font-weight:700; font-variant-numeric:tabular-nums">+15</td>
+                  <td style="padding:7px 14px; border-bottom:1px solid #1c2320; text-align:right; color:#8a958f; font-variant-numeric:tabular-nums">$1,050</td>
+                </tr>
+                <tr>
+                  <td style="background:#0d1211; padding:10px 14px; font-weight:700; border-top:1px solid #2e3733">Total &middot; 6 stores, 18 budtenders</td>
+                  <td style="background:#0d1211; padding:10px 14px; font-weight:700; border-top:1px solid #2e3733; text-align:right; font-variant-numeric:tabular-nums">810</td>
+                  <td style="background:#0d1211; padding:10px 14px; font-weight:700; border-top:1px solid #2e3733; text-align:right; font-variant-numeric:tabular-nums">18</td>
+                  <td style="background:#0d1211; padding:10px 14px; font-weight:700; border-top:1px solid #2e3733; text-align:right; color:#4ade80; font-variant-numeric:tabular-nums">1,139</td>
+                  <td style="background:#0d1211; border-top:1px solid #2e3733"></td>
+                  <td style="background:#0d1211; border-top:1px solid #2e3733"></td>
+                  <td style="background:#0d1211; padding:10px 14px; font-weight:700; border-top:1px solid #2e3733; text-align:right; color:#4ade80; font-variant-numeric:tabular-nums">+18</td>
+                  <td style="background:#0d1211; padding:10px 14px; font-weight:700; border-top:1px solid #2e3733; text-align:right; font-variant-numeric:tabular-nums">$11,390</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- collapsed: record -->
+        <div style="display:flex; align-items:center; gap:12px; background:#121715; border:1px solid #232a27; border-radius:10px; padding:11px 14px; cursor:pointer">
+          <span style="color:#5e6864; font-size:11px">&#9656;</span>
+          <span style="font-size:11.5px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:#e6ece9">Record</span>
+          <span style="font-size:12px; color:#5e6864">Draft &middot; not started &middot; nothing measured yet</span>
+          <span style="margin-left:auto; font-size:11.5px; color:#5e6864">Status, window, actuals</span>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ 1b  RUNNING ══ -->
+  <div id="1b">
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px">
+      <span style="font-family:'Montserrat',sans-serif; font-size:11px; font-weight:800; letter-spacing:1.4px; color:#06210f; background:#4ade80; border-radius:5px; padding:3px 8px">1b</span>
+      <span style="font-size:13px; font-weight:700">Running — checking in</span>
+      <span style="font-size:12px; color:#5e6864">opens on sell-through; the model is a line</span>
+    </div>
+
+    <div style="width:1440px; box-sizing:border-box; border:1px solid #232a27; border-radius:14px; overflow:hidden; background:#0a0e0d; box-shadow:0 28px 70px rgba(0,0,0,.5)">
+      <header style="display:flex; align-items:center; gap:14px; min-height:52px; padding:0 20px; background:#121715; border-bottom:1px solid #232a27">
+        <div style="display:flex; align-items:center; gap:10px">
+          <img src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross" style="height:22px; display:block">
+          <span style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864">SPIFF</span>
+        </div>
+        <nav style="display:flex; align-items:center; gap:2px; margin-left:8px">
+          <button style="border:0; background:transparent; height:40px; padding:6px 12px; font:inherit; font-size:13px; font-weight:600; color:#e6ece9; cursor:pointer">Programs</button>
+          <button style="border:0; background:transparent; height:40px; padding:6px 12px; font:inherit; font-size:13px; font-weight:600; color:#5e6864; cursor:pointer">Reports</button>
+          <button style="border:0; background:transparent; height:40px; padding:6px 12px; font:inherit; font-size:13px; font-weight:600; color:#5e6864; cursor:pointer">History</button>
+        </nav>
+        <div style="margin-left:auto; display:flex; align-items:center; gap:14px">
+          <div style="text-align:right">
+            <div style="font-size:14px; font-weight:700; font-variant-numeric:tabular-nums">2:14 PM</div>
+            <div style="font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:#5e6864">Tue Sep 15</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; background:#1a221f; border:1px solid #232a27; border-radius:999px; padding:4px 11px 4px 5px">
+            <span style="width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-size:10px; font-weight:800; display:flex; align-items:center; justify-content:center">TW</span>
+            <span style="font-size:12.5px; font-weight:600">Tawny Wan</span>
+          </div>
+        </div>
+      </header>
+
+      <main style="padding:18px 24px 28px; display:flex; flex-direction:column; gap:14px">
+
+        <!-- PROGRAM BAR — live figures -->
+        <div style="display:flex; align-items:center; gap:22px; background:#121715; border:1px solid #232a27; border-radius:12px; padding:12px 16px">
+          <div style="min-width:0">
+            <div style="display:flex; align-items:center; gap:9px">
+              <span style="display:inline-flex; align-items:center; gap:6px; font-size:10px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#4ade80; border:1px solid #2f8a52; background:rgba(74,222,128,.10); border-radius:5px; padding:2px 7px"><span style="width:6px; height:6px; border-radius:50%; background:#4ade80; animation:gxpulse 2s infinite"></span>Active</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:16px; font-weight:700; letter-spacing:-.2px">Hellavated — Cloud Bars</span>
+            </div>
+            <div style="margin-top:4px; font-size:11.5px; color:#5e6864; font-variant-numeric:tabular-nums">Day 9 of 14 &middot; Sep 7 &rarr; Sep 20 &middot; hourly figures as of 2:09 PM &middot; 5 of 6 stores reporting</div>
+          </div>
+          <div style="margin-left:auto; display:flex; align-items:stretch; gap:0">
+            <div style="display:flex; flex-direction:column; gap:4px; padding:0 18px; border-left:1px solid #232a27; min-width:128px">
+              <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Units sold</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:20px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">642 <span style="font-size:13px; font-weight:600; color:#5e6864">/ 1,139</span></span>
+              <span style="display:block; height:3px; border-radius:999px; background:#1a221f; overflow:hidden"><i style="display:block; width:56%; height:100%; background:#4ade80; border-radius:999px"></i></span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:4px; padding:0 18px; border-left:1px solid #232a27; min-width:120px">
+              <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">At target</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:20px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">6 <span style="font-size:13px; font-weight:600; color:#5e6864">/ 18</span></span>
+              <span style="display:block; height:3px; border-radius:999px; background:#1a221f; overflow:hidden"><i style="display:block; width:33%; height:100%; background:#4ade80; border-radius:999px"></i></span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:3px; padding:0 18px; border-left:1px solid #232a27">
+              <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Earned</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:20px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums; color:#5ee68f">$150</span>
+              <span style="font-size:10.5px; color:#5e6864">of $450 committed</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:3px; padding:0 18px; border-left:1px solid #232a27">
+              <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Pace</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:20px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums; color:#d4a847">&minus;8%</span>
+              <span style="font-size:10.5px; color:#5e6864">behind by 48 units</span>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; padding-left:18px; border-left:1px solid #232a27">
+            <button style="border:1px solid #2e3733; background:#1a221f; color:#e6ece9; border-radius:6px; padding:7px 12px; font:inherit; font-size:12px; font-weight:600; cursor:pointer">&#8635; Refresh</button>
+            <button style="display:inline-flex; align-items:center; gap:6px; background:transparent; color:#d4a847; border:1px solid rgba(212,168,71,.35); border-radius:6px; padding:7px 12px; font:inherit; font-size:12px; font-weight:600; cursor:pointer">&#9656; Present</button>
+          </div>
+        </div>
+
+        <!-- WHERE IT STANDS -->
+        <div>
+          <div style="display:flex; align-items:center; gap:8px; margin:2px 0 8px">
+            <h4 style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Where it stands</h4>
+            <span title="Green means that person has already earned the bounty. Totals cover only the stores that have come back. Hourly figures are re-measured by the engine every hour; Refresh pulls live from Dutchie." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; border:1px solid #2e3733; color:#5e6864; font-size:9px; font-weight:700; cursor:help">i</span>
+            <span style="font-size:11px; color:#5e6864">green has already earned it</span>
+          </div>
+
+          <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px; align-items:start">
+            <!-- Century ahead -->
+            <div style="border:1px solid #232a27; border-radius:12px; background:#121715; overflow:hidden">
+              <div style="padding:11px 13px 10px; border-bottom:1px solid #1c2320">
+                <div style="display:flex; align-items:center; gap:8px">
+                  <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#22D3EE"></span><b style="font-size:13px">Century</b>
+                  <span style="margin-left:auto; font-size:11.5px; color:#8a958f; font-variant-numeric:tabular-nums">264 / 256</span>
+                </div>
+                <div style="height:5px; border-radius:999px; background:#1a221f; margin-top:9px; overflow:hidden"><i style="display:block; width:100%; height:100%; border-radius:999px; background:linear-gradient(90deg,#265939,#4ade80); animation:gxaheadglow 2.6s ease-in-out infinite"></i></div>
+                <div style="display:flex; justify-content:space-between; margin-top:7px; font-size:11px; color:#5e6864"><span style="color:#4ade80; font-weight:600">4 of 4 hit</span><span style="font-variant-numeric:tabular-nums">66 avg</span></div>
+              </div>
+              <div style="padding:6px">
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px; background:rgba(74,222,128,.10)"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">MR</span><span style="flex:1; font-size:12px; font-weight:600; color:#5ee68f">Maya R.</span><span style="font-size:12px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">81</span></div>
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px; background:rgba(74,222,128,.10)"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">DL</span><span style="flex:1; font-size:12px; font-weight:600; color:#5ee68f">Devon L.</span><span style="font-size:12px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">72</span></div>
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px; background:rgba(74,222,128,.10)"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">SK</span><span style="flex:1; font-size:12px; font-weight:600; color:#5ee68f">Sam K.</span><span style="font-size:12px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">66</span></div>
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px; background:rgba(74,222,128,.10)"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">AT</span><span style="flex:1; font-size:12px; font-weight:600; color:#5ee68f">Alex T.</span><span style="font-size:12px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">45</span></div>
+              </div>
+            </div>
+
+            <!-- Center -->
+            <div style="border:1px solid #232a27; border-radius:12px; background:#121715; overflow:hidden">
+              <div style="padding:11px 13px 10px; border-bottom:1px solid #1c2320">
+                <div style="display:flex; align-items:center; gap:8px">
+                  <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#3B82F6"></span><b style="font-size:13px">Center</b>
+                  <span style="margin-left:auto; font-size:11.5px; color:#8a958f; font-variant-numeric:tabular-nums">143 / 236</span>
+                </div>
+                <div style="height:5px; border-radius:999px; background:#1a221f; margin-top:9px; overflow:hidden"><i style="display:block; width:61%; height:100%; border-radius:999px; background:#3B82F6"></i></div>
+                <div style="display:flex; justify-content:space-between; margin-top:7px; font-size:11px; color:#5e6864"><span>1 of 4 hit</span><span style="font-variant-numeric:tabular-nums">36 avg</span></div>
+              </div>
+              <div style="padding:6px">
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px; background:rgba(74,222,128,.10)"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">JP</span><span style="flex:1; font-size:12px; font-weight:600; color:#5ee68f">Jo P.</span><span style="font-size:12px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">61</span></div>
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#8a958f; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">RC</span><span style="flex:1; font-size:12px; color:#8a958f">Rae C.</span><span style="font-size:10.5px; color:#5e6864; font-variant-numeric:tabular-nums">&minus;15</span><span style="font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">44</span></div>
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#8a958f; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">TM</span><span style="flex:1; font-size:12px; color:#8a958f">Tess M.</span><span style="font-size:10.5px; color:#5e6864; font-variant-numeric:tabular-nums">&minus;33</span><span style="font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">26</span></div>
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#8a958f; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">NB</span><span style="flex:1; font-size:12px; color:#8a958f">Nik B.</span><span style="font-size:10.5px; color:#5e6864; font-variant-numeric:tabular-nums">&minus;47</span><span style="font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">12</span></div>
+              </div>
+            </div>
+
+            <!-- Commercial -->
+            <div style="border:1px solid #232a27; border-radius:12px; background:#121715; overflow:hidden">
+              <div style="padding:11px 13px 10px; border-bottom:1px solid #1c2320">
+                <div style="display:flex; align-items:center; gap:8px">
+                  <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#A855F7"></span><b style="font-size:13px">Commercial</b>
+                  <span style="margin-left:auto; font-size:11.5px; color:#8a958f; font-variant-numeric:tabular-nums">118 / 217</span>
+                </div>
+                <div style="height:5px; border-radius:999px; background:#1a221f; margin-top:9px; overflow:hidden"><i style="display:block; width:54%; height:100%; border-radius:999px; background:#A855F7"></i></div>
+                <div style="display:flex; justify-content:space-between; margin-top:7px; font-size:11px; color:#5e6864"><span>1 of 3 hit</span><span style="font-variant-numeric:tabular-nums">39 avg</span></div>
+              </div>
+              <div style="padding:6px">
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px; background:rgba(74,222,128,.10)"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">EG</span><span style="flex:1; font-size:12px; font-weight:600; color:#5ee68f">Eli G.</span><span style="font-size:12px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">74</span></div>
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#8a958f; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">MO</span><span style="flex:1; font-size:12px; color:#8a958f">Mo O.</span><span style="font-size:10.5px; color:#5e6864; font-variant-numeric:tabular-nums">&minus;44</span><span style="font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">28</span></div>
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#8a958f; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">KV</span><span style="flex:1; font-size:12px; color:#8a958f">Kim V.</span><span style="font-size:10.5px; color:#5e6864; font-variant-numeric:tabular-nums">&minus;56</span><span style="font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">16</span></div>
+              </div>
+            </div>
+
+            <!-- Baseline -->
+            <div style="border:1px solid #232a27; border-radius:12px; background:#121715; overflow:hidden">
+              <div style="padding:11px 13px 10px; border-bottom:1px solid #1c2320">
+                <div style="display:flex; align-items:center; gap:8px">
+                  <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#6366F1"></span><b style="font-size:13px">Baseline</b>
+                  <span style="margin-left:auto; font-size:11.5px; color:#8a958f; font-variant-numeric:tabular-nums">76 / 182</span>
+                </div>
+                <div style="height:5px; border-radius:999px; background:#1a221f; margin-top:9px; overflow:hidden"><i style="display:block; width:42%; height:100%; border-radius:999px; background:#6366F1"></i></div>
+                <div style="display:flex; justify-content:space-between; margin-top:7px; font-size:11px; color:#5e6864"><span>0 of 3 hit</span><span style="font-variant-numeric:tabular-nums">25 avg</span></div>
+              </div>
+              <div style="padding:6px">
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#8a958f; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">PD</span><span style="flex:1; font-size:12px; color:#8a958f">Pat D.</span><span style="font-size:10.5px; color:#5e6864; font-variant-numeric:tabular-nums">&minus;24</span><span style="font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">37</span></div>
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#8a958f; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">LW</span><span style="flex:1; font-size:12px; color:#8a958f">Lou W.</span><span style="font-size:10.5px; color:#5e6864; font-variant-numeric:tabular-nums">&minus;36</span><span style="font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">25</span></div>
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#8a958f; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">IS</span><span style="flex:1; font-size:12px; color:#8a958f">Ira S.</span><span style="font-size:10.5px; color:#5e6864; font-variant-numeric:tabular-nums">&minus;47</span><span style="font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">14</span></div>
+              </div>
+            </div>
+
+            <!-- Portland pulling -->
+            <div style="border:1px solid #232a27; border-radius:12px; background:#121715; overflow:hidden">
+              <div style="padding:11px 13px 10px; border-bottom:1px solid #1c2320">
+                <div style="display:flex; align-items:center; gap:8px">
+                  <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#D946EF"></span><b style="font-size:13px">Portland</b>
+                  <span style="margin-left:auto; font-size:10.5px; color:#5e6864; letter-spacing:.5px; text-transform:uppercase">pulling&hellip;</span>
+                </div>
+                <div style="height:5px; border-radius:999px; background:#1a221f; margin-top:9px; overflow:hidden"><i style="display:block; width:50%; height:100%; border-radius:999px; background:#D946EF; animation:gxskel 1.4s ease-in-out infinite"></i></div>
+                <div style="display:flex; justify-content:space-between; margin-top:7px; font-size:11px; color:#5e6864"><span>pulling from Dutchie&hellip;</span><span></span></div>
+              </div>
+              <div style="padding:6px">
+                <div style="height:30px; margin:2px; border-radius:6px; background:#1a221f; animation:gxskel 2.4s ease-in-out infinite"></div>
+                <div style="height:30px; margin:2px; border-radius:6px; background:#1a221f; animation:gxskel 2.4s ease-in-out infinite"></div>
+                <div style="height:30px; margin:2px; border-radius:6px; background:#1a221f; animation:gxskel 2.4s ease-in-out infinite"></div>
+              </div>
+            </div>
+
+            <!-- River failed -->
+            <div style="border:1px solid #ef4444; border-radius:12px; background:#121715; overflow:hidden">
+              <div style="padding:11px 13px 10px; border-bottom:1px solid #1c2320">
+                <div style="display:flex; align-items:center; gap:8px">
+                  <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#EC4899"></span><b style="font-size:13px">River</b>
+                  <span style="margin-left:auto; font-size:10.5px; color:#ef4444; letter-spacing:.5px; text-transform:uppercase">failed</span>
+                </div>
+              </div>
+              <div style="padding:12px 13px">
+                <p style="margin:0 0 10px; font-size:11.5px; line-height:1.5; color:#8a958f">Dutchie returned 401 for this store. Totals exclude River, so they undercount.</p>
+                <button style="width:100%; border:1px solid #2e3733; background:#1a221f; color:#e6ece9; border-radius:6px; padding:6px 12px; font:inherit; font-size:12px; font-weight:600; cursor:pointer">Retry this store</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- collapsed: the deal -->
+        <div style="display:flex; align-items:center; gap:12px; background:#121715; border:1px solid #232a27; border-radius:10px; padding:11px 14px; cursor:pointer">
+          <span style="color:#5e6864; font-size:11px">&#9656;</span>
+          <span style="font-size:11.5px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:#e6ece9">The deal</span>
+          <span style="font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">Cloud Bar 2pc &middot; $10.00/unit &middot; $25 flat &middot; target 1,139 (+40%) &middot; 6 stores, 18 budtenders</span>
+          <button style="margin-left:auto; border:1px solid #2e3733; background:#1a221f; color:#e6ece9; border-radius:6px; padding:5px 11px; font:inherit; font-size:11.5px; font-weight:600; cursor:pointer">Edit model</button>
+        </div>
+
+        <!-- collapsed: record -->
+        <div style="display:flex; align-items:center; gap:12px; background:#121715; border:1px solid #232a27; border-radius:10px; padding:11px 14px; cursor:pointer">
+          <span style="color:#5e6864; font-size:11px">&#9656;</span>
+          <span style="font-size:11.5px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:#e6ece9">Record</span>
+          <span style="font-size:12px; color:#8a958f">Active &middot; Sep 7 &rarr; Sep 20 &middot; actuals record themselves when it closes</span>
+          <span style="margin-left:auto; display:inline-flex; align-items:center; gap:7px; font-size:11px; color:#d4a847"><span style="width:6px; height:6px; border-radius:50%; background:#d4a847"></span>no brand rep on Hellavated</span>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ 1c  CLOSED ══ -->
+  <div id="1c">
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px">
+      <span style="font-family:'Montserrat',sans-serif; font-size:11px; font-weight:800; letter-spacing:1.4px; color:#06210f; background:#4ade80; border-radius:5px; padding:3px 8px">1c</span>
+      <span style="font-size:13px; font-weight:700">Closed — settled</span>
+      <span style="font-size:12px; color:#5e6864">opens on what it paid; actuals are a strip, not a form</span>
+    </div>
+
+    <div style="width:1440px; box-sizing:border-box; border:1px solid #232a27; border-radius:14px; overflow:hidden; background:#0a0e0d; box-shadow:0 28px 70px rgba(0,0,0,.5)">
+      <header style="display:flex; align-items:center; gap:14px; min-height:52px; padding:0 20px; background:#121715; border-bottom:1px solid #232a27">
+        <div style="display:flex; align-items:center; gap:10px">
+          <img src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross" style="height:22px; display:block">
+          <span style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864">SPIFF</span>
+        </div>
+        <nav style="display:flex; align-items:center; gap:2px; margin-left:8px">
+          <button style="border:0; background:transparent; height:40px; padding:6px 12px; font:inherit; font-size:13px; font-weight:600; color:#5e6864; cursor:pointer">Programs</button>
+          <button style="border:0; background:transparent; height:40px; padding:6px 12px; font:inherit; font-size:13px; font-weight:600; color:#5e6864; cursor:pointer">Reports</button>
+          <button style="border:0; background:transparent; height:40px; padding:6px 12px; font:inherit; font-size:13px; font-weight:600; color:#e6ece9; cursor:pointer">History</button>
+        </nav>
+        <div style="margin-left:auto; display:flex; align-items:center; gap:14px">
+          <div style="text-align:right">
+            <div style="font-size:14px; font-weight:700; font-variant-numeric:tabular-nums">2:14 PM</div>
+            <div style="font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:#5e6864">Tue Sep 15</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; background:#1a221f; border:1px solid #232a27; border-radius:999px; padding:4px 11px 4px 5px">
+            <span style="width:22px; height:22px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-size:10px; font-weight:800; display:flex; align-items:center; justify-content:center">TW</span>
+            <span style="font-size:12.5px; font-weight:600">Tawny Wan</span>
+          </div>
+        </div>
+      </header>
+
+      <main style="padding:18px 24px 28px; display:flex; flex-direction:column; gap:14px">
+
+        <!-- PROGRAM BAR — settled figures, past tense -->
+        <div style="display:flex; align-items:center; gap:22px; background:#121715; border:1px solid #232a27; border-radius:12px; padding:12px 16px">
+          <div style="min-width:0">
+            <div style="display:flex; align-items:center; gap:9px">
+              <span style="display:inline-flex; align-items:center; gap:6px; font-size:10px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864; border:1px solid #232a27; background:#0d1211; border-radius:5px; padding:2px 7px"><span style="width:6px; height:6px; border-radius:50%; background:#5e6864"></span>Closed</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:16px; font-weight:700; letter-spacing:-.2px">Meraki Gardens — Live Rosin</span>
+            </div>
+            <div style="margin-top:4px; font-size:11.5px; color:#5e6864; font-variant-numeric:tabular-nums">Closed Aug 30 &middot; Aug 17 &rarr; Aug 30 &middot; reported to the brand Sep 2 &middot; measured once, when it stopped moving</div>
+          </div>
+          <div style="margin-left:auto; display:flex; align-items:stretch; gap:0">
+            <div style="display:flex; flex-direction:column; gap:3px; padding:0 18px; border-left:1px solid #232a27">
+              <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">They funded</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:20px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">$275</span>
+              <span style="font-size:10.5px; color:#5e6864">11 budtenders at $25</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:3px; padding:0 18px; border-left:1px solid #232a27">
+              <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Revenue it earned</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:20px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">$3,510</span>
+              <span style="font-size:10.5px; color:#5e6864">332 units over last month</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:3px; padding:0 18px; border-left:1px solid #232a27">
+              <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Their return</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:20px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums; color:#5ee68f">1,176%</span>
+              <span style="font-size:10.5px; color:#5e6864">$3,235 net of the bounty</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:3px; padding:0 18px; border-left:1px solid #232a27">
+              <span style="font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#5e6864">Unit lift</span>
+              <span style="font-family:'Montserrat',sans-serif; font-size:20px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums">+332</span>
+              <span style="font-size:10.5px; color:#5e6864">41.0% over last month</span>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; padding-left:18px; border-left:1px solid #232a27">
+            <button style="border:1px solid #2e3733; background:#1a221f; color:#e6ece9; border-radius:6px; padding:7px 12px; font:inherit; font-size:12px; font-weight:600; cursor:pointer">Close-out report</button>
+          </div>
+        </div>
+
+        <!-- ACTUALS — compact strip -->
+        <div>
+          <div style="display:flex; align-items:center; gap:8px; margin:2px 0 8px">
+            <h4 style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">Actuals</h4>
+            <span title="Measured, not typed. The hourly job writes these from the close-out measurement and never overwrites figures already recorded — they are what the brand was sent and what the budtenders were paid against." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; border:1px solid #2e3733; color:#5e6864; font-size:9px; font-weight:700; cursor:help">i</span>
+            <span style="font-size:11px; color:#5e6864">recorded from the close-out measurement, Aug 31 at 1:05 AM</span>
+            <button style="margin-left:auto; background:none; border:0; padding:0; font:inherit; font-size:11.5px; color:#5e6864; text-decoration:underline; cursor:pointer">Correct by hand</button>
+            <button style="border:1px solid #2e3733; background:#1a221f; color:#e6ece9; border-radius:6px; padding:5px 11px; font:inherit; font-size:11.5px; font-weight:600; cursor:pointer">Re-measure</button>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(6,1fr); background:#121715; border:1px solid #232a27; border-radius:12px; overflow:hidden">
+            <div style="padding:12px 16px; border-right:1px solid #1c2320">
+              <div style="font-size:17px; font-weight:700; font-variant-numeric:tabular-nums">1,140</div>
+              <div style="font-size:10px; text-transform:uppercase; letter-spacing:.9px; color:#5e6864; margin-top:3px">Units sold</div>
+            </div>
+            <div style="padding:12px 16px; border-right:1px solid #1c2320">
+              <div style="font-size:17px; font-weight:700; font-variant-numeric:tabular-nums">11 <span style="font-size:12px; color:#5e6864; font-weight:600">/ 14</span></div>
+              <div style="font-size:10px; text-transform:uppercase; letter-spacing:.9px; color:#5e6864; margin-top:3px">Hit their goal</div>
+            </div>
+            <div style="padding:12px 16px; border-right:1px solid #1c2320">
+              <div style="font-size:17px; font-weight:700; font-variant-numeric:tabular-nums">$25</div>
+              <div style="font-size:10px; text-transform:uppercase; letter-spacing:.9px; color:#5e6864; margin-top:3px">Rate paid</div>
+            </div>
+            <div style="padding:12px 16px; border-right:1px solid #1c2320">
+              <div style="font-size:17px; font-weight:700; font-variant-numeric:tabular-nums">$275</div>
+              <div style="font-size:10px; text-transform:uppercase; letter-spacing:.9px; color:#5e6864; margin-top:3px">Investment</div>
+            </div>
+            <div style="padding:12px 16px; border-right:1px solid #1c2320">
+              <div style="font-size:17px; font-weight:700; font-variant-numeric:tabular-nums; color:#5ee68f">$3,235</div>
+              <div style="font-size:10px; text-transform:uppercase; letter-spacing:.9px; color:#5e6864; margin-top:3px">ROI $</div>
+            </div>
+            <div style="padding:12px 16px">
+              <div style="font-size:17px; font-weight:700; font-variant-numeric:tabular-nums; color:#5ee68f">1,176%</div>
+              <div style="font-size:10px; text-transform:uppercase; letter-spacing:.9px; color:#5e6864; margin-top:3px">ROI %</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- WHAT SOLD -->
+        <div>
+          <div style="display:flex; align-items:center; gap:8px; margin:6px 0 8px">
+            <h4 style="margin:0; font-size:10px; text-transform:uppercase; letter-spacing:1.1px; color:#5e6864; font-weight:700">What sold</h4>
+            <span style="font-size:11px; color:#5e6864">frozen at close &mdash; Aug 31, 1:05 AM</span>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px; align-items:start">
+            <div style="border:1px solid #232a27; border-radius:12px; background:#121715; overflow:hidden">
+              <div style="padding:11px 13px 10px; border-bottom:1px solid #1c2320">
+                <div style="display:flex; align-items:center; gap:8px">
+                  <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#22D3EE"></span><b style="font-size:13px">Century</b>
+                  <span style="margin-left:auto; font-size:11.5px; color:#8a958f; font-variant-numeric:tabular-nums">312 / 264</span>
+                </div>
+                <div style="height:5px; border-radius:999px; background:#1a221f; margin-top:9px; overflow:hidden"><i style="display:block; width:100%; height:100%; border-radius:999px; background:linear-gradient(90deg,#265939,#4ade80)"></i></div>
+                <div style="display:flex; justify-content:space-between; margin-top:7px; font-size:11px; color:#5e6864"><span style="color:#4ade80; font-weight:600">3 of 3 hit</span><span style="font-variant-numeric:tabular-nums">104 avg</span></div>
+              </div>
+              <div style="padding:6px">
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px; background:rgba(74,222,128,.10)"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">MR</span><span style="flex:1; font-size:12px; font-weight:600; color:#5ee68f">Maya R.</span><span style="font-size:12px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">128</span></div>
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px; background:rgba(74,222,128,.10)"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">DL</span><span style="flex:1; font-size:12px; font-weight:600; color:#5ee68f">Devon L.</span><span style="font-size:12px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">101</span></div>
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px; background:rgba(74,222,128,.10)"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">SK</span><span style="flex:1; font-size:12px; font-weight:600; color:#5ee68f">Sam K.</span><span style="font-size:12px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">83</span></div>
+              </div>
+            </div>
+            <div style="border:1px solid #232a27; border-radius:12px; background:#121715; overflow:hidden">
+              <div style="padding:11px 13px 10px; border-bottom:1px solid #1c2320">
+                <div style="display:flex; align-items:center; gap:8px">
+                  <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#3B82F6"></span><b style="font-size:13px">Center</b>
+                  <span style="margin-left:auto; font-size:11.5px; color:#8a958f; font-variant-numeric:tabular-nums">268 / 252</span>
+                </div>
+                <div style="height:5px; border-radius:999px; background:#1a221f; margin-top:9px; overflow:hidden"><i style="display:block; width:100%; height:100%; border-radius:999px; background:linear-gradient(90deg,#265939,#4ade80)"></i></div>
+                <div style="display:flex; justify-content:space-between; margin-top:7px; font-size:11px; color:#5e6864"><span style="color:#4ade80; font-weight:600">3 of 3 hit</span><span style="font-variant-numeric:tabular-nums">89 avg</span></div>
+              </div>
+              <div style="padding:6px">
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px; background:rgba(74,222,128,.10)"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">JP</span><span style="flex:1; font-size:12px; font-weight:600; color:#5ee68f">Jo P.</span><span style="font-size:12px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">110</span></div>
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px; background:rgba(74,222,128,.10)"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">RC</span><span style="flex:1; font-size:12px; font-weight:600; color:#5ee68f">Rae C.</span><span style="font-size:12px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">92</span></div>
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px; background:rgba(74,222,128,.10)"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">TM</span><span style="flex:1; font-size:12px; font-weight:600; color:#5ee68f">Tess M.</span><span style="font-size:12px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">66</span></div>
+              </div>
+            </div>
+            <div style="border:1px solid #232a27; border-radius:12px; background:#121715; overflow:hidden">
+              <div style="padding:11px 13px 10px; border-bottom:1px solid #1c2320">
+                <div style="display:flex; align-items:center; gap:8px">
+                  <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#A855F7"></span><b style="font-size:13px">Commercial</b>
+                  <span style="margin-left:auto; font-size:11.5px; color:#8a958f; font-variant-numeric:tabular-nums">196 / 224</span>
+                </div>
+                <div style="height:5px; border-radius:999px; background:#1a221f; margin-top:9px; overflow:hidden"><i style="display:block; width:87%; height:100%; border-radius:999px; background:#A855F7"></i></div>
+                <div style="display:flex; justify-content:space-between; margin-top:7px; font-size:11px; color:#5e6864"><span>2 of 3 hit</span><span style="font-variant-numeric:tabular-nums">65 avg</span></div>
+              </div>
+              <div style="padding:6px">
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px; background:rgba(74,222,128,.10)"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">EG</span><span style="flex:1; font-size:12px; font-weight:600; color:#5ee68f">Eli G.</span><span style="font-size:12px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">88</span></div>
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px; background:rgba(74,222,128,.10)"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#e6ece9; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">MO</span><span style="flex:1; font-size:12px; font-weight:600; color:#5ee68f">Mo O.</span><span style="font-size:12px; font-weight:700; color:#5ee68f; font-variant-numeric:tabular-nums">76</span></div>
+                <div style="display:flex; align-items:center; gap:8px; padding:5px 7px; border-radius:7px"><span style="width:20px; height:20px; border-radius:50%; background:linear-gradient(135deg,#3a5a4a,#1e2a26); border:1px solid #2e3733; color:#8a958f; font-weight:700; font-size:9px; display:flex; align-items:center; justify-content:center">KV</span><span style="flex:1; font-size:12px; color:#8a958f">Kim V.</span><span style="font-size:10.5px; color:#5e6864; font-variant-numeric:tabular-nums">&minus;43</span><span style="font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">32</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- collapsed: the deal, locked -->
+        <div style="display:flex; align-items:center; gap:12px; background:#121715; border:1px solid #232a27; border-radius:10px; padding:11px 14px; cursor:pointer">
+          <span style="color:#5e6864; font-size:11px">&#9656;</span>
+          <span style="font-size:11.5px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:#e6ece9">The deal</span>
+          <span style="font-size:12px; color:#8a958f; font-variant-numeric:tabular-nums">Live Rosin 1g &middot; $9.40/unit &middot; $25 flat &middot; target 1,140 (+40%) &middot; 6 stores, 14 budtenders</span>
+          <span style="display:inline-flex; align-items:center; gap:6px; font-size:11px; color:#5e6864"><span style="width:7px; height:7px; border-radius:50%; background:#5e6864"></span>locked — reported to the brand</span>
+          <button style="margin-left:auto; border:1px solid #2e3733; background:#1a221f; color:#e6ece9; border-radius:6px; padding:5px 11px; font:inherit; font-size:11.5px; font-weight:600; cursor:pointer">View</button>
+        </div>
+
+        <!-- collapsed: record -->
+        <div style="display:flex; align-items:center; gap:12px; background:#121715; border:1px solid #232a27; border-radius:10px; padding:11px 14px; cursor:pointer">
+          <span style="color:#5e6864; font-size:11px">&#9656;</span>
+          <span style="font-size:11.5px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:#e6ece9">Record</span>
+          <span style="font-size:12px; color:#8a958f">Closed &middot; Aug 17 &rarr; Aug 30 &middot; published to GX Core Sep 2</span>
+          <span style="margin-left:auto; font-size:11.5px; color:#5e6864">Status, window, delete</span>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  </div>
+</section>
+
+</x-dc>
+</body>
+</html>
