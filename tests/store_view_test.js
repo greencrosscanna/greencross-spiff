@@ -521,6 +521,26 @@ ok('the kiosk joins vendor and name the same way the operator app does',
      !('last_program' in board));
   ok('the page joins its name with the same rule a live program uses, not a second one',
      /programLabel\(last\)/.test(grab(sjs, 'emptyBoard')));
+
+  /* ── THE HANDOFF MUST NOT CONTRADICT THE ROUTE (2026-09-17) ──────────────────────────────────
+     The kiosk-board handoff shipped in the SAME commit as this field (v1.429) saying `storeView`
+     "does not return" it, and told the reader to drop the chip instead. Leaderboard read that,
+     believed it, and shipped the plain empty state to six wall screens — then asked us to build
+     what was already live. A doc nobody can contradict costs the next reader a day.
+
+     The keys come from the route as RUN, not from a list written here, so adding one to
+     lastClosedFor_ without documenting it fails. */
+  const HANDOFF = fs.readFileSync(
+    __dirname + '/../design_handoff_spiff_kiosk_board/README.md', 'utf8');
+  const undocumented = Object.keys(quiet.last_program).filter(k => HANDOFF.indexOf(k) < 0);
+  ok('the handoff documents every field the empty board actually returns' +
+     (undocumented.length ? ' — missing ' + undocumented.join(', ') : ''),
+     HANDOFF.indexOf('last_program') >= 0 && undocumented.length === 0);
+  /* The exact sentence that misled them, and any re-wording of it. A field the route returns must
+     never be described to a consumer as absent. */
+  ok('  …and never tells a consumer the route lacks a field it returns',
+     !/storeView[^.\n]{0,60}(does not return|doesn't return|does not carry|doesn't carry)/i
+        .test(HANDOFF));
 }
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nstore view: all passed');

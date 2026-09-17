@@ -148,9 +148,26 @@ Replaces the three panels with one: `#121715`, `1px solid #232a27`, radius `12px
 - "Last one" chip, `margin-top:22px`, inline-flex baseline, `gap:10px`, `padding:12px 16px`,
   `#0d1211`, border `1px solid #232a27`, radius `9px`: uppercase 10px `#5e6864` label, then the
   program name in 13px `#e6ece9`, then the result in 13px / 700 / `#4ade80`.
-- This needs one new field from the engine that `storeView` does not return today — the last
-  finished program's name, end date, and store attainment %. If adding it is not worth it, drop
-  the chip and keep the two lines; do not fake it client-side.
+- **The engine returns this — draw the chip.** `storeView` carries `last_program` on the empty
+  path, shipped in the same release as this handoff (v1.429, live since 2026-09-16):
+
+  ```json
+  "last_program": { "vendor": "Wyld", "program_name": "Wyld 5pc Gummies",
+                    "end_date": "2026-09-06", "store_pct": 112 }
+  ```
+
+  Join `vendor` + `program_name` through `programLabel()`, the same rule a running program uses,
+  so the board calls a SPIFF one thing whether it is on or finished. **`store_pct` is optional** —
+  it is omitted, not zeroed, when the program carried no goal for this store, and the result span
+  is then dropped rather than rendered as `0%`. The whole `last_program` key is **absent** when the
+  store has never finished one, and when the most recent close happened before its end date (a
+  program closed early is not the last one to *finish*). Absent means no chip: the headline and the
+  two body lines are a complete screen on their own. **Never infer the chip client-side** — the
+  page cannot know attainment, and a guessed number on a wall screen is worse than no chip.
+
+  *This paragraph told you the opposite until 2026-09-17, and it was wrong the day it was written:
+  the field shipped in the same commit as this file. Leaderboard read it, believed it, and
+  correctly dropped the chip from the panel now live on six wall screens.*
 
 ### Kiosk board — per-unit program (`screens/kiosk-board-per-unit.png`)
 Same layout. Differences are listed inline above: pays figure and label, `Any` goal figure,
@@ -257,6 +274,6 @@ codebase use the font link `store.html` already carries.
 | Layout and all three panels | `store.css` (`.st-*`) — the `.st-wrap.is-multi` grid and its `min-width:1100px` media query can be deleted |
 | Program panel + figure trio | `store.js` `card()` — third figure (days left) is new; `daysLeft()` already exists |
 | Ranked board | `store.js` `crew()` — sort by units desc, add rank column, hit gradient + glow |
-| Empty state | `store.js` `render()` / `msg()` — plus a last-program field on the engine's `storeView` if the chip is kept |
+| Empty state | `store.js` `emptyBoard()` / `msg()` — the chip's data is already on `storeView` as `last_program` |
 | Skeletons | `store.html` `#boot` → skeleton markup; `gxskel` is already in `spiff-tokens.css` |
 | Undefined-token bug | `flyer.css` (`--gx-panel`, `--gx-line`, `--gx-bg-soft`) |
