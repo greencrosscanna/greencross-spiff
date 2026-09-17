@@ -10,23 +10,36 @@
  * the first time somebody forgot, a kiosk would show a finished program as though it were live.
  *
  * IT SHOWS NAMES AND PROGRESS SINCE 2026-09-11, and that reversed what this file used to say.
- * Sky's call, confirmed here directly: the kiosk's SPIFF button now opens this page in a popup
- * instead of Leaderboard's own panel, so the per-person bars that lived in that panel moved here.
- * The reason it is not a new exposure: the Leaderboard board on the SAME wall screen already
+ * Sky's call, confirmed here directly: the kiosk's SPIFF button opened this page in a popup back
+ * then, instead of Leaderboard's own panel, so the per-person bars that lived in that panel moved
+ * here. It was not a new exposure because the Leaderboard board on the SAME wall screen already
  * carries every person's SPIFF units and target on their staff card, all day.
  *
+ * THE KIOSK NO LONGER OPENS THIS PAGE AT ALL (Leaderboard v1.879, 2026-09-17). Leaderboard draws
+ * its SPIFF panel natively from the `programs` sidecar and has deleted the iframe that used to
+ * load this file, so nothing on a kiosk reaches this page any more. The reader left is whoever
+ * opens the store link BY HAND — Sky or Tawny, on a phone or a laptop, checking what one of six
+ * stores is showing. The link is still per store and still permanent; what changed is that
+ * nothing frames this page any more, which is why it names its own store again below.
+ *
  * WHAT IT STILL DELIBERATELY DOES NOT SHOW: anyone's EARNINGS, and no vendor cost, investment or
- * ROI — a customer can read this over the counter, and money per person is the half that reads
- * worst there. The engine's `storeView` route returns none of it, so this page cannot leak it even
- * if it is edited carelessly later: scope lives on the server and this file only has to render
- * honestly. The personal view is flyer.html, which keeps its sign-in and shows what YOU are owed.
+ * ROI. That did not loosen when the kiosk stopped loading it — the token in the URL is the whole
+ * credential, so the link is forwardable and can be read over a counter either way, and money per
+ * person is the half that reads worst there. The engine's `storeView` route returns none of it, so
+ * this page cannot leak it even if it is edited carelessly later: scope lives on the server and
+ * this file only has to render honestly. The personal view is flyer.html, which keeps its sign-in and shows what YOU are owed.
  *
  * REDESIGNED 2026-09-16 (design_handoff_spiff_kiosk_board). Three panels: what is running, where
  * everyone stands, how to sell it. The board was a footnote under the figures and is now the
- * centerpiece — ranked, because it is what staff come to the screen for. The page-level store
- * name, the "as of" stamp and the footer line are gone (Sky, 2026-09-16): the kiosk opens this in
- * a modal that already says "SPIFF · Century" and carries its own Close and closing timer, and a
- * page that repeats its own frame reads as two headers stacked.
+ * centerpiece — ranked, because it is what staff come to the screen for.
+ *
+ * THE STORE NAME IS BACK ON THE PAGE (2026-09-17). It was dropped with that redesign for a reason
+ * that has since expired: the kiosk modal framing this page already said "SPIFF · Century", and a
+ * page repeating its own frame reads as two headers stacked. With the frame deleted, a board
+ * opened by hand named no store anywhere — six stores, one identical-looking page. So it says
+ * which store it is, once and quietly, not as the old 20px heading with a program count beside it.
+ * The "as of" stamp and the footer line stay gone: those were separate de-cluttering calls and
+ * neither of them depended on the frame.
  */
 'use strict';
 (function () {
@@ -250,6 +263,11 @@
     $('#main').innerHTML =
       '<div class="st-wrap"'
       + (d.store_color ? ' style="--st-color:' + esc(d.store_color) + '"' : '') + '>'
+      /* WHICH STORE THIS IS. Nothing frames this page any more, so the page says it — and the
+         empty state has said it all along, in the sentence about the next SPIFF, which is how a
+         live board ended up being the one view that named no store. The engine falls the name
+         back to the slug, so this line is never blank on a board that answered. */
+      + '<div class="st-where">' + esc(d.store_name || d.store_id || '') + '</div>'
       + list.map(function (p) {
           return programPanel(p, d.today) + board(p) + tips(p);
         }).join('')

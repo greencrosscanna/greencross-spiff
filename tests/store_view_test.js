@@ -163,10 +163,12 @@ ok('  …and Tawny\'s tips, blanks dropped',
    prog.tips.length === 2 && prog.tips[0] === 'Lead with the 2g price');
 
 /* ══════════════════ 1b. THE PEOPLE SLICE — WHAT MOVED, AND WHAT DID NOT ══════════════════
- * Sky, 2026-09-11: the kiosk's SPIFF button now opens this page directly, so the per-person bars
- * that Leaderboard's own panel drew move here. That reverses "no person on this page" — with his
+ * Sky, 2026-09-11: the kiosk's SPIFF button opened this page directly then, so the per-person bars
+ * that Leaderboard's own panel drew moved here. That reversed "no person on this page" — with his
  * confirmation, and on the ground that the Leaderboard board on the SAME screen already shows each
- * person's SPIFF units and target on their staff card.
+ * person's SPIFF units and target on their staff card. The kiosk stopped loading this page at all
+ * with Leaderboard v1.879 (2026-09-17); the people stayed, because the link is now opened by hand
+ * by Sky or Tawny and a board of six stores with nobody on it would answer nothing.
  *
  * EARNINGS DID NOT MOVE, and that is what this block exists to hold. Money per person is the half
  * that reads worst over a counter, and it is one property away at every step: the cached row this
@@ -458,14 +460,30 @@ ok('the kiosk joins vendor and name the same way the operator app does',
   ok('  …but a second program would still be drawn, not dropped',
      /list\.map\(function \(p\)/.test(grab(sjs, 'render')));
 
-  /* NO CHROME OF ITS OWN. The kiosk modal already says "SPIFF · Century" and carries Close and a
-     closing timer. Sky, 2026-09-16, chose to drop the "as of 11:00am" stamp with it — so the
-     assertion that used to require it is gone rather than quietly inverted. What replaced it is
-     this: the page states no freshness it cannot keep, and the figures are still the hourly cache
-     (section 1b), not a live pull. */
-  ok('the page draws no header of its own over the modal\'s',
+  /* IT NAMES ITS STORE AGAIN — REVERSED 2026-09-17, and the reversal is the point of the comment.
+     This block used to assert the page drew NO header of its own, because the kiosk opened it in a
+     modal captioned "SPIFF · Century" carrying Close and a closing timer. Leaderboard v1.879
+     deleted that iframe: its SPIFF panel is drawn natively from the `programs` sidecar and
+     store.html is never loaded there. So the frame that supplied the store name does not exist,
+     and the only reader left is somebody opening the link by hand across six stores — on a live
+     board the page named no store anywhere, while the EMPTY state named it all along (emptyBoard
+     reads d.store_name). An assertion whose reason has expired is worse than no assertion: it
+     holds a page to a frame nothing draws.
+
+     What did NOT come back, and is still checked below: the old 20px heading with a program count
+     beside it, and the "as of" stamp. Sky dropped the stamp on 2026-09-16 as a separate
+     de-cluttering call that never depended on the modal, so the page still states no freshness it
+     cannot keep — the figures are the hourly cache (section 1b), not a live pull. */
+  ok('the live board says which store it is showing',
+     /class="st-where"/.test(grab(sjs, 'render'))
+     && /d\.store_name \|\| d\.store_id/.test(grab(sjs, 'render'))
+     && /^\.st-where \{/m.test(scss));
+  ok('  …and the boot skeleton leaves room for it, so the panel does not jump on arrival',
+     /st-skel-where/.test(shtml) && /^\.st-skel-where /m.test(scss));
+  ok('  …quietly: one line, not the old heading with a program count beside it',
      sjs.indexOf('st-store"') < 0 && sjs.indexOf('st-count') < 0);
-  ok('  …and claims no freshness now that it does not show one', !/as of /.test(sjs));
+  ok('  …and it claims no freshness, which was a separate call and stays gone',
+     !/as of /.test(sjs));
 
   /* THE FIRST SECOND is skeleton geometry, not the word "Loading". */
   /* Checked as RENDERED text and as the class — the comment above the markup names the word

@@ -9,9 +9,13 @@
  * are gone: only one program ever runs at a store, and a layout built for a case that does not
  * happen is a layout nobody ever sees rendered.
  *
- * NO CHROME OF ITS OWN — no store name heading, no footer, no "as of" line. The kiosk opens this
- * in a modal that already says "SPIFF · Century" with a Close button and a closing timer, and a
- * page that repeats its own frame reads as two headers stacked.
+ * ALMOST NO CHROME OF ITS OWN — no footer, no "as of" line, and one small line naming the store.
+ * The name came back 2026-09-17: the redesign dropped it because the kiosk opened this page in a
+ * modal captioned "SPIFF · Century" with a Close button and a closing timer, and a page repeating
+ * its own frame reads as two headers stacked. Leaderboard v1.879 deleted that frame — it draws its
+ * SPIFF panel natively now and never loads this page — so the only reader is somebody opening the
+ * link by hand across six stores, and a board that names no store is the wrong one to be holding.
+ * It is .st-where, an eyebrow above the panels, deliberately not the 20px heading it used to be.
  *
  * READ-ONLY AND NEVER TOUCHED. No hover states, no focus states, no controls, no links. Anything
  * that looks tappable on a shared wall screen is a bug.
@@ -34,6 +38,18 @@ body.flyer.store {
 .st-wrap {
   width: 100%; max-width: 720px; margin: 0 auto;
   display: flex; flex-direction: column; gap: 12px;
+}
+
+/* WHICH STORE THIS IS — an eyebrow above the panels, and the only thing on the page that is about
+   the screen rather than the SPIFF. Legible rather than decorative: this link gets opened on a
+   phone to check one store of six, and a 10px uppercase whisper is the wrong size for the one word
+   somebody came for. Not the 20px heading it was before 2026-09-16 either — the program name below
+   it is the headline, and two of those stacked is what got this line removed in the first place. */
+.st-where {
+  font-family: var(--sp-display);
+  font-weight: 800; font-size: 13px; letter-spacing: .02em;
+  color: var(--gx-text-dim);
+  padding-left: 2px;
 }
 
 /* Panels are flat. Separation is the border, never a shadow — a wall screen at an angle turns a
@@ -241,6 +257,7 @@ body.flyer.store {
 /* ── THE FIRST SECOND ───────────────────────────────────────────────────────────────────────── */
 /* Skeleton geometry, not a spinner and not the word "Loading". It has to match what replaces it
    or the panel jumps on arrival. .sp-skel is in spiff-tokens.css. */
+.st-skel-where { height: 14px; width: 104px; }
 .st-skel-name { height: 30px; width: 62%; }
 .st-skel-line { height: 13px; width: 38%; margin-top: 12px; }
 .st-skel-well { height: 42px; margin-top: 16px; }
@@ -256,8 +273,9 @@ body.flyer.store {
 }
 
 /* ── NARROW ─────────────────────────────────────────────────────────────────────────────────── */
-/* The popup the kiosk opens can be narrow, and Tawny opens the same link on a phone to check what
-   a store is showing. Names and figures never shrink; the bar gives up its width first. It is the
+/* A PHONE IS THE MAIN CASE NOW, not an edge one: since the kiosk stopped loading this page
+   (Leaderboard v1.879) the link is opened by hand, and that is usually Tawny checking what a store
+   is showing. Names and figures never shrink; the bar gives up its width first. It is the
    quick read, not the fact — at 375px the three-way split cut "Jayce Alexander" to "Jayce Alex…",
    which is the one thing on the row a person scans for. */
 @media (max-width: 560px) {
