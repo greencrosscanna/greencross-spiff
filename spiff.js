@@ -172,6 +172,60 @@
     return _storesP;
   }
 
+  /* ---------------------------------------------------------- one-call boot
+     The four separate boot reads below (programs, brands, progress, employees) each queued behind
+     the others on the engine's single execution lane -- Apps Script serializes same-script
+     executions, so four solo calls landed one after another rather than overlapping. `boot`
+     answers all four from the SAME caches in one round trip; see bootAll_ in Code.gs.
+
+     MEMOIZED so every loader below shares one request no matter which of them reaches it first --
+     same trick as storesOnce() above, same reason: each loader's async body runs synchronously up
+     to its first await, so whichever is CALLED first (loadPrograms, in start()) is the one that
+     actually fires the network call, and the rest just await the same promise.
+
+     FALLS BACK PART-FOR-PART TO THE SOLO ROUTE, not only when this call itself is missing. An old
+     deployed engine answers `boot` with "Unknown action" rather than throwing, and either way this
+     resolving to null/not-ok must never take the whole screen down with it -- every loader below
+     treats that exactly like `boot` never having been asked, and falls straight back to the one
+     call it always used to make. */
+  var _bootP = null;
+  function bootOnce() {
+    if (_bootP) return _bootP;
+    _bootP = ENG.jsonp('boot', { token: (session() || {}).token }, { timeoutMs: 45000, retries: 1 })
+      .catch(function (e) {
+        console.warn('[spiff] one-call boot unavailable, falling back to the four-call path:', e);
+        return null;
+      });
+    return _bootP;
+  }
+
+  /* ---------------------------------------------------------- one-call boot's local mirror
+     Employees and brands change roughly weekly, if that, while boot fetches both fresh on every
+     open regardless. A 24h browser-local mirror (same shape as PG_CACHE_KEY further down) lets a
+     warm reopen PAINT immediately with yesterday's list while boot's real answer is still in
+     flight, instead of showing an empty rep section or Dutchie's raw legal names for the few
+     seconds boot takes. Boot's own answer always wins the moment it lands -- this only covers the
+     gap before it does, exactly like GXStores' 6h cache does for `stores`. */
+  var BOOT_MIRROR_KEY = 'gx.spiff.boot_mirror.v1';
+  var BOOT_MIRROR_TTL_MS = 24 * 60 * 60 * 1000;
+
+  function bootMirrorRead(key) {
+    try {
+      var all = JSON.parse(localStorage.getItem(BOOT_MIRROR_KEY) || '{}');
+      var hit = all[key];
+      if (!hit || !hit.at) return null;
+      if (Date.now() - Date.parse(hit.at) > BOOT_MIRROR_TTL_MS) return null;
+      return hit.data;
+    } catch (e) { return null; }        // private mode, cleared storage, quota -- no mirror, colder boot
+  }
+  function bootMirrorWrite(key, data) {
+    try {
+      var all = JSON.parse(localStorage.getItem(BOOT_MIRROR_KEY) || '{}');
+      all[key] = { at: new Date().toISOString(), data: data };
+      localStorage.setItem(BOOT_MIRROR_KEY, JSON.stringify(all));
+    } catch (e) { /* a mirror that cannot be written is not an error worth showing anybody */ }
+  }
+
   async function loadShared(opts) {
     try {
       /* Start it (or join the one startChrome started), THEN read what the cache already put in
@@ -258,7 +312,10 @@
     var list  = $('#programsList');
     var empty = $('#programsEmpty');
     try {
-      var r = await ENG.jsonp('programs', { token: (session() || {}).token });
+      var boot = await bootOnce();
+      var r = (boot && boot.needsAuth) ? boot
+            : (boot && boot.ok && boot.programs) ? boot.programs
+            : await ENG.jsonp('programs', { token: (session() || {}).token });
       /* This is the FIRST read after boot, so it is where a bad session surfaces. Now that the
          engine actually checks, "Couldn't load programs: Invalid session" would leave someone
          staring at an empty app shell holding a token that will never work again -- the answer
@@ -559,7 +616,9 @@
 
   async function loadProgressCache() {
     try {
-      var r = await ENG.jsonp('progress', { token: (session() || {}).token }, { timeoutMs: 30000, retries: 1 });
+      var boot = await bootOnce();
+      var r = (boot && boot.ok && boot.progress) ? boot.progress
+            : await ENG.jsonp('progress', { token: (session() || {}).token }, { timeoutMs: 30000, retries: 1 });
       if (!r || !r.ok || !(r.rows || []).length) return null;
       var by = Object.create(null);
       r.rows.forEach(function (row) {
@@ -1477,11 +1536,14 @@
   async function loadBrandReps() {
     state.brandsLoading = true;
     try {
+      var boot = await bootOnce();
       // Core's library read is slow (6–30s measured cold); the engine caches it, but a cold read needs the room.
-      var r = await ENG.jsonp('brands', { token: (session() || {}).token }, { timeoutMs: 45000, retries: 1 });
+      var r = (boot && boot.ok && boot.brands) ? boot.brands
+            : await ENG.jsonp('brands', { token: (session() || {}).token }, { timeoutMs: 45000, retries: 1 });
       if (!r || !r.ok || !Array.isArray(r.brands)) throw new Error((r && r.error) || 'unexpected response');
       state.brands = r.brands;
       state.brandsError = '';
+      bootMirrorWrite('brands', r.brands);
     } catch (err) {
       console.warn('[spiff] brand list load failed:', err);
       state.brandsError = String(err.message || err);
@@ -1887,6 +1949,7 @@
       var r = await ENG.jsonp(action, Object.assign({ token: (session() || {}).token }, params), { timeoutMs: 45000, retries: 0 });
       if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
       state.brands = applyBrandWrite(state.brands, r);
+      bootMirrorWrite('brands', state.brands);   // keep the local mirror in step with our own edit
       repaintBrands();
       if (row && row.isConnected) { repMsg(row, 'Saved', true); btn.disabled = false; }
       return r;
@@ -6521,31 +6584,67 @@
   /* Active staff by home store, for the zero rows on What's selling — see withRoster. Empty until
      the roster lands, and empty for good if it fails, which is exactly the grid as it was before. */
   var rosterByStore = Object.create(null);
+  /* Separate from rosterByDutchie on purpose: paintBootMirror() below fills rosterByDutchie with a
+     PREVIEW from yesterday's localStorage mirror before boot() has even started, and loadRoster's
+     own "already loaded" guard must not mistake that preview for the real thing and skip the fetch
+     that is supposed to replace it. This is set only by a real network/boot answer, success or
+     failure alike — same as `rosterByDutchie = map` running unconditionally below used to be the
+     only signal that a load had been attempted. */
+  var _rosterLoaded = false;
+
+  /* The parsing half of loadRoster, pulled out so a cached mirror payload can be painted through the
+     exact same rule a live one is — see paintBootMirror(). Pure: given a response shaped like the
+     `employees` route (or boot's `employees` slot), returns the id/name lookup map and fills
+     rosterByStore as a side effect, same as the inline version this replaced always did. */
+  function applyEmployeesResponse(r) {
+    var map = Object.create(null), byStore = Object.create(null);
+    (r && r.employees || []).forEach(function (e) {
+      var id = String(e.dutchie_employee_id || '').trim();
+      var friendly = String(e.display_name || '').trim();
+      /* Only a name that actually DIFFERS is worth storing — mapping a name onto itself just
+         makes the lookup lie about having found something. */
+      if (id && friendly && nameKey(friendly) !== nameKey(e.full_name)) map[id] = friendly;
+      var nk = nameKey(e.full_name);
+      if (nk && friendly && nameKey(friendly) !== nk && !map['n:' + nk]) map['n:' + nk] = friendly;
+      var st = String(e.home_store || '').trim();
+      if (st && e.full_name) (byStore[st] || (byStore[st] = [])).push({
+        name: String(e.full_name).trim(), display_name: friendly || String(e.full_name).trim(), employee_id: id });
+    });
+    rosterByStore = byStore;
+    return map;
+  }
 
   async function loadRoster() {
-    if (rosterByDutchie) return rosterByDutchie;
-    var map = Object.create(null), byStore = Object.create(null);
+    if (_rosterLoaded) return rosterByDutchie;
+    var map = Object.create(null);
     try {
-      var r = await ENG.jsonp('employees', { token: (session() || {}).token });
-      (r && r.employees || []).forEach(function (e) {
-        var id = String(e.dutchie_employee_id || '').trim();
-        var friendly = String(e.display_name || '').trim();
-        /* Only a name that actually DIFFERS is worth storing — mapping a name onto itself just
-           makes the lookup lie about having found something. */
-        if (id && friendly && nameKey(friendly) !== nameKey(e.full_name)) map[id] = friendly;
-        var nk = nameKey(e.full_name);
-        if (nk && friendly && nameKey(friendly) !== nk && !map['n:' + nk]) map['n:' + nk] = friendly;
-        var st = String(e.home_store || '').trim();
-        if (st && e.full_name) (byStore[st] || (byStore[st] = [])).push({
-          name: String(e.full_name).trim(), display_name: friendly || String(e.full_name).trim(), employee_id: id });
-      });
-      rosterByStore = byStore;
+      var boot = await bootOnce();
+      var r = (boot && boot.ok && boot.employees) ? boot.employees
+            : await ENG.jsonp('employees', { token: (session() || {}).token });
+      map = applyEmployeesResponse(r);
+      if (r && r.ok && Array.isArray(r.employees)) bootMirrorWrite('employees', r.employees);
     } catch (err) {
       /* Logged, not surfaced. The screen is fully usable with legal names. */
       console.warn('[spiff] roster unavailable — showing the names Dutchie reported:', err);
     }
     rosterByDutchie = map;
+    _rosterLoaded = true;
     return map;
+  }
+
+  /* Painted BEFORE boot() has answered, from whatever a PRIOR visit left in the 24h local mirror —
+     see the block comment on BOOT_MIRROR_KEY above. Deliberately does not touch _rosterLoaded /
+     state.brandsLoading: this is a preview, and loadRoster()/loadBrandReps() must still run and
+     replace it the moment the real read lands, exactly as if the mirror had never painted anything. */
+  function paintBootMirror() {
+    if (!state.brands) {
+      var brands = bootMirrorRead('brands');
+      if (brands) state.brands = brands;
+    }
+    if (!_rosterLoaded && !rosterByDutchie) {
+      var employees = bootMirrorRead('employees');
+      if (employees) rosterByDutchie = applyEmployeesResponse({ employees: employees });
+    }
   }
 
   function nameKey(s) { return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ''); }
@@ -6889,6 +6988,9 @@
        the slowest. Stores get a tighter budget than the default: they only decorate the screen,
        and they must never be the reason nothing appears on it. */
     renderProgramsSkeleton();
+    /* Yesterday's brands/roster, if the local mirror has them, painted before boot() has answered.
+       See BOOT_MIRROR_KEY above; loadBrandReps/loadRoster still run and replace this. */
+    paintBootMirror();
 
     var sharedP   = loadShared({ timeoutMs: 6000, retries: 1 }).then(calcInit);
     var programsP = loadPrograms().then(function () {

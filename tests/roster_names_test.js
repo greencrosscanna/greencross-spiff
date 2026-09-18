@@ -44,6 +44,13 @@
  *   · loadRoster and personName run too, against a stubbed transport. `/console\.warn/` proved a
  *     word was in the file; the roster route now throws and the assertions read what came back.
  *
+ * UPDATED 2026-09-17 for the one-call boot (see the engine_boot_test.js header). loadRoster's FIRST
+ * move is now `await bootOnce()` — a solo `employees` call only happens when boot did not answer,
+ * exactly the SAME fallback shape loadPrograms/loadBrandReps/loadProgressCache use. bootOnce is
+ * stubbed to resolve null here, so this file still proves the original claim (a solo employees call,
+ * asked once, reused on a second call) — plus one new case below for the boot-fed path, where
+ * loadRoster must consume boot's `employees` slot and make NO solo call at all.
+ *
  *   WHAT IS DELIBERATELY STILL SOURCE-SHAPED, each marked where it sits: the architecture guards
  *   (no second HTTP hop, no local derivation from preferred_name, no stale comment, no leftover
  *   marker) and the index.html dev-guard declaration. Absence of a thing across a whole file cannot
@@ -252,13 +259,23 @@ function browser(o) {
   const asked = [];
   const ENG = { jsonp(action, params) {
     asked.push({ action: action, params: params });
+    if (action === 'boot') {
+      /* bootOnce()'s own transport call. Defaults to null (boot unavailable), the same as an old
+         engine's "Unknown action" reply once bootOnce's catch has folded it away — which is what
+         makes loadRoster fall back to its own solo `employees` call, exactly as before this
+         existed. Passing o.boot exercises the fed path instead. */
+      return o.boot === undefined ? Promise.resolve(null) : Promise.resolve(o.boot);
+    }
     if (o.throws) return Promise.reject(new Error('the /exec hop bounced'));
-    return Promise.resolve({ employees: o.employees });
+    return Promise.resolve({ ok: true, employees: o.employees });
   } };
   const warned = [];
   const src = [
-    'var rosterByDutchie = null, rosterByStore = Object.create(null);',
-    G.grab('loadRoster', js), G.grab('nameKey', js), G.grab('personName', js),
+    'var rosterByDutchie = null, rosterByStore = Object.create(null), _rosterLoaded = false;',
+    'var _bootP = null;',
+    G.grab('bootOnce', js),
+    G.grab('applyEmployeesResponse', js), G.grab('loadRoster', js),
+    G.grab('nameKey', js), G.grab('personName', js),
     'return { loadRoster: loadRoster, personName: personName, byStore: function () { return rosterByStore; } };',
   ].join('\n');
   const api = new Function('ENG', 'session', 'console', src)(
@@ -273,9 +290,9 @@ function browser(o) {
   let B = browser({ employees: payload });
   await B.loadRoster();
 
-  ok('the frontend asks the engine for the roster, carrying the session token',
-     B.asked.length === 1 && B.asked[0].action === 'employees'
-     && B.asked[0].params.token === 'TOKEN-123');
+  ok('the frontend tries boot first, then falls back to a solo employees call, carrying the token',
+     B.asked.length === 2 && B.asked[0].action === 'boot' && B.asked[1].action === 'employees'
+     && B.asked[1].params.token === 'TOKEN-123');
   ok('a friendly name reaches the screen for someone who goes by one',
      B.personName({ employee_id: 'a', name: 'A One' }) === 'Ace One');
   ok('  …and someone called by their legal name is shown exactly what Dutchie said',
@@ -290,7 +307,16 @@ function browser(o) {
      (B.byStore()['river-rd'] || []).length === 2 && (B.byStore().bend || []).length === 2);
 
   await B.loadRoster();
-  ok('a second caller reuses the loaded roster rather than re-fetching', B.asked.length === 1);
+  ok('a second caller reuses the loaded roster rather than re-fetching', B.asked.length === 2);
+
+  /* THE ONE-CALL BOOT PATH. When `boot` answers, loadRoster must consume its `employees` slot and
+     make NO solo call at all — that is the entire point of the change: four opens becoming one. */
+  B = browser({ boot: { ok: true, employees: { ok: true, employees: payload } } });
+  await B.loadRoster();
+  ok('fed by boot, loadRoster makes the ONE boot call and nothing else',
+     B.asked.length === 1 && B.asked[0].action === 'boot');
+  ok('  …and still resolves the same friendly names from boot\'s employees slot',
+     B.personName({ employee_id: 'a', name: 'A One' }) === 'Ace One');
 
   /* Logged, not surfaced: the screen is fully usable with legal names. Caught here rather than
      awaited bare, so a version that lets the rejection through fails as an assertion instead of

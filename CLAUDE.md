@@ -159,6 +159,43 @@ Google's consent HTML instead of JSON until the owner has authorized.
   **lease** so two copies can't overlap, and `diag` reports `hourlyTriggerCopies`. Pinned by
   `tests/shared_account_load_test.js`.
 
+- **The screen opens with ONE call to this engine, not four** (2026-09-18). `start()` used to fire
+  `programs`, `brands`, `progress` and `employees` as four separate reads. Apps Script serializes
+  executions of one script, so they queued nose-to-tail rather than overlapping — 2.4s warm / 8.7s
+  cold EACH (the comment above `listProgramsCached_`) — and each paid its own `gxAuth_` round trip
+  to GX Core on top. `?action=boot` (`bootAll_` in Code.gs) answers all four from the SAME caches
+  those routes already keep warm (the 5-minute programs cache, `BRANDS_CACHE_KEY`, the roster's
+  15-minute cache), behind one `guard_` check. **Each part has its own try/catch** — a slow or
+  broken brand list must never blank the program list a user is staring at, so a failed part comes
+  back as its own `{ok:false, error}` in its own slot and the other three still arrive. The four
+  solo routes are unchanged and stay live, both as the fallback for an old cached client and for
+  a future one-part refresh.
+
+  **`bootOnce()` on the client memoizes the one call** so `loadPrograms`, `loadBrandReps` and
+  `loadProgressCache` (`loadRoster` too — see roster_names_test.js) all consume its slots instead
+  of making their own request; whichever loader runs first in `start()`'s parallel wave is the one
+  that actually fires it. **Falls back part-for-part to the solo route** if `boot` itself is missing
+  or unrecognized (an engine that has not been deployed with this route yet answers "Unknown
+  action" rather than throwing) — every loader below then makes the one call it always used to
+  make, so an old-cached client degrades to exactly today's behavior rather than breaking.
+
+  **Employees and brands also mirror to a 24h localStorage cache** (`BOOT_MIRROR_KEY`, same shape as
+  `PG_CACHE_KEY`), painted by `paintBootMirror()` before `boot()` has even answered — a warm reopen
+  shows yesterday's rep list and friendly names immediately instead of an empty section or Dutchie's
+  legal names for the few seconds boot takes. Boot's real answer always replaces it. `brandCall`
+  writes its own edit straight into the mirror so the next open sees it, never a stale copy.
+
+  Pinned by `tests/engine_boot_test.js` (the server route), `tests/client_boot_fanout_test.js` (the
+  three-loader fan-out) and `tests/boot_mirror_test.js` (the 24h mirror). **Not yet deployed** — the
+  live engine does not answer `?action=boot` until `./deploy.sh` ships this, so the call-count and
+  latency win is proven against a stubbed transport in those tests, not yet measured against live
+  traffic; ask before deploying.
+
+  **The next lever, not built here**: opening a single PROGRAM is still N stores × M windows of
+  live Dutchie pulls (`loadProgress`, spiff.js `async function loadProgress`) — the same shape the
+  boot reads used to have, one level down. Left alone this time because the ask was the four-call
+  *open*, not this.
+
 - **The per-budtender goal is pinnable per store**, and an empty pin is not a zero. The Calculator
   splits the typed target by last month's volume; typing over one store's number pins it and leaves
   the others tracking the target. Clearing the box means *back to the split* — running it through
