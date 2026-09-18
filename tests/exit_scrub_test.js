@@ -2,6 +2,12 @@
 /* ─── every way an engine SAYS something must scrub credentials on the way out ────────────────────
  *   RUN:  node tests/exit_scrub_test.js          (synced from greencross-gx-theme/gx-exit-scrub-test.js)
  *
+ *   SOURCE-SHAPED: this reads every engine file as TEXT and asks which exits are unaccounted for.
+ *   Its subject is the SHAPE of the source, not a function, so there is nothing here to execute —
+ *   the same declaration greencross-spiff/tests/suite_shape_test.js asks every file to make. The
+ *   limits of reading rather than running are spelled out under WHAT IT CANNOT DO below; each app
+ *   still needs its own executing test for whether the scrub itself is correct.
+ *
  * WHY THIS IS SHARED AND NOT PER-APP. On 2026-09-17 four apps were audited by hand, one session each,
  * and every one of them had an exit nobody had counted:
  *
