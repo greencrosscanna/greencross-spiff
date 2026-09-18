@@ -362,6 +362,9 @@ function doGet(e) {
       case 'ping':        out = { ok: true, app: APP, ts: nowStamp_() };            break;
       case 'libversion': out = libVersion_();                                        break;
       case 'login':       out = login_(p);                                          break;
+      /* ONE CALL AT OPEN — see bootAll_. Same four cached reads as the routes below it, so a
+         client that has not shipped this yet keeps working unchanged against them. */
+      case 'boot':        out = bootAll_(p);                                        break;
       case 'programs':    out = { ok: true, programs: listProgramsCached_() };      break;
       case 'program':     out = getProgram_(p.id);                                  break;
       /* Bug reports ride GET for the same reason. Signed in but NOT in GATED_WRITES —
@@ -538,6 +541,38 @@ function doPost(e) {
     out = { ok: false, error: scrubSecrets_(err && err.message || err) };   // see doGet's catch
   }
   return reply_(out, null);
+}
+
+/* ==================== ONE-CALL BOOT ====================
+ * The screen opens with four back-to-back reads against this same /exec -- `programs`, `brands`,
+ * `progress`, `employees` (spiff.js `start()`). Apps Script serializes executions of one script, so
+ * the four queued nose-to-tail rather than overlapping: 2.4s warm / 8.7s cold EACH (see the comment
+ * above listProgramsCached_), and every one of the four paid its own gxAuth_ round trip to GX Core
+ * on top, spared only by the 5-minute auth cache. `boot` is the same four reads, from the SAME
+ * caches this file already keeps warm (listProgramsCached_'s 5-minute cache, BRANDS_CACHE_KEY, the
+ * roster's 15-minute cache inside gxRosterFull_), behind ONE guard_ check instead of four.
+ *
+ * EACH PART IS ITS OWN TRY/CATCH, and that is the whole safety argument. This exists to make the
+ * common case faster, not to make the failure case worse -- coupling four independent reads into
+ * one point of failure would mean a slow or broken brand list blanks the program list a user is
+ * already staring at. A failed part comes back as that part's own {ok:false, error:...}, in its own
+ * slot, exactly the shape a solo call to that route would have returned; the other three still
+ * arrive and the browser renders whatever it has, same as it always could.
+ *
+ * The four solo routes are UNCHANGED and stay live -- an old cached client, or a future one-part
+ * refresh (an admin saving a brand, say), still works exactly as it does today. `boot` is additive. */
+function bootAll_(p) {
+  function safe(fn) {
+    try { return fn(); }
+    catch (e) { return { ok: false, error: scrubSecrets_(e && e.message || e) }; }
+  }
+  return {
+    ok: true,
+    programs:  safe(function () { return { ok: true, programs: listProgramsCached_() }; }),
+    brands:    safe(function () { return brandsRead_(p); }),
+    employees: safe(function () { return gxEmployees_(); }),
+    progress:  safe(function () { return spiffProgress_(p); })
+  };
 }
 
 /* ==================== DERIVED WARNING FLAGS ====================
