@@ -5065,8 +5065,15 @@
     var grid = $('#resGrid');
     if (!grid) return;
     grid.innerHTML = (snap.stores || []).map(function (st) {
+      /* Everyone rostered at the store, sellers first, then the people at zero — the same
+         DISPLAY ONLY rule the live grid uses, see withRoster. Added here at render from the
+         CURRENT roster and never written back into the frozen snapshot, so a closed program's
+         recorded units, earnings and vendor report are untouched — only this card grows more
+         rows. Sky, 2026-09-19: a closed BeGOAT store card listed 5 of the 6 budtenders it was
+         sold against; the sixth, who sold nothing, was simply absent from the card. */
+      var withZeros = withRoster(st.store_id, st);
       var earners = (st.rows || []).filter(function (e) { return perUnit ? e.units > 0 : e.hit; }).length;
-      var rows = (st.rows || []).map(function (e) {
+      var rows = withZeros.map(function (e) {
         var earned = Number(e.earned) || 0;
         return '<div class="sp-bt' + (earned > 0 ? ' is-hit' : '') + '">'
           /* The legal name stays reachable in the tooltip — Tawny reconciles against Dutchie
@@ -5083,7 +5090,7 @@
         +   '<b>' + esc(storeName(st.store_id)) + '</b>'
         +   '<span class="sp-pgcard-u">' + (Number(st.units) || 0).toLocaleString() + ' units</span></div>'
         + '<div class="sp-pgcard-f"><span class="done">' + earners + ' of '
-        +   (st.rows || []).length + ' earning</span><span>' + money(owed) + '</span></div></div>'
+        +   withZeros.length + ' earning</span><span>' + money(owed) + '</span></div></div>'
         + '<div class="sp-pgcard-b">' + rows + '</div></div>';
     }).join('');
   }

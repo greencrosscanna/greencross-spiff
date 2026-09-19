@@ -469,6 +469,20 @@ ok('  …and names any store the snapshot is missing, as an undercount',
 ok('per-unit credits everyone who sold; flat credits who hit',
    /perUnit \? e\.units > 0 : e\.hit/.test(froz));
 
+/* A closed program's card used to list only people the sell-through had a row for, so a budtender
+   who sold nothing was simply absent — Sky, 2026-09-19, a closed BeGOAT store showed 5 of its 6
+   budtenders. The fix reuses withRoster, the SAME display-only zero-fill the live grid already
+   uses, rather than a second matching routine — and the denominator has to move with it, or "X of
+   Y earning" keeps counting the smaller, seller-only list while the rows above it grow. */
+ok('the frozen grid also fills in rostered zeros, the same way the live grid does',
+   /withZeros = withRoster\(st\.store_id, st\)/.test(froz));
+ok('  …the rows painted are the roster-filled list, not the raw sold rows',
+   /withZeros\.map\(function \(e\) \{/.test(froz));
+ok('  …and the "of N earning" count grows with it, or the fraction goes stale',
+   /' of '\s*\+\s*withZeros\.length/.test(froz));
+ok('  …never by writing the zero rows back into the snapshot itself',
+   !/snap\.stores\[.*\]\.rows = withZeros|st\.rows = withZeros/.test(froz));
+
 const rem = grabJs('remeasure');
 ok('re-measuring is behind a confirm that names the vendor risk',
    /confirm\(/.test(rem) && /reported to '/.test(rem));
