@@ -186,15 +186,44 @@ Google's consent HTML instead of JSON until the owner has authorized.
   writes its own edit straight into the mirror so the next open sees it, never a stale copy.
 
   Pinned by `tests/engine_boot_test.js` (the server route), `tests/client_boot_fanout_test.js` (the
-  three-loader fan-out) and `tests/boot_mirror_test.js` (the 24h mirror). **Not yet deployed** — the
-  live engine does not answer `?action=boot` until `./deploy.sh` ships this, so the call-count and
-  latency win is proven against a stubbed transport in those tests, not yet measured against live
-  traffic; ask before deploying.
+  three-loader fan-out) and `tests/boot_mirror_test.js` (the 24h mirror). **Deployed 2026-09-18
+  (v1.440)** — the call-count and latency win was proven against a stubbed transport before that;
+  see the hedging bullet right below for what live traffic actually showed once it shipped.
 
   **The next lever, not built here**: opening a single PROGRAM is still N stores × M windows of
   live Dutchie pulls (`loadProgress`, spiff.js `async function loadProgress`) — the same shape the
   boot reads used to have, one level down. Left alone this time because the ask was the four-call
   *open*, not this.
+
+- **A dropped `boot` reply cost a full minute, not a retry — fixed by hedging this engine's OWN
+  reads** (2026-09-18, v1.440). Apps Script's `/exec` silently drops a few percent of JSONP
+  responses on its first hop (gx-client.js's `HEDGE_MS` comment has the numbers); the shared client
+  answers that by firing one extra copy of a READ that has gone quiet for 6s and taking whichever
+  lands first — but only for an action named in the client's `hedgeReads`, and `ENG = GXClient(ENGINE)`
+  carried none: with no `defaults.hedgeReads`, it silently inherited gx-client's DEFAULT list, which
+  is **GX Core's** route names (`health`, `stores`, `config`, …) — none of which this engine answers.
+  So `boot` never hedged, and a dropped first copy waited out the whole 45s attempt before the retry
+  fired — measured live as Sky's ~1-minute landing page on a quiet afternoon (execution load was
+  nowhere near the 30-at-once ceiling; this was a silent drop, not a queue).
+
+  `ENG` now hedges its own read routes: `var ENG = GXClient(ENGINE, { hedgeReads: ENGINE_HEDGE_READS });`,
+  with `ENGINE_HEDGE_READS` (spiff.js, above `ENG`) naming `boot`, `programs`, `program`, `brands`,
+  `progress`, `employees`, `catalog`, `sellthrough`, `storeView`, `storeLinks`, `refunits` and
+  `emailDraft` — every one checked against its own handler in `apps-script/Code.gs`, not copied from
+  `index.html`'s `GX_DEV_READS` (which lists actions, like `config`/`version_history`/`productStats`,
+  this engine does not even implement). **A hedged write runs twice** — the losing JSONP copy is
+  never canceled, so hedging one of this engine's mutating actions (`editProgram`, `deleteProgram`,
+  `saveBrand`, `publishToCore`, …) would fire it twice on a slow network. `bootOnce`'s budget was
+  also cut from `{timeoutMs:45000, retries:1}` to `{timeoutMs:20000, retries:2}` (cold start measures
+  ~9s; 20s clears it with room, and the extra retry covers a call that misses both hedge copies), and
+  the `brands` fallback call in `loadBrandReps` got the same cut. `bootOnce` now logs
+  `console.info('[spiff] boot answered in Ns')` on success and `console.warn` past 15s or on
+  fallback, so the next slow open says why in the console instead of just being slow.
+
+  Pinned by `tests/boot_hedge_test.js` — asserts `boot` and its boot-composed reads are hedgeable,
+  that every hedged name is both a real Code.gs action and on a hand-vetted pure-read list, that
+  none of ~30 known write/session-mint actions ever appear in the hedge list (spot-checked by name),
+  and that `bootOnce`'s actual call-site budget is ≤20s / ≥2 retries / ≥2× the 6s hedge delay.
 
 - **The per-budtender goal is pinnable per store**, and an empty pin is not a zero. The Calculator
   splits the typed target by last month's volume; typing over one store's number pins it and leaves

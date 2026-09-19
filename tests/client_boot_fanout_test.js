@@ -67,7 +67,7 @@ function sandbox(o) {
   const noopStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
   const api = new Function('ENG', 'session', 'console', '$', 'clearSession', 'renderNoAccess', 'renderGate',
                             '__state', '__calls', 'localStorage', src)(
-    ENG, () => ({ token: 'TOKEN-123' }), { error: () => {}, warn: () => {} }, makeDom(),
+    ENG, () => ({ token: 'TOKEN-123' }), { error: () => {}, warn: () => {}, info: () => {} }, makeDom(),
     () => {}, () => {}, () => {}, state, calls, noopStorage);
   return Object.assign(api, { asked, calls });
 }
@@ -128,7 +128,7 @@ B = (function () {
   const noopStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
   const api = new Function('ENG', 'session', 'console', '$', 'clearSession', 'renderNoAccess', 'renderGate',
                             '__state', 'localStorage', src)(
-    ENG, () => ({ token: 'TOKEN-123', user: 'sky' }), { error: () => {}, warn: () => {} },
+    ENG, () => ({ token: 'TOKEN-123', user: 'sky' }), { error: () => {}, warn: () => {}, info: () => {} },
     (sel) => ({}), () => { gated = gated || {}; gated.cleared = true; },
     (who) => { gated = gated || {}; gated.noAccess = who; }, (msg) => { gated = gated || {}; gated.gate = msg; },
     state, noopStorage);

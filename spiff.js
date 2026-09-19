@@ -38,7 +38,26 @@
     var m = /[?&]v=(\d+(?:\.\d+)?)/.exec((document.currentScript && document.currentScript.src) || '');
     return m ? 'v' + m[1] : 'dev';
   })();
-  var ENG = GXClient(ENGINE);
+  /* HEDGED READS FOR THIS ENGINE (2026-09-18). gx-client's jsonp() will fire one extra copy of a
+     read that has gone quiet for HEDGE_MS (6s) and take whichever answers first — see HEDGE_MS in
+     gx-client.js for why (Apps Script's /exec drops a few percent of responses on its first hop,
+     silently, per request rather than per server load). But it only hedges an action NAMED here:
+     GXClient(ENGINE) with no defaults falls back to gx-client's own default list, which is GX
+     Core's route names (health, stores, apps, …) — none of which this engine ever answers, so
+     nothing on this app's own engine was ever hedged. That is why a single dropped `boot` reply
+     cost a full 45s wait and then a slow retry (~1 minute end to end) rather than the ~6-10s a
+     hedge would have cost.
+     EVERY NAME HERE IS A PURE READ, verified against its handler in apps-script/Code.gs on
+     2026-09-18 — not copied from index.html's GX_DEV_READS, which lists actions (config,
+     version_history, productStats, clientView, stores, login) this engine does not even implement.
+     A hedged WRITE runs twice, so a name only belongs here if its Code.gs case computes and
+     returns without touching the sheet (CacheService puts are fine; SpreadsheetApp writes are
+     not). Do not add a name without reading its handler first. */
+  var ENGINE_HEDGE_READS = {
+    boot: 1, programs: 1, program: 1, brands: 1, progress: 1, employees: 1,
+    catalog: 1, sellthrough: 1, storeView: 1, storeLinks: 1, refunits: 1, emailDraft: 1
+  };
+  var ENG = GXClient(ENGINE, { hedgeReads: ENGINE_HEDGE_READS });
 
   /* ----------------------------------------------------------------- state */
   var state = {
@@ -191,9 +210,21 @@
   var _bootP = null;
   function bootOnce() {
     if (_bootP) return _bootP;
-    _bootP = ENG.jsonp('boot', { token: (session() || {}).token }, { timeoutMs: 45000, retries: 1 })
+    var t0 = Date.now();
+    /* Budget cut 45000/1 -> 20000/2 (2026-09-18), now that `boot` hedges (see ENGINE_HEDGE_READS
+       above). Cold start measures ~9s, so 20s clears it with room; a dropped first copy is now
+       rescued by the hedge around 6-10s instead of eating the whole 45s attempt. The extra retry
+       (2 instead of 1) keeps a call that misses BOTH copies from giving up after one more try. */
+    _bootP = ENG.jsonp('boot', { token: (session() || {}).token }, { timeoutMs: 20000, retries: 2 })
+      .then(function (r) {
+        var ms = Date.now() - t0;
+        console.info('[spiff] boot answered in ' + (ms / 1000).toFixed(1) + 's');
+        if (ms > 15000) console.warn('[spiff] boot took ' + (ms / 1000).toFixed(1) + 's — slower than expected');
+        return r;
+      })
       .catch(function (e) {
-        console.warn('[spiff] one-call boot unavailable, falling back to the four-call path:', e);
+        var ms = Date.now() - t0;
+        console.warn('[spiff] one-call boot unavailable after ' + (ms / 1000).toFixed(1) + 's, falling back to the four-call path:', e);
         return null;
       });
     return _bootP;
@@ -1538,8 +1569,9 @@
     try {
       var boot = await bootOnce();
       // Core's library read is slow (6–30s measured cold); the engine caches it, but a cold read needs the room.
+      // Budget cut 45000/1 -> 20000/2 alongside bootOnce's, now that `brands` hedges too (ENGINE_HEDGE_READS).
       var r = (boot && boot.ok && boot.brands) ? boot.brands
-            : await ENG.jsonp('brands', { token: (session() || {}).token }, { timeoutMs: 45000, retries: 1 });
+            : await ENG.jsonp('brands', { token: (session() || {}).token }, { timeoutMs: 20000, retries: 2 });
       if (!r || !r.ok || !Array.isArray(r.brands)) throw new Error((r && r.error) || 'unexpected response');
       state.brands = r.brands;
       state.brandsError = '';

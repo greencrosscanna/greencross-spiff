@@ -279,7 +279,7 @@ function browser(o) {
     'return { loadRoster: loadRoster, personName: personName, byStore: function () { return rosterByStore; } };',
   ].join('\n');
   const api = new Function('ENG', 'session', 'console', src)(
-    ENG, () => ({ token: 'TOKEN-123' }), { warn: (...a) => warned.push(a.join(' ')) });
+    ENG, () => ({ token: 'TOKEN-123' }), { warn: (...a) => warned.push(a.join(' ')), info: () => {} });
   return Object.assign(api, { asked, warned });
 }
 
