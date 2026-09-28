@@ -1069,6 +1069,50 @@ function editProgram_(p) {
 
 /* Create a program from the Calculator. Same role gate as editing — a new program is a
    commitment to a vendor, not a scratch calculation. */
+/* ── CANONICAL JSON, FOR COMPARING A CANDIDATE AGAINST WHAT'S ON THE SHEET ───────────────────
+ * Same idea as spiff.js's canonJson: sorted keys, so two structurally identical values compare
+ * equal however they were assembled — a value that came back out of the datastore and one just
+ * built from a request body will never agree on key order otherwise. Used only by the create
+ * replay guard below; nothing else here needed it.
+ */
+function canonJson_(v) {
+  if (v === undefined) return 'null';
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return '[' + v.map(canonJson_).join(',') + ']';
+  return '{' + Object.keys(v).sort().map(function (k) {
+    return JSON.stringify(k) + ':' + canonJson_(v[k]);
+  }).join(',') + '}';
+}
+
+/* Fields that describe what the program IS — the same shape createProgram_ builds a draft from.
+   Not start_date/end_date: gx-client's retry can legitimately race a slow clock tick across a
+   pay-period boundary, and the window is what the FIRST reply already committed, not something
+   a second send should be allowed to silently overrule. */
+var CREATE_REPLAY_FIELDS = [
+  'program_name', 'vendor', 'match_json', 'stores_json', 'cost_json',
+  'payout_type', 'payout_json', 'target_json'
+];
+
+/* ── A RETRIED CREATE IS NOT A SECOND PROGRAM ─────────────────────────────────────────────────
+ * gx-client's jsonp() retries a call by default (RETRIES=4) whenever the first reply is slow or
+ * dropped — that is what it is FOR, everywhere else on this engine. createProgram_ is the one
+ * write it cannot safely retry blind: the id is derived from the name and month, not handed
+ * back, so a retry after a dropped reply lands on the SAME id the first attempt already used and
+ * got refused outright. The first call had already saved everything; Tawny just saw "Saved, but
+ * the model failed" for a program that was sitting on the sheet, correct, the whole time
+ * (bug_mulu4dfk_4x9j, 2026-09-28 — verified live: sodas-tictures-all-products-202609 saved in
+ * full on the first send).
+ *
+ * So a same-id collision is now two different questions, not one refusal:
+ *   · Is this the SAME create landing twice? — same user, same model content. Say so and hand
+ *     back the id that already exists; nothing is written twice.
+ *   · Is this a DIFFERENT program that happens to slug to the same id? — refuse exactly as
+ *     before. A second, genuinely different program must never be silently dropped in favor of
+ *     the first one that got there.
+ * Checking the USER matters as much as the content: two different editors independently naming
+ * a program the same thing in the same month is a collision worth a human's attention, not a
+ * retry to wave through.
+ */
 function createProgram_(p) {
   var auth = gxAuth_(p.token);
   if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
@@ -1078,19 +1122,36 @@ function createProgram_(p) {
 
   var draft = parseJson_(p.program, null);
   if (!draft || !draft.program_name) return { ok: false, error: 'program_name required' };
+  /* Filled BEFORE the collision check, not after, so a replay compares against the same
+     normalized shape the first call actually saved — otherwise every replay would see a
+     mismatch on match_json alone and fall through to a refusal. */
+  draft.match_json = draft.match_json || { brand: draft.vendor || '', category: '', filter_text: '', products: [] };
 
   var id = slug_(draft.program_name) + '-' + today_().slice(0, 7).replace('-', '');
-  if (getProgram_(id).ok) return { ok: false, error: 'A program with id "' + id + '" already exists' };
+  var existing = getProgram_(id);
+  if (existing.ok) {
+    if (createIsReplay_(existing.program, draft, auth.user)) {
+      return { ok: true, program_id: id, created: false, replay: true, changed: [] };
+    }
+    return { ok: false, error: 'A program with id "' + id + '" already exists' };
+  }
 
   draft.program_id = id;
   draft.title      = draft.program_name;
   draft.status     = 'draft';       // becomes active when Tawny starts it
   draft.source     = 'calculator-app:' + auth.user;
-  draft.match_json = draft.match_json || { brand: draft.vendor || '', category: '', filter_text: '', products: [] };
 
   var res = saveProgram_(draft, { editedBy: auth.user, confirmBrand: String(p.confirm_brand || '') === '1' });
   res.program_id = id;
   return res;
+}
+
+function createIsReplay_(existing, draft, user) {
+  if (!existing || String(existing.source || '') !== 'calculator-app:' + user) return false;
+  return CREATE_REPLAY_FIELDS.every(function (f) {
+    return canonJson_(draft[f] !== undefined ? draft[f] : null)
+        === canonJson_(existing[f] !== undefined ? existing[f] : null);
+  });
 }
 
 /* ── DELETING A PROGRAM ───────────────────────────────────────────────────────────────────────
