@@ -5628,7 +5628,8 @@ function brandPaperHtml_(p, measured, opts) {
 /* Tawny's signature, in the same format as the company one in Gmail (Sky, 2026-09-30): logo, name
    and title, the website link in brand green, and the LOCATIONS button. The button is built from
    table cells rather than the Gmail image so there is no third-party image to go missing; the logo
-   is the one this app already hosts. Her name and title are constants because the email always
+   is the one this app already hosts — the WIDE logo (838x102), so it is drawn at 170x21 to keep its
+   proportions; forcing it into the stacked logo's 125x46 squeezed it (2026-09-30). Her name and title are constants because the email always
    goes out as her (see BRAND_FROM_DEFAULT). */
 var BRAND_SIGNER_NAME = 'Tawny Vierra';
 var BRAND_SIGNER_TITLE = 'Inventory Manager';
@@ -5637,7 +5638,7 @@ function brandSignatureHtml_() {
   var F = "font-family:'Lucida Grande','Lucida Sans Unicode',Helvetica,Arial,sans-serif;";
   return '<table role="presentation" cellpadding="0" cellspacing="0" style="' + F + 'max-width:420px;margin-top:10px">'
     + '<tr><td style="padding:0 14px 0 0;vertical-align:middle"><a href="https://greencrosscanna.com/">'
-    +   '<img src="' + LOGO_ONLIGHT + '" alt="Green Cross" width="125" height="46" style="display:block;border:0;width:125px;height:46px"></a></td>'
+    +   '<img src="' + LOGO_ONLIGHT + '" alt="Green Cross" width="170" height="21" style="display:block;border:0;width:170px;height:21px"></a></td>'
     +   '<td style="vertical-align:middle"><div style="' + F + 'font-size:11px;font-weight:700;color:#231f20">' + BRAND_SIGNER_NAME + '</div>'
     +   '<div style="' + F + 'font-size:11px;color:#231f20">' + BRAND_SIGNER_TITLE + '</div></td></tr>'
     + '<tr><td colspan="2" style="border-top:1px solid #d7d7d7;padding-top:10px">'
