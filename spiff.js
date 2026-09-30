@@ -5600,23 +5600,30 @@
     });
   }
 
-  /* mailto: with the drafted subject and body. Deliberately does NOT send — it opens the
-     user's own client with the message in it, which is the whole rule this app follows about
-     vendors: a human presses send. Long bodies can exceed what some clients accept from a
-     mailto, so the copy button stays the reliable path and says so. */
+  /* Opens the user's own mail app with the recipient and subject filled in, and puts the FORMATTED
+     email on the clipboard for one paste. A mailto: can only carry plain text, so the layout has
+     to travel by the clipboard — the body is left empty on purpose, so nothing placeholder-shaped
+     can be sent to a brand by accident. Deliberately does NOT send: a human presses send, which is
+     the whole rule this app follows about vendors. */
+  var OPEN_MAIL_LABEL = 'Open in mail & copy email ↗';
   function openInMail(btn) {
     var to = ($('#repTo') || {}).value || '';
     var subj = ($('#repSubj') || {}).value || '';
-    var body = ($('#repMail') || {}).innerText || '';
-    var url = 'mailto:' + encodeURIComponent(to)
-      + '?subject=' + encodeURIComponent(subj)
-      + '&body=' + encodeURIComponent(body);
-    if (url.length > 1800) {
-      btn.textContent = 'Too long — use Copy email';
-      setTimeout(function () { btn.textContent = 'Open in mail ↗'; }, 2600);
-      return;
-    }
-    window.location.href = url;
+    var copied = copyRich($('#repMail'));
+    btn.textContent = copied ? 'Copied — paste it into the new message' : 'Could not copy — use Copy email';
+    setTimeout(function () { btn.textContent = OPEN_MAIL_LABEL; }, 5000);
+    window.location.href = 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subj);
+  }
+
+  /* Select a block and copy it, so the clipboard gets its HTML layout as well as its text. */
+  function copyRich(el) {
+    try {
+      var sel = window.getSelection(), range = document.createRange();
+      range.selectNodeContents(el); sel.removeAllRanges(); sel.addRange(range);
+      var done = document.execCommand('copy');
+      sel.removeAllRanges();
+      return !!done;
+    } catch (e) { return false; }
   }
 
   function copyCards(btn) {
@@ -5831,9 +5838,9 @@
       +     '<div class="sp-mail-body" id="repMail" contenteditable="true" spellcheck="true">' + emailBody + '</div>'
       +     '<div class="sp-step-actions">'
       +       '<button class="gx-btn gx-btn-green" data-act="copy">Copy email</button>'
-      +       '<button class="gx-btn" data-act="mailto" title="Opens your mail app with plain text only. Copy email keeps the layout.">Open in mail (plain text) &#8599;</button>'
+      +       '<button class="gx-btn" data-act="mailto" title="Opens a new message to the brand with the subject filled in, and copies the formatted email so you can paste it in.">Open in mail &amp; copy email &#8599;</button>'
       +     '</div>'
-      +     '<p class="sp-step-hint">Copy email, paste it into a new message (the layout comes with it), then attach the PDF from step 1. The app cannot email a brand &mdash; you send it.</p>'
+      +     '<p class="sp-step-hint">Open in mail &amp; copy email starts the message and copies the layout &mdash; paste it in, then attach the PDF from step 1. The app cannot email a brand &mdash; you send it.</p>'
       +   '</div></div>'
 
       /* ---- step 3: what staff actually get */
@@ -5959,14 +5966,7 @@
   function copyEmail(btn) {
     /* #repMail is a rich, editable block, so selecting it and copying puts the layout on the
        clipboard (HTML) as well as the text — what pastes into Gmail looks like the page. */
-    var t = $('#repMail');
-    try {
-      var sel = window.getSelection(), range = document.createRange();
-      range.selectNodeContents(t); sel.removeAllRanges(); sel.addRange(range);
-      var done = document.execCommand('copy');
-      sel.removeAllRanges();
-      btn.textContent = done ? 'Copied' : 'Select and copy manually';
-    } catch (e) { btn.textContent = 'Select and copy manually'; }
+    btn.textContent = copyRich($('#repMail')) ? 'Copied' : 'Select and copy manually';
     setTimeout(function () { btn.textContent = 'Copy email'; }, 2000);
   }
 
