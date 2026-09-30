@@ -1640,9 +1640,15 @@ body.is-gated .workspace { display: none !important; }
 .sp-card-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp-card-v { font-weight: 700; font-variant-numeric: tabular-nums; }
 
+/* PRINT PRINTS THE REPORT, NOT A BLANK PAGE (2026-09-30). The old rule hid every direct child of
+   <body> except #printArea — but #printArea is nested several levels down inside the page, so
+   hiding its ancestors hid it too and Print produced an empty sheet. Now it hides everything that
+   is neither the report, inside the report, nor an ancestor holding the report, so the layout
+   collapses and the paper starts at the top of page one on a white background. */
 @media print {
-  body > *:not(#printArea) { display: none !important; }
-  #printArea { display: block !important; }
+  html, body { background: #fff !important; }
+  body *:not(#printArea):not(#printArea *):not(:has(#printArea)) { display: none !important; }
+  #printArea { display: block !important; margin: 0 !important; box-shadow: none !important; }
 }
 @media (max-width: 1000px) {
   .sp-rep-hero { grid-template-columns: 1fr; }
