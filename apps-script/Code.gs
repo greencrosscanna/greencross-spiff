@@ -6304,6 +6304,13 @@ function authorize() {
   catch (e) { report.reportFolder = 'ERR ' + e.message; }
   try { report.stores = gxStores_().length + ' stores'; }
   catch (e) { report.stores = 'ERR ' + e.message; }
+  /* TOUCHES GMAIL ON PURPOSE. Running this is what makes Google ask for the mail permission that
+     "Send to brand" needs — an authorize() that never calls a Gmail service finished without asking
+     (2026-09-30), so the send failed with "does not have permission". A read only: it lists the
+     Send-As addresses, which also shows whether BRAND_FROM_DEFAULT is usable before anyone sends. */
+  try { report.sendAs = GmailApp.getAliases(); report.brandFrom = brandFromAddress_();
+        report.brandFromUsable = report.sendAs.indexOf(report.brandFrom) >= 0; }
+  catch (e) { report.sendAs = 'ERR ' + e.message; }
   Logger.log('Authorized. ' + JSON.stringify(report));
   return report;
 }
