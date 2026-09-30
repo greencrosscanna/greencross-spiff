@@ -5476,7 +5476,7 @@ function emailDraft_(p) {
       '  Total credit due:  ' + m(owed) + '  (' + f.basis + ')\n\n' +
       'The full report is attached. Please apply ' + m(owed) + ' as a credit against our next order.\n\n' +
       'Thanks for supporting the team —\n\n' +
-      'Tawny\nGreen Cross Cannabis Emporium\n',
+      'Tawny Vierra\nInventory Manager\nGreenCrossCanna.com\n',
     attach_hint: 'Attach the PDF saved to the SPIFF close-out folder in Drive.',
     /* The preview the screen shows and "Send to brand" sends — the same builder, so what you read
        is what goes. A failure here must never take the plain-text draft down with it. */
@@ -5621,8 +5621,31 @@ function brandPaperHtml_(p, measured, opts) {
       + paper
       + P + 'Please apply ' + esc(moneyStr_(owed)) + ' as a credit against our next order.</p>'
       + P + 'Thanks for supporting the team —</p>'
-      + P + esc(opts.closing || 'Tawny') + '<br>Green Cross Cannabis Emporium</p></div>';
+      + brandSignatureHtml_() + '</div>';
   return html;
+}
+
+/* Tawny's signature, in the same format as the company one in Gmail (Sky, 2026-09-30): logo, name
+   and title, the website link in brand green, and the LOCATIONS button. The button is built from
+   table cells rather than the Gmail image so there is no third-party image to go missing; the logo
+   is the one this app already hosts. Her name and title are constants because the email always
+   goes out as her (see BRAND_FROM_DEFAULT). */
+var BRAND_SIGNER_NAME = 'Tawny Vierra';
+var BRAND_SIGNER_TITLE = 'Inventory Manager';
+
+function brandSignatureHtml_() {
+  var F = "font-family:'Lucida Grande','Lucida Sans Unicode',Helvetica,Arial,sans-serif;";
+  return '<table role="presentation" cellpadding="0" cellspacing="0" style="' + F + 'max-width:420px;margin-top:10px">'
+    + '<tr><td style="padding:0 14px 0 0;vertical-align:middle"><a href="https://greencrosscanna.com/">'
+    +   '<img src="' + LOGO_ONLIGHT + '" alt="Green Cross" width="125" height="46" style="display:block;border:0;width:125px;height:46px"></a></td>'
+    +   '<td style="vertical-align:middle"><div style="' + F + 'font-size:11px;font-weight:700;color:#231f20">' + BRAND_SIGNER_NAME + '</div>'
+    +   '<div style="' + F + 'font-size:11px;color:#231f20">' + BRAND_SIGNER_TITLE + '</div></td></tr>'
+    + '<tr><td colspan="2" style="border-top:1px solid #d7d7d7;padding-top:10px">'
+    +   '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%"><tr>'
+    +   '<td style="vertical-align:middle"><a href="https://www.greencrosscanna.com/" style="' + F + 'font-size:10px;font-weight:700;color:#93d500">GreenCrossCanna.com</a></td>'
+    +   '<td align="right" style="vertical-align:middle"><a href="https://www.greencrosscanna.com/#locations" style="' + F
+    +     'display:inline-block;background:#111111;color:#93d500;font-size:10px;font-weight:700;letter-spacing:1px;text-decoration:none;padding:8px 18px">LOCATIONS</a></td>'
+    +   '</tr></table></td></tr></table>';
 }
 
 /* The brand's copy of the report as a PDF — the paper above, nothing else. */

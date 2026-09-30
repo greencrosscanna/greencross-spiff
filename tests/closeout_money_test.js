@@ -102,9 +102,10 @@ const DOC = G.load({
          'payoutFactsOf_', 'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_',
          'friendlyName_', 'userKey_', 'scrubSecrets_', 'today_',
          'brandPaperHtml_', 'brandProgramLabel_', 'prettyDay_', 'brandPdfBlob_',
-         'brandFromAddress_', 'sendBrandEmail_'],
+         'brandFromAddress_', 'sendBrandEmail_', 'brandSignatureHtml_'],
   vars: ['EDIT_ROLES', 'LOGO_ONLIGHT', 'GX_SECRET_PROP', 'BTS_PER_STORE',
-         'BRAND_FROM_PROP', 'BRAND_SENT_PREFIX', 'BRAND_FROM_DEFAULT'],
+         'BRAND_FROM_PROP', 'BRAND_SENT_PREFIX', 'BRAND_FROM_DEFAULT',
+         'BRAND_SIGNER_NAME', 'BRAND_SIGNER_TITLE'],
   stubs: {
     getProgram_: (id) => (id === PH.program_id ? { ok: true, program: PH }
                         : id === FLAT.program_id ? { ok: true, program: FLAT }
@@ -395,6 +396,14 @@ ok('  …and the draft says what to attach rather than attaching it itself',
   ok('  …and NO budtender is named in what the brand receives',
      !/SKYLER|TAWNY R|JO B|NOBODY/i.test(m.opts.htmlBody)
      && !/SKYLER|TAWNY R|JO B|NOBODY/i.test(m.opts.attachments[0].html));
+  ok('the email ends with Tawny\'s signature: name, title, website and the LOCATIONS button',
+     /Tawny Vierra/.test(m.opts.htmlBody) && /Inventory Manager/.test(m.opts.htmlBody)
+     && /GreenCrossCanna\.com/.test(m.opts.htmlBody) && />LOCATIONS</.test(m.opts.htmlBody)
+     && /greencrosscanna\.com\/#locations/.test(m.opts.htmlBody));
+  ok('  …and the plain-text fallback is signed the same way',
+     /Tawny Vierra\nInventory Manager/.test(m.text));
+  ok('  …and the attached PDF carries no signature (it is the report alone)',
+     !/LOCATIONS/.test(m.opts.attachments[0].html));
   ok('one PDF attached, the brand copy, named for the brand',
      m.opts.attachments.length === 1 && /^Green Cross SPIFF Results - Green Cross - \d{6}\.pdf$/.test(m.opts.attachments[0].name));
 
