@@ -5631,7 +5631,7 @@
     var subj = (($('#repSubj') || {}).value || '').trim();
     if (!to) { btn.textContent = 'Add the brand’s email address first'; setTimeout(function () { btn.textContent = btn.dataset.label; }, 3000); return; }
     btn.dataset.label = btn.dataset.label || btn.textContent;
-    if (!window.confirm('Send the SPIFF report to ' + to + '?\n\nIt goes out from Tawny’s address with the brand PDF attached, and replies come back to her.')) return;
+    if (!window.confirm('Send the SPIFF report to ' + to + '?\n\nThe brand PDF is attached.')) return;
     btn.disabled = true; btn.textContent = 'Sending…';
     try {
       var r = await ENG.jsonp('sendBrandEmail', { token: (session() || {}).token, id: $('#repProgram').value,
@@ -5877,7 +5877,7 @@
       +     '<div class="sp-mail-body" id="repMail" contenteditable="' + (mail.html ? 'false' : 'true') + '" spellcheck="true">' + emailBody + '</div>'
       +     '<div class="sp-step-actions">'
       +       (mail.send_ready
-            ? '<button class="gx-btn gx-btn-green" data-act="sendbrand" title="Sends the email with the brand PDF attached, from ' + esc(mail.send_from) + '. Replies come back to that address.">Send to brand (from ' + esc(mail.send_from) + ')</button>'
+            ? '<button class="gx-btn gx-btn-green" data-act="sendbrand" title="Sends this email to the brand with the brand PDF attached.">Send to brand</button>'
             : '')
       +       '<button class="gx-btn' + (mail.send_ready ? '' : ' gx-btn-green') + '" data-act="copy">Copy email</button>'
       +       '<button class="gx-btn" data-act="mailto" title="Opens a new message to the brand with the subject filled in, and copies the formatted email so you can paste it in.">Open in mail &amp; copy email &#8599;</button>'
