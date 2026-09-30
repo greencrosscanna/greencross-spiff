@@ -5607,7 +5607,7 @@
   function openInMail(btn) {
     var to = ($('#repTo') || {}).value || '';
     var subj = ($('#repSubj') || {}).value || '';
-    var body = ($('#repMail') || {}).value || '';
+    var body = ($('#repMail') || {}).innerText || '';
     var url = 'mailto:' + encodeURIComponent(to)
       + '?subject=' + encodeURIComponent(subj)
       + '&body=' + encodeURIComponent(body);
@@ -5746,6 +5746,18 @@
        the roster rows counted above can run past that and read 38 across six stores. */
     var totalBts = storeIds.length * BTS_PER_STORE;
 
+    /* THE EMAIL BODY IS THE REPORT PAGE, rewritten with inline styles (an email client drops the
+       stylesheet). Same numbers as the paper above — built from the variables already in hand, not
+       re-fetched — so the page the brand prints and the email it reads can never disagree. */
+    var emailBody = brandEmailHtml(p, {
+      owed: owed, sold: sold, goal: goal, before: before, extra: extra, added: added, net: net,
+      hit: hit, totalBts: totalBts,
+      stores: storeIds.map(function (id) {
+        return { name: storeName(id), before: (base.by_store || {})[id] || 0,
+                 goal: (t.by_store || {})[id] || 0, sold: byStore[id].sold, hit: byStore[id].hit };
+      })
+    });
+
     /* Overtaken while we waited — a newer pick owns the screen now. Returning leaves ITS loading
        state or its finished report in place, rather than replacing it with this stale one. */
     if (mySeq !== repRenderSeq) return;
@@ -5816,12 +5828,12 @@
       +       '<label for="repTo">To</label><input class="sp-in" id="repTo" value="' + esc((primaryRep(p) || {}).email || '') + '" placeholder="no rep on this brand yet">'
       +       '<label for="repSubj">Subject</label><input class="sp-in" id="repSubj" value="' + esc(mail.subject) + '">'
       +     '</div>'
-      +     '<textarea class="sp-mail-body" id="repMail">' + esc(mail.body) + '</textarea>'
+      +     '<div class="sp-mail-body" id="repMail" contenteditable="true" spellcheck="true">' + emailBody + '</div>'
       +     '<div class="sp-step-actions">'
-      +       '<button class="gx-btn" data-act="copy">Copy email</button>'
-      +       '<button class="gx-btn" data-act="mailto">Open in mail &#8599;</button>'
+      +       '<button class="gx-btn gx-btn-green" data-act="copy">Copy email</button>'
+      +       '<button class="gx-btn" data-act="mailto" title="Opens your mail app with plain text only. Copy email keeps the layout.">Open in mail (plain text) &#8599;</button>'
       +     '</div>'
-      +     '<p class="sp-step-hint">The app cannot email a brand. Attach the PDF and send it yourself.</p>'
+      +     '<p class="sp-step-hint">Copy email, paste it into a new message (the layout comes with it), then attach the PDF from step 1. The app cannot email a brand &mdash; you send it.</p>'
       +   '</div></div>'
 
       /* ---- step 3: what staff actually get */
@@ -5832,6 +5844,66 @@
 
     var to = $('#repTo');
     if (to && !primaryRep(p)) to.classList.add('sp-driving');
+  }
+
+  /* The brand email, laid out like the report page. Table layout and inline styles only: Gmail and
+     Outlook ignore <style>, flex and grid. Light on white regardless of the app's theme, since it
+     is pasted into somebody else's inbox. Editable on screen, so the greeting can be changed. */
+  function brandEmailHtml(p, o) {
+    var FONT = 'font-family:Helvetica,Arial,sans-serif;';
+    var INK = '#1a1f1d', MUTE = '#5a635f', LINE = '#d7dedb';
+    var rep = primaryRep(p);
+    var first = rep && rep.name ? String(rep.name).trim().split(/\s+/)[0] : '';
+    var period = p.start_date ? prettyDay(p.start_date) + ' &ndash; ' + prettyDay(p.end_date || '') : 'the program period';
+    function stat(label, value, sub) {
+      return '<td style="padding:0 18px 0 0;vertical-align:top">'
+        + '<div style="' + FONT + 'font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:' + MUTE + '">' + esc(label) + '</div>'
+        + '<div style="' + FONT + 'font-size:22px;font-weight:800;color:' + INK + '">' + esc(String(value)) + '</div>'
+        + '<div style="' + FONT + 'font-size:11px;color:' + MUTE + '">' + esc(sub) + '</div></td>';
+    }
+    function th(t, right) {
+      return '<th style="' + FONT + 'text-align:' + (right ? 'right' : 'left') + ';padding:7px 9px;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:' + MUTE + ';border-bottom:1px solid ' + LINE + '">' + t + '</th>';
+    }
+    function td(t, right, bold, top) {
+      return '<td style="' + FONT + 'text-align:' + (right ? 'right' : 'left') + ';padding:7px 9px;font-size:13px;color:' + INK
+        + ';font-weight:' + (bold ? '700' : '400') + ';border-bottom:1px solid #eef2f0' + (top ? ';border-top:1px solid ' + INK : '') + '">' + t + '</td>';
+    }
+    var rows = o.stores.map(function (s) {
+      return '<tr>' + td(esc(s.name)) + td(BTS_PER_STORE, true) + td(s.before.toLocaleString(), true)
+        + td(s.goal.toLocaleString(), true) + td(s.sold.toLocaleString(), true, true)
+        + td(s.hit + ' / ' + BTS_PER_STORE, true) + '</tr>';
+    }).join('');
+    var total = '<tr>' + td('Total', false, true, true) + td(o.totalBts, true, true, true)
+      + td(o.before.toLocaleString(), true, true, true) + td(o.goal.toLocaleString(), true, true, true)
+      + td(o.sold.toLocaleString(), true, true, true) + td(o.hit + ' / ' + o.totalBts, true, true, true) + '</tr>';
+    var growth = o.before ? (o.extra >= 0 ? '+' : '') + Math.round((o.extra / o.before) * 100) + '%' : '—';
+    var P = '<p style="' + FONT + 'font-size:14px;line-height:1.55;color:' + INK + ';margin:0 0 12px">';
+
+    return '<div style="' + FONT + 'max-width:640px;color:' + INK + '">'
+      + P + 'Hi' + (first ? ' ' + esc(first) : '') + ',</p>'
+      + P + 'Here are the final numbers for the ' + esc(programLabel(p)) + ' SPIFF, ' + period + '. '
+      +   'The full report is attached.</p>'
+      + '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-top:2px solid ' + INK + ';border-bottom:2px solid ' + INK + ';margin:14px 0">'
+      +   '<tr><td style="padding:14px 0"><img src="' + LOGO_ONLIGHT + '" alt="Green Cross" height="22" style="height:22px;width:auto;display:block;margin:0 0 10px">'
+      +     '<div style="' + FONT + 'font-size:16px;font-weight:800;color:' + INK + '">' + esc(programLabel(p)) + ' &mdash; SPIFF results</div>'
+      +     '<div style="' + FONT + 'font-size:12px;color:' + MUTE + '">Green Cross Cannabis Emporium &middot; ' + period + '</div></td>'
+      +   '<td style="padding:14px 0;text-align:right;vertical-align:top">'
+      +     '<div style="' + FONT + 'font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:' + MUTE + '">Credit requested</div>'
+      +     '<div style="' + FONT + 'font-size:26px;font-weight:800;color:' + INK + '">' + esc(money(o.owed)) + '</div></td></tr></table>'
+      + '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 16px"><tr>'
+      +   stat('Units sold', o.sold.toLocaleString(), o.goal ? (o.sold - o.goal >= 0 ? '+' : '') + (o.sold - o.goal).toLocaleString() + ' vs. goal' : '')
+      +   stat('Growth', growth, o.before ? 'vs. ' + o.before.toLocaleString() + ' before' : '')
+      +   stat('Added sell-through', money(o.added), o.extra.toLocaleString() + ' extra units')
+      +   stat('Return on SPIFF', o.owed ? pctWhole(o.net / o.owed) : '—', 'net ' + money(o.net))
+      + '</tr></table>'
+      + (o.stores.length
+          ? '<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 16px"><tr>'
+            + th('Store') + th('BTs', 1) + th('Before', 1) + th('Goal', 1) + th('Sold', 1) + th('Hit', 1) + '</tr>'
+            + rows + total + '</table>'
+          : '')
+      + P + 'Please apply ' + esc(money(o.owed)) + ' as a credit against our next order.</p>'
+      + P + 'Thanks for supporting the team &mdash;</p>'
+      + P + 'Tawny<br>Green Cross Cannabis Emporium</p></div>';
   }
 
   function paperStat(label, value, sub, good) {
@@ -5885,10 +5957,16 @@
   }
 
   function copyEmail(btn) {
+    /* #repMail is a rich, editable block, so selecting it and copying puts the layout on the
+       clipboard (HTML) as well as the text — what pastes into Gmail looks like the page. */
     var t = $('#repMail');
-    t.select();
-    try { document.execCommand('copy'); btn.textContent = 'Copied'; }
-    catch (e) { btn.textContent = 'Select and copy manually'; }
+    try {
+      var sel = window.getSelection(), range = document.createRange();
+      range.selectNodeContents(t); sel.removeAllRanges(); sel.addRange(range);
+      var done = document.execCommand('copy');
+      sel.removeAllRanges();
+      btn.textContent = done ? 'Copied' : 'Select and copy manually';
+    } catch (e) { btn.textContent = 'Select and copy manually'; }
     setTimeout(function () { btn.textContent = 'Copy email'; }, 2000);
   }
 

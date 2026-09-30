@@ -1629,6 +1629,9 @@ body.is-gated .workspace { display: none !important; }
   color: var(--gx-text); padding: 12px 14px; font: inherit; font-size: 12.5px; line-height: 1.6;
   resize: vertical; min-height: 190px;
 }
+/* The email preview is the message itself: light on white like the page the brand prints, even
+   in the dark app, because that is how it will look in their inbox. */
+div.sp-mail-body { background: #fff; color: #1a1f1d; overflow: auto; resize: none; padding: 18px 20px; }
 
 /* Gift cards: a buy list someone reads aloud at a till. Names and stores, nothing else. */
 .sp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
