@@ -5294,6 +5294,10 @@ function moneyStr_(n) {
     { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/* Budtenders per store on every report: the suite's norm, hardcoded (Sky, 2026-09-30). Mirrors
+   BTS_PER_STORE in spiff.js. */
+var BTS_PER_STORE = 6;
+
 function reportHtml_(p, matrix) {
   var a    = p.actual_json || {};
   var t    = p.target_json || {};
@@ -5335,6 +5339,7 @@ function reportHtml_(p, matrix) {
     var tgt = (t.by_store || {})[s] || 0;
     var act = matrix && matrix.by_store ? (matrix.by_store[key] || 0) : null;
     return '<tr><td>' + esc(storeNameOf[key] || s) + '</td>'
+      + '<td class="n">' + BTS_PER_STORE + '</td>'
       + (showTarget ? '<td class="n">' + tgt + '</td>' : '')
       + '<td class="n">' + (act == null ? '&mdash;' : act) + '</td></tr>';
   }).join('');
@@ -5402,7 +5407,7 @@ function reportHtml_(p, matrix) {
        heading over two cells, so every store's SOLD figure rendered underneath it — a vendor
        document labelling 242 units of sell-through as targets, which is worse than the zeros it
        replaced. Caught by reading the generated PDF, not the diff. */
-    + '<h2>By store</h2><table><tr><th>Store</th>'
+    + '<h2>By store</h2><table><tr><th>Store</th><th class="n">BTs</th>'
     +   (showTarget ? '<th class="n">Target</th>' : '')
     +   '<th class="n">Sold</th></tr>' + storeRows + '</table>'
     + matrixHtml

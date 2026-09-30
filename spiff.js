@@ -5736,11 +5736,15 @@
       var bBefore = (base.by_store || {})[id] || 0;
       var bGoal   = (t.by_store || {})[id] || 0;
       return '<tr><td>' + esc(storeName(id)) + '</td>'
+        + '<td class="num">' + BTS_PER_STORE + '</td>'
         + '<td class="num">' + bBefore.toLocaleString() + '</td>'
         + '<td class="num">' + bGoal.toLocaleString() + '</td>'
         + '<td class="num"><b>' + g.sold.toLocaleString() + '</b></td>'
-        + '<td class="num">' + g.hit + ' / ' + g.bts + '</td></tr>';
+        + '<td class="num">' + g.hit + ' / ' + BTS_PER_STORE + '</td></tr>';
     }).join('');
+    /* The BT count is the fixed norm per store (Sky, 2026-09-30), so the total is stores x 6 —
+       the roster rows counted above can run past that and read 38 across six stores. */
+    var totalBts = storeIds.length * BTS_PER_STORE;
 
     /* Overtaken while we waited — a newer pick owns the screen now. Returning leaves ITS loading
        state or its finished report in place, rather than replacing it with this stale one. */
@@ -5785,11 +5789,12 @@
       +         paperStat('Return on SPIFF', owed ? pctWhole(net / owed) : '—', 'net ' + money(net), net > 0)
       +       '</div>'
       +       (storeRows
-          ? '<table><thead><tr><th>Store</th><th class="num">Before</th><th class="num">Goal</th>'
+          ? '<table><thead><tr><th>Store</th><th class="num">BTs</th><th class="num">Before</th><th class="num">Goal</th>'
             + '<th class="num">Sold</th><th class="num">Hit</th></tr></thead><tbody>' + storeRows
-            + '<tr class="tot"><td>Total</td><td class="num">' + before.toLocaleString() + '</td>'
+            + '<tr class="tot"><td>Total</td><td class="num">' + totalBts + '</td>'
+            + '<td class="num">' + before.toLocaleString() + '</td>'
             + '<td class="num">' + goal.toLocaleString() + '</td><td class="num">' + sold.toLocaleString() + '</td>'
-            + '<td class="num">' + hit + ' / ' + (cache ? cache.bts : (t.budtenders || 0)) + '</td></tr></tbody></table>'
+            + '<td class="num">' + hit + ' / ' + totalBts + '</td></tr></tbody></table>'
           : '<p style="color:#5a635f;font-size:11.5px">Per-store detail appears once sell-through has been pulled for this program.</p>')
       +       '<div class="sp-paper-file">SPIFF_Sales Report - ' + esc(p.vendor) + ' - ' + esc(fileStamp(p)) + '.pdf'
       +         (primaryRep(p) && primaryRep(p).name ? ' &middot; prepared for ' + esc(primaryRep(p).name) + ', ' + esc(p.vendor) : '') + '</div>'

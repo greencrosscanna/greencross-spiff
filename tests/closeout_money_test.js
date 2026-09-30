@@ -98,7 +98,7 @@ const DOC = G.load({
   real: ['reportHtml_', 'emailDraft_', 'giftCardList_', 'buildReport_', 'measuredRowsFor_',
          'payoutFactsOf_', 'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_',
          'friendlyName_', 'userKey_', 'scrubSecrets_', 'today_'],
-  vars: ['EDIT_ROLES', 'LOGO_ONLIGHT', 'GX_SECRET_PROP'],
+  vars: ['EDIT_ROLES', 'LOGO_ONLIGHT', 'GX_SECRET_PROP', 'BTS_PER_STORE'],
   stubs: {
     getProgram_: (id) => (id === PH.program_id ? { ok: true, program: PH }
                         : id === FLAT.program_id ? { ok: true, program: FLAT }
@@ -195,6 +195,11 @@ const NOSNAP = Object.assign({}, FLAT, { program_id: 'nosnap-0901', progress_jso
      /\$181\.50/.test(html) && html.indexOf('$28.50') < 0);
   ok('  …and prints the basis rather than a hardcoded "budtenders ×" line',
      /242 units × \$0\.75 a unit/.test(html));
+
+  /* BTs column on the vendor PDF's By-store table (Sky, 2026-09-30): the fixed norm of six. */
+  ok('the By-store table has a BTs column', /<th>Store<\/th><th class="n">BTs<\/th>/.test(html));
+  ok('  …and every store row carries six',
+     (html.match(/<td class="n">6<\/td>/g) || []).length >= (PH.stores_json || []).length);
 
   /* A flat program must be unchanged by the fix. */
   const fEmail = DOC.emailDraft_({ id: FLAT.program_id });
