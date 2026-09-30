@@ -398,8 +398,19 @@ Google's consent HTML instead of JSON until the owner has authorized.
   **GX Crew** (decision 2026-08-16), so "connect to SPIFF" work targets Crew. Today Mike hand-types a
   SPIFF dollar per employee per pay period (`{nameKey: {att, spiff}}`), and replacing that hand-entry is
   the point. When that gets built it will need a real contract — designed, not assumed.
-- **Nothing goes to a vendor without a human.** Reports are drafted and saved; sending is Tawny's or
-  Sky's click, not the app's.
+- **Nothing goes to a vendor without a human.** Reports are drafted and saved; a person decides to
+  send. *Changed 2026-09-30 (Sky): the app may now do the sending, on that person's click* —
+  `sendBrandEmail_` (Code.gs) runs only from the "Send to brand" button after a confirmation naming
+  the recipient, never from a trigger. It goes out AS the Send-As alias in script property
+  `BRAND_EMAIL_FROM` (Tawny's address; replies and a blind copy go there too) and refuses outright if
+  that is unset — it never falls back to sending from the account the script runs as. It refuses a
+  second send of the same program to the same address unless `resend=1`, because writes ride on GET
+  and a URL can be re-fetched. **What the brand gets is the brand page — no budtender names** (one
+  builder, `brandPaperHtml_`, feeds the preview, the email body and the attached PDF); the staff
+  copy with names stays the Drive save. Needs the `https://mail.google.com/` scope (GmailApp's
+  `from` option needs it; `script.send_mail` cannot set a sender) — a scope change means the owner
+  must run `authorize()` in the editor right after the deploy, or every route returns consent HTML.
+  Pinned by `tests/closeout_money_test.js` section 5.
 - **Dates are TEXT** (`YYYY-MM-DD`), never Date objects — a sheet/script timezone mismatch silently shifts
   them a day. See `gx-conventions.md` in the Command Center.
 - **All GX Core traffic goes through `GXClient`** (`gx-client.js`) — its `/exec` second hop 404s on ~6% of

@@ -118,7 +118,7 @@ ok('none of ' + KNOWN_WRITES_OR_UNSAFE.length + ' known write/unsafe actions app
    hedgedWrites.length === 0);
 /* Spot-check the highest-stakes ones by name, so this fails loudly and specifically rather than
    only through the generic scan above if the vetted list itself is ever edited wrong. */
-['editProgram', 'createProgram', 'deleteProgram', 'renameProgramId', 'addBrand', 'saveBrand',
+['sendBrandEmail', 'editProgram', 'createProgram', 'deleteProgram', 'renameProgramId', 'addBrand', 'saveBrand',
  'saveBrandContact', 'removeBrandContact', 'storeLinkMintAll', 'storeLinkRotate', 'publishToCore',
  'recordActuals', 'snapshotProgress', 'refreshProgress', 'rollStatuses', 'sweepOrphanProgress',
  'clientView', 'login', 'bugreport', 'buildReport', 'shareLink'

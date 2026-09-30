@@ -384,6 +384,9 @@ function doGet(e) {
       case 'diag':        out = diag_();                                            break;
       case 'buildReport': out = buildReport_(p);                                    break;
       case 'emailDraft':  out = emailDraft_(p);                                     break;
+      /* SENDS AN EMAIL. Editor session only, and never hedged client-side — a second copy would be
+         a second email. See sendBrandEmail_. */
+      case 'sendBrandEmail': out = sendBrandEmail_(p);                              break;
       case 'giftCards':   out = giftCardList_(p);                                   break;
       case 'clientView':  out = clientView_(p);                                     break;
       case 'shareLink':   out = shareLink_(p);                                      break;
@@ -5447,8 +5450,8 @@ function buildReport_(p) {
   }
 }
 
-/* The vendor email, as TEXT for a human to send. The engine has no send capability and
-   should not get one — a vendor hears from Tawny, not from an app. */
+/* The vendor email DRAFT: text for a human to copy, an HTML preview in the brand page's layout, and
+   whether the app can send it (see sendBrandEmail_). This function only builds — it never sends. */
 function emailDraft_(p) {
   var res = getProgram_(p.id);
   if (!res.ok) return res;
@@ -5475,6 +5478,14 @@ function emailDraft_(p) {
       'Thanks for supporting the team —\n\n' +
       'Tawny\nGreen Cross Cannabis Emporium\n',
     attach_hint: 'Attach the PDF saved to the SPIFF close-out folder in Drive.',
+    /* The preview the screen shows and "Send to brand" sends — the same builder, so what you read
+       is what goes. A failure here must never take the plain-text draft down with it. */
+    html: (function () {
+      try { return brandPaperHtml_(prog, measuredRowsFor_(prog), { greeting: String(p.first_name || '').trim(), closing: 'Tawny' }); }
+      catch (e) { return ''; }
+    })(),
+    send_from: brandFromAddress_(),
+    send_ready: !!brandFromAddress_(),
     /* Surfaced, not buried in the body. Nothing sends from here — a human does — so the warning
        belongs where the UI can refuse to present the draft as ready. */
     warning: f.mismatch
@@ -5482,6 +5493,199 @@ function emailDraft_(p) {
         + m(f.mismatch.computed) + '. Verify the actuals before sending this.'
       : undefined
   };
+}
+
+/* ── SENDING THE BRAND EMAIL FROM THE APP (Sky, 2026-09-30) ────────────────────────────────────
+ * Until today this engine had no send capability on purpose ("a vendor hears from Tawny, not from an
+ * app"). Sky reversed that, with the rule it protected kept intact: a PERSON still decides. The
+ * route runs only from an editor's click on "Send to brand" after a confirmation naming the
+ * recipient — never from a trigger, never on its own. It refuses a second send of the same program
+ * to the same address unless `resend=1`, because writes ride on GET here and a pasted URL gets
+ * re-fetched.
+ *
+ * WHO IT COMES FROM. The script runs as the deploying account (Sky), so the message goes out
+ * "as" the Send-As alias in script property BRAND_EMAIL_FROM (Tawny's address), configured in that
+ * account's Gmail. Replies and a blind copy go to the same address, so the thread lives in Tawny's
+ * inbox. With the property unset or the alias missing, the route refuses — it never falls back to
+ * sending from the account itself, which is the thing this was built to avoid.
+ *
+ * WHAT THE BRAND GETS is the brand page, not the staff record: no budtender names. That is the
+ * document attached, and it is the same layout as the email body — one builder, brandPaperHtml_,
+ * feeds the preview, the email and the PDF so they cannot disagree. The staff copy with names
+ * stays in Drive via buildReport_. */
+var BRAND_FROM_PROP = 'BRAND_EMAIL_FROM';
+var BRAND_SENT_PREFIX = 'brandsent:';
+
+function prettyDay_(ymd) {
+  var m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return String(ymd || '');
+  var mons = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return mons[Number(m[2]) - 1] + ' ' + Number(m[3]) + ', ' + m[1];
+}
+
+function brandProgramLabel_(p) {
+  var heading = String(p.program_name || p.title || '').trim();
+  var vend = String(p.vendor || '').trim();
+  return (!vend || heading.toLowerCase().indexOf(vend.toLowerCase()) === 0)
+    ? (heading || vend) : (vend + ' · ' + heading);
+}
+
+/* The brand page as inline-styled HTML (email clients and the PDF converter both ignore a
+   stylesheet). `opts.greeting` / `opts.closing` wrap it as an email; without them it is the
+   document alone, which is what gets attached. */
+function brandPaperHtml_(p, measured, opts) {
+  opts = opts || {};
+  var a = p.actual_json || {}, t = p.target_json || {}, base = p.baseline_json || {};
+  var f = payoutFactsOf_(p);
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var FONT = 'font-family:Helvetica,Arial,sans-serif;';
+  var INK = '#1a1f1d', MUTE = '#5a635f', LINE = '#d7dedb';
+
+  var names = Object.create(null);
+  try { (gxStores_() || []).forEach(function (x) { names[slug_(x.store_id)] = x.display_name || x.store_id; }); }
+  catch (e) { /* slugs are a poor label, not a blank one */ }
+
+  var rows = (measured && measured.rows) || [];
+  var sold   = Number(a.units_sold) || 0;
+  var goal   = Number(t.units) || 0;
+  var before = Number(base.units) || 0;
+  var extra  = sold - before;
+  var cost   = Number((p.cost_json || {}).per_unit) || 0;
+  var added  = extra * cost;
+  var owed   = f.owed;
+  var net    = added - owed;
+  var growth = before ? (extra >= 0 ? '+' : '') + Math.round((extra / before) * 100) + '%' : '—';
+
+  var stores = (p.stores_json || []).map(function (s) {
+    var key = slug_(s);
+    var mine = rows.filter(function (r) { return slug_(r.store_id) === key; });
+    var hit = mine.filter(function (r) { return r.hit || (f.per_unit && (Number(r.earned) || 0) > 0); }).length;
+    return { name: names[key] || s, before: Number((base.by_store || {})[s]) || 0,
+             goal: Number((t.by_store || {})[s]) || 0,
+             sold: measured && measured.by_store ? (Number(measured.by_store[key]) || 0) : null,
+             hit: mine.length ? hit : null };
+  });
+  var totalBts = stores.length * BTS_PER_STORE;
+  var period = p.start_date ? prettyDay_(p.start_date) + ' – ' + prettyDay_(p.end_date || '') : 'the program period';
+  var label = brandProgramLabel_(p);
+
+  var stat = function (l, v, sub) {
+    return '<td style="padding:0 18px 0 0;vertical-align:top">'
+      + '<div style="' + FONT + 'font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:' + MUTE + '">' + esc(l) + '</div>'
+      + '<div style="' + FONT + 'font-size:22px;font-weight:800;color:' + INK + '">' + esc(v) + '</div>'
+      + '<div style="' + FONT + 'font-size:11px;color:' + MUTE + '">' + esc(sub) + '</div></td>';
+  };
+  var th = function (x, right) {
+    return '<th style="' + FONT + 'text-align:' + (right ? 'right' : 'left') + ';padding:7px 9px;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:' + MUTE + ';border-bottom:1px solid ' + LINE + '">' + x + '</th>';
+  };
+  var td = function (x, right, bold, top) {
+    return '<td style="' + FONT + 'text-align:' + (right ? 'right' : 'left') + ';padding:7px 9px;font-size:13px;color:' + INK
+      + ';font-weight:' + (bold ? '700' : '400') + ';border-bottom:1px solid #eef2f0' + (top ? ';border-top:1px solid ' + INK : '') + '">' + x + '</td>';
+  };
+  var dash = '—';
+  var body = stores.map(function (s) {
+    return '<tr>' + td(esc(s.name)) + td(BTS_PER_STORE, true) + td(s.before.toLocaleString(), true)
+      + td(s.goal.toLocaleString(), true) + td(s.sold == null ? dash : s.sold.toLocaleString(), true, true)
+      + td(s.hit == null ? dash : s.hit + ' / ' + BTS_PER_STORE, true) + '</tr>';
+  }).join('');
+  var total = '<tr>' + td('Total', false, true, true) + td(totalBts, true, true, true)
+    + td(before.toLocaleString(), true, true, true) + td(goal.toLocaleString(), true, true, true)
+    + td(sold.toLocaleString(), true, true, true) + td(f.earners + ' / ' + totalBts, true, true, true) + '</tr>';
+
+  var paper = '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-top:2px solid ' + INK + ';border-bottom:2px solid ' + INK + ';margin:14px 0">'
+    + '<tr><td style="padding:14px 0"><img src="' + LOGO_ONLIGHT + '" alt="Green Cross" height="22" style="height:22px;width:auto;display:block;margin:0 0 10px">'
+    +   '<div style="' + FONT + 'font-size:16px;font-weight:800;color:' + INK + '">' + esc(label) + ' — SPIFF results</div>'
+    +   '<div style="' + FONT + 'font-size:12px;color:' + MUTE + '">Green Cross Cannabis Emporium · ' + esc(period) + '</div></td>'
+    + '<td style="padding:14px 0;text-align:right;vertical-align:top">'
+    +   '<div style="' + FONT + 'font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:' + MUTE + '">Credit requested</div>'
+    +   '<div style="' + FONT + 'font-size:26px;font-weight:800;color:' + INK + '">' + esc(moneyStr_(owed)) + '</div></td></tr></table>'
+    + '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 16px"><tr>'
+    +   stat('Units sold', sold.toLocaleString(), goal ? (sold - goal >= 0 ? '+' : '') + (sold - goal).toLocaleString() + ' vs. goal' : '')
+    +   stat('Growth', growth, before ? 'vs. ' + before.toLocaleString() + ' before' : '')
+    +   stat('Added sell-through', moneyStr_(added), extra.toLocaleString() + ' extra units')
+    +   stat('Return on SPIFF', owed ? Math.round((net / owed) * 100) + '%' : dash, 'net ' + moneyStr_(net))
+    + '</tr></table>'
+    + (stores.length
+        ? '<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 16px"><tr>'
+          + th('Store') + th('BTs', 1) + th('Before', 1) + th('Goal', 1) + th('Sold', 1) + th('Hit', 1) + '</tr>'
+          + body + total + '</table>'
+        : '');
+
+  var P = '<p style="' + FONT + 'font-size:14px;line-height:1.55;color:' + INK + ';margin:0 0 12px">';
+  var html = opts.greeting === undefined
+    ? '<div style="' + FONT + 'max-width:640px;color:' + INK + '">' + paper + '</div>'
+    : '<div style="' + FONT + 'max-width:640px;color:' + INK + '">'
+      + P + 'Hi' + (opts.greeting ? ' ' + esc(opts.greeting) : '') + ',</p>'
+      + P + 'Here are the final numbers for the ' + esc(label) + ' SPIFF, ' + esc(period) + '. The full report is attached.</p>'
+      + paper
+      + P + 'Please apply ' + esc(moneyStr_(owed)) + ' as a credit against our next order.</p>'
+      + P + 'Thanks for supporting the team —</p>'
+      + P + esc(opts.closing || 'Tawny') + '<br>Green Cross Cannabis Emporium</p></div>';
+  return html;
+}
+
+/* The brand's copy of the report as a PDF — the paper above, nothing else. */
+function brandPdfBlob_(p, measured) {
+  var doc = '<html><head><meta charset="utf-8"></head><body style="margin:36px">'
+    + brandPaperHtml_(p, measured) + '</body></html>';
+  var stamp = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'MMddyy');
+  var name = 'Green Cross SPIFF Results - ' + (p.vendor || p.title || 'Brand') + ' - ' + stamp + '.pdf';
+  return Utilities.newBlob(doc, 'text/html', 'r.html').getAs('application/pdf').setName(name);
+}
+
+function brandFromAddress_() {
+  return String(PropertiesService.getScriptProperties().getProperty(BRAND_FROM_PROP) || '').trim();
+}
+
+function sendBrandEmail_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) return { ok: false, error: 'Your role cannot send reports' };
+
+  var from = brandFromAddress_();
+  if (!from) return { ok: false, error: 'Sending is not set up yet: the sender address (BRAND_EMAIL_FROM) is not configured.' };
+
+  var to = String(p.to || '').trim().toLowerCase();
+  if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(to)) return { ok: false, error: 'Enter one valid email address to send to.' };
+  var subject = String(p.subject || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 200);
+  if (!subject) return { ok: false, error: 'The subject is empty.' };
+
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var prog = res.program;
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return { ok: false, error: 'Another send is in progress. Try again in a moment.' };
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var key = BRAND_SENT_PREFIX + prog.program_id;
+    var sent = {};
+    try { sent = JSON.parse(props.getProperty(key) || '{}') || {}; } catch (e) { sent = {}; }
+    if (sent[to] && String(p.resend) !== '1') {
+      return { ok: false, already: true, sent_at: sent[to],
+               error: 'Already sent to ' + to + ' on ' + String(sent[to]).slice(0, 10) + '. Send again only if you mean to.' };
+    }
+
+    var measured = measuredRowsFor_(prog);
+    var pdf  = brandPdfBlob_(prog, measured);
+    var html = brandPaperHtml_(prog, measured, { greeting: String(p.first_name || '').trim(), closing: 'Tawny' });
+    var text = emailDraft_({ id: prog.program_id }).body;
+    try {
+      GmailApp.sendEmail(to, subject, text, {
+        htmlBody: html, attachments: [pdf], from: from, replyTo: from, bcc: from,
+        name: 'Green Cross Cannabis Emporium'
+      });
+    } catch (e) {
+      return { ok: false, error: 'Could not send: ' + scrubSecrets_(e && e.message || e)
+        + ' (the sender address must be a Send-As alias on the account this app runs as)' };
+    }
+    sent[to] = nowStamp_();
+    props.setProperty(key, JSON.stringify(sent));
+    return { ok: true, to: to, from: from, attachment: pdf.getName(), by: auth.user, sent_at: sent[to] };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /* Who gets a gift card, and for how much. Needs per-budtender sell-through, so for

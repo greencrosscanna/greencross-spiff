@@ -5595,6 +5595,7 @@
       if (b.dataset.act === 'copy')  copyEmail(b);
       if (b.dataset.act === 'print') window.print();
       if (b.dataset.act === 'mailto') openInMail(b);
+      if (b.dataset.act === 'sendbrand') sendBrand(b);
       if (b.dataset.act === 'cards')  copyCards(b);
       if (b.dataset.act === 'printcards') window.print();
     });
@@ -5613,6 +5614,40 @@
     btn.textContent = copied ? 'Copied — paste it into the new message' : 'Could not copy — use Copy email';
     setTimeout(function () { btn.textContent = OPEN_MAIL_LABEL; }, 5000);
     window.location.href = 'mailto:' + encodeURIComponent(to) + '?subject=' + encodeURIComponent(subj);
+  }
+
+  function repFirstName(p) {
+    var rep = primaryRep(p);
+    return rep && rep.name ? String(rep.name).trim().split(/\s+/)[0] : '';
+  }
+
+  /* SENDS AN EMAIL TO A BRAND. A person decides: this runs only from a click, after a confirmation
+     that names the recipient and the sender. The engine refuses a repeat to the same address, so a
+     double click or a retried request cannot send twice; retries are off here for the same reason. */
+  async function sendBrand(btn) {
+    if (!canEdit()) { $('#btnAuth').click(); return; }
+    var p = state.programs.filter(function (x) { return x.program_id === $('#repProgram').value; })[0];
+    var to = (($('#repTo') || {}).value || '').trim();
+    var subj = (($('#repSubj') || {}).value || '').trim();
+    if (!to) { btn.textContent = 'Add the brand’s email address first'; setTimeout(function () { btn.textContent = btn.dataset.label; }, 3000); return; }
+    btn.dataset.label = btn.dataset.label || btn.textContent;
+    if (!window.confirm('Send the SPIFF report to ' + to + '?\n\nIt goes out from Tawny’s address with the brand PDF attached, and replies come back to her.')) return;
+    btn.disabled = true; btn.textContent = 'Sending…';
+    try {
+      var r = await ENG.jsonp('sendBrandEmail', { token: (session() || {}).token, id: $('#repProgram').value,
+        to: to, subject: subj, first_name: repFirstName(p || {}) }, { timeoutMs: 60000, retries: 0 });
+      if (r && r.ok) { btn.textContent = 'Sent to ' + r.to; btn.classList.remove('gx-btn-green'); return; }
+      if (r && r.already && window.confirm((r.error || 'Already sent.') + '\n\nSend it again anyway?')) {
+        r = await ENG.jsonp('sendBrandEmail', { token: (session() || {}).token, id: $('#repProgram').value,
+          to: to, subject: subj, first_name: repFirstName(p || {}), resend: '1' }, { timeoutMs: 60000, retries: 0 });
+        if (r && r.ok) { btn.textContent = 'Sent to ' + r.to; btn.classList.remove('gx-btn-green'); return; }
+      }
+      btn.textContent = 'Not sent — ' + ((r && r.error) || 'failed');
+    } catch (err) {
+      btn.textContent = 'Not confirmed — check the Sent folder before trying again';
+      console.error('[spiff] send to brand failed:', err);
+    }
+    setTimeout(function () { btn.disabled = false; btn.textContent = btn.dataset.label; }, 6000);
   }
 
   /* Select a block and copy it, so the clipboard gets its HTML layout as well as its text. */
@@ -5727,7 +5762,8 @@
 
     var mail = { subject: '', body: '' };
     try {
-      var r = await ENG.jsonp('emailDraft', { token: (session() || {}).token, id: p.program_id });
+      var r = await ENG.jsonp('emailDraft', { token: (session() || {}).token, id: p.program_id,
+        first_name: repFirstName(p) });
       if (r && r.ok) mail = r;
     } catch (e) { console.error('[spiff] email draft failed:', e); }
 
@@ -5756,7 +5792,7 @@
     /* THE EMAIL BODY IS THE REPORT PAGE, rewritten with inline styles (an email client drops the
        stylesheet). Same numbers as the paper above — built from the variables already in hand, not
        re-fetched — so the page the brand prints and the email it reads can never disagree. */
-    var emailBody = brandEmailHtml(p, {
+    var emailBody = mail.html || brandEmailHtml(p, {
       owed: owed, sold: sold, goal: goal, before: before, extra: extra, added: added, net: net,
       hit: hit, totalBts: totalBts,
       stores: storeIds.map(function (id) {
@@ -5835,9 +5871,15 @@
       +       '<label for="repTo">To</label><input class="sp-in" id="repTo" value="' + esc((primaryRep(p) || {}).email || '') + '" placeholder="no rep on this brand yet">'
       +       '<label for="repSubj">Subject</label><input class="sp-in" id="repSubj" value="' + esc(mail.subject) + '">'
       +     '</div>'
-      +     '<div class="sp-mail-body" id="repMail" contenteditable="true" spellcheck="true">' + emailBody + '</div>'
+      /* The engine's own preview is exactly what Send to brand sends, so it is not editable — an
+         editable preview that is not what goes out is a trap. The client-built fallback (engine
+         too old to return one) stays editable because it is only ever copied. */
+      +     '<div class="sp-mail-body" id="repMail" contenteditable="' + (mail.html ? 'false' : 'true') + '" spellcheck="true">' + emailBody + '</div>'
       +     '<div class="sp-step-actions">'
-      +       '<button class="gx-btn gx-btn-green" data-act="copy">Copy email</button>'
+      +       (mail.send_ready
+            ? '<button class="gx-btn gx-btn-green" data-act="sendbrand" title="Sends the email with the brand PDF attached, from ' + esc(mail.send_from) + '. Replies come back to that address.">Send to brand (from ' + esc(mail.send_from) + ')</button>'
+            : '')
+      +       '<button class="gx-btn' + (mail.send_ready ? '' : ' gx-btn-green') + '" data-act="copy">Copy email</button>'
       +       '<button class="gx-btn" data-act="mailto" title="Opens a new message to the brand with the subject filled in, and copies the formatted email so you can paste it in.">Open in mail &amp; copy email &#8599;</button>'
       +     '</div>'
       +     '<p class="sp-step-hint">Open in mail &amp; copy email starts the message and copies the layout &mdash; paste it in, then attach the PDF from step 1. The app cannot email a brand &mdash; you send it.</p>'

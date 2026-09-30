@@ -94,11 +94,17 @@ ok('an unimplemented model resolves to flat rather than to zero',
    PORTLAND HEIGHTS, as the record holds it: per_unit at $0.75, 242 units, $181.50 reconciled, and
    a frozen snapshot of 38 budtenders across six stores. The wrong answer this file exists to catch
    is $28.50. */
+const PROPS = G.makeProps({ GX_DEPLOY_SECRET: 'SEKRET' });
+const SENT = [];
+let GMAIL_FAIL = '', LOCK_OK = true;
 const DOC = G.load({
   real: ['reportHtml_', 'emailDraft_', 'giftCardList_', 'buildReport_', 'measuredRowsFor_',
          'payoutFactsOf_', 'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_',
-         'friendlyName_', 'userKey_', 'scrubSecrets_', 'today_'],
-  vars: ['EDIT_ROLES', 'LOGO_ONLIGHT', 'GX_SECRET_PROP', 'BTS_PER_STORE'],
+         'friendlyName_', 'userKey_', 'scrubSecrets_', 'today_',
+         'brandPaperHtml_', 'brandProgramLabel_', 'prettyDay_', 'brandPdfBlob_',
+         'brandFromAddress_', 'sendBrandEmail_'],
+  vars: ['EDIT_ROLES', 'LOGO_ONLIGHT', 'GX_SECRET_PROP', 'BTS_PER_STORE',
+         'BRAND_FROM_PROP', 'BRAND_SENT_PREFIX'],
   stubs: {
     getProgram_: (id) => (id === PH.program_id ? { ok: true, program: PH }
                         : id === FLAT.program_id ? { ok: true, program: FLAT }
@@ -117,17 +123,22 @@ const DOC = G.load({
     displayNameMap_: () => ({ byId: { e1: 'Sky', e2: 'Tawny' }, byName: {} }),
     spiffProgress_: () => LIVE,
     gxAuth_: () => AUTH,
+    nowStamp_: () => '2026-09-30 12:00:00',
     /* Drive, captured: what would have been written, and with what name. */
     DriveApp_unused_: () => null,
   },
   globals: {
-    PropertiesService: G.makeProps({ GX_DEPLOY_SECRET: 'SEKRET' }).PropertiesService,
+    PropertiesService: PROPS.PropertiesService,
+    /* The send, captured: every message the engine tried to put on the wire. */
+    GmailApp: { sendEmail: (to, subject, text, opts) => { if (GMAIL_FAIL) throw new Error(GMAIL_FAIL);
+                                                          SENT.push({ to, subject, text, opts }); } },
+    LockService: { getScriptLock: () => ({ tryLock: () => LOCK_OK, releaseLock() {} }) },
     console: { warn() {}, log() {} },
     /* Utilities.newBlob is where the HTML becomes a PDF. Kept as a pass-through so the assertions
        can read the document that was actually filed, rather than trusting that the call happened. */
     Utilities: Object.assign({}, G.Utilities, {
       newBlob: (html) => ({ html: html,
-        getAs: () => ({ setName: (n) => ({ html: html, name: n }) }) }),
+        getAs: () => ({ setName: (n) => ({ html: html, name: n, getName: () => n }) }) }),
     }),
     DriveApp: { getFolderById: (id) => ({ createFile: (blob) => { FILED.push({ folder: id, blob: blob });
       return { getId: () => 'file-1', getUrl: () => 'https://drive/file-1' }; } }) },
@@ -347,6 +358,79 @@ ok('  …and the draft hands back TEXT for a human, with a subject and a body',
             return typeof d.body === 'string' && /^SPIFF results/.test(d.subject); })());
 ok('  …and the draft says what to attach rather than attaching it itself',
    /Attach the PDF saved to the SPIFF close-out folder/.test(DOC.emailDraft_({ id: PH.program_id }).attach_hint));
+
+/* ══════════════════ 5. SENDING THE BRAND EMAIL FROM THE APP ══════════════════
+   Sky, 2026-09-30. These run the real route with Gmail captured, because the claims that matter
+   are about what goes on the wire and what is refused: who it is FROM, what is attached, that no
+   budtender is named, and that nothing is sent when it should not be. */
+{
+  const ARG = { token: 't', id: PH.program_id, to: 'Rep@Brand.com', subject: 'SPIFF results' };
+
+  PROPS.props.BRAND_EMAIL_FROM = '';
+  let r = DOC.sendBrandEmail_(ARG);
+  ok('with no sender configured it refuses, and sends nothing',
+     r.ok === false && /not set up/.test(r.error) && SENT.length === 0);
+
+  PROPS.props.BRAND_EMAIL_FROM = 'tawny@greencrosscanna.com';
+  AUTH = { ok: true, user: 'viewer1', role: 'viewer' };
+  r = DOC.sendBrandEmail_(ARG);
+  ok('a read-only role cannot send', r.ok === false && SENT.length === 0);
+  AUTH = { ok: true, user: 'tawny', role: 'editor' };
+
+  ok('a bad address is refused',
+     DOC.sendBrandEmail_(Object.assign({}, ARG, { to: 'not-an-email' })).ok === false
+     && DOC.sendBrandEmail_(Object.assign({}, ARG, { to: 'a@b.com, c@d.com' })).ok === false
+     && SENT.length === 0);
+
+  r = DOC.sendBrandEmail_(ARG);
+  const m = SENT[0] || {};
+  ok('an editor can send, to the lowercased address', r.ok === true && m.to === 'rep@brand.com');
+  ok('it goes out AS the configured alias, replies to it, and copies it',
+     m.opts && m.opts.from === 'tawny@greencrosscanna.com'
+     && m.opts.replyTo === 'tawny@greencrosscanna.com' && m.opts.bcc === 'tawny@greencrosscanna.com');
+  ok('the HTML body carries the credit and the BTs column',
+     /\$181\.50/.test(m.opts.htmlBody) && />BTs</.test(m.opts.htmlBody));
+  ok('  …and NO budtender is named in what the brand receives',
+     !/SKYLER|TAWNY R|JO B|NOBODY/i.test(m.opts.htmlBody)
+     && !/SKYLER|TAWNY R|JO B|NOBODY/i.test(m.opts.attachments[0].html));
+  ok('one PDF attached, the brand copy, named for the brand',
+     m.opts.attachments.length === 1 && /^Green Cross SPIFF Results - Green Cross - \d{6}\.pdf$/.test(m.opts.attachments[0].name));
+
+  const before = SENT.length;
+  r = DOC.sendBrandEmail_(ARG);
+  ok('the same program to the same address is refused the second time',
+     r.ok === false && r.already === true && SENT.length === before);
+  ok('  …unless resend is asked for on purpose',
+     DOC.sendBrandEmail_(Object.assign({}, ARG, { resend: '1' })).ok === true && SENT.length === before + 1);
+  ok('  …and a different address is not blocked by it',
+     DOC.sendBrandEmail_(Object.assign({}, ARG, { to: 'other@brand.com' })).ok === true);
+
+  GMAIL_FAIL = 'Invalid from address';
+  const beforeFail = SENT.length;
+  r = DOC.sendBrandEmail_(Object.assign({}, ARG, { to: 'fresh@brand.com' }));
+  ok('a Gmail failure is reported, not swallowed, and is not recorded as sent',
+     r.ok === false && /Could not send/.test(r.error) && SENT.length === beforeFail);
+  GMAIL_FAIL = '';
+  ok('  …so a retry after the failure is allowed',
+     DOC.sendBrandEmail_(Object.assign({}, ARG, { to: 'fresh@brand.com' })).ok === true);
+
+  LOCK_OK = false;
+  ok('a concurrent send is refused rather than doubled',
+     DOC.sendBrandEmail_(Object.assign({}, ARG, { to: 'locked@brand.com' })).ok === false);
+  LOCK_OK = true;
+
+  ok('the draft preview is the same brand page, and says whether sending is ready',
+     (() => { const d = DOC.emailDraft_({ id: PH.program_id });
+              return d.send_ready === true && /Credit requested/.test(d.html) && !/SKYLER/.test(d.html); })());
+  PROPS.props.BRAND_EMAIL_FROM = '';
+  ok('  …and reports not-ready when no sender is configured',
+     DOC.emailDraft_({ id: PH.program_id }).send_ready === false);
+
+  ok('nothing in the engine sends except the one route (no stray send call)',
+     (() => { const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8');
+              const hits = src.match(/GmailApp\.sendEmail/g) || [];
+              return hits.length === 1 && /GmailApp\.sendEmail/.test(G.grab('sendBrandEmail_')); })());
+}
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\ncloseout money: all passed');
 process.exit(fail ? 1 : 0);
