@@ -5625,28 +5625,33 @@ function brandPaperHtml_(p, measured, opts) {
   return html;
 }
 
-/* Tawny's signature, in the same format as the company one in Gmail (Sky, 2026-09-30): logo, name
-   and title, the website link in brand green, and the LOCATIONS button. The button is built from
-   table cells rather than the Gmail image so there is no third-party image to go missing; the logo
-   is the one this app already hosts — the WIDE logo (838x102), so it is drawn at 170x21 to keep its
-   proportions; forcing it into the stacked logo's 125x46 squeezed it (2026-09-30). Her name and title are constants because the email always
-   goes out as her (see BRAND_FROM_DEFAULT). */
+/* TAWNY'S OWN SIGNATURE, from her signature file (Tawny_Vierra_Signature.html in Drive, which Sky
+   pointed at 2026-09-30): same logo, same layout, same LOCATIONS button image, same green link —
+   minus the phone line, which Sky said to leave off. Earlier today this was hand-built from a
+   screenshot and a guess at the stacked logo, and it squeezed the logo. Her title is Inventory Manager
+   (Sky, 2026-09-30) — her signature FILE still says Regional Intake & Inventory Manager, which is out of date. The images are the company's own, hosted on Wix
+   and already in use in her real emails. The email always goes out as her (BRAND_FROM_DEFAULT), so
+   name and title are constants. */
 var BRAND_SIGNER_NAME = 'Tawny Vierra';
 var BRAND_SIGNER_TITLE = 'Inventory Manager';
+var BRAND_SIG_LOGO = 'https://static.wixstatic.com/media/7dfb22_d10ced5eb2c24223a6391cd90c9254fb~mv2.png';
+var BRAND_SIG_LOCATIONS = 'https://static.wixstatic.com/media/7dfb22_497f9b6a05c64362a1cad81812938380~mv2.png';
 
 function brandSignatureHtml_() {
-  var F = "font-family:'Lucida Grande','Lucida Sans Unicode',Helvetica,Arial,sans-serif;";
-  return '<table role="presentation" cellpadding="0" cellspacing="0" style="' + F + 'max-width:420px;margin-top:10px">'
-    + '<tr><td style="padding:0 14px 0 0;vertical-align:middle"><a href="https://greencrosscanna.com/">'
-    +   '<img src="' + LOGO_ONLIGHT + '" alt="Green Cross" width="170" height="21" style="display:block;border:0;width:170px;height:21px"></a></td>'
-    +   '<td style="vertical-align:middle"><div style="' + F + 'font-size:11px;font-weight:700;color:#231f20">' + BRAND_SIGNER_NAME + '</div>'
-    +   '<div style="' + F + 'font-size:11px;color:#231f20">' + BRAND_SIGNER_TITLE + '</div></td></tr>'
-    + '<tr><td colspan="2" style="border-top:1px solid #d7d7d7;padding-top:10px">'
-    +   '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%"><tr>'
-    +   '<td style="vertical-align:middle"><a href="https://www.greencrosscanna.com/" style="' + F + 'font-size:10px;font-weight:700;color:#93d500">GreenCrossCanna.com</a></td>'
-    +   '<td align="right" style="vertical-align:middle"><a href="https://www.greencrosscanna.com/#locations" style="' + F
-    +     'display:inline-block;background:#111111;color:#93d500;font-size:10px;font-weight:700;letter-spacing:1px;text-decoration:none;padding:8px 18px">LOCATIONS</a></td>'
-    +   '</tr></table></td></tr></table>';
+  var F = "font-family:'Lucida Grande','Lucida Sans Unicode',Helvetica,Arial,Sans-Serif;";
+  var RULE = 'padding:0px;border-top:1px solid #CCCECE;margin:0 0 ';
+  return '<table width="100%" border="0" cellspacing="1" cellpadding="0" style="max-width:420px"><tr><td width="100%">'
+    + '<div style="' + RULE + '2px"></div></td></tr></table>'
+    + '<table width="100%" border="0" cellspacing="1" cellpadding="6" style="max-width:500px"><tr>'
+    +   '<td width="10%"><a href="https://greencrosscanna.com/" target="_blank"><img src="' + BRAND_SIG_LOGO + '" alt="Green Cross" width="125" style="float:left;padding:0px 10px 0px 0"></a></td>'
+    +   '<td width="77%"><div style="line-height:16px;margin:3px 0;padding:0 10px 0 0;' + F + 'font-size:11px;color:#475660">'
+    +     '<strong style="color:#231F20;padding-right:8px">' + BRAND_SIGNER_NAME + '</strong><br>' + BRAND_SIGNER_TITLE
+    +   '</div></td></tr></table>'
+    + '<table width="100%" border="0" cellspacing="1" cellpadding="4" style="max-width:420px"><tr><td width="100%">'
+    +   '<div style="' + RULE + '10px"></div>'
+    +   '<div style="float:left;margin:0;padding:8px 0 0 8px;' + F + 'font-size:10px;color:#019592"><a href="https://www.greencrosscanna.com/" style="color:#93d500;text-decoration:none"><b>GreenCrossCanna.com</b></a></div>'
+    +   '<div style="float:right;margin:0;padding:0 10px 0 0;' + F + 'font-size:10px;color:#019592"><a href="https://www.greencrosscanna.com/#locations" target="_blank"><img src="' + BRAND_SIG_LOCATIONS + '" width="124" height="26" alt="Locations"></a></div>'
+    + '</td></tr></table>';
 }
 
 /* The brand's copy of the report as a PDF — the paper above, nothing else. */
