@@ -596,12 +596,10 @@
        its editingId — which would make Save overwrite the program you thought you had left. */
     calc.product = null; calc.editingId = null; calc.window = null; calc.refRun = null;
     calc.locked = false;                     // a new model is never somebody else's settled one
-    /* Reference units reset to 0, budtender counts do NOT: headcount is a property of the
-       store, not of the program being modeled, so re-typing it every time would be busywork. */
+    /* Reference units reset to 0; headcount is the fixed norm (BTS_PER_STORE) for every store. */
     calc.stores = state.stores.map(function (st) {
-      var prev = calc.stores.filter(function (x) { return x.store_id === st.store_id; })[0];
       return { store_id: st.store_id, name: st.display_name || st.store_id,
-               baseline: 0, bts: (prev && prev.bts) || 6 };
+               baseline: 0, bts: BTS_PER_STORE };
     });
     $('#cName').value = ''; $('#cVendor').value = '';
     $('#cCost').value = calc.cost; $('#cSpiff').value = calc.spiff;
@@ -2869,6 +2867,8 @@
     stores: []       // [{ store_id, name, baseline, bts, refState, refUnits }]
   };
 
+  var BTS_PER_STORE = 6;
+
   /* ── HOW MANY BUDTENDERS DID THIS STORE HAVE? ─────────────────────────────────────────────
      Three sources, best first, because the good one only exists on programs saved since
      2026-09-01.
@@ -2883,18 +2883,11 @@
 
      Falls back to 6 only when there is nothing at all to read. */
   function btsForStore(id, tgt, base) {
-    var saved = (tgt.bts_by_store || {})[id];
-    if (saved > 0) return Math.max(1, Math.round(Number(saved)));
-
-    var goal = Number((tgt.by_store || {})[id] || 0);
-    var tPer = Number((tgt.per_bt   || {})[id] || 0);
-    if (goal > 0 && tPer > 0) return Math.max(1, Math.round(goal / tPer));
-
-    var b    = Number((base.by_store || {})[id] || 0);
-    var bPer = Number((base.per_bt   || {})[id] || 0);
-    if (b > 0 && bPer > 0) return Math.max(1, Math.round(b / bPer));
-
-    return 6;
+    /* HARDCODED TO THE NORM (Sky, 2026-09-30: "hardcode BTs to 6, that's our norm"). The three
+       sources above are kept in the comment for the history, but none is consulted any more: a
+       saved or inferred count that disagreed with six is how the vendor preview read 38
+       budtenders across six stores instead of 36. The args stay so callers do not change. */
+    return BTS_PER_STORE;
   }
 
   /* No participation flag any more. Every store runs every program, so the old tick-box was a
@@ -2904,7 +2897,7 @@
     if (calc.stores.length || !state.stores.length) return;
     calc.stores = state.stores.map(function (s) {
       /* perBtSet null = this store tracks the typed target. A number pins it — see calcModel. */
-      return { store_id: s.store_id, name: s.display_name || s.store_id, baseline: 0, bts: 6,
+      return { store_id: s.store_id, name: s.display_name || s.store_id, baseline: 0, bts: BTS_PER_STORE,
                perBtSet: null };
     });
     recalc();
@@ -3238,7 +3231,7 @@
           +   '<span class="sp-dot"></span>' + esc(st.name) + '</span></td>'
           + '<td class="num">' + refCell(st, i, base) + '</td>'
           + '<td class="num strong">' + goal.toLocaleString() + '</td>'
-          + '<td class="num"><input class="sp-in sp-num-in narrow" type="text" inputmode="numeric" data-i="' + i + '" data-f="bts" value="' + n + '" aria-label="Budtenders, ' + esc(st.name) + '"></td>'
+          + '<td class="num">' + n + '</td>'
           + '<td class="num dim">' + (perNow == null ? '—' : perNow.toLocaleString()) + '</td>'
           + '<td class="num">' + (perGoal == null ? '—'
               : '<span class="sp-pin-cell' + (row.pinned ? ' is-pinned' : '') + '">'

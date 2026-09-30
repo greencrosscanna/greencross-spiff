@@ -178,7 +178,11 @@ ok('a program with no stored copy falls back to sending everything',
  * Measured against all 26 live programs: 20 of them drifted. Meraki Gardens December went from
  * 90 units to 78 with nobody typing anything. Opening a program and pressing Update was enough.
  */
-const B = new Function(grab('btsForStore') + '; return btsForStore;')();
+/* Headcount is HARDCODED to the norm of six (Sky, 2026-09-30) — the inference tests below now
+ * pin that nothing saved or derived can move it off six; that is what stops a preview reading
+ * 38 budtenders across six stores. */
+const B = new Function('var BTS_PER_STORE = 6;' + grab('btsForStore') + '; return btsForStore;')();
+ok('the norm is declared once, as six', /var BTS_PER_STORE = 6;/.test(js));
 
 /* Meraki Gardens December, verbatim from the datastore. Every store really had 6 budtenders. */
 const MERAKI_BASE = { by_store: { bend: 9, center: 1, commercial: 9, hillsboro: 2,
@@ -199,9 +203,11 @@ ok('  …and for every other store in that program too',
    ['center', 'commercial', 'hillsboro', 'portland-rd', 'river-rd']
      .every(id => B(id, MERAKI_TGT, MERAKI_BASE) === 6));
 
-/* A saved headcount always wins — it is the only one that is not an inference. */
-ok('a SAVED headcount beats both inferences',
-   B('bend', Object.assign({ bts_by_store: { bend: 4 } }, MERAKI_TGT), MERAKI_BASE) === 4);
+/* A saved headcount no longer wins — six is the norm, hardcoded. */
+ok('a SAVED headcount of 4 still reads six',
+   B('bend', Object.assign({ bts_by_store: { bend: 4 } }, MERAKI_TGT), MERAKI_BASE) === 6);
+ok('a saved headcount of 7 still reads six, so six stores never total 38',
+   B('bend', { bts_by_store: { bend: 7 } }, {}) === 6);
 
 /* Falling back, in order, and never to zero. */
 ok('with no target to divide, it falls back to last month',
