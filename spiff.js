@@ -5771,8 +5771,8 @@
 
       /* ---- step 1: the artefact the vendor receives */
       + '<div class="sp-step" id="repStep1">'
-      +   '<div class="sp-step-h"><span class="sp-step-n">1</span><h4>File the brand report</h4>'
-      +     '<span class="sp-step-note" id="repStep1Note">saved to the SPIFF Reports folder in Drive</span></div>'
+      +   '<div class="sp-step-h"><span class="sp-step-n">1</span><h4>The brand report</h4>'
+      +     '<span class="sp-step-note" id="repStep1Note">this page is what the brand gets &mdash; print it or save it as a PDF</span></div>'
       +   '<div class="sp-step-b">'
       +     '<div class="sp-paper" id="printArea">'
       +       '<div class="sp-paper-h">'
@@ -5796,12 +5796,14 @@
             + '<td class="num">' + goal.toLocaleString() + '</td><td class="num">' + sold.toLocaleString() + '</td>'
             + '<td class="num">' + hit + ' / ' + totalBts + '</td></tr></tbody></table>'
           : '<p style="color:#5a635f;font-size:11.5px">Per-store detail appears once sell-through has been pulled for this program.</p>')
-      +       '<div class="sp-paper-file">SPIFF_Sales Report - ' + esc(p.vendor) + ' - ' + esc(fileStamp(p)) + '.pdf'
-      +         (primaryRep(p) && primaryRep(p).name ? ' &middot; prepared for ' + esc(primaryRep(p).name) + ', ' + esc(p.vendor) : '') + '</div>'
+      /* The filename line used to print here, and it named the Drive file — which is the staff copy
+         with budtender names, not this page. Only the addressee stays. */
+      +       (primaryRep(p) && primaryRep(p).name
+            ? '<div class="sp-paper-file">Prepared for ' + esc(primaryRep(p).name) + ', ' + esc(p.vendor) + '</div>' : '')
       +     '</div>'
       +     '<div class="sp-step-actions">'
-      +       '<button class="gx-btn gx-btn-green" data-act="pdf">Save PDF to Drive</button>'
-      +       '<button class="gx-btn" data-act="print">Print</button>'
+      +       '<button class="gx-btn gx-btn-green" data-act="print">Print / save PDF for the brand</button>'
+      +       '<button class="gx-btn" data-act="pdf" title="Saves our own copy to the SPIFF Reports folder in Drive. It lists every budtender by name, so it is for our records and is not what the brand gets.">Save staff copy to Drive (with budtender names)</button>'
       +     '</div>'
       +   '</div></div>'
 
