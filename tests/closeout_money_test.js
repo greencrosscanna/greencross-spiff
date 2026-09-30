@@ -104,7 +104,7 @@ const DOC = G.load({
          'brandPaperHtml_', 'brandProgramLabel_', 'prettyDay_', 'brandPdfBlob_',
          'brandFromAddress_', 'sendBrandEmail_'],
   vars: ['EDIT_ROLES', 'LOGO_ONLIGHT', 'GX_SECRET_PROP', 'BTS_PER_STORE',
-         'BRAND_FROM_PROP', 'BRAND_SENT_PREFIX'],
+         'BRAND_FROM_PROP', 'BRAND_SENT_PREFIX', 'BRAND_FROM_DEFAULT'],
   stubs: {
     getProgram_: (id) => (id === PH.program_id ? { ok: true, program: PH }
                         : id === FLAT.program_id ? { ok: true, program: FLAT }
@@ -367,9 +367,11 @@ ok('  …and the draft says what to attach rather than attaching it itself',
   const ARG = { token: 't', id: PH.program_id, to: 'Rep@Brand.com', subject: 'SPIFF results' };
 
   PROPS.props.BRAND_EMAIL_FROM = '';
-  let r = DOC.sendBrandEmail_(ARG);
-  ok('with no sender configured it refuses, and sends nothing',
-     r.ok === false && /not set up/.test(r.error) && SENT.length === 0);
+  ok('with no property set the sender is Tawny\'s address, never the account itself',
+     DOC.brandFromAddress_() === 'tawny@greencrosscanna.com');
+  PROPS.props.BRAND_EMAIL_FROM = 'other@greencrosscanna.com';
+  ok('the script property overrides the default', DOC.brandFromAddress_() === 'other@greencrosscanna.com');
+  let r;
 
   PROPS.props.BRAND_EMAIL_FROM = 'tawny@greencrosscanna.com';
   AUTH = { ok: true, user: 'viewer1', role: 'viewer' };
@@ -422,9 +424,6 @@ ok('  …and the draft says what to attach rather than attaching it itself',
   ok('the draft preview is the same brand page, and says whether sending is ready',
      (() => { const d = DOC.emailDraft_({ id: PH.program_id });
               return d.send_ready === true && /Credit requested/.test(d.html) && !/SKYLER/.test(d.html); })());
-  PROPS.props.BRAND_EMAIL_FROM = '';
-  ok('  …and reports not-ready when no sender is configured',
-     DOC.emailDraft_({ id: PH.program_id }).send_ready === false);
 
   ok('nothing in the engine sends except the one route (no stray send call)',
      (() => { const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8');

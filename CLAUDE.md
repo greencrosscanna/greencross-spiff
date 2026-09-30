@@ -401,9 +401,10 @@ Google's consent HTML instead of JSON until the owner has authorized.
 - **Nothing goes to a vendor without a human.** Reports are drafted and saved; a person decides to
   send. *Changed 2026-09-30 (Sky): the app may now do the sending, on that person's click* —
   `sendBrandEmail_` (Code.gs) runs only from the "Send to brand" button after a confirmation naming
-  the recipient, never from a trigger. It goes out AS the Send-As alias in script property
-  `BRAND_EMAIL_FROM` (Tawny's address; replies and a blind copy go there too) and refuses outright if
-  that is unset — it never falls back to sending from the account the script runs as. It refuses a
+  the recipient, never from a trigger. It goes out AS the Send-As alias `tawny@greencrosscanna.com`
+  (`BRAND_FROM_DEFAULT`; script property `BRAND_EMAIL_FROM` overrides it; replies and a blind copy go
+  there too). If Gmail does not know that alias the send FAILS loudly — it never falls back to sending
+  from the account the script runs as. It refuses a
   second send of the same program to the same address unless `resend=1`, because writes ride on GET
   and a URL can be re-fetched. **What the brand gets is the brand page — no budtender names** (one
   builder, `brandPaperHtml_`, feeds the preview, the email body and the attached PDF); the staff

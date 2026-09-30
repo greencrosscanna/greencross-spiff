@@ -5634,8 +5634,13 @@ function brandPdfBlob_(p, measured) {
   return Utilities.newBlob(doc, 'text/html', 'r.html').getAs('application/pdf').setName(name);
 }
 
+/* Tawny's address is the default (Sky, 2026-09-30); the BRAND_EMAIL_FROM script property overrides
+   it without a deploy. It is an address, not a secret, so it lives in the repo. It is still only
+   ever used as a Send-As alias — if Gmail does not know it, the send fails loudly. */
+var BRAND_FROM_DEFAULT = 'tawny@greencrosscanna.com';
+
 function brandFromAddress_() {
-  return String(PropertiesService.getScriptProperties().getProperty(BRAND_FROM_PROP) || '').trim();
+  return String(PropertiesService.getScriptProperties().getProperty(BRAND_FROM_PROP) || BRAND_FROM_DEFAULT).trim();
 }
 
 function sendBrandEmail_(p) {
