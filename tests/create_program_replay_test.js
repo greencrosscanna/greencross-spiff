@@ -84,7 +84,7 @@ function run(programRow, p, auth) {
     real: ['createProgram_', 'createIsReplay_', 'canonJson_', 'saveProgram_', 'getProgram_',
            'listPrograms_', 'rowToProgram_', 'programToRow_', 'measurementInvalidatedBy_',
            'brandMatchCheck_', 'dropProgressRows_', 'invalidatePrograms_', 'parseJson_',
-           'textDate_', 'nowStamp_', 'slug_', 'normalizePitch_', 'today_', 'periodStartFor_',
+           'textDate_', 'nowStamp_', 'slug_', 'normalizePitch_', 'periodStartFor_',
            'stripDerivedActuals_'],
     vars: ['PROGRAM_HEADERS', 'EDIT_ROLES', 'MEASURED_BY', 'CREATE_REPLAY_FIELDS', 'PITCH_MAX_LEN'],
     varValues: { PITCH_MAX_TIPS: 5 },
@@ -95,11 +95,30 @@ function run(programRow, p, auth) {
       annotateActuals_: () => {},
       annotateUnmeasurable_: () => {},
       payPeriodCfg_: () => ({ anchor: '2026-08-17', days: 14 }),
+      /* THE CLOCK IS PINNED, AND THIS FILE IS WHY IT HAS TO BE.
+       *
+       * createProgram_ derives the id as slug(name) + the CURRENT month: today_().slice(0,7).
+       * Every fixture here is the real collision from bug_mulu4dfk_4x9j, so it carries that bug's
+       * real id — `…-202609`. With `today_` loaded as the real function the derived id followed the
+       * wall clock, so from 2026-10-01 it became `…-202610`, missed the seeded row entirely, and
+       * took the CREATE path instead of the replay path. Five assertions failed and the engine was
+       * never wrong: a green suite in September, a red one in October, no commit in between.
+       *
+       * The original line read `const orig = Date;` under a comment promising to "pin the month so
+       * the derived id is stable" — a variable assigned, never used, and a guarantee never written.
+       * It passed for three days because the wall clock happened to agree with the fixture. That is
+       * this repo's own documented failure mode: a check that cannot do what it claims looks
+       * exactly like one that works.
+       *
+       * Fixed 2026-10-03, after it blocked every push to this repo. Twelve releases shipped between
+       * the break and the discovery, so pushes were getting through some other way for three days —
+       * worth knowing, and not fixed here.
+       *
+       * Any date inside September works; this is the bug's own day. */
+      today_: () => '2026-09-28',
     },
     globals: { CacheService: cache.CacheService },
   });
-  // today_ is a real function but not in `real` — pin the month so the derived id is stable.
-  const orig = Date;
   const res = api.createProgram_(Object.assign({
     token: 'tok', program: JSON.stringify(draft())
   }, p || {}));
