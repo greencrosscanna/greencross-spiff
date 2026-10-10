@@ -53,13 +53,16 @@ the `programs` tab holds one row per program).
 | `/exec` | `https://script.google.com/macros/s/AKfycbw0JUgI01c7iaJRnuQgHdjUazDPtyEiEHZvlYkjflLSIVMY7qs-0Bkv4gPoxt8o2e6JZw/exec` |
 | script id | `1RZw4VDq06d-gdZT1RYpIDOhS9TcrzZ6qJGlTR692O15FZaAg1mKlCor-` (in `.clasp.json`) |
 | datastore | sheet `1IXtgygVInEOak83RRC81bAUvr_zukdT0GJOLaqzuT44` — lives in **[GX2 Dashboard](https://drive.google.com/drive/folders/1BXH5SrK9dWupl-w1UW5Bjt5oSORednLD)** |
-| ship | `clasp push --force` then `clasp update-deployment <id>` — **update**, never create, so `/exec` holds |
+| ship | commit, then `./gxengine.sh --deploy` — **update**, never create, so `/exec` holds |
 | run (frontend) | `python3 serve.py` → <http://localhost:8754> — no build step, the working tree IS the app |
-| tests | `tests/*_test.js`, each run with `node` *(corrected 2026-10-09: this row said "no automated suite — verify against the live engine", which stopped being true)* |
+| tests | `tests/*_test.js`, each run with `node` *(corrected 2026-10-09: this said "no automated suite")* |
 
-*(Flagged 2026-10-09, not resolved here: since 2026-09-03 the suite `CLAUDE.md` prescribes
-`./gxengine.sh --deploy` over the raw clasp pair. "Update, never create" holds either way.)*
-
+- **Ship the engine with `./gxengine.sh --deploy`, after committing.** It pushes, redeploys the
+  deployment id this repo's own source points at, and records the sha to `core_pins`; it refuses
+  uncommitted tracked changes and never creates a deployment. Bare `./gxengine.sh` is a dry run.
+  **Never the raw clasp trio, never a new deployment id** — a new one mints a fresh `/exec` and
+  orphans every caller. Then bump `?v=` and run `./deploy.sh`.
+  *Corrected 2026-10-09: this said "`clasp push --force` then `clasp update-deployment <id>`".*
 - The dev server talks to the **live** engine; `gx-dev.js` blocks writes until you arm them, and
   `gx-preflight.sh` runs as a **pre-push hook** refusing dev leftovers (fixtures on, writes armed,
   localhost URLs, `@devonly` blocks).
@@ -161,7 +164,7 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   paid, a rename moves the same money to a key that tells the truth.
   *`green-cross-test-202608` was NOT a test row* — it is the real Portland Heights fortnight, now
   **`portland-heights-2026-08-17-2026-08-30`**. Pinned by `tests/rename_program_id_test.js`
-  *(test name made explicit 2026-10-09; the original named no test for this rule)*.
+  *(test named 2026-10-09; the original named none)*.
   Hist: § Sync with the brain → "Re-key through".
 
 - **An orphaned progress row is never payable** (2026-08-31). A cached `spiff_progress` row whose
@@ -252,14 +255,15 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   writes it and nothing reads it. A documented contract that does not exist is worse than an
   undocumented one: it invites a future session to "maintain" it, or to assume pay data already
   flows and build on top of it. *(Reworded 2026-10-09; original in history § The rules that matter →
-  "SPIFF once had a cross-app write contract". Its "only GX Core calls are READS: `getEmployees`,
-  `getStores`, `getProducts`, `libVersion`" predates the publish contract above.)*
-- **Incentive lives in GX Crew** (decision 2026-08-16, moved out of Leaderboard), so "connect to
-  SPIFF" work targets Crew, and any new hand-off needs a real contract — designed, not assumed.
-  *(Flagged 2026-10-09: the original still says Mike hand-types a SPIFF dollar per employee per pay
-  period (`{nameKey: {att, spiff}}`) and that replacing it is "still unbuilt", while the Progress
-  section says Crew's `applySpiffEarnings_` fills that column from what SPIFF measured. Check Crew
-  before relying on either.)* Hist: "The underlying goal is still real".
+  "SPIFF once had a cross-app write contract"; its "only GX Core calls are READS" is superseded.)*
+- **Incentive lives in GX Crew** (decision 2026-08-16, moved out of Leaderboard), **and Crew fills
+  the SPIFF dollar from what SPIFF measured.** Crew's `applySpiffEarnings_` sets `spiff_earned` per
+  person: the incentive **screen** reads Core's publication; **approval and send** read this
+  engine's `?action=progress` live (the documented exception above). A hand-typed figure is an
+  **override only** — a typed value, even 0, beats the measurement; an absent one falls through to
+  it. Any new hand-off still needs a real contract — designed, not assumed.
+  *Corrected 2026-10-09: this said Mike hand-types a SPIFF dollar per employee per pay period and
+  that replacing that hand-entry was "still unbuilt".* Hist: "The underlying goal is still real".
 - **Brand reps live in GX Core's shared brand registry, not on the program** (Sky, 2026-09-14/15;
   GXCore v330). `brands` + `brand_contacts`, keyed by **brand** — Sky chose that over a
   vendor/distributor layer. SPIFF edits reps on the program screen (`saveBrandContact`,
@@ -391,10 +395,12 @@ build sequence; it reads the app key automatically.
 
 Coordination is the **central brain-notes inbox** in GX Core: `/gxbrain` and the SessionStart hook read
 notes addressed to **`to_app=spiff`**, resolve done ones (`resolve_note`), and write note-backs to any app
-(`add_note`). As an Inventory sub-app, its **bug reports** bucket to **Inventory** (`app=inventory`,
-`tab=spiff`), not to a separate `spiff` bug stream — don't conflate the notes key with the bug tab.
-*(Flagged 2026-10-09, left for Sky to judge: the suite `CLAUDE.md` says SPIFF has filed as `app=spiff,
-tab=spiff` since 2026-08-27, and `spiff.js` sends `app: 'spiff'` today. The sentence above looks stale.)*
+(`add_note`). **Bug reports file under SPIFF's own key: `app=spiff`, `tab=spiff`.** The engine
+hardcodes both in `reportBug_` and ignores any client-sent `tab` (the panel rides in the context as
+`panel`). Nested in Inventory, SPIFF hides its own report button; a report from the host's button
+is Inventory's to route, not this engine's.
+*Corrected 2026-10-09: this said bug reports bucket to Inventory (`app=inventory`, `tab=spiff`),
+"not to a separate `spiff` bug stream". That stopped being true 2026-08-27.*
 
 **Shared files** (`deploy.sh`, `.claude/gx-brain-notes.sh`) come from **gx-theme** via `./gx-sync.sh`,
 filled from `.gx_app`. Edit them **there**, not here, then re-sync. `gx-theme.css` and `gx-client.js` load
@@ -491,4 +497,5 @@ that shipped a GX Core change as library v284 with no PR and no review. Hist: §
 - **Do not restyle a shared component from inside SPIFF either.** A local rule that beats `.gx-btn-green`
   wins here and silently diverges from the other five — that is how the suite ended up with six
   different login screens. The test is *"should all six get this?"*
-- **SPIFF's own engine and repo are still yours.** `clasp push` / `./deploy.sh` here touch only this app.
+- **SPIFF's own engine and repo are still yours.** `./gxengine.sh --deploy` / `./deploy.sh` here touch
+  only this app.
