@@ -411,6 +411,9 @@ function doGet(e) {
          BY DEFAULT; `apply=1` writes. A machine route on purpose — it is what a failed publish in
          mint/rotate tells you to run, and that can be from a terminal with no session. */
       case 'publishKioskTokens': out = publishKioskTokens_(p);                      break;
+      /* The same repair from the Kiosk links panel: an editor's SESSION instead of the deploy
+         secret, which a browser must never hold. See storeLinksRepublish_. */
+      case 'storeLinksRepublish': out = storeLinksRepublish_(p);                    break;
       case 'sellthrough': out = sellthrough_(p);                                    break;
       case 'catalog':     out = catalog_(p);                                        break;
       case 'refunits':    out = refUnits_(p);                                       break;
@@ -4658,6 +4661,55 @@ function publishKioskTokens_(p) {
           : 'Published. Leaderboard reads cfg.spiffKiosk.<store_id> and needs no change.')
       : 'DRY RUN — nothing was written. Add &apply=1 to publish.'
   };
+}
+
+/* ═══ THE SAME REPAIR, FROM THE PANEL: an editor's session instead of the deploy secret ═══
+ * (2026-10-10.) The warning on Settings → Kiosk links told a person to re-run
+ * ?action=publishKioskTokens&apply=1 — a route no browser can call, because it is in SECRET_ACTIONS
+ * and guard_ answers those before it looks at a session. The deploy secret stays server-side, and
+ * the secret gate is NOT loosened: publishKioskTokens is still secret-only and still refuses a
+ * session token. This is a second door onto the same function, for a signed-in editor.
+ *
+ * AUTH IS storeLinkMintAll_'s, LINE FOR LINE — a real session (gxAuth_) and an editing role
+ * (EDIT_ROLES) — plus GXCore.roleCanEdit, so a role GX Core itself calls read-only cannot get in
+ * even if this file's list ever drifts. Both must say yes; an unreachable library fails closed.
+ * Like Create and Replace, the handler wants a SESSION: guard_ lets a deploy secret through to any
+ * token-gated route, and this then refuses it for having no session, exactly as those two do.
+ *
+ * NO SECOND IMPLEMENTATION. It calls publishKioskTokens_ with apply=1 and reshapes the answer into
+ * the field names storeLinkMintAll_ already uses (`published`, `publish_failed`), so the panel
+ * reads one shape from all three buttons.
+ *
+ * REPLAY. Writes ride on GET, so this URL can be re-fetched. That is harmless here and needs no
+ * typed confirmation: it writes, per store, the token store_links ALREADY holds (or blank where
+ * there is none), so a second run rewrites the same values. Create is safe the same way (it skips
+ * a store that has a link). It mints nothing and revokes nothing.
+ *
+ * A REGISTRY THAT DID NOT ANSWER is passed through as the refusal publishKioskTokens_ made of it —
+ * ok:false with its own words — never as "nothing needed republishing". */
+function storeLinksRepublish_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) {
+    return { ok: false, error: 'Your role (' + auth.role + ') cannot manage kiosk links' };
+  }
+  var coreSaysEdit = false;
+  try { coreSaysEdit = GXCore.roleCanEdit(auth.role) === true; } catch (e) { coreSaysEdit = false; }
+  if (!coreSaysEdit) {
+    return { ok: false, error: 'Your role (' + auth.role + ') cannot manage kiosk links' };
+  }
+
+  var res = publishKioskTokens_({ apply: '1' });
+  if (!res || !res.plan) return res || { ok: false, error: 'republish failed' };
+
+  var failed = (res.failed || []).map(function (x) {
+    return { store_id: x.store_id, error: String(x.error || '') };
+  });
+  return { ok: true, stores: res.stores,
+           published: res.plan.filter(function (x) { return x.ok === true; })
+                              .map(function (x) { return x.store_id; }),
+           publish_failed: failed,
+           publish_note: failed.length ? String(res.note || '') : '' };
 }
 
 /* ── THE PEOPLE ON THE BOARD AT ONE STORE ────────────────────────────────────────────────────────

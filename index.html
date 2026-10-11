@@ -628,7 +628,7 @@
   // from localhost, until writes are armed (banner button / ?arm=1 / GXDev.arm()). Inert in
   // production. Add new READS here; leave writes off the list.
   // Guarded writes: buildReport, bugreport, createProgram, editProgram, shareLink,
-  //                  storeLinkMintAll, storeLinkRotate
+  //                  storeLinkMintAll, storeLinkRotate, storeLinksRepublish
   // Also guarded: addBrand, saveBrand, saveBrandContact, removeBrandContact. `brands` is a READ (GX Core's
   // shared brand list with reps, through the engine).
   // `storeLinks` and `storeView` are READS — listing the kiosk links and rendering a kiosk board.
@@ -655,6 +655,6 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="spiff.js?v=1.458"></script>
+<script src="spiff.js?v=1.459"></script>
 </body>
 </html>

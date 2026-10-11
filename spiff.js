@@ -2288,50 +2288,106 @@
      reloaded the list too — and the reload rebuilds this whole panel, so the note was replaced by
      an empty span before anyone could read it. Both read as a clean success.
 
-     So the notice is STATE, not a line of text poked into the DOM: it is set from the reply,
-     painted by renderKioskLinks on every render (and by the could-not-load branch, which is the
-     likeliest thing to follow a failed publish), and cleared only by the next clean run.
+     So the warning is STATE, not a line of text poked into the DOM: it is updated from each
+     reply and painted by renderKioskLinks on every render (and by the could-not-load branch,
+     which is the likeliest thing to follow a failed publish).
 
-     WHAT A CLEAN RUN DOES NOT PROVE. It clears the notice because the action just taken worked,
-     not because GX Core has caught up on the stores named earlier — nothing on this screen can
-     ask that. The repair is still the one the note names (?action=publishKioskTokens&apply=1). */
-  var kioskNotice = null;   // { note, ids: [store_id…], reason } or null
+     IT IS KEPT PER STORE (v1.459). The first cut held one notice and let any clean run clear it,
+     so a warning about two stores vanished when a third store's link was replaced. Now a store
+     enters this set when a reply says it did not reach GX Core, and leaves ONLY when a reply says
+     THAT store did: Create or Republish listing it in `published`, or Replace answering
+     `published: true` for it. A success about some other store proves nothing about this one.
 
-  /* Reply → notice, or null when everything reached Core. `storeId` is passed for a rotate (one
-     store, a boolean); omitted for mint-all (a list). Field names are the engine's own. */
-  function kioskPublishNotice(r, storeId) {
-    if (!r) return null;
+     WHAT IT IS NOT. It is this page's memory, so a reload forgets it. The engine has no read
+     that says which stores GX Core is missing — the dry run of publishKioskTokens plans from
+     store_links alone and never looks at Core — so there is nothing to rebuild it from on open.
+     After a reload the honest state is "unknown", shown as nothing; Republish is idempotent and
+     is the way to be sure. */
+  var kioskOutstanding = Object.create(null);   // store_id → the reason the engine gave ('' if none)
+
+  function kioskOutstandingIds() { return Object.keys(kioskOutstanding); }
+
+  /* Fold one reply into the set. `storeId` is passed for Replace (one store, `published` is a
+     boolean); omitted for Create and Republish (`published` is a list of store ids and
+     `publish_failed` a list of {store_id, error}). Field names are the engine's own. A reply that
+     says nothing about a store leaves that store exactly as it was. */
+  function kioskApplyReply(r, storeId) {
+    if (!r) return;
     if (storeId != null) {
-      if (r.published !== false) return null;
-      return { note: String(r.publish_note || 'The new link did not reach the Command Center.'),
-               ids: [String(r.store_id || storeId)],
-               reason: String(r.publish_error || '') };
+      var id = String(r.store_id || storeId);
+      if (r.published === false) kioskOutstanding[id] = String(r.publish_error || '');
+      else if (r.published === true) delete kioskOutstanding[id];
+      return;
     }
-    var failed = r.publish_failed || [];
-    if (!failed.length) return null;
-    return { note: String(r.publish_note
-                          || failed.length + ' store link(s) did not reach the Command Center.'),
-             ids: failed.map(function (f) { return String((f && f.store_id) || ''); })
-                        .filter(Boolean),
-             reason: String((failed[0] && failed[0].error) || '') };
+    (Array.isArray(r.published) ? r.published : []).forEach(function (s) {
+      delete kioskOutstanding[String(s)];
+    });
+    (r.publish_failed || []).forEach(function (f) {
+      var fid = String((f && f.store_id) || '');
+      if (fid) kioskOutstanding[fid] = String((f && f.error) || '');
+    });
   }
 
-  /* The notice as markup. Store NAMES when the list is in hand, ids when it is not. Everything
-     from the reply goes through esc() — the note and the reason are engine text, and a reason
-     can carry whatever GX Core or the network said. */
+  /* The warning as markup, or '' when nothing is outstanding. Store NAMES when the list is in
+     hand, ids when it is not. The wording is the panel's own and points at the button below it —
+     the engine's publish_note quotes a URL, which is right for a terminal and useless to a person.
+     Every reason is engine text (whatever GX Core or the network said), so it goes through esc().
+     The button is offered only to someone who can edit, by the same canEdit() the Create and
+     Replace buttons sit behind. */
   function kioskNoticeHtml(links) {
-    if (!kioskNotice) return '';
+    var ids = kioskOutstandingIds();
+    if (!ids.length) return '';
     var names = Object.create(null);
     (links || []).forEach(function (l) { names[l.store_id] = l.display_name || l.store_id; });
-    var who = (kioskNotice.ids || []).map(function (id) { return names[id] || id; });
+    var reasons = ids.map(function (id) { return kioskOutstanding[id]; });
+    var oneReason = reasons.every(function (x) { return x === reasons[0]; });
+    var who = ids.map(function (id) {
+      return (names[id] || id) + (!oneReason && kioskOutstanding[id] ? ' (' + kioskOutstanding[id] + ')' : '');
+    });
     return '<div class="sp-notice is-warn" id="kioskNotice" role="alert">'
       + '<span class="sp-notice-l">Not sent to the Command Center</span>'
-      + esc(kioskNotice.note)
-      + (who.length
-          ? '<br><b>' + who.length + ' store' + (who.length === 1 ? '' : 's') + ':</b> ' + esc(who.join(', '))
+      + (ids.length === 1 ? 'This store&rsquo;s link was' : 'These store links were')
+      + ' saved here but did not reach the Command Center, so the copy Leaderboard holds is missing '
+      + 'or out of date. The link still works when opened from this list, and nothing changes on '
+      + 'the kiosk.'
+      + '<br><b>' + ids.length + ' store' + (ids.length === 1 ? '' : 's') + ':</b> ' + esc(who.join(', '))
+      + (oneReason && reasons[0] ? '<br>Reason: ' + esc(reasons[0]) : '')
+      + (canEdit()
+          ? '<div class="share-row"><button type="button" class="gx-btn" id="kioskRepublish">'
+            + 'Republish to Command Center</button></div>'
           : '')
-      + (kioskNotice.reason ? '<br>Reason: ' + esc(kioskNotice.reason) : '')
       + '</div>';
+  }
+
+  /* "Republish to Command Center" — the step the warning used to describe as a URL. Sends every
+     store's current link again (the engine's storeLinksRepublish, an editor session; the
+     secret-gated publishKioskTokens stays unreachable from a browser, as it must). Stores that
+     get through leave the set; stores that do not stay, with the engine's reason. Never hedged
+     and never retried here: it is a write. */
+  async function republishKioskLinks(btn) {
+    btn.disabled = true;
+    btn.textContent = 'Republishing…';
+    try {
+      var r = await ENG.jsonp('storeLinksRepublish', { token: (session() || {}).token },
+                              { timeoutMs: 45000, retries: 0 });
+      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+      kioskApplyReply(r);
+      await loadKioskLinks(true);
+    } catch (err) {
+      /* Refused or dropped: nothing is known to have changed, so the set is left alone and the
+         reason is put where it can be read. */
+      btn.textContent = 'Failed';
+      var m = $('#kioskMsg');
+      if (m) m.textContent = 'Republish did not go through: ' + String(err.message || err);
+      btn.disabled = false;
+    }
+  }
+
+  /* The warning's button exists in two renders (the list, and the could-not-load branch), so the
+     wiring is one function both call. */
+  function wireKioskNotice() {
+    var rb = $('#kioskRepublish');
+    if (rb) rb.addEventListener('click', function () { republishKioskLinks(rb); });
   }
 
   /* "Create links for the N store(s) without one". Named, not an inline closure, so the test can
@@ -2343,7 +2399,7 @@
       var r = await ENG.jsonp('storeLinkMintAll', { token: (session() || {}).token },
                               { timeoutMs: 30000, retries: 0 });
       if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
-      kioskNotice = kioskPublishNotice(r);   // null on a clean run, which clears an earlier one
+      kioskApplyReply(r);   // per store: failures join the warning, the ones that got through leave it
       await loadKioskLinks(true);
     } catch (err) {
       btn.textContent = 'Failed';
@@ -2396,13 +2452,10 @@
 
     var mintAll = $('#kioskMintAll');
     if (mintAll) mintAll.addEventListener('click', function () { mintAllKioskLinks(mintAll); });
+    wireKioskNotice();
 
     host.querySelectorAll('[data-kcopy]').forEach(function (b) {
-      b.addEventListener('click', async function () {
-        var okc = await copyText(storeUrl(b.dataset.kcopy));
-        b.textContent = okc ? 'Copied' : 'Copy failed';
-        setTimeout(function () { b.textContent = 'Copy'; }, 1800);
-      });
+      b.addEventListener('click', function () { copyKioskLink(b); });
     });
     host.querySelectorAll('[data-krotate]').forEach(function (b) {
       b.addEventListener('click', function () { rotateKioskLink(b.dataset.krotate, b); });
@@ -2426,9 +2479,13 @@
          the reload's own error must not be the thing that hides what the action just reported. */
       host.innerHTML = kioskNoticeHtml([])
         + '<p class="hint">Could not load kiosk links: ' + esc(String(err.message || err))
-        + ' <button type="button" class="gx-btn" id="kioskRetry">Try again</button></p>';
+        + ' <button type="button" class="gx-btn" id="kioskRetry">Try again</button></p>'
+        /* The message line too: Republish can be pressed from this branch, and a refusal with
+           nowhere to be written is the silence this panel was fixed for. */
+        + '<span class="hint" id="kioskMsg"></span>';
       var rt = $('#kioskRetry');
       if (rt) rt.addEventListener('click', function () { loadKioskLinks(true); });
+      wireKioskNotice();
     }
   }
 
@@ -2463,7 +2520,7 @@
          kiosk button depends on the link.) */
       /* Held as state and painted by the render — writing it into #kioskMsg here was erased by the
          reload on the very next line, so this branch had never been seen by anyone. */
-      kioskNotice = kioskPublishNotice(r, storeId);
+      kioskApplyReply(r, storeId);
       await loadKioskLinks(true);
     } catch (err) {
       btn.textContent = 'Failed';
@@ -2477,22 +2534,87 @@
     return location.origin + location.pathname.replace(/[^/]*$/, '') + 'client.html?t=' + tok;
   }
 
-  /* Copy that works when execCommand does not. The record panel could lean on a visible <input> to
-     select; a row has none, and a hidden one is not selectable in every browser. */
-  async function copyText(text) {
-    try {
-      if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; }
-    } catch (e) { /* fall through — a denied permission is not a reason to give up */ }
+  /* ── COPY TO THE CLIPBOARD — ONE FUNCTION, AND ITS NAME IS NOT REUSED (2026-10-10, v1.459) ──
+     Sky: Copy on a kiosk link says "Copy failed", while selecting the link and copying by hand
+     works. THE CAUSE WAS A NAME. This file declared `copyText` TWICE in the same scope — this one,
+     `copyText(text)` → Promise<boolean>, and a later `copyText(text, btn, label)` beside the
+     gift-card buy list that returned nothing and wrote "Copied" onto the button it was handed.
+     Function declarations hoist and the LATER one wins, so every caller of this one was really
+     calling that one: it got `undefined` back (read as failure — "Copy failed" on a kiosk link,
+     "Link ready" instead of "Link copied" on a program row), and then the clipboard write, which
+     had usually SUCCEEDED, tried to set `.textContent` on a button that was never passed and threw
+     inside a promise where nobody saw it. So the link was typically on the clipboard while the
+     button said it was not. Not a browser quirk; every browser, standalone or nested.
+     The second declaration is gone and the buy list calls this one. tests/copy_text_test.js fails
+     if `copyText` is ever declared twice again.
+
+     THE ORDER BELOW IS ALSO DELIBERATE, and fixes a real but separate weakness in the old body:
+     it awaited navigator.clipboard FIRST and only then fell back to execCommand, by which time the
+     click's user activation was spent — Safari and Firefox refuse execCommand('copy') outside the
+     gesture — so wherever the async API is refused (an embedded frame without clipboard-write, a
+     webview, a denied permission, an unfocused document) both paths failed. Now the synchronous
+     path runs first, inside the gesture, and the async API is the fallback. */
+  function copyTextSync(text) {
+    var prev = document.activeElement;
+    /* Inside the open dialog when there is one, so a dialog that manages focus still lets the
+       field take it; the body otherwise. */
+    var hostEl = document.querySelector('.modal-back:not([hidden]) .modal') || document.body;
     var ta = document.createElement('textarea');
-    ta.value = text;
-    ta.setAttribute('readonly', '');
-    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
-    document.body.appendChild(ta);
-    ta.select();
+    ta.value = String(text == null ? '' : text);
+    /* NOT readonly: iOS Safari will not select a readonly field. inputmode=none keeps the
+       on-screen keyboard from flashing up for the instant it holds focus. Invisible by size and
+       opacity, never display:none or visibility:hidden — those cannot be selected. 16px so iOS
+       does not zoom the page to it. */
+    ta.setAttribute('inputmode', 'none');
+    ta.setAttribute('aria-hidden', 'true');
+    ta.tabIndex = -1;
+    ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;padding:0;border:0;'
+                     + 'opacity:0;font-size:16px';
+    hostEl.appendChild(ta);
     var ok = false;
-    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
-    document.body.removeChild(ta);
+    try {
+      try { ta.focus({ preventScroll: true }); } catch (e) { ta.focus(); }
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);   // what iOS actually honors
+      ok = document.execCommand('copy') === true;
+    } catch (e) { ok = false; }
+    if (ta.parentNode) ta.parentNode.removeChild(ta);
+    try { if (prev && prev.focus) prev.focus({ preventScroll: true }); } catch (e) { /* nothing to restore to */ }
     return ok;
+  }
+
+  /* Promise<boolean>: true only when something reports the text reached the clipboard. */
+  async function copyText(text) {
+    if (copyTextSync(text)) return true;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(String(text == null ? '' : text));
+        return true;
+      }
+    } catch (e) { /* refused — the caller is told, and offers the link to copy by hand */ }
+    return false;
+  }
+
+  /* Copy on a kiosk-links row. When nothing could copy, "Copy failed" alone leaves a person with
+     a dead button — so the link already shown on that row is selected and focused instead, and
+     the message line says one keystroke finishes it. */
+  async function copyKioskLink(b) {
+    var okc = await copyText(storeUrl(b.dataset.kcopy));
+    if (okc) {
+      b.textContent = 'Copied';
+      setTimeout(function () { b.textContent = 'Copy'; }, 1800);
+      return;
+    }
+    var row = b.closest ? b.closest('tr') : null;
+    var box = row ? row.querySelector('.sp-klink-u') : null;
+    if (box) {
+      try { box.focus(); box.select(); box.setSelectionRange(0, box.value.length); } catch (e) { /* still visible */ }
+    }
+    b.textContent = 'Press ⌘C / Ctrl+C';
+    var m = $('#kioskMsg');
+    if (m) m.textContent = 'This browser would not copy for us. The link is selected — press '
+                         + '⌘C (Mac) or Ctrl+C to copy it.';
+    setTimeout(function () { b.textContent = 'Copy'; }, 6000);
   }
 
   /* Row-level share. Mints on first use and copies every time, so one control does the whole job —
@@ -2556,8 +2678,13 @@
       box.hidden = false;
       box.value = clientUrl(r.token);
       box.select();
-      try { document.execCommand('copy'); btn.textContent = 'Link copied'; }
-      catch (e) { btn.textContent = 'Link ready — copy it'; }
+      /* execCommand answers false far more often than it throws (this runs after an await, so
+         Safari and Firefox no longer count it as inside the click). Reading only the throw said
+         "Link copied" over a clipboard that had not changed. The box stays visible and selected
+         either way, so "copy it" is one keystroke. */
+      var did = false;
+      try { did = document.execCommand('copy') === true; } catch (e) { did = false; }
+      btn.textContent = did ? 'Link copied' : 'Link ready — copy it';
     } catch (err) {
       btn.textContent = 'Failed: ' + (err.message || err);
     }
@@ -5746,27 +5873,13 @@
     if (!rows.length) return;
     /* Tab-separated so it pastes into a sheet as columns — the list gets handed to whoever
        buys the cards, and they are not going to retype it. */
-    copyText(rows.join('\n'), btn, 'Copy buy list');
-  }
-
-  function copyText(text, btn, label) {
-    var done = function () {
-      btn.textContent = 'Copied';
-      setTimeout(function () { btn.textContent = label; }, 1800);
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text, done); });
-    } else fallbackCopy(text, done);
-  }
-
-  function fallbackCopy(text, done) {
-    var ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed'; ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand('copy'); done(); } catch (e) { /* nothing else to offer */ }
-    ta.remove();
+    /* The ONE copyText (see COPY TO THE CLIPBOARD). This used to call a second function of the
+       same name declared right here, which silently replaced the first for the whole file. It also
+       wrote "Copied" whether or not execCommand had said yes; now the button says what happened. */
+    copyText(rows.join('\n')).then(function (okc) {
+      btn.textContent = okc ? 'Copied' : 'Copy failed';
+      setTimeout(function () { btn.textContent = 'Copy buy list'; }, 1800);
+    });
   }
 
   function fillReportPicker() {

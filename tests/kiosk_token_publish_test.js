@@ -293,5 +293,142 @@ ok('the route is wired into the dispatcher',
   ok('the publisher uses action=set_config', /action=set_config/.test(body));
 }
 
+/* ══ 7. the panel's door onto the same repair: storeLinksRepublish ══ */
+/* Added 2026-10-10. The Kiosk links warning told a person to run publishKioskTokens, which no
+   browser can call. storeLinksRepublish is the session-gated door onto the SAME function. What has
+   to hold: an editor gets in, nobody else does, the secret-only route stays secret-only, and the
+   reply says per store what happened. The REAL guard_ runs here, with the real action lists read
+   out of Code.gs — a hand-copied list would agree with itself and prove nothing about the gate. */
+console.log('\n7. storeLinksRepublish: an editor session, never the secret, and the same publisher');
+const G = require('./_gas');
+function republishEngine(opts) {
+  opts = opts || {};
+  const calls = [];
+  const rows = (opts.rows || []).map((r, i) => Object.assign({ row: i + 2 }, r));
+  const SESSIONS = {
+    'editor-tok': { ok: true, role: 'editor', user: 'tawny' },
+    'admin-tok':  { ok: true, role: 'admin',  user: 'sky' },
+    'viewer-tok': { ok: true, role: 'viewer', user: 'dev' },
+  };
+  const src = [
+    'var GXCORE_URL = "https://core/exec";',
+    'var GX_SECRET_PROP = "GX_DEPLOY_SECRET";',
+    'var EDIT_ROLES = ' + JSON.stringify(G.grabVar('EDIT_ROLES')) + ';',
+    'var PUBLIC_ACTIONS = ' + JSON.stringify(G.grabVar('PUBLIC_ACTIONS')) + ';',
+    'var SECRET_ACTIONS = ' + JSON.stringify(G.grabVar('SECRET_ACTIONS')) + ';',
+    'var GATED_WRITES = ' + JSON.stringify(G.grabVar('GATED_WRITES')) + ';',
+    'function slug_(s){ return String(s||"").trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,""); }',
+    'function scrubSecrets_(m){ return String(m||"").replace(/(secret|token|key|pass|password)=[^&\\s"\']*/gi,"$1=[redacted]"); }',
+    'function storeLinkRows_(){ return ROWS; }',
+    'function gxStores_(){ if (STORES_FAIL) throw new Error("registry down"); return STORES; }',
+    'function gxAuth_(t){ return SESSIONS[t] || { ok:false, error:"Not signed in", code:"auth_required" }; }',
+    grab('guard_'), grab('gxPublishKioskToken_'), grab('publishKioskTokens_'), grab('storeLinksRepublish_'),
+    'return { guard: guard_, republish: storeLinksRepublish_, backfill: publishKioskTokens_ };',
+  ].join('\n');
+  const api = new Function(
+    'ROWS', 'STORES', 'STORES_FAIL', 'SESSIONS', 'PropertiesService', 'UrlFetchApp', 'GXCore', src
+  )(
+    rows, STORES, !!opts.storesFail, SESSIONS,
+    { getScriptProperties: () => ({ getProperty: () => 'S3CRET' }) },
+    { fetch(url) {
+        calls.push(url);
+        const key = keyOf(url);
+        if (opts.failFetch || (opts.failKeys || []).some(k => key.endsWith(k))) {
+          throw new Error('Address unavailable: ' + url);
+        }
+        return { getContentText: () => JSON.stringify({ ok: true }) };
+      } },
+    { roleCanEdit: opts.roleCanEdit
+        || ((role) => ['editor', 'admin', 'director', 'manager'].indexOf(String(role)) >= 0) }
+  );
+  /* What doGet does: the gate first, the handler only if the gate lets the call through. */
+  const call = (action, p) => {
+    const denied = api.guard(action, p);
+    if (denied) return denied;
+    return action === 'storeLinksRepublish' ? api.republish(p) : api.backfill(p);
+  };
+  return { api, calls, call };
+}
+const THREE = [{ store_id: 'bend', token: 'live1', revoked_at: '' },
+               { store_id: 'river-rd', token: 'live2', revoked_at: '' },
+               { store_id: 'commercial', token: 'live3', revoked_at: '' }];
+{
+  const e = republishEngine({ rows: THREE });
+  const r = e.call('storeLinksRepublish', {});
+  ok('no session is refused', r.ok === false && r.needsAuth === true);
+  ok('…and nothing is written', e.calls.length === 0);
+}
+{
+  const e = republishEngine({ rows: THREE });
+  const r = e.call('storeLinksRepublish', { token: 'viewer-tok' });
+  ok('a viewer session is refused, by role', r.ok === false && /viewer.*cannot manage kiosk links/.test(r.error));
+  ok('…and nothing is written', e.calls.length === 0);
+}
+{
+  const e = republishEngine({ rows: THREE });
+  const r = e.call('storeLinksRepublish', { token: 'editor-tok' });
+  ok('an editor session is admitted', r.ok === true);
+  ok('it writes every registry store through set_config', e.calls.length === 3
+     && e.calls.every(u => /action=set_config/.test(u)));
+  ok('each store gets the token store_links already holds — nothing is minted',
+     valueOf(e.calls.find(u => keyOf(u).endsWith('river-rd'))) === 'live2');
+  ok('the reply lists the stores that reached Core, by id',
+     JSON.stringify((r.published || []).slice().sort()) === JSON.stringify(['bend', 'commercial', 'river-rd']));
+  ok('a clean run reports no failures and no note', r.publish_failed.length === 0 && r.publish_note === '');
+  ok('the reply does not leak token values', !/live[123]/.test(JSON.stringify(r)));
+}
+{
+  const e = republishEngine({ rows: THREE, failKeys: ['river-rd'] });
+  const r = e.call('storeLinksRepublish', { token: 'editor-tok' });
+  ok('a partial failure is still an answer, not a refusal', r.ok === true);
+  ok('…the store that failed is named with a reason',
+     r.publish_failed.length === 1 && r.publish_failed[0].store_id === 'river-rd'
+     && /GX Core unreachable/.test(r.publish_failed[0].error));
+  ok('…the reason has the deploy secret scrubbed out', !/S3CRET/.test(JSON.stringify(r)));
+  ok('…and it is NOT listed as published, while the other two are',
+     r.published.indexOf('river-rd') < 0 && r.published.length === 2);
+}
+{
+  const e = republishEngine({ rows: THREE, storesFail: true });
+  const r = e.call('storeLinksRepublish', { token: 'editor-tok' });
+  ok('a registry that did not answer is a refusal in its own words, not "nothing to do"',
+     r.ok === false && /registry did not answer/.test(r.error) && e.calls.length === 0);
+}
+{
+  const e = republishEngine({ rows: THREE, roleCanEdit: () => false });
+  const r = e.call('storeLinksRepublish', { token: 'editor-tok' });
+  ok('a role GX Core calls read-only is refused even though EDIT_ROLES lists it',
+     r.ok === false && /cannot manage kiosk links/.test(r.error) && e.calls.length === 0);
+}
+{
+  const e = republishEngine({ rows: THREE, roleCanEdit: () => { throw new Error('library unbound'); } });
+  const r = e.call('storeLinksRepublish', { token: 'editor-tok' });
+  ok('an unreachable roleCanEdit fails CLOSED', r.ok === false && e.calls.length === 0);
+}
+{
+  const e = republishEngine({ rows: THREE });
+  const r = e.call('storeLinksRepublish', { secret: 'S3CRET' });
+  ok('the deploy secret alone does not open it — the handler wants a session, like Create and Replace',
+     r.ok === false && r.needsAuth === true && e.calls.length === 0);
+}
+{
+  const e = republishEngine({ rows: THREE });
+  const r = e.call('publishKioskTokens', { token: 'editor-tok', apply: '1' });
+  ok('THE SECRET GATE IS NOT LOOSENED: publishKioskTokens still refuses a session token',
+     r.ok === false && r.error === 'Unauthorized' && e.calls.length === 0);
+  const s = e.call('publishKioskTokens', { secret: 'S3CRET' });
+  ok('…and still opens for the deploy secret, dry by default', s.dry === true && e.calls.length === 0);
+}
+ok('storeLinksRepublish is in neither PUBLIC_ACTIONS nor SECRET_ACTIONS',
+   G.grabVar('PUBLIC_ACTIONS').indexOf('storeLinksRepublish') < 0
+   && G.grabVar('SECRET_ACTIONS').indexOf('storeLinksRepublish') < 0);
+ok('the route is wired into the dispatcher',
+   /case 'storeLinksRepublish':\s*out = storeLinksRepublish_\(p\)/.test(gs));
+{
+  const body = grab('storeLinksRepublish_').replace(/\/\*[\s\S]*?\*\//g, '');
+  ok('it reuses publishKioskTokens_ rather than publishing on its own',
+     /publishKioskTokens_\(\{\s*apply:\s*'1'\s*\}\)/.test(body) && !/UrlFetchApp|set_config/.test(body));
+}
+
 console.log(fail ? `\n✗ ${fail} failed\n` : '\n✓ all passed\n');
 process.exit(fail ? 1 : 0);

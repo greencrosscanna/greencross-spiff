@@ -119,7 +119,8 @@ ok('none of ' + KNOWN_WRITES_OR_UNSAFE.length + ' known write/unsafe actions app
 /* Spot-check the highest-stakes ones by name, so this fails loudly and specifically rather than
    only through the generic scan above if the vetted list itself is ever edited wrong. */
 ['sendBrandEmail', 'editProgram', 'createProgram', 'deleteProgram', 'renameProgramId', 'addBrand', 'saveBrand',
- 'saveBrandContact', 'removeBrandContact', 'storeLinkMintAll', 'storeLinkRotate', 'publishToCore',
+ 'saveBrandContact', 'removeBrandContact', 'storeLinkMintAll', 'storeLinkRotate', 'storeLinksRepublish',
+ 'publishToCore',
  'recordActuals', 'snapshotProgress', 'refreshProgress', 'rollStatuses', 'sweepOrphanProgress',
  'clientView', 'login', 'bugreport', 'buildReport', 'shareLink'
 ].forEach(w => ok('  "' + w + '" is not hedged', !hedgeReads[w]));
