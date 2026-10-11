@@ -1,6 +1,12 @@
 # Handoff: SPIFF kiosk board (store.html)
 
 ## Overview
+> *Corrected 2026-10-10: the sentence below says `store.html` "opens as a popup from the SPIFF
+> button on each store's kiosk". That stopped on 2026-09-17, when Leaderboard deleted the frame
+> and drew its own SPIFF panel. The page is now opened by hand from a per-store link
+> (`store.html?t=<token>`); the kiosk button is decided only by Leaderboard's Include SPIFF
+> setting, and a store's token decides only whether that link works.*
+
 `store.html` is the SPIFF board that opens as a popup from the SPIFF button on each store's
 kiosk. It is a **shared screen**: no sign-in, and it never shows anyone's earnings, vendor cost,
 investment, or ROI — a customer can read it over the counter. The personal view (`flyer.html`)

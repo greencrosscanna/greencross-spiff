@@ -3,8 +3,20 @@
  *
  *   RUN:  node tests/kiosk_token_publish_test.js
  *
+ * CORRECTED 2026-10-10 — WHAT THE TOKEN DECIDES TODAY. This header used to open "Leaderboard's
+ * kiosks show a SPIFF button only when GX Core kv holds cfg.spiffKiosk.<store_id>", and called an
+ * empty value "the off switch". Neither is true any more. The kiosk button is decided ONLY by
+ * Leaderboard's Settings → Include SPIFF switch (since 2026-09-10); the frame that loaded
+ * store.html was deleted on 2026-09-17, and since Leaderboard v1.919 (2026-10-09) its engine no
+ * longer sends the link to the kiosk. A store's token decides only whether the per-store link
+ * opened BY HAND (store.html?t=<token>) works; revoking it kills that link and nothing on the
+ * kiosk. Read every "button" below as "the per-store link". The ASSERTIONS and their printed
+ * labels are unchanged on purpose: several still match the engine's old wording ("no SPIFF
+ * button", "dead page", "the off switch"), because those are strings the engine returns and
+ * changing them is a product-copy ship, not a comment fix.
+ *
  * WHY THIS EXISTS
- * Leaderboard's kiosks show a SPIFF button only when GX Core kv holds cfg.spiffKiosk.<store_id>.
+ * Leaderboard reads the per-store link token from GX Core kv cfg.spiffKiosk.<store_id>.
  * Their first design had Sky paste six tokens into a form; he asked why a person is involved in one
  * app handing keys to another, and they threw it away. The deeper reason is that a COPY of a
  * ROTATABLE credential goes stale silently — rotate the token here and the pasted copy still points
@@ -18,15 +30,15 @@
  * THE FOUR THAT WOULD HURT
  *
  *   1. PUBLISHING BEFORE THE SHEET WRITE. store_links is the system of record; Core's kv is a copy
- *      kept for Leaderboard. Publish first and a failed appendRow leaves a kiosk pointing at a
- *      token no row will ever match — a live button onto a dead page, worse than no button.
+ *      kept for Leaderboard. Publish first and a failed appendRow leaves Core holding a
+ *      token no row will ever match — a link onto a dead page, worse than no link.
  *
  *   2. SWALLOWING A FAILED PUBLISH. If Core is unreachable the links are still minted and still
- *      correct here, but no kiosk shows a button. A cheerful "minted 6" over that is how a person
+ *      correct here, but Core does not hold them. A cheerful "minted 6" over that is how a person
  *      concludes the job is done and stops looking.
  *
- *   3. A REVOKE THAT LEAVES THE KEY. A revoked link whose kv key lingers is a button onto a dead
- *      page — the same failure as a stale copy, arriving a different way. Empty is the off switch,
+ *   3. A REVOKE THAT LEAVES THE KEY. A revoked link whose kv key lingers is a link onto a dead
+ *      page — the same failure as a stale copy, arriving a different way. Empty means "no link",
  *      and that is Leaderboard's contract: spiffKioskUrl_ returns '' for an empty token.
  *
  *   4. A BACKFILL THAT WALKS LIVE LINKS INSTEAD OF THE REGISTRY. Iterating live rows republishes
@@ -35,7 +47,8 @@
  *
  * A NOTE ON THE LIBRARY CALL, since it is the likeliest future regression: GXCore.setKv enforces
  * GX_LIB_WRITABLE_KV and cfg.spiffKiosk.* is not on it, so a "tidy-up" into the library call fails
- * closed and the button silently stops appearing. Section 5 pins the HTTP route.
+ * closed and the token silently stops reaching Core. Section 6 pins the HTTP route.
+ * (Corrected 2026-10-10: this said "the button silently stops appearing", and named section 5.)
  */
 'use strict';
 const fs = require('fs');
@@ -268,7 +281,8 @@ ok('the route is wired into the dispatcher',
    /case 'publishKioskTokens':\s*out = publishKioskTokens_\(p\)/.test(gs));
 {
   /* GXCore.setKv would be REFUSED for this key — cfg.spiffKiosk.* is not in GX_LIB_WRITABLE_KV —
-     so a tidy-up into the library call fails closed and the button silently stops appearing. */
+     so a tidy-up into the library call fails closed and the token silently stops reaching Core.
+     (Corrected 2026-10-10: this said "the button silently stops appearing".) */
   const body = grab('gxPublishKioskToken_').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   ok('the publisher does not call GXCore.setKv', !/GXCore\s*\.\s*setKv/.test(body));
   ok('the publisher uses action=set_config', /action=set_config/.test(body));

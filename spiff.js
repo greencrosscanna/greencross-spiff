@@ -2263,10 +2263,18 @@
      store: six presses is six chances to stop at five, and the store that gets missed shows a
      blank kiosk that nobody is standing next to.
 
-     A ROTATE, NOT A REVOKE, in the normal case. A store with no link is a dead screen, so
-     "replace this link" mints the new one in the same call that retires the old. Revoking
-     outright is available for a link that got somewhere it should not have been, and then the
-     kiosk deliberately shows nothing until somebody makes a new one. */
+     A ROTATE, NOT A REVOKE, in the normal case. A store with no link has nothing to open by
+     hand, so "replace this link" mints the new one in the same call that retires the old.
+     Revoking outright is available for a link that got somewhere it should not have been, and
+     then that store simply has no link until somebody makes a new one.
+
+     CORRECTED 2026-10-10. This said "a store with no link is a dead screen", "a blank kiosk",
+     and that after a revoke "the kiosk deliberately shows nothing". None of that is true now:
+     the kiosk's SPIFF button is decided ONLY by Leaderboard's Settings → Include SPIFF switch,
+     and Leaderboard has not loaded store.html since 2026-09-17 (v1.879). A link here is opened
+     BY HAND (store.html?t=<token>); its token decides whether that link works and nothing on
+     the kiosk. The hint and the Replace confirm below still carry the old wording — those are
+     strings staff read, so changing them is a product-copy ship, not a comment fix. */
   function storeUrl(tok) {
     return location.origin + location.pathname.replace(/[^/]*$/, '') + 'store.html?t=' + tok;
   }
@@ -2369,7 +2377,10 @@
        for us: their kiosk header is only built during a FULL render, and their 60-second poll is a
        delta that never rebuilds it. A nightly reload after 04:00 PT does rebuild it, so a parked
        screen self-heals overnight — but a whole trading day fits inside that window, most of it in
-       front of customers. Hence a real instruction rather than "it will sort itself out". */
+       front of customers. Hence a real instruction rather than "it will sort itself out".
+       CORRECTED 2026-10-10: the paragraph above is history. The kiosk no longer opens this link
+       (Leaderboard v1.879) and since v1.919 its engine does not send it to the kiosk, so there is
+       no "old button" to reload away. The confirm text below still tells the reader to reload. */
     if (replacing && !confirm('Replace the kiosk link for this store?\n\n'
           + 'The old link stops working immediately. The new one reaches the Command Center by '
           + 'itself — nothing to copy — but that store\'s kiosk keeps showing the old button until '
@@ -2382,8 +2393,9 @@
       var r = await ENG.jsonp('storeLinkRotate', { token: (session() || {}).token, store: storeId });
       if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
       /* The link can be correct here and still not have reached GX Core. Saying nothing would leave
-         a kiosk showing a button onto the link this call just killed, with the screen that caused
-         it reporting success. */
+         Core holding the link this call just killed, with the screen that caused it reporting
+         success. (Corrected 2026-10-10: this said "a kiosk showing a button onto the link". No
+         kiosk button depends on the link.) */
       if (r.published === false) {
         var pm = $('#kioskMsg');
         if (pm) pm.textContent = r.publish_note || 'The new link did not reach the Command Center.';

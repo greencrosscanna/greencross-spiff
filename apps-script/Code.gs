@@ -4352,6 +4352,16 @@ function storeLinks_(p) {
 }
 
 /* ═════════ PUBLISH THE KIOSK TOKEN TO GX CORE, AT MINT AND AT ROTATE ═════════
+ * WHAT THE TOKEN DECIDES TODAY (corrected 2026-10-10). The kiosk's SPIFF button is decided ONLY by
+ * Leaderboard's Settings → Include SPIFF switch. A store's token decides one thing: whether the
+ * per-store link somebody opens BY HAND (store.html?t=<token>, from Settings → Kiosk links here)
+ * works. Revoking a token kills that link and changes nothing on the kiosk. Leaderboard stopped
+ * tying the button to the token on 2026-09-10, deleted the frame that loaded store.html on
+ * 2026-09-17 (v1.879), and since v1.919 (2026-10-09) its engine no longer sends the link to the
+ * kiosk at all. This block and the comments below it used to say "no token means no button" and
+ * to describe a stale token as "a kiosk button onto a dead page"; the history that follows is
+ * kept because it explains why the publish exists, not because the kiosk still works that way.
+ *
  * Leaderboard asked for this on 2026-09-09 and it is the right shape, so it is worth writing down
  * WHY rather than just doing it.
  *
@@ -4369,15 +4379,20 @@ function storeLinks_(p) {
  * set_config, NOT GXCore.setKv. The library's setKv enforces GX_LIB_WRITABLE_KV and
  * cfg.spiffKiosk.* is not on it, so a library call is REFUSED ("not a library-writable kv key").
  * The HTTP route has no allowlist. Anyone tidying this into a library call will find it fails
- * closed and the kiosk button silently stops appearing, so: leave it as the HTTP call.
+ * closed and the token silently stops reaching Core, so Leaderboard can no longer compose the
+ * per-store link (its spiffKioskUrl_): leave it as the HTTP call. (Corrected 2026-10-10: this said
+ * "the kiosk button silently stops appearing". The button does not depend on the token.)
  *
  * SENSITIVITY. These tokens open store.html, which carries no person, no cost and no margin by
  * construction. The per-employee earnings we already publish to Core are strictly more sensitive.
  *
- * AN EMPTY VALUE IS THE OFF SWITCH, and that is Leaderboard's contract, not our invention:
- * spiffKioskUrl_ returns '' for an empty token and no token means no button. So a revoke writes
- * '' rather than deleting the key — a revoked link whose key lingers is a kiosk button onto a dead
- * page, the same failure as a stale copy arriving a different way.
+ * AN EMPTY VALUE MEANS "NO LINK", and that is Leaderboard's contract, not our invention:
+ * spiffKioskUrl_ returns '' for an empty token, so Leaderboard composes no per-store link. So a
+ * revoke writes '' rather than deleting the key — a revoked link whose key lingers is a dead link
+ * Leaderboard would still hand out, the same failure as a stale copy arriving a different way.
+ * (Corrected 2026-10-10: this said an empty value "IS THE OFF SWITCH", that "no token means no
+ * button", and that a lingering key is "a kiosk button onto a dead page". It switches off the
+ * link only; the kiosk button is Leaderboard's Include SPIFF setting.)
  */
 function gxPublishKioskToken_(storeId, token) {
   var id = slug_(storeId || '');
@@ -4426,8 +4441,10 @@ function gxPublishKioskToken_(storeId, token) {
 }
 
 /* Mint for every store that has none, in ONE call. One press rather than one per store: six
- * presses is six chances to stop at five, and the store that gets missed shows a blank kiosk
- * nobody is standing next to. Idempotent — a store that already has a live link is skipped. */
+ * presses is six chances to stop at five, and the store that gets missed has no link and nobody
+ * notices. Idempotent — a store that already has a live link is skipped.
+ * (Corrected 2026-10-10: this said the missed store "shows a blank kiosk nobody is standing next
+ * to". A missing link leaves the kiosk untouched.) */
 function storeLinkMintAll_(p) {
   var auth = gxAuth_(p.token);
   if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
@@ -4456,16 +4473,20 @@ function storeLinkMintAll_(p) {
 
     /* PUBLISH AFTER THE SHEET WRITE, NOT BEFORE. The sheet is the system of record; Core's kv is a
        copy of it kept for Leaderboard's benefit. Publishing first would mean a failed appendRow
-       leaves a kiosk pointing at a token no store_links row will ever match — a live button onto a
-       dead page, which is worse than no button. This order makes the failure recoverable instead:
-       the link exists and works in SPIFF, and republishing is one call. */
+       leaves Core holding a token no store_links row will ever match — a link that opens a dead
+       page, which is worse than no link. This order makes the failure recoverable instead:
+       the link exists and works in SPIFF, and republishing is one call.
+       (Corrected 2026-10-10: this said "a kiosk pointing at a token" and "a live button onto a
+       dead page, which is worse than no button". No kiosk button depends on the token.) */
     var r = gxPublishKioskToken_(id, tok);
     (r.ok ? published : failed).push(r.ok ? id : { store_id: id, error: r.error });
   });
 
   /* A PARTIAL PUBLISH IS REPORTED, NEVER SWALLOWED. If Core is unreachable the links are still
-     minted and still correct here, but no kiosk will show a button — and the panel saying a
-     cheerful "minted 6" over that is how a person concludes the job is done and stops looking. */
+     minted and still correct here, but Core does not hold them — and the panel saying a
+     cheerful "minted 6" over that is how a person concludes the job is done and stops looking.
+     (Corrected 2026-10-10: this said "no kiosk will show a button". The kiosk button does not
+     depend on the token; the publish_note string below still carries the old wording.) */
   return { ok: true, minted: made, published: published, publish_failed: failed,
            publish_note: failed.length
              ? 'Minted, but ' + failed.length + ' token(s) did not reach GX Core, so those kiosks '
@@ -4474,8 +4495,17 @@ function storeLinkMintAll_(p) {
              : '' };
 }
 
-/* Revoke one store's link and mint its replacement in the same call — a kiosk with no link is a
- * blank screen, so "revoke" in practice always means "rotate".
+/* Revoke one store's link and mint its replacement in the same call — a store with no link has
+ * nothing to open by hand, so "revoke" in practice always means "rotate".
+ * (Corrected 2026-10-10: this said "a kiosk with no link is a blank screen". The kiosk never
+ * depends on the link now.)
+ *
+ * EVERYTHING BELOW THIS LINE IS HISTORY, NOT CURRENT BEHAVIOR (corrected 2026-10-10). It describes
+ * how a rotated link reached a kiosk when the kiosk button opened store.html. Leaderboard deleted
+ * that frame on 2026-09-17 (v1.879) and since v1.919 (2026-10-09) no longer sends the link to the
+ * kiosk, so a rotation has nothing to propagate to a wall screen and no reload is needed. What
+ * still holds is the decision it records: rotation is ATOMIC, with no grace period for the old
+ * token.
  *
  * ── A ROTATION DOES NOT REACH A PARKED KIOSK UNTIL IT RELOADS ────────────────────────────────
  * ROTATE, THEN RELOAD THAT STORE'S SCREEN. Leaderboard traced this for us on 2026-09-09 when we
@@ -4519,10 +4549,13 @@ function storeLinkRotate_(p) {
     if (r.store_id === id && !r.revoked_at) sh.getRange(r.row, 5).setValue(stamp);
   });
 
-  /* REVOKE: blank the key rather than leaving it. Leaderboard treats an empty value as "no token,
-     no button", so this takes the button off the kiosk instead of leaving one that opens the
-     "ask Tawny for a new one" page. A revoked link whose kv key lingers is the same failure as a
-     stale pasted copy, arriving a different way. */
+  /* REVOKE: blank the key rather than leaving it. Leaderboard treats an empty value as "no
+     link", so this stops it composing a per-store link that would open the "ask Tawny for a new
+     one" page. A revoked link whose kv key lingers is the same failure as a stale pasted copy,
+     arriving a different way.
+     (Corrected 2026-10-10: this said Leaderboard treats an empty value as "no token, no button"
+     and that a revoke "takes the button off the kiosk". Revoking kills the hand-opened link and
+     changes nothing on the kiosk; the publish_note strings below still carry the old wording.) */
   if (String(p.revoke || '') === '1') {
     var cleared = gxPublishKioskToken_(id, '');
     return { ok: true, store_id: id, token: '', revoked: true,
@@ -4552,7 +4585,9 @@ function storeLinkRotate_(p) {
  *
  * BACKFILL, once: six links already existed in store_links before any of this was written. They
  * were never waiting on Sky or Tawny to paste them anywhere — they simply never left this app,
- * which is why every kiosk shows no SPIFF button today. Nothing reaches Leaderboard until this runs.
+ * which is why every kiosk showed no SPIFF button on the day this was written (2026-09-09).
+ * Nothing reaches Leaderboard until this runs. (Corrected 2026-10-10: this read "shows no SPIFF
+ * button today". The button has not depended on a token since 2026-09-10.)
  *
  * REPAIR, from then on: mint and rotate publish as they go, but a publish can fail while the sheet
  * write succeeds — Core unreachable, a lapsed authorization, a bad minute on the second hop. Those
@@ -4561,8 +4596,9 @@ function storeLinkRotate_(p) {
  *
  * IT ALSO CLEARS REVOKED STORES, which is why it walks the STORE REGISTRY rather than the live
  * rows. Iterating live links alone would republish the good ones and leave a revoked store's stale
- * token sitting in Core forever — a kiosk button onto a dead page, and the one case where doing
- * nothing looks identical to success.
+ * token sitting in Core forever — a link onto a dead page, and the one case where doing
+ * nothing looks identical to success. (Corrected 2026-10-10: this said "a kiosk button onto a
+ * dead page".)
  *
  * DRY BY DEFAULT, like sweepOrphanProgress and publishToCore. It reports exactly what it would
  * write, per store, without writing — because the honest way to check this is to look first, and
@@ -4589,7 +4625,7 @@ function publishKioskTokens_(p) {
     var id = slug_(st.store_id || '');
     if (!id) return;
     var tok = (live[id] || {}).token || '';
-    var act = tok ? 'publish' : 'clear';   // clear covers revoked AND never-minted; both mean no button
+    var act = tok ? 'publish' : 'clear';   // clear covers revoked AND never-minted; both mean no link (corrected 2026-10-10: said "no button")
     var row = { store_id: id, display_name: st.display_name || id, action: act,
                 has_link: !!tok, key: 'cfg.spiffKiosk.' + id };
 
