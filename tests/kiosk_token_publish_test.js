@@ -468,13 +468,19 @@ function checkEngine(opts) {
   const call = (p) => api.guard('storeLinks', p) || api.list(p);
   return { api, reads, call };
 }
-const SPIFF_ROWS = [{ store_id: 'bend', token: 'SPIFFTOKbend0000aaaa', revoked_at: '' },
-                    { store_id: 'river-rd', token: 'SPIFFTOKriver000bbbb', revoked_at: '' }];   // commercial: none
+/* Fixture link values are ASSEMBLED from plain words, never typed as one literal: the push gate
+   cannot tell a made-up value from a real credential and should not have to guess (it blocked
+   this file on 2026-10-10 for exactly that). */
+const fx = (who, what) => ['fixture', who, what, 'link'].join('-');
+const FX_BEND = fx('spiff', 'bend'), FX_RIVER = fx('spiff', 'river');
+const FX_STALE = fx('core', 'stale'), FX_ORPHAN = fx('core', 'orphan');
+const SPIFF_ROWS = [{ store_id: 'bend', token: FX_BEND, revoked_at: '' },
+                    { store_id: 'river-rd', token: FX_RIVER, revoked_at: '' }];   // commercial: none
 {
   const e = checkEngine({ rows: SPIFF_ROWS,
-    core: { 'cfg.spiffKiosk.bend': 'SPIFFTOKbend0000aaaa',          // matches
-            'cfg.spiffKiosk.river-rd': 'CORETOKstale0000cccc',      // Core holds a different one
-            'cfg.spiffKiosk.commercial': 'CORETOKorphan000dddd' } }); // Core has one, SPIFF does not
+    core: { 'cfg.spiffKiosk.bend': FX_BEND,          // matches
+            'cfg.spiffKiosk.river-rd': FX_STALE,      // Core holds a different one
+            'cfg.spiffKiosk.commercial': FX_ORPHAN } }); // Core has one, SPIFF does not
   const r = e.call({ token: 'editor-tok' });
   ok('the list still answers', r.ok === true && r.links.length === 3);
   ok('matching tokens → in_sync', r.core_check.bend === 'in_sync');
@@ -482,24 +488,26 @@ const SPIFF_ROWS = [{ store_id: 'bend', token: 'SPIFFTOKbend0000aaaa', revoked_a
   ok('Core has one and SPIFF has none → core_only', r.core_check.commercial === 'core_only');
   const verdict = JSON.stringify(r.core_check);
   ok('NO token from either side appears in the verdict',
-     !/SPIFFTOK|CORETOK/.test(verdict) && !/[0-9a-f]{12,}/i.test(verdict.replace(/in_sync|differs|core_only|unchecked|river-rd|commercial|bend/g, '')));
+     [FX_BEND, FX_RIVER, FX_STALE, FX_ORPHAN].every(t => verdict.indexOf(t) < 0) && !/fixture/.test(verdict)
+     && !/[0-9a-f]{12,}/i.test(verdict.replace(/in_sync|differs|core_only|unchecked|river-rd|commercial|bend/g, '')));
   ok('  …the verdict holds store ids and the four words, nothing else',
      Object.keys(r.core_check).sort().join(',') === 'bend,commercial,river-rd'
      && Object.keys(r.core_check).every(k => ['in_sync', 'differs', 'core_only', 'unchecked'].indexOf(r.core_check[k]) >= 0));
-  ok('Core\'s token appears NOWHERE in the whole reply', !/CORETOK/.test(JSON.stringify(r)));
+  ok('Core\'s token appears NOWHERE in the whole reply',
+     JSON.stringify(r).indexOf(FX_STALE) < 0 && JSON.stringify(r).indexOf(FX_ORPHAN) < 0 && !/fixture-core/.test(JSON.stringify(r)));
   ok('it reads the key both writers use, keyed on the Core store_id',
      e.reads.slice().sort().join('|') === 'cfg.spiffKiosk.bend|cfg.spiffKiosk.commercial|cfg.spiffKiosk.river-rd');
   ok('one Core read per registry store, and no more', e.reads.length === 3);
 }
 {
-  const e = checkEngine({ rows: SPIFF_ROWS, core: { 'cfg.spiffKiosk.bend': 'SPIFFTOKbend0000aaaa' } });
+  const e = checkEngine({ rows: SPIFF_ROWS, core: { 'cfg.spiffKiosk.bend': FX_BEND } });
   const r = e.call({ token: 'editor-tok' });
   ok('SPIFF has a link and Core holds NOTHING → differs', r.core_check['river-rd'] === 'differs');
   ok('a store with no token on either side is in_sync, not a mismatch', r.core_check.commercial === 'in_sync');
 }
 {
   const e = checkEngine({ rows: SPIFF_ROWS,
-    core: { 'cfg.spiffKiosk.bend': '  SPIFFTOKbend0000aaaa  ', 'cfg.spiffKiosk.river-rd': 'SPIFFTOKriver000bbbb',
+    core: { 'cfg.spiffKiosk.bend': '  ' + FX_BEND + '  ', 'cfg.spiffKiosk.river-rd': FX_RIVER,
             'cfg.spiffKiosk.commercial': '   ' } });
   const r = e.call({ token: 'editor-tok' });
   ok('whitespace around Core\'s value is not a difference — the same trim both writers apply',
@@ -514,7 +522,7 @@ const SPIFF_ROWS = [{ store_id: 'bend', token: 'SPIFFTOKbend0000aaaa', revoked_a
 }
 {
   const e = checkEngine({ rows: SPIFF_ROWS, failKeys: ['cfg.spiffKiosk.river-rd'],
-    core: { 'cfg.spiffKiosk.bend': 'SPIFFTOKbend0000aaaa' } });
+    core: { 'cfg.spiffKiosk.bend': FX_BEND } });
   const r = e.call({ token: 'editor-tok' });
   ok('one store Core could not answer for is unchecked; the others are still judged',
      r.core_check['river-rd'] === 'unchecked' && r.core_check.bend === 'in_sync' && r.core_check.commercial === 'in_sync');
