@@ -4350,8 +4350,53 @@ function storeLinks_(p) {
              token: (live[id] || {}).token || '', ever: !!ever[id] };
   }).filter(function (x) { return x.store_id; });
 
+  /* Rides on this read rather than being a second request: the panel opens with one call either
+     way, and the answer is about exactly the rows just listed. See storeLinksCoreCheck_. */
+  var tokens = Object.create(null);
+  links.forEach(function (x) { tokens[x.store_id] = x.token; });
+
   return { ok: true, links: links,
-           missing: links.filter(function (x) { return !x.token; }).length };
+           missing: links.filter(function (x) { return !x.token; }).length,
+           core_check: storeLinksCoreCheck_(tokens) };
+}
+
+/* ═══ DID EACH STORE'S LINK REACH GX CORE? — a read, and it never says what the link is ═══
+ * (2026-10-10.) The Kiosk links warning used to be page memory: reload and it forgot which
+ * stores' links had not reached the Command Center, while Core went on holding the wrong thing.
+ * This asks. Per store it compares the token store_links holds with the one GX Core holds at
+ * cfg.spiffKiosk.<store_id> — the same key gxPublishKioskToken_ writes and Leaderboard's
+ * spiffKioskUrl_ reads, keyed on the GX Core store_id — and answers with a STATE:
+ *
+ *     in_sync     the two match. BOTH EMPTY IS A MATCH: a store with no link on either side is
+ *                 not out of step, and '' is what a revoke writes and what "never minted" reads as.
+ *     differs     SPIFF has a link and Core holds a different one, or none.
+ *     core_only   Core still holds a link and SPIFF has none for that store (a revoke that did
+ *                 not land). Republish clears it.
+ *     unchecked   Core could not be asked. ITS OWN STATE ON PURPOSE — not in_sync (that would
+ *                 hide a real mismatch) and not differs (that would blame links that may be fine).
+ *                 The suite has paid for folding an unknown into a falsy five times.
+ *
+ * IT RETURNS NO TOKEN AND NO PART OF ONE, from either side — store ids and one of four words.
+ * The comparison happens here and only the verdict leaves. tests/kiosk_token_publish_test.js
+ * asserts neither side's value appears anywhere in the answer.
+ *
+ * THE LIBRARY, NOT HTTP, AND IN THIS ONE EXECUTION. GXCore.getKv reads one key per call and has no
+ * prefix or whole-config form (there is no getConfig()), so this is one read per registry store,
+ * SEQUENTIAL — never fanned out, because every GX app shares one 30-at-once execution ceiling and a
+ * library call costs no extra execution where a UrlFetch to Core's /exec would. The library keeps
+ * each answer for 60 seconds on its own; nothing here caches a verdict.
+ *
+ * The same trim-and-empty rule as both writers: String(value || '').trim(). */
+function storeLinksCoreCheck_(tokensByStore) {
+  var out = Object.create(null);
+  Object.keys(tokensByStore || {}).forEach(function (id) {
+    var mine = String(tokensByStore[id] || '').trim();
+    var theirs;
+    try { theirs = String(GXCore.getKv('cfg.spiffKiosk.' + id) || '').trim(); }
+    catch (e) { out[id] = 'unchecked'; return; }
+    out[id] = mine === theirs ? 'in_sync' : (mine ? 'differs' : 'core_only');
+  });
+  return out;
 }
 
 /* ═════════ PUBLISH THE KIOSK TOKEN TO GX CORE, AT MINT AND AT ROTATE ═════════

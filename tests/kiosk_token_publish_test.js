@@ -430,5 +430,108 @@ ok('the route is wired into the dispatcher',
      /publishKioskTokens_\(\{\s*apply:\s*'1'\s*\}\)/.test(body) && !/UrlFetchApp|set_config/.test(body));
 }
 
+/* ══ 8. did each store's link reach Core? — the read the panel opens with ══ */
+/* Added 2026-10-10 (v1.460). `storeLinks` now carries `core_check`: one of four words per store,
+   from comparing store_links with what GX Core holds. What has to hold: the four states are told
+   apart (above all "could not ask" from both of the others), NO token from either side leaves in
+   the verdict, the gate is the list read's own, and Core is read once per store, in sequence. */
+console.log('\n8. storeLinks answers which stores GX Core is out of step on — and never says what a link is');
+function checkEngine(opts) {
+  opts = opts || {};
+  const reads = [];
+  const SESSIONS = {
+    'editor-tok': { ok: true, role: 'editor', user: 'tawny' },
+    'viewer-tok': { ok: true, role: 'viewer', user: 'dev' },
+  };
+  const rows = (opts.rows || []).map((r, i) => Object.assign({ row: i + 2 }, r));
+  const src = [
+    'var GX_SECRET_PROP = "GX_DEPLOY_SECRET";',
+    'var EDIT_ROLES = ' + JSON.stringify(G.grabVar('EDIT_ROLES')) + ';',
+    'var PUBLIC_ACTIONS = ' + JSON.stringify(G.grabVar('PUBLIC_ACTIONS')) + ';',
+    'var SECRET_ACTIONS = ' + JSON.stringify(G.grabVar('SECRET_ACTIONS')) + ';',
+    'var GATED_WRITES = ' + JSON.stringify(G.grabVar('GATED_WRITES')) + ';',
+    'function slug_(s){ return String(s||"").trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,""); }',
+    'function storeLinkRows_(){ return ROWS; }',
+    'function gxStores_(){ return STORES; }',
+    'function gxAuth_(t){ return SESSIONS[t] || { ok:false, error:"Not signed in", code:"auth_required" }; }',
+    grab('guard_'), grab('storeLinksCoreCheck_'), grab('storeLinks_'),
+    'return { guard: guard_, list: storeLinks_, check: storeLinksCoreCheck_ };',
+  ].join('\n');
+  const api = new Function('ROWS', 'STORES', 'SESSIONS', 'PropertiesService', 'GXCore', src)(
+    rows, STORES, SESSIONS,
+    { getScriptProperties: () => ({ getProperty: () => 'S3CRET' }) },
+    { getKv(key) {
+        reads.push(key);
+        if (opts.coreDown || (opts.failKeys || []).indexOf(key) >= 0) throw new Error('Service invoked too many times');
+        return (opts.core || {})[key];
+      } });
+  const call = (p) => api.guard('storeLinks', p) || api.list(p);
+  return { api, reads, call };
+}
+const SPIFF_ROWS = [{ store_id: 'bend', token: 'SPIFFTOKbend0000aaaa', revoked_at: '' },
+                    { store_id: 'river-rd', token: 'SPIFFTOKriver000bbbb', revoked_at: '' }];   // commercial: none
+{
+  const e = checkEngine({ rows: SPIFF_ROWS,
+    core: { 'cfg.spiffKiosk.bend': 'SPIFFTOKbend0000aaaa',          // matches
+            'cfg.spiffKiosk.river-rd': 'CORETOKstale0000cccc',      // Core holds a different one
+            'cfg.spiffKiosk.commercial': 'CORETOKorphan000dddd' } }); // Core has one, SPIFF does not
+  const r = e.call({ token: 'editor-tok' });
+  ok('the list still answers', r.ok === true && r.links.length === 3);
+  ok('matching tokens → in_sync', r.core_check.bend === 'in_sync');
+  ok('SPIFF has a link and Core holds a different one → differs', r.core_check['river-rd'] === 'differs');
+  ok('Core has one and SPIFF has none → core_only', r.core_check.commercial === 'core_only');
+  const verdict = JSON.stringify(r.core_check);
+  ok('NO token from either side appears in the verdict',
+     !/SPIFFTOK|CORETOK/.test(verdict) && !/[0-9a-f]{12,}/i.test(verdict.replace(/in_sync|differs|core_only|unchecked|river-rd|commercial|bend/g, '')));
+  ok('  …the verdict holds store ids and the four words, nothing else',
+     Object.keys(r.core_check).sort().join(',') === 'bend,commercial,river-rd'
+     && Object.keys(r.core_check).every(k => ['in_sync', 'differs', 'core_only', 'unchecked'].indexOf(r.core_check[k]) >= 0));
+  ok('Core\'s token appears NOWHERE in the whole reply', !/CORETOK/.test(JSON.stringify(r)));
+  ok('it reads the key both writers use, keyed on the Core store_id',
+     e.reads.slice().sort().join('|') === 'cfg.spiffKiosk.bend|cfg.spiffKiosk.commercial|cfg.spiffKiosk.river-rd');
+  ok('one Core read per registry store, and no more', e.reads.length === 3);
+}
+{
+  const e = checkEngine({ rows: SPIFF_ROWS, core: { 'cfg.spiffKiosk.bend': 'SPIFFTOKbend0000aaaa' } });
+  const r = e.call({ token: 'editor-tok' });
+  ok('SPIFF has a link and Core holds NOTHING → differs', r.core_check['river-rd'] === 'differs');
+  ok('a store with no token on either side is in_sync, not a mismatch', r.core_check.commercial === 'in_sync');
+}
+{
+  const e = checkEngine({ rows: SPIFF_ROWS,
+    core: { 'cfg.spiffKiosk.bend': '  SPIFFTOKbend0000aaaa  ', 'cfg.spiffKiosk.river-rd': 'SPIFFTOKriver000bbbb',
+            'cfg.spiffKiosk.commercial': '   ' } });
+  const r = e.call({ token: 'editor-tok' });
+  ok('whitespace around Core\'s value is not a difference — the same trim both writers apply',
+     r.core_check.bend === 'in_sync' && r.core_check.commercial === 'in_sync');
+}
+{
+  const e = checkEngine({ rows: SPIFF_ROWS, coreDown: true });
+  const r = e.call({ token: 'editor-tok' });
+  ok('Core unreachable: the LIST still answers', r.ok === true && r.links.length === 3);
+  ok('  …and every store is unchecked — not in_sync, and not differs',
+     Object.keys(r.core_check).length === 3 && Object.keys(r.core_check).every(k => r.core_check[k] === 'unchecked'));
+}
+{
+  const e = checkEngine({ rows: SPIFF_ROWS, failKeys: ['cfg.spiffKiosk.river-rd'],
+    core: { 'cfg.spiffKiosk.bend': 'SPIFFTOKbend0000aaaa' } });
+  const r = e.call({ token: 'editor-tok' });
+  ok('one store Core could not answer for is unchecked; the others are still judged',
+     r.core_check['river-rd'] === 'unchecked' && r.core_check.bend === 'in_sync' && r.core_check.commercial === 'in_sync');
+}
+{
+  const e = checkEngine({ rows: SPIFF_ROWS });
+  ok('no session: refused before Core is read', e.call({}).ok === false && e.reads.length === 0);
+  const v = e.call({ token: 'viewer-tok' });
+  ok('a viewer session: refused by role, and Core is not read', v.ok === false && /cannot manage kiosk links/.test(v.error) && e.reads.length === 0);
+}
+ok('storeLinks stays session-gated: in neither PUBLIC_ACTIONS nor SECRET_ACTIONS',
+   G.grabVar('PUBLIC_ACTIONS').indexOf('storeLinks') < 0 && G.grabVar('SECRET_ACTIONS').indexOf('storeLinks') < 0);
+{
+  const body = grab('storeLinksCoreCheck_').replace(/\/\*[\s\S]*?\*\//g, '');
+  ok('the check reads through the library and writes nothing',
+     /GXCore\.getKv\(/.test(body) && !/UrlFetchApp|set_config|setValue|appendRow|CacheService|\.put\(/.test(body));
+}
+
 console.log(fail ? `\n✗ ${fail} failed\n` : '\n✓ all passed\n');
 process.exit(fail ? 1 : 0);

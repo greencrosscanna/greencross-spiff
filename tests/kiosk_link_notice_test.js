@@ -73,14 +73,22 @@ function panel(replies, opts) {
   const src = [
     'var kioskLoaded = false;',
     'var kioskOutstanding = Object.create(null);',
+    'var kioskUnchecked = [];',
+    'var kioskJustPublished = Object.create(null);',
+    /* Read out of the shipped file, not retyped: the reasons are what a person reads. */
+    (js.match(/var KIOSK_TRUST_REPLY_MS = [^;]+;/) || ['MISSING KIOSK_TRUST_REPLY_MS'])[0],
+    (js.match(/var KIOSK_CHECK_REASON = \{[\s\S]*?\};/) || ['MISSING KIOSK_CHECK_REASON'])[0],
     G.grab('esc', js), G.grab('storeUrl', js),
     'function copyText() { return Promise.resolve(true); }',
-    G.grab('kioskOutstandingIds', js), G.grab('kioskApplyReply', js), G.grab('kioskNoticeHtml', js),
+    'function copyKioskLink() {}',
+    G.grab('kioskOutstandingIds', js), G.grab('kioskApplyCheck', js), G.grab('kioskUncheckedHtml', js),
+    G.grab('kioskApplyReply', js), G.grab('kioskNoticeHtml', js),
     G.grab('republishKioskLinks', js), G.grab('wireKioskNotice', js),
     G.grab('mintAllKioskLinks', js), G.grab('renderKioskLinks', js),
     G.grab('loadKioskLinks', js), G.grab('rotateKioskLink', js),
     'return { mint: mintAllKioskLinks, rotate: rotateKioskLink, republish: republishKioskLinks,',
     '         load: loadKioskLinks, apply: kioskApplyReply, noticeHtml: kioskNoticeHtml,',
+    '         applyCheck: kioskApplyCheck, unchecked: function () { return kioskUnchecked.slice().sort(); },',
     '         outstanding: function () { return kioskOutstandingIds().sort(); } };',
   ].join('\n');
   const api = new Function('$', 'ENG', 'session', 'canEdit', 'confirm', 'setTimeout', 'location', src)(
@@ -312,6 +320,79 @@ const rot = (store, published, err) => ({ ok: true, store_id: store, token: 'new
   await V.api.load(true);
   ok('  …and the non-editor\'s panel is the managed-by-an-editor line, with no button',
      /managed by an editor/.test(V.seen()) && !V.hasButton());
+
+  /* ══ 11. the warning survives a reload: the list read says which stores Core is out of step on ══ */
+  console.log('\n11. on opening the panel, the engine\'s check rebuilds the warning');
+  const listWith = (check) => Object.assign({}, LIST_OK, { core_check: check });
+  /* A FRESH panel is a reloaded page: nothing in memory. */
+  P = panel({ storeLinks: [listWith({ bend: 'in_sync', 'river-rd': 'differs', commercial: 'in_sync' })] });
+  await P.api.load(true);
+  ok('a store the check says differs is warned about, with no action taken this session',
+     P.api.outstanding().join(',') === 'river-rd' && /1 store:<\/b> River/.test(P.html()));
+  ok('  …with a reason a person can read', /Reason: The Command Center holds a different link, or none/.test(P.seen()));
+  ok('  …and the Republish button, exactly as after a failed Create or Replace', P.hasButton());
+  ok('  …from the ONE list call the panel already made — no second request', P.asked.join(',') === 'storeLinks');
+
+  P = panel({ storeLinks: [listWith({ bend: 'in_sync', 'river-rd': 'in_sync', commercial: 'in_sync' })] });
+  await P.api.load(true);
+  ok('everything in sync: no warning, no button, no extra line',
+     P.html().indexOf('kioskNotice') < 0 && !P.hasButton() && P.html().indexOf('kioskUnchecked') < 0);
+
+  P = panel({ storeLinks: [listWith({ bend: 'in_sync', 'river-rd': 'in_sync', commercial: 'core_only' })] });
+  await P.api.load(true);
+  ok('Core still holding a link SPIFF no longer has is warned about, in its own words',
+     P.api.outstanding().join(',') === 'commercial'
+     && /still holds a link this store no longer has/.test(P.seen()) && P.hasButton());
+
+  P = panel({ storeLinks: [listWith({ bend: 'unchecked', 'river-rd': 'unchecked', commercial: 'unchecked' })] });
+  await P.api.load(true);
+  ok('"could not ask Core" is NOT shown as a warning about the links',
+     P.api.outstanding().length === 0 && P.html().indexOf('kioskNotice') < 0 && !P.hasButton());
+  ok('  …and NOT shown as all clear either: the panel says the check could not run',
+     /id="kioskUnchecked"/.test(P.html()) && /Could not ask the Command Center/.test(P.seen())
+     && /Century, River, Commercial/.test(P.seen()) && /the check failing, not the links/.test(P.seen()));
+  ok('  …as a hint line, not the warning block', /<p class="hint" id="kioskUnchecked">/.test(P.html()));
+  ok('  …and the stores are recorded as unchecked', P.api.unchecked().join(',') === 'bend,commercial,river-rd');
+
+  P = panel({ storeLinkMintAll: [PARTIAL],
+              storeLinks: [listWith({ bend: 'in_sync', 'river-rd': 'unchecked', commercial: 'unchecked' })] });
+  await P.api.mint(btn());
+  ok('a store already known to be outstanding STAYS outstanding when the check cannot ask',
+     P.api.outstanding().join(',') === 'commercial,river-rd' && /Reason: GX Core unreachable: timeout/.test(P.seen()));
+
+  P = panel({ storeLinkMintAll: [PARTIAL],
+              storeLinks: [listWith({ bend: 'in_sync', 'river-rd': 'in_sync', commercial: 'differs' })] });
+  await P.api.mint(btn());
+  ok('MERGE: the check says River is in sync, so River leaves; Commercial stays',
+     P.api.outstanding().join(',') === 'commercial');
+  ok('  …and Commercial keeps the engine\'s own reason, not the check\'s generic one',
+     /Reason: GX Core unreachable: timeout/.test(P.seen()) && !/holds a different link/.test(P.notice()));
+
+  P = panel({ storeLinks: [listWith({ bend: 'differs' }), LIST_OK] });
+  await P.api.load(true);
+  await P.api.load(true);
+  ok('an engine that sends no core_check leaves what is known exactly as it was',
+     P.api.outstanding().join(',') === 'bend');
+
+  P = panel({ storeLinks: [listWith({ bend: 'something_new', 'river-rd': 'differs' })] });
+  await P.api.load(true);
+  ok('a state word this page does not know makes no claim either way', P.api.outstanding().join(',') === 'river-rd');
+
+  /* The library keeps each kv answer for 60s, so the reload right after a successful Republish can
+     still be told "differs" about a store that reply just said reached Core. */
+  P = panel({ storeLinks: [listWith({ 'river-rd': 'differs' }), listWith({ 'river-rd': 'differs' })],
+              storeLinksRepublish: [{ ok: true, stores: 3, published: ['bend', 'river-rd', 'commercial'],
+                                      publish_failed: [], publish_note: '' }] });
+  await P.api.load(true);
+  await P.api.republish(btn('Republish to Command Center'));
+  ok('a stale "differs" in the reload right after a successful Republish does not bring the warning back',
+     P.api.outstanding().length === 0 && P.html().indexOf('kioskNotice') < 0);
+  P.api.applyCheck({ 'river-rd': 'differs' }, Date.now() + 5 * 60 * 1000);
+  ok('  …but the same answer five minutes later is believed', P.api.outstanding().join(',') === 'river-rd');
+
+  P = panel({ storeLinks: [listWith({ '<b>x</b>': 'unchecked' })] });
+  await P.api.load(true);
+  ok('a store id in the unchecked line is escaped', P.html().indexOf('<b>x</b>') < 0 && P.html().indexOf('&lt;b&gt;x') >= 0);
 
   /* ══ 10. wiring ══ */
   console.log('\n10. the real buttons are wired to the handlers tested above');

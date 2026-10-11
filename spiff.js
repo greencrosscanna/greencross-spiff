@@ -2298,14 +2298,59 @@
      THAT store did: Create or Republish listing it in `published`, or Replace answering
      `published: true` for it. A success about some other store proves nothing about this one.
 
-     WHAT IT IS NOT. It is this page's memory, so a reload forgets it. The engine has no read
-     that says which stores GX Core is missing — the dry run of publishKioskTokens plans from
-     store_links alone and never looks at Core — so there is nothing to rebuild it from on open.
-     After a reload the honest state is "unknown", shown as nothing; Republish is idempotent and
-     is the way to be sure. */
-  var kioskOutstanding = Object.create(null);   // store_id → the reason the engine gave ('' if none)
+     IT SURVIVES A RELOAD (v1.460). The set is this page's memory, but it is no longer ONLY that:
+     the list read (`storeLinks`) now carries `core_check`, one of four words per store —
+     in_sync / differs / core_only / unchecked — from the engine comparing its own link with the
+     one GX Core holds (never the links themselves; see storeLinksCoreCheck_). kioskApplyCheck
+     folds it in every time the list loads, so the warning and its button come back after a
+     reload exactly as they stood after the failed Create or Replace.
+
+     `unchecked` IS NOT A WARNING AND NOT AN ALL-CLEAR. It means Core could not be asked. It
+     changes nothing in the set — a store already known to be outstanding stays, one not known
+     stays out — and the panel says, separately and quietly, that the check could not run. */
+  var kioskOutstanding = Object.create(null);   // store_id → the reason ('' if none)
+  var kioskUnchecked = [];                      // store ids the last check could not ask Core about
+  /* store_id → when a reply last said it reached Core. The library keeps each kv answer for 60s,
+     so a check made in the same breath as a successful Republish can still report the OLD value;
+     an action's own reply is newer than that read and wins for this long. */
+  var kioskJustPublished = Object.create(null);
+  var KIOSK_TRUST_REPLY_MS = 90 * 1000;
+
+  var KIOSK_CHECK_REASON = {
+    differs:   'The Command Center holds a different link, or none',
+    core_only: 'The Command Center still holds a link this store no longer has'
+  };
 
   function kioskOutstandingIds() { return Object.keys(kioskOutstanding); }
+
+  /* Fold the list read's `core_check` into the set. Merges with what this session already knows:
+     a store the engine's own reply gave a reason for keeps that reason. An old engine that sends
+     no `core_check` leaves everything as it was. */
+  function kioskApplyCheck(check, now) {
+    kioskUnchecked = [];
+    if (!check) return;
+    var t = now == null ? Date.now() : now;
+    Object.keys(check).forEach(function (id) {
+      var st = String(check[id]);
+      if (st === 'in_sync') { delete kioskOutstanding[id]; return; }
+      if (st === 'unchecked') { kioskUnchecked.push(id); return; }
+      if (st !== 'differs' && st !== 'core_only') return;          // a word we do not know: no claim
+      if (kioskJustPublished[id] != null && t - kioskJustPublished[id] < KIOSK_TRUST_REPLY_MS) return;
+      if (!kioskOutstanding[id]) kioskOutstanding[id] = KIOSK_CHECK_REASON[st];
+    });
+  }
+
+  /* The quiet line for stores Core could not be asked about. Deliberately a hint and not the
+     warning block: nothing is known to be wrong with these links. */
+  function kioskUncheckedHtml(links) {
+    if (!kioskUnchecked.length) return '';
+    var names = Object.create(null);
+    (links || []).forEach(function (l) { names[l.store_id] = l.display_name || l.store_id; });
+    return '<p class="hint" id="kioskUnchecked">Could not ask the Command Center whether '
+      + (kioskUnchecked.length === 1 ? 'this link' : 'these links') + ' arrived ('
+      + esc(kioskUnchecked.map(function (id) { return names[id] || id; }).join(', '))
+      + '). That is the check failing, not the links &mdash; reload the page to ask again.</p>';
+  }
 
   /* Fold one reply into the set. `storeId` is passed for Replace (one store, `published` is a
      boolean); omitted for Create and Republish (`published` is a list of store ids and
@@ -2315,16 +2360,17 @@
     if (!r) return;
     if (storeId != null) {
       var id = String(r.store_id || storeId);
-      if (r.published === false) kioskOutstanding[id] = String(r.publish_error || '');
-      else if (r.published === true) delete kioskOutstanding[id];
+      if (r.published === false) { kioskOutstanding[id] = String(r.publish_error || ''); delete kioskJustPublished[id]; }
+      else if (r.published === true) { delete kioskOutstanding[id]; kioskJustPublished[id] = Date.now(); }
       return;
     }
     (Array.isArray(r.published) ? r.published : []).forEach(function (s) {
       delete kioskOutstanding[String(s)];
+      kioskJustPublished[String(s)] = Date.now();
     });
     (r.publish_failed || []).forEach(function (f) {
       var fid = String((f && f.store_id) || '');
-      if (fid) kioskOutstanding[fid] = String((f && f.error) || '');
+      if (fid) { kioskOutstanding[fid] = String((f && f.error) || ''); delete kioskJustPublished[fid]; }
     });
   }
 
@@ -2424,6 +2470,7 @@
       + 'The page shows the goal, the payout, the selling tips and how far each budtender has '
       + 'got &mdash; never anyone&rsquo;s earnings.</p>'
       + kioskNoticeHtml(links)
+      + kioskUncheckedHtml(links)
       + '<table class="sp-klinks"><thead><tr><th>Store</th><th>Link</th><th></th></tr></thead><tbody>'
       + links.map(function (l) {
           return '<tr data-store="' + esc(l.store_id) + '">'
@@ -2471,6 +2518,7 @@
       var r = await ENG.jsonp('storeLinks', { token: (session() || {}).token }, { timeoutMs: 25000, retries: 1 });
       if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
       kioskLoaded = true;
+      kioskApplyCheck(r.core_check);   // before the render: the warning is drawn from the set
       renderKioskLinks(r.links || []);
     } catch (err) {
       /* Says what failed rather than showing an empty table — an empty list here reads as
@@ -3902,10 +3950,11 @@
     return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0')
          + '-' + String(d.getUTCDate()).padStart(2, '0');
   }
-  function daysBetween(a, b) {
-    var pa = String(a).split('-'), pb = String(b).split('-');
-    return Math.round((Date.UTC(+pb[0], +pb[1] - 1, +pb[2]) - Date.UTC(+pa[0], +pa[1] - 1, +pa[2])) / 864e5);
-  }
+  /* `daysBetween` IS DECLARED ONCE, further down (search "Whole days from a to b"). A second
+     declaration stood here until v1.460 — split('-') on both dates, NaN for a missing one — and
+     had been dead for as long as the other existed: function declarations hoist, the later one
+     in a scope wins, so periodIndex below was already running that one. Removing this changed
+     no result. tests/duplicate_functions_test.js is what keeps a third from appearing. */
 
   /* Which period contains a date — floor for dates after the anchor, and a floor that still
      works BEFORE it (JS truncates toward zero, so -1/14 would land on period 0). */
