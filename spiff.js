@@ -2280,6 +2280,79 @@
 
   var kioskLoaded = false;
 
+  /* ── A LINK THAT DID NOT REACH THE COMMAND CENTER SAYS SO, AND KEEPS SAYING SO (2026-10-10) ──
+     The engine has always reported this: `storeLinkMintAll` answers `publish_failed` (one
+     `{store_id, error}` per store) with a `publish_note`, and `storeLinkRotate` answers
+     `published: false` with `publish_note` / `publish_error`. Neither reached a person. Create
+     threw the reply away and reloaded the list. Replace wrote the note into #kioskMsg and then
+     reloaded the list too — and the reload rebuilds this whole panel, so the note was replaced by
+     an empty span before anyone could read it. Both read as a clean success.
+
+     So the notice is STATE, not a line of text poked into the DOM: it is set from the reply,
+     painted by renderKioskLinks on every render (and by the could-not-load branch, which is the
+     likeliest thing to follow a failed publish), and cleared only by the next clean run.
+
+     WHAT A CLEAN RUN DOES NOT PROVE. It clears the notice because the action just taken worked,
+     not because GX Core has caught up on the stores named earlier — nothing on this screen can
+     ask that. The repair is still the one the note names (?action=publishKioskTokens&apply=1). */
+  var kioskNotice = null;   // { note, ids: [store_id…], reason } or null
+
+  /* Reply → notice, or null when everything reached Core. `storeId` is passed for a rotate (one
+     store, a boolean); omitted for mint-all (a list). Field names are the engine's own. */
+  function kioskPublishNotice(r, storeId) {
+    if (!r) return null;
+    if (storeId != null) {
+      if (r.published !== false) return null;
+      return { note: String(r.publish_note || 'The new link did not reach the Command Center.'),
+               ids: [String(r.store_id || storeId)],
+               reason: String(r.publish_error || '') };
+    }
+    var failed = r.publish_failed || [];
+    if (!failed.length) return null;
+    return { note: String(r.publish_note
+                          || failed.length + ' store link(s) did not reach the Command Center.'),
+             ids: failed.map(function (f) { return String((f && f.store_id) || ''); })
+                        .filter(Boolean),
+             reason: String((failed[0] && failed[0].error) || '') };
+  }
+
+  /* The notice as markup. Store NAMES when the list is in hand, ids when it is not. Everything
+     from the reply goes through esc() — the note and the reason are engine text, and a reason
+     can carry whatever GX Core or the network said. */
+  function kioskNoticeHtml(links) {
+    if (!kioskNotice) return '';
+    var names = Object.create(null);
+    (links || []).forEach(function (l) { names[l.store_id] = l.display_name || l.store_id; });
+    var who = (kioskNotice.ids || []).map(function (id) { return names[id] || id; });
+    return '<div class="sp-notice is-warn" id="kioskNotice" role="alert">'
+      + '<span class="sp-notice-l">Not sent to the Command Center</span>'
+      + esc(kioskNotice.note)
+      + (who.length
+          ? '<br><b>' + who.length + ' store' + (who.length === 1 ? '' : 's') + ':</b> ' + esc(who.join(', '))
+          : '')
+      + (kioskNotice.reason ? '<br>Reason: ' + esc(kioskNotice.reason) : '')
+      + '</div>';
+  }
+
+  /* "Create links for the N store(s) without one". Named, not an inline closure, so the test can
+     run the shipped handler. */
+  async function mintAllKioskLinks(btn) {
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+    try {
+      var r = await ENG.jsonp('storeLinkMintAll', { token: (session() || {}).token },
+                              { timeoutMs: 30000, retries: 0 });
+      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+      kioskNotice = kioskPublishNotice(r);   // null on a clean run, which clears an earlier one
+      await loadKioskLinks(true);
+    } catch (err) {
+      btn.textContent = 'Failed';
+      var m = $('#kioskMsg');
+      if (m) m.textContent = String(err.message || err);
+      btn.disabled = false;
+    }
+  }
+
   function renderKioskLinks(links) {
     var host = $('#kioskBody');
     if (!host) return;
@@ -2294,6 +2367,7 @@
       + 'controlled in Leaderboard (Settings &rarr; Include SPIFF). '
       + 'The page shows the goal, the payout, the selling tips and how far each budtender has '
       + 'got &mdash; never anyone&rsquo;s earnings.</p>'
+      + kioskNoticeHtml(links)
       + '<table class="sp-klinks"><thead><tr><th>Store</th><th>Link</th><th></th></tr></thead><tbody>'
       + links.map(function (l) {
           return '<tr data-store="' + esc(l.store_id) + '">'
@@ -2321,21 +2395,7 @@
       + '<span class="hint" id="kioskMsg"></span>';
 
     var mintAll = $('#kioskMintAll');
-    if (mintAll) mintAll.addEventListener('click', async function () {
-      mintAll.disabled = true;
-      mintAll.textContent = 'Creating…';
-      try {
-        var r = await ENG.jsonp('storeLinkMintAll', { token: (session() || {}).token },
-                                { timeoutMs: 30000, retries: 0 });
-        if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
-        await loadKioskLinks(true);
-      } catch (err) {
-        mintAll.textContent = 'Failed';
-        var m = $('#kioskMsg');
-        if (m) m.textContent = String(err.message || err);
-        mintAll.disabled = false;
-      }
-    });
+    if (mintAll) mintAll.addEventListener('click', function () { mintAllKioskLinks(mintAll); });
 
     host.querySelectorAll('[data-kcopy]').forEach(function (b) {
       b.addEventListener('click', async function () {
@@ -2362,7 +2422,10 @@
     } catch (err) {
       /* Says what failed rather than showing an empty table — an empty list here reads as
          "this company has no stores", which is never the true answer. */
-      host.innerHTML = '<p class="hint">Could not load kiosk links: ' + esc(String(err.message || err))
+      /* The notice rides along: a failed publish followed by a failed reload is one bad minute, and
+         the reload's own error must not be the thing that hides what the action just reported. */
+      host.innerHTML = kioskNoticeHtml([])
+        + '<p class="hint">Could not load kiosk links: ' + esc(String(err.message || err))
         + ' <button type="button" class="gx-btn" id="kioskRetry">Try again</button></p>';
       var rt = $('#kioskRetry');
       if (rt) rt.addEventListener('click', function () { loadKioskLinks(true); });
@@ -2398,10 +2461,9 @@
          Core holding the link this call just killed, with the screen that caused it reporting
          success. (Corrected 2026-10-10: this said "a kiosk showing a button onto the link". No
          kiosk button depends on the link.) */
-      if (r.published === false) {
-        var pm = $('#kioskMsg');
-        if (pm) pm.textContent = r.publish_note || 'The new link did not reach the Command Center.';
-      }
+      /* Held as state and painted by the render — writing it into #kioskMsg here was erased by the
+         reload on the very next line, so this branch had never been seen by anyone. */
+      kioskNotice = kioskPublishNotice(r, storeId);
       await loadKioskLinks(true);
     } catch (err) {
       btn.textContent = 'Failed';
