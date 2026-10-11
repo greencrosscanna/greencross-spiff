@@ -10,10 +10,8 @@
  * store.html was deleted on 2026-09-17, and since Leaderboard v1.919 (2026-10-09) its engine no
  * longer sends the link to the kiosk. A store's token decides only whether the per-store link
  * opened BY HAND (store.html?t=<token>) works; revoking it kills that link and nothing on the
- * kiosk. Read every "button" below as "the per-store link". The ASSERTIONS and their printed
- * labels are unchanged on purpose: several still match the engine's old wording ("no SPIFF
- * button", "dead page", "the off switch"), because those are strings the engine returns and
- * changing them is a product-copy ship, not a comment fix.
+ * kiosk. The engine's messages, this file's labels and the failed-mint assertion were reworded
+ * to that rule the same day.
  *
  * WHY THIS EXISTS
  * Leaderboard reads the per-store link token from GX Core kv cfg.spiffKiosk.<store_id>.
@@ -195,7 +193,14 @@ console.log('\n3. mint writes the sheet BEFORE it publishes, and reports a parti
   const r = e.api.mintAll({ token: 'sess' });
   ok('Core being down does not stop the links being minted', (r.minted || []).length === 3);
   ok('…but all three are reported as unpublished', (r.publish_failed || []).length === 3);
-  ok('…and the note says the kiosks will show no button', /no SPIFF button/.test(r.publish_note));
+  /* The count comes from the three stores this fixture fails, so a note that stops saying how many
+     were missed fails here; which ones is `publish_failed`, checked on the line above. The last
+     clause keeps the retired "no SPIFF button" claim from coming back (reworded 2026-10-10). */
+  ok('…and the note says how many store links missed GX Core and that Leaderboard cannot build them',
+     /\b3 store link\(s\) did not reach GX Core/.test(r.publish_note)
+     && /Leaderboard cannot build the link for those stores/.test(r.publish_note)
+     && /nothing changes on the kiosk/.test(r.publish_note)
+     && !/SPIFF button/.test(r.publish_note));
   ok('…and names the repair route rather than implying a re-mint',
      /publishKioskTokens/.test(r.publish_note) && /nothing needs re-minting/.test(r.publish_note));
 }
@@ -220,20 +225,20 @@ console.log('\n4. rotate publishes the new token; revoke blanks the key');
 {
   const e = engine({ rows: [{ store_id: 'bend', token: 'old', revoked_at: '' }], failFetch: true });
   const r = e.api.rotate({ token: 'sess', store: 'bend' });
-  ok('a rotate whose publish fails says the kiosk now opens a dead page',
+  ok('a rotate whose publish fails says the copy Leaderboard holds opens a dead page',
      r.published === false && /dead page/.test(r.publish_note));
 }
 {
   const e = engine({ rows: [{ store_id: 'bend', token: 'old', revoked_at: '' }] });
   const r = e.api.rotate({ token: 'sess', store: 'bend', revoke: '1' });
-  ok('a revoke writes an EMPTY value — the off switch, not a delete',
+  ok('a revoke writes an EMPTY value — "no link", not a delete',
      e.calls.length === 1 && keyOf(e.calls[0]) === 'cfg.spiffKiosk.bend' && valueOf(e.calls[0]) === '');
   ok('…and mints no replacement', r.token === '' && r.revoked === true);
 }
 {
   const e = engine({ rows: [{ store_id: 'bend', token: 'old', revoked_at: '' }], failFetch: true });
   const r = e.api.rotate({ token: 'sess', store: 'bend', revoke: '1' });
-  ok('a revoke that cannot clear Core warns the button still opens a dead page',
+  ok('a revoke that cannot clear Core warns the link still opens a dead page',
      r.published === false && /dead page/.test(r.publish_note));
 }
 
@@ -245,7 +250,7 @@ console.log('\n5. the backfill walks the REGISTRY, is dry by default, and clears
   ok('dry by default — nothing is written', r.dry === true && e.calls.length === 0);
   ok('it plans one entry per REGISTRY store, not per live link', r.stores === 3);
   ok('the store with a link is a publish', r.publishing === 1);
-  ok('the two without are clears, so a revoked store loses its button', r.clearing === 2);
+  ok('the two without are clears, so a revoked store loses its link in Core', r.clearing === 2);
   ok('the plan does not leak token values', !JSON.stringify(r.plan).includes('live1'));
   ok('the note says plainly that nothing happened', /DRY RUN/.test(r.note));
 }

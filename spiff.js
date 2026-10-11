@@ -2273,8 +2273,7 @@
      the kiosk's SPIFF button is decided ONLY by Leaderboard's Settings → Include SPIFF switch,
      and Leaderboard has not loaded store.html since 2026-09-17 (v1.879). A link here is opened
      BY HAND (store.html?t=<token>); its token decides whether that link works and nothing on
-     the kiosk. The hint and the Replace confirm below still carry the old wording — those are
-     strings staff read, so changing them is a product-copy ship, not a comment fix. */
+     the kiosk. The hint and the Replace confirm below were reworded to match the same day. */
   function storeUrl(tok) {
     return location.origin + location.pathname.replace(/[^/]*$/, '') + 'store.html?t=' + tok;
   }
@@ -2289,10 +2288,12 @@
       return;
     }
     host.innerHTML =
-      '<p class="hint">Paste a store&rsquo;s link into that store&rsquo;s kiosk. It is permanent: '
-      + 'it shows whatever SPIFF is running there that day, and says so plainly when nothing is. '
-      + 'The page shows the goal, the payout and the selling tips &mdash; never a person&rsquo;s '
-      + 'name, units or earnings.</p>'
+      '<p class="hint">Each store has one permanent link to its SPIFF board, to open on a phone or '
+      + 'a laptop. It shows whatever SPIFF is running there that day, and says so plainly when '
+      + 'nothing is. The kiosk does not use it &mdash; the kiosk&rsquo;s SPIFF button is '
+      + 'controlled in Leaderboard (Settings &rarr; Include SPIFF). '
+      + 'The page shows the goal, the payout, the selling tips and how far each budtender has '
+      + 'got &mdash; never anyone&rsquo;s earnings.</p>'
       + '<table class="sp-klinks"><thead><tr><th>Store</th><th>Link</th><th></th></tr></thead><tbody>'
       + links.map(function (l) {
           return '<tr data-store="' + esc(l.store_id) + '">'
@@ -2380,12 +2381,13 @@
        front of customers. Hence a real instruction rather than "it will sort itself out".
        CORRECTED 2026-10-10: the paragraph above is history. The kiosk no longer opens this link
        (Leaderboard v1.879) and since v1.919 its engine does not send it to the kiosk, so there is
-       no "old button" to reload away. The confirm text below still tells the reader to reload. */
-    if (replacing && !confirm('Replace the kiosk link for this store?\n\n'
+       no "old button" to reload away. The confirm text below was reworded the same day
+       and no longer tells the reader to reload anything. */
+    if (replacing && !confirm('Replace the link for this store?\n\n'
           + 'The old link stops working immediately. The new one reaches the Command Center by '
-          + 'itself — nothing to copy — but that store\'s kiosk keeps showing the old button until '
-          + 'the screen reloads.\n\n'
-          + 'Reload it from Leaderboard afterwards (Settings \u2192 Reload kiosk screens).')) return;
+          + 'itself — nothing to copy.\n\n'
+          + 'Nothing changes on the kiosk: its SPIFF button is controlled in Leaderboard '
+          + '(Settings \u2192 Include SPIFF), and the kiosk does not use this link.')) return;
     btn.disabled = true;
     var was = btn.textContent;
     btn.textContent = replacing ? 'Replacing…' : 'Creating…';

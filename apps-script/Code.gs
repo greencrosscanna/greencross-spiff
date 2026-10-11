@@ -4412,9 +4412,10 @@ function gxPublishKioskToken_(storeId, token) {
     + '&key='    + encodeURIComponent('cfg.spiffKiosk.' + id)
     + '&value='  + encodeURIComponent(String(token == null ? '' : token))
     + '&notes='  + encodeURIComponent(
-        'SPIFF kiosk link token for ' + id + '. Written by the SPIFF engine at mint/rotate and '
-      + 'blanked on revoke; empty means no token and no kiosk button. Do not edit by hand — '
-      + 'the value here must match the live row in SPIFF store_links or the button opens a dead page.');
+        'SPIFF per-store link token for ' + id + '. Written by the SPIFF engine at mint/rotate and '
+      + 'blanked on revoke; empty means no link. It does not control the kiosk SPIFF button — that '
+      + 'is Leaderboard Settings, Include SPIFF. Do not edit by hand — '
+      + 'the value here must match the live row in SPIFF store_links or the link opens a dead page.');
 
   /* NOT gxCoreFetchJson_, and this is the one exception worth stating out loud: set_config is a
      WRITE. That helper retries transport failures, which is free for a read and is a decision per
@@ -4486,11 +4487,13 @@ function storeLinkMintAll_(p) {
      minted and still correct here, but Core does not hold them — and the panel saying a
      cheerful "minted 6" over that is how a person concludes the job is done and stops looking.
      (Corrected 2026-10-10: this said "no kiosk will show a button". The kiosk button does not
-     depend on the token; the publish_note string below still carries the old wording.) */
+     depend on the token; the publish_note below was reworded to match the same day.) */
   return { ok: true, minted: made, published: published, publish_failed: failed,
            publish_note: failed.length
-             ? 'Minted, but ' + failed.length + ' token(s) did not reach GX Core, so those kiosks '
-               + 'will show no SPIFF button. Re-run ?action=publishKioskTokens&apply=1 once Core '
+             ? 'Minted, but ' + failed.length + ' store link(s) did not reach GX Core, so '
+               + 'Leaderboard cannot build the link for those stores. The links work when opened '
+               + 'from here, and nothing changes on the kiosk. '
+               + 'Re-run ?action=publishKioskTokens&apply=1 once Core '
                + 'is reachable — nothing needs re-minting.'
              : '' };
 }
@@ -4555,16 +4558,16 @@ function storeLinkRotate_(p) {
      arriving a different way.
      (Corrected 2026-10-10: this said Leaderboard treats an empty value as "no token, no button"
      and that a revoke "takes the button off the kiosk". Revoking kills the hand-opened link and
-     changes nothing on the kiosk; the publish_note strings below still carry the old wording.) */
+     changes nothing on the kiosk; the publish_note strings below were reworded the same day.) */
   if (String(p.revoke || '') === '1') {
     var cleared = gxPublishKioskToken_(id, '');
     return { ok: true, store_id: id, token: '', revoked: true,
              published: cleared.ok,
              publish_error: cleared.ok ? '' : cleared.error,
              publish_note: cleared.ok ? ''
-               : 'The link is revoked HERE, but GX Core still holds the old token, so that kiosk '
-                 + 'will keep showing a SPIFF button that opens a dead page. Re-run '
-                 + '?action=publishKioskTokens&apply=1 to clear it.' };
+               : 'The link is revoked HERE, but GX Core still holds the old token, so the copy of '
+                 + 'the link Leaderboard holds opens a dead page. Nothing changes on the kiosk. '
+                 + 'Re-run ?action=publishKioskTokens&apply=1 to clear it.' };
   }
 
   var tok = Utilities.getUuid().replace(/-/g, '');
@@ -4576,8 +4579,9 @@ function storeLinkRotate_(p) {
            publish_error: pub.ok ? '' : pub.error,
            publish_note: pub.ok ? ''
              : 'The new link works HERE, but GX Core still holds the OLD token — which this call '
-               + 'just revoked — so that kiosk shows a button onto a dead page until it is '
-               + 'republished. Re-run ?action=publishKioskTokens&apply=1.' };
+               + 'just revoked — so the copy of the link Leaderboard holds opens a dead page '
+               + 'until it is republished. Nothing changes on the kiosk. '
+               + 'Re-run ?action=publishKioskTokens&apply=1.' };
 }
 
 /* ═══ BACKFILL / REPAIR: push every live kiosk token to GX Core in one call ═══
