@@ -78,7 +78,9 @@ function draft(overrides) {
 }
 
 function run(programRow, p, auth) {
-  const programs = G.makeSheet(PH, programRow ? [programRow] : []);
+  /* One seeded row, or a list of them. */
+  const seeded = !programRow ? [] : Array.isArray(programRow[0]) ? programRow : [programRow];
+  const programs = G.makeSheet(PH, seeded);
   const cache = G.makeCache();
   const api = G.load({
     real: ['createProgram_', 'createIsReplay_', 'canonJson_', 'saveProgram_', 'getProgram_',
@@ -139,13 +141,48 @@ console.log('create program — replayed retry');
      r.programs.rows.length === 2);
 }
 
-/* ══ a genuinely different program at the same id is still refused ══ */
+/* ══ the same NAME for a different VENDOR is a different program, and it saves ══
+   Tawny, 2026-10-12: "I can't save the Kaprikorn Spiff." A Gron "All products" already held the
+   name-plus-month id, so the second vendor's program was refused and nothing was saved. */
+const OTHER = { vendor: 'Green Cross',
+                match_json: { brand: 'Green Cross', category: '', filter_text: '', products: [] } };
+const OTHER_ID = 'green-cross-sodas-tictures-all-products-202609';
 {
-  const r = run(existingRow(), { program: JSON.stringify(draft({ vendor: 'Different Vendor Co' })) });
-  ok('different model content at the same id is refused, not silently dropped',
-     r.res.ok === false && /already exists/.test(r.res.error));
+  const r = run(existingRow(), { program: JSON.stringify(draft(OTHER)) });
+  ok('a different vendor with the same name is created, not refused',
+     r.res.ok === true && r.res.created === true);
+  ok('  …under its own id, with the vendor in front', r.res.program_id === OTHER_ID);
+  ok('  …as a second row, beside the first', r.programs.rows.length === 3
+     && r.programs.rows[2][col('program_id')] === OTHER_ID
+     && r.programs.rows[2][col('vendor')] === 'Green Cross');
   ok('  …and the original row is untouched',
-     r.programs.rows[1][col('vendor')] === 'Sodas & Tictures');
+     r.programs.rows[1][col('program_id')] === 'sodas-tictures-all-products-202609'
+     && r.programs.rows[1][col('vendor')] === 'Sodas & Tictures');
+}
+{
+  /* The retry of THAT create lands on the vendor id the first send took. */
+  const both = [existingRow(), existingRow(Object.assign({ program_id: OTHER_ID }, OTHER))];
+  const r = run(both, { program: JSON.stringify(draft(OTHER)) });
+  ok('a retried different-vendor create is a replay of its own id, not a third program',
+     r.res.ok === true && r.res.replay === true && r.res.program_id === OTHER_ID
+     && r.programs.rows.length === 3);
+  const d = run(both, { program: JSON.stringify(draft(Object.assign({}, OTHER, {
+    cost_json: { mode: 'flat', per_unit: 9, source_label: 'calculator' } }))) });
+  ok('a different program at the vendor id too is refused, and nothing is written',
+     d.res.ok === false && d.res.code === 'name_taken' && /for Green Cross/.test(d.res.error)
+     && d.programs.rows.length === 3);
+}
+
+/* ══ the same vendor AND name in one month is still refused, in words a person can act on ══ */
+{
+  const r = run(existingRow(), { program: JSON.stringify(draft({
+    cost_json: { mode: 'flat', per_unit: 9, source_label: 'calculator' } })) });
+  ok('same vendor, same name, different numbers is refused, not silently dropped',
+     r.res.ok === false && r.res.code === 'name_taken' && /already exists/.test(r.res.error));
+  ok('  …naming the program and the vendor, never the internal id',
+     /Sodas & Tictures - All Products/.test(r.res.error) && /for Sodas & Tictures/.test(r.res.error)
+     && !/202609/.test(r.res.error));
+  ok('  …and nothing is written', r.programs.rows.length === 2);
 }
 {
   const r = run(existingRow(), {}, { ok: true, user: 'sky', role: 'admin' });

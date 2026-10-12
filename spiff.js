@@ -5674,8 +5674,12 @@
       }
     }
 
+    /* A program that does not exist yet has no record half, so a failed model save there means
+       NOTHING was saved — and "Saved, but…" said the opposite (Tawny, 2026-10-12). */
+    var wasNew = !calc.editingId;
     var modelRes = await saveCalcProgram({ silent: true });
-    if (modelRes && modelRes.error) failed.push('the model');
+    var modelWhy = (modelRes && modelRes.error) || '';
+    if (modelWhy) failed.push('the model');
     else if (modelRes && modelRes.changed) changed = changed.concat(modelRes.changed);
 
     /* THE UNLOCK IS SPENT ON SAVE. Leaving it open would mean a record stayed hand-editable for
@@ -5701,14 +5705,23 @@
     if (btn) {
       /* SAY WHAT WAS SAVED. "Updated" on a press that changed nothing is the trap this whole
          change is about — and a half-failure that reports success is worse than either. */
-      btn.textContent = failed.length
-        ? 'Saved, but ' + failed.join(' and ') + ' failed'
+      btn.textContent = (wasNew && modelWhy) ? 'Not saved'
+        : failed.length ? 'Saved, but ' + failed.join(' and ') + ' failed'
         : changed.length ? 'Saved ' + changed.length + ' change' + (changed.length === 1 ? '' : 's')
                          : 'Nothing changed';
       setTimeout(function () { renderProgramBar(); btn.disabled = false; }, 2600);
     }
     var msg = $(REC.msg);
     if (msg) msg.textContent = failed.length ? '' : (changed.length ? 'Saved: ' + changed.join(', ') : '');
+    /* SAY WHY, where it cannot be missed. The record message above sits inside a fold that is not
+       even on screen for a new program, and the button has room for three words. The engine's
+       refusals are written to be read by the person who hit them, so pass them through. */
+    if (modelWhy && modelWhy !== 'signed out') {
+      alert((wasNew ? 'This program was not saved.' : 'The program details saved, but the model did not.')
+            + '\n\n' + (modelWhy === 'save failed'
+              ? 'The save did not get an answer. Check the program list before trying again.'
+              : modelWhy));
+    }
   }
 
   async function saveCalcProgram(opts) {
@@ -5789,6 +5802,12 @@
         }
         confirmBrand = '1';
         r = await send();
+      }
+      /* Same rule as the record half in saveEverything: an expired session reopens the dialog
+         rather than reading as a save that failed for no reason anybody can act on. */
+      if (r && r.needsAuth) {
+        clearSession(); openSignIn();
+        throw new Error('You were signed out. Sign in and press Save again.');
       }
       if (!r || !r.ok) throw new Error((r && r.error) || 'save failed');
       /* A create has no editingId until now — adopt it, or the next press would fork a second

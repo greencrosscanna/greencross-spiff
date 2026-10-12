@@ -1139,7 +1139,36 @@ function createProgram_(p) {
     if (createIsReplay_(existing.program, draft, auth.user)) {
       return { ok: true, program_id: id, created: false, replay: true, changed: [] };
     }
-    return { ok: false, error: 'A program with id "' + id + '" already exists' };
+    /* ── THE SAME NAME FOR A DIFFERENT VENDOR IS A DIFFERENT PROGRAM ────────────────────────────
+       Tawny, 2026-10-12: "I can't save the Kaprikorn Spiff." The id is the NAME plus the month, and
+       she names programs for what they cover — "All products" — so the second vendor to run one in
+       a month slugged to the first vendor's id and was refused. Nothing was saved, and the screen
+       said only "Saved, but the model failed".
+
+       So a different vendor takes its own id, with the vendor in front. Only on a collision: every
+       id minted before this keeps its shape, and an id is never re-derived after creation.
+
+       The SAME vendor and name in one month is still refused. That is either the program somebody
+       meant to open and edit, or two editors describing one deal — a person should look, and the
+       refusal now says so in words rather than quoting an id nobody on the screen has ever seen. */
+    var taken = function (prog) {
+      return {
+        ok: false, code: 'name_taken',
+        error: '"' + (prog.program_name || draft.program_name) + '" already exists for '
+             + (prog.vendor || 'this vendor') + ' this month. Open that program to change it, '
+             + 'or give this one a different name.'
+      };
+    };
+    var vslug = slug_(draft.vendor);
+    if (!vslug || vslug === slug_(existing.program.vendor)) return taken(existing.program);
+    id = vslug + '-' + id;
+    var again = getProgram_(id);
+    if (again.ok) {
+      if (createIsReplay_(again.program, draft, auth.user)) {
+        return { ok: true, program_id: id, created: false, replay: true, changed: [] };
+      }
+      return taken(again.program);
+    }
   }
 
   draft.program_id = id;

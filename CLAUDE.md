@@ -157,7 +157,10 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   key: `spiff_progress` keys every measurement row on it, `?action=progress` drops any cached row
   whose program is missing from `programs`, and Crew's incentive column, the Leaderboard kiosks and
   Core's published payload all read that. Ids are minted from `program_name` at creation
-  (`slug_(name) + YYYYMM`) and never change. The route moves the measurements first,
+  (`slug_(name) + YYYYMM`) and never change. *Since v1.461 (2026-10-12): when a DIFFERENT vendor
+  already holds that id, the new program gets `slug_(vendor)-` in front instead of being refused;
+  the same vendor and name in one month is still refused (`code: 'name_taken'`). Pinned by
+  `tests/create_program_replay_test.js`.* The route moves the measurements first,
   then the row, then republishes to Core, tombstones the old row to `deleted_programs`, refuses an
   id already in use, wants a real session plus the program name typed back, and is dry by default.
   A **closed** program IS renameable, unlike deletable: a delete removes money that was reported and
