@@ -55,20 +55,18 @@ the `programs` tab holds one row per program).
 | datastore | sheet `1IXtgygVInEOak83RRC81bAUvr_zukdT0GJOLaqzuT44` — lives in **[GX2 Dashboard](https://drive.google.com/drive/folders/1BXH5SrK9dWupl-w1UW5Bjt5oSORednLD)** |
 | ship | commit, then `./gxengine.sh --deploy` — **update**, never create, so `/exec` holds |
 | run (frontend) | `python3 serve.py` → <http://localhost:8754> — no build step, the working tree IS the app |
-| tests | `tests/*_test.js`, each run with `node` *(corrected 2026-10-09: this said "no automated suite")* |
+| tests | `tests/*_test.js`, each run with `node` |
 
 - **Ship the engine with `./gxengine.sh --deploy`, after committing.** It pushes, redeploys the
   deployment id this repo's own source points at, and records the sha to `core_pins`; it refuses
   uncommitted tracked changes and never creates a deployment. Bare `./gxengine.sh` is a dry run.
   **Never the raw clasp trio, never a new deployment id** — a new one mints a fresh `/exec` and
   orphans every caller. Then bump `?v=` and run `./deploy.sh`.
-  *Corrected 2026-10-09: this said "`clasp push --force` then `clasp update-deployment <id>`".*
 - The dev server talks to the **live** engine; `gx-dev.js` blocks writes until you arm them, and
   `gx-preflight.sh` runs as a **pre-push hook** refusing dev leftovers (fixtures on, writes armed,
   localhost URLs, `@devonly` blocks).
 - **Writes ride on GET.** The browser calls the engine cross-origin via JSONP and Apps Script serves no
   CORS headers for POST, so mutating actions are exposed on `doGet` too. Same pattern as GX Core.
-  *(The original named `importCalc` as the example; that route was cut 2026-08-30.)*
 - **Every file this app creates in Drive belongs in GX2 Dashboard** — datastores, engine-bound sheets,
   anything an app owns. `clasp create-script --type sheets` drops the new spreadsheet at Drive
   **root**, so it must be moved after creation. Business documents are the exception: vendor
@@ -115,9 +113,7 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   and a LAST pay period; start/end dates are derived from that and shown read-only. Two selects,
   not one, because a program can run longer than a fortnight. **Two live records are off the grid
   and must stay there**: Buddies (2026-06-22 → 2026-07-19, two whole periods) and
-  `green-cross-2025-08-11-2025-08-17` (seven days). *(Reworded 2026-10-09 from "Three live
-  records"; the third, the `wyld-0626` draft, was deleted. Original in history § The rules that
-  matter → "A program's window".)* They are CLOSED and were reported to the vendor against the dates they hold, so the panel warns
+  `green-cross-2025-08-11-2025-08-17` (seven days). They are CLOSED and were reported to the vendor against the dates they hold, so the panel warns
   and keeps them rather than snapping them onto the grid. `periodSpanOf()` is the test for "is this
   window a run of whole periods"; it refuses the half-open cases, which is how a closed program's
   window would otherwise gain a fortnight. Pinned by `tests/window_and_goal_test.js`.
@@ -157,17 +153,15 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   key: `spiff_progress` keys every measurement row on it, `?action=progress` drops any cached row
   whose program is missing from `programs`, and Crew's incentive column, the Leaderboard kiosks and
   Core's published payload all read that. Ids are minted from `program_name` at creation
-  (`slug_(name) + YYYYMM`) and never change. *Since v1.461 (2026-10-12): when a DIFFERENT vendor
-  already holds that id, the new program gets `slug_(vendor)-` in front instead of being refused;
-  the same vendor and name in one month is still refused (`code: 'name_taken'`). Pinned by
-  `tests/create_program_replay_test.js`.* The route moves the measurements first,
+  (`slug_(name) + YYYYMM`) and never change. When a DIFFERENT vendor already holds that id, the new
+  program gets `slug_(vendor)-` in front; the same vendor and name in one month is refused
+  (`code: 'name_taken'`). Pinned by `tests/create_program_replay_test.js`. The route moves the measurements first,
   then the row, then republishes to Core, tombstones the old row to `deleted_programs`, refuses an
   id already in use, wants a real session plus the program name typed back, and is dry by default.
   A **closed** program IS renameable, unlike deletable: a delete removes money that was reported and
   paid, a rename moves the same money to a key that tells the truth.
   *`green-cross-test-202608` was NOT a test row* — it is the real Portland Heights fortnight, now
-  **`portland-heights-2026-08-17-2026-08-30`**. Pinned by `tests/rename_program_id_test.js`
-  *(test named 2026-10-09; the original named none)*.
+  **`portland-heights-2026-08-17-2026-08-30`**. Pinned by `tests/rename_program_id_test.js`.
   Hist: § Sync with the brain → "Re-key through".
 
 - **An orphaned progress row is never payable** (2026-08-31). A cached `spiff_progress` row whose
@@ -199,8 +193,7 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
 - **Cost, not payout, is where programs vary.** Multi-SKU programs blend it — the sheet's
   `Combined WS Cost` / `Average Cost` / `Combined Total for 20pc & 2pc`. `cost_json` supports
   `flat` and `blended`.
-- **Nothing goes to a vendor without a human.** Reports are drafted and saved; a person decides to
-  send. *Changed 2026-09-30 (Sky): the app may now do the sending, on that person's click* —
+- **Nothing goes to a vendor without a human.** The app sends only on a person's click —
   `sendBrandEmail_` (Code.gs) runs only from the "Send to brand" button after a confirmation naming
   the recipient, never from a trigger. It goes out AS the Send-As alias `tawny@greencrosscanna.com`
   (`BRAND_FROM_DEFAULT`; script property `BRAND_EMAIL_FROM` overrides it; replies and a blind copy go
@@ -218,7 +211,7 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
 
 - **SPIFF reads the roster, never writes it.** `employees` and `stores` come from GX Core; don't
   re-hardcode store names — Command Center edits must flow through on the next load.
-- **SPIFF PUBLISHES TO CORE NOW — the write contract exists as of 2026-09-08 (v1.374).** After every
+- **SPIFF publishes to Core.** After every
   hourly refresh SPIFF pushes its finished per-employee sell-through and payout into GX Core's
   **`spiff_publications`** tab, one publication per pay period, via
   `GXCore.publishSpiffProgress(secret, scope, payload)`. Leaderboard and Crew read it back with
@@ -234,7 +227,7 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   - **THE PUBLICATION IS THE CONSUMER, NOT `storeView` — check the pipe, not the route** (2026-09-17).
     Leaderboard's kiosk panel and Crew's incentive column read the PUBLICATION. `storeView` is the
     kiosk *page's* own route and is nobody else's source. **Before telling another app a field is
-    available, grep for what THEY call**, not for what the field is on. (Got wrong twice in one week.)
+    available, grep for what THEY call**, not for what the field is on.
   - `last_programs` is a per-store map on every published scope, `last_programs[store_id]` →
     `{vendor, program_name, end_date, store_pct?}`, for the kiosk's "nothing running" chip. It is
     deliberately **not** on `?action=progress` — that route takes `pay_period` / `program` /
@@ -253,20 +246,15 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
     **live**, because they freeze vendor money into `crew_incentive_history` where it can never be
     recomputed — a stale figure frozen there is silent and permanent, where a live read that fails
     is loud and recoverable in front of the person who just clicked Approve. Not an oversight to tidy.
-- **Do not document or assume a contract that does not exist.** This file once said SPIFF writes
-  `spiff_payouts` and GX Crew consumes it. **No such tab exists** — it is not in `GX_TABS`, nothing
-  writes it and nothing reads it. A documented contract that does not exist is worse than an
-  undocumented one: it invites a future session to "maintain" it, or to assume pay data already
-  flows and build on top of it. *(Reworded 2026-10-09; original in history § The rules that matter →
-  "SPIFF once had a cross-app write contract"; its "only GX Core calls are READS" is superseded.)*
+- **Do not document or assume a contract that does not exist.** There is no `spiff_payouts` tab — not
+  in `GX_TABS`, nothing writes or reads it. A documented contract that does not exist invites a future
+  session to "maintain" it.
 - **Incentive lives in GX Crew** (decision 2026-08-16, moved out of Leaderboard), **and Crew fills
   the SPIFF dollar from what SPIFF measured.** Crew's `applySpiffEarnings_` sets `spiff_earned` per
   person: the incentive **screen** reads Core's publication; **approval and send** read this
   engine's `?action=progress` live (the documented exception above). A hand-typed figure is an
   **override only** — a typed value, even 0, beats the measurement; an absent one falls through to
-  it. Any new hand-off still needs a real contract — designed, not assumed.
-  *Corrected 2026-10-09: this said Mike hand-types a SPIFF dollar per employee per pay period and
-  that replacing that hand-entry was "still unbuilt".* Hist: "The underlying goal is still real".
+  it. Any new hand-off still needs a real contract — designed, not assumed. Hist: "The underlying goal is still real".
 - **Brand reps live in GX Core's shared brand registry, not on the program** (Sky, 2026-09-14/15;
   GXCore v330). `brands` + `brand_contacts`, keyed by **brand** — Sky chose that over a
   vendor/distributor layer. SPIFF edits reps on the program screen (`saveBrandContact`,
@@ -358,8 +346,7 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   `config`/`version_history`/`productStats`, this engine does not even implement).
   **A hedged write runs twice** — the losing JSONP copy is never canceled, so hedging one of this
   engine's mutating actions (`editProgram`, `deleteProgram`, `saveBrand`, `publishToCore`, …) would
-  fire it twice on a slow network. **Never add a mutating action to `ENGINE_HEDGE_READS`** *(made
-  explicit 2026-10-09; previously implied by "A hedged write runs twice" and its test)*.
+  fire it twice on a slow network. **Never add a mutating action to `ENGINE_HEDGE_READS`.**
   `bootOnce`'s budget is `{timeoutMs:20000, retries:2}`, cut from `{timeoutMs:45000, retries:1}`
   (cold start measures ~9s), and the `brands` fallback call in `loadBrandReps` got the same cut.
   `bootOnce` logs `[spiff] boot answered in Ns` on success and warns past 15s or on fallback, so a
@@ -367,8 +354,6 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   both a real Code.gs action and on a hand-vetted pure-read list, none of ~30 known
   write/session-mint actions appear, and `bootOnce`'s call-site budget is ≤20s / ≥2 retries / ≥2×
   the 6s hedge delay.
-  *(Heading reworded 2026-10-09; original in history § The rules that matter → "A dropped `boot`
-  reply cost a full minute".)*
 
 ### Tests
 
@@ -402,8 +387,6 @@ notes addressed to **`to_app=spiff`**, resolve done ones (`resolve_note`), and w
 hardcodes both in `reportBug_` and ignores any client-sent `tab` (the panel rides in the context as
 `panel`). Nested in Inventory, SPIFF hides its own report button; a report from the host's button
 is Inventory's to route, not this engine's.
-*Corrected 2026-10-09: this said bug reports bucket to Inventory (`app=inventory`, `tab=spiff`),
-"not to a separate `spiff` bug stream". That stopped being true 2026-08-27.*
 
 **Shared files** (`deploy.sh`, `.claude/gx-brain-notes.sh`) come from **gx-theme** via `./gx-sync.sh`,
 filled from `.gx_app`. Edit them **there**, not here, then re-sync. `gx-theme.css` and `gx-client.js` load
@@ -422,7 +405,7 @@ by URL from gx-theme — this file (CLAUDE.md) is intentionally NOT synced.
 - **Auto-record on deploy:** `deploy.sh` POSTs `deploy_version` (app=spiff) to GX Core; `APP_VERSION` is
   single-sourced from the `?v=` cache-buster on the `spiff.js` tag in `index.html` (extracted from
   `HEAD:index.html`). Bump that number and run `./deploy.sh` after each ship, so releases show up in
-  `version_history` (the route; the tab it reads is `app_versions`). Run it normally — it reads MAJOR.BBB correctly as of gx-theme's 2026-08-23 fix.
+  `version_history` (the route; the tab it reads is `app_versions`).
 - **"Each ship" includes a BACKEND-ONLY ship** — an engine change, a GXCore re-pin, anything that never
   touches `index.html` (Sky, 2026-08-30). **Bump `?v=` and run `./deploy.sh` even when no frontend file
   changed.** The `?v=` is the **app's release number** that happens to be stored in a cache-buster.
@@ -436,10 +419,9 @@ by URL from gx-theme — this file (CLAUDE.md) is intentionally NOT synced.
   `[0-9.]+` looks like the one-character answer and **is worse than the bug** — it matches the dot in
   `.js` before it reaches the version and returns `.` for *every* app. What shipped strips up to `?v=`
   with sed; `gx-theme/tests/deploy_version_test.js` re-runs both rejected patterns.
-- **Pre-launch: work live on `main`.** SPIFF is not in anyone's hands yet, so skip the PR-per-change
-  dance other spokes use — commit and push straight to `main`, verify on Pages, and keep moving.
-  Revisit this the moment Tawny is actually using it; from then on it ships like every other spoke
-  (PR → Sky merges). Still `./deploy.sh` after each ship so `version_history` stays honest.
+- **SPIFF is live and feeds payroll, so it ships like every other spoke:** a **feature** goes on a
+  `feat/…` branch + PR and **Sky merges**; a small fix that is correct the moment it lands ships direct
+  to `main`. `./deploy.sh` after each ship so `version_history` stays honest.
 
 Hist: § Sync with the brain → "Version format", "BACKEND-ONLY ship", "Worth keeping".
 
@@ -459,9 +441,6 @@ Hist: § Sync with the brain → "Version format", "BACKEND-ONLY ship", "Worth k
   measurement found 0 units, so the hourly actuals recording logs it as "needs a person" every run —
   that line is expected, not a new problem. `hapy-kitchen` kept the Calculator's targets; its
   `per_unit` $1/unit payout came off the doc correctly.
-- `wyld-0626` IS GONE (confirmed 2026-09-09; Sky: "wyld 10pc was never real, delete it"). The
-  reconcile scope in `bug_mtkt4a4l_bpor` and its brain note is therefore **three**, not four: Drops,
-  Buddies and Freshy.
 
 Hist: § Sync with the brain → "The Drive importers are GONE", "What the seed did, once".
 
@@ -485,8 +464,8 @@ core-admin. **So from SPIFF: `add_note` to `core-admin` with what you need and w
 are welcome and quick, and the hub session holds the repo alone while it works.
 
 Why: two sessions cannot share a git checkout. These repos are Dropbox-synced, so two sessions share one
-working tree and one HEAD; `git checkout -b` is not atomic against a second process. On 2026-09-02
-that shipped a GX Core change as library v284 with no PR and no review. Hist: § The HUB is core-admin's.
+working tree and one HEAD; `git checkout -b` is not atomic against a second process.
+Hist: § The HUB is core-admin's.
 
 **Where the line is, because over-applying this is its own failure:**
 
