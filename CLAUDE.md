@@ -420,8 +420,11 @@ by URL from gx-theme — this file (CLAUDE.md) is intentionally NOT synced.
   `.js` before it reaches the version and returns `.` for *every* app. What shipped strips up to `?v=`
   with sed; `gx-theme/tests/deploy_version_test.js` re-runs both rejected patterns.
 - **SPIFF is live and feeds payroll, so it ships like every other spoke:** a **feature** goes on a
-  `feat/…` branch + PR and **Sky merges**; a small fix that is correct the moment it lands ships direct
-  to `main`. `./deploy.sh` after each ship so `version_history` stays honest.
+  `feat/…` branch + PR, and **the session merges its own feature PR** once the full test suite and push
+  gate are green and the PR matches what Sky asked for (say so in your reply); never merge a red, unrun,
+  or beyond-the-ask PR. A small fix that is correct the moment it lands ships direct to `main`.
+  **A merge is not a deploy:** `./deploy.sh` and any live push still need Sky's word in chat, since
+  SPIFF moves vendor pay. `./deploy.sh` after each ship so `version_history` stays honest.
 
 Hist: § Sync with the brain → "Version format", "BACKEND-ONLY ship", "Worth keeping".
 
