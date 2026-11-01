@@ -67,24 +67,34 @@ function publisher(opts) {
            'programsFor_', 'dedupe_', 'periodStartFor_', 'textDate_', 'normalizePitch_',
            'payoutRateOf_', 'payoutModelOf_', 'productLabelOf_', 'scrubSecrets_',
            'lastProgramsByStore_', 'lastClosedFor_', 'programRunsAt_', 'programCoversStore_',
-           'slug_'].concat(o.today ? [] : ['nowStamp_']),
+           'slug_', 'publishNoProgramHeartbeat_', 'noProgramHeartbeatPayload_']
+      .concat(o.today ? [] : ['nowStamp_']),
     vars: ['GX_SECRET_PROP', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
     stubs: Object.assign({
       spiffProgress_: (arg) => { sent.push({ readWith: arg }); return o.progress; },
       listProgramsCached_: () => (o.programs || []),
+      /* The heartbeat reads the program list FRESH. Default: empty (refuses), so the older cases
+         never send one by accident. */
+      listPrograms_: () => { if (o.programsThrow) throw new Error(o.programsThrow); return (o.heartbeatPrograms || []); },
+      today_: () => o.heartbeatToday || '2026-09-15',
       payPeriodCfg_: () => ({ anchor: '2026-05-11', days: 14 }),
     }, o.today ? { nowStamp_: () => o.today + ' 09:00:00' } : {}),
     globals: {
       PropertiesService: props.PropertiesService,
       console: { warn() {}, log() {} },
       /* Core's own door, captured. What lands here is what a consumer would read back. */
-      GXCore: {
+      GXCore: Object.assign({
         publishSpiffProgress: (secret, scope, payload, meta) => {
           sent.push({ secret, scope, payload, meta });
           if (o.coreThrows) throw new Error(o.coreThrows);
           return o.coreAnswer || { ok: true, bytes: JSON.stringify(payload).length };
         },
-      },
+      }, o.noHeartbeatFn ? {} : {
+        publishSpiffHeartbeat: (secret, scope, payload, meta) => {
+          sent.push({ hbSecret: secret, hbScope: scope, hbPayload: payload, meta });
+          return o.hbAnswer || { ok: true };
+        },
+      }),
     },
   });
   return { api, sent, publications: () => sent.filter(x => x.scope) };
@@ -518,6 +528,51 @@ ok('  …and is not public', !/PUBLIC_ACTIONS[^\n]*publishToCore/.test(gs));
 ok('nothing here rewrites the pay_period column',
    !/pay_period['"]?\s*\]?\s*=\s*periodStartFor_/.test(gs)
    && !/setValue\([^)]*periodStartFor_/.test(gs));
+
+/* ══════════════════ 8. THE "NO PROGRAM STARTS THIS PERIOD" HEARTBEAT ══════════════════ */
+/* Anchor 2026-05-11 / 14 days: periods start 08-31, 09-14, 09-28. "Today" 2026-09-20 is in 09-14.
+   Each negative below names the fixture that would make a careless implementation say "none". */
+{
+  const prog = (id, start) => ({ program_id: id, start_date: start, end_date: '2026-12-31', status: 'active' });
+  const run = (o) => { const p = publisher(Object.assign({ progress: TWO_PERIODS, heartbeatToday: '2026-09-20' }, o));
+    const res = p.api.publishSpiffToCore_({}); return { p, res, hb: p.sent.filter(x => x.hbScope) }; };
+
+  let r = run({ heartbeatPrograms: [prog('mule', '2026-08-31'), prog('ph', '2026-08-17')] });
+  ok('programs all started before this period: one heartbeat for the CURRENT period',
+     r.hb.length === 1 && r.hb[0].hbScope === '2026-09-14' && r.hb[0].hbPayload.pay_period === '2026-09-14');
+  ok('  …saying no program starts and naming the newest program period (what Core cross-checks)',
+     r.hb[0].hbPayload.heartbeat === true && r.hb[0].hbPayload.no_programs_starting === true
+     && r.hb[0].hbPayload.last_program_period === '2026-08-31' && r.hb[0].hbPayload.programs_read === 2);
+  ok('  …and the normal publication is exactly what it was (the heartbeat adds a row, changes none)',
+     r.p.publications().length === 2 && r.res.ok === true && r.res.heartbeat.sent === true);
+
+  r = run({ heartbeatPrograms: [prog('mule', '2026-08-31'), prog('new', '2026-09-16')] });
+  ok('FIXTURE: a program starting inside the current period -> no heartbeat (a SPIFF that has programs but failed to roll must still alert)',
+     r.hb.length === 0 && /starts in 2026-09-14/.test(r.res.heartbeat.skipped));
+  r = run({ heartbeatPrograms: [prog('mule', '2026-08-31'), prog('future', '2026-09-30')] });
+  ok('FIXTURE: a program already scheduled for a later period -> no heartbeat', r.hb.length === 0);
+  r = run({ heartbeatPrograms: [] });
+  ok('FIXTURE: an EMPTY program list (what a failed read looks like) is never published as "no programs"',
+     r.hb.length === 0 && /empty or unreadable/.test(r.res.heartbeat.skipped));
+  r = run({ programsThrow: 'Service Spreadsheets timed out' });
+  ok('FIXTURE: the program read THROWS -> no heartbeat, and the money publication is unaffected',
+     r.hb.length === 0 && r.res.ok === true && r.p.publications().length === 2 && /unreadable/.test(r.res.heartbeat.skipped));
+  r = run({ heartbeatPrograms: [prog('mule', '2026-08-31'), prog('broken', 'TBD')] });
+  ok('FIXTURE: one program with an unparseable start date -> cannot claim none start, no heartbeat',
+     r.hb.length === 0 && /no usable start date/.test(r.res.heartbeat.skipped));
+  r = run({ heartbeatPrograms: [prog('mule', '2026-08-31')], noHeartbeatFn: true });
+  ok('FIXTURE: a GXCore pin that predates the heartbeat -> not sent, reported, and the publish does not throw',
+     r.hb.length === 0 && r.res.ok === true && r.res.heartbeat.sent === false && /predates/.test(r.res.heartbeat.skipped));
+  r = run({ heartbeatPrograms: [prog('mule', '2026-08-31')], hbAnswer: { ok: false, error: 'heartbeat must be ...' } });
+  ok('Core refusing the heartbeat is reported, and does not fail the money publication',
+     r.res.ok === true && r.res.heartbeat.ok === false && /heartbeat must be/.test(r.res.heartbeat.error));
+  r = run({ progress: { ok: false, error: 'could not read the programs tab' }, heartbeatPrograms: [prog('mule', '2026-08-31')] });
+  ok('FIXTURE: a refused progress read sends NO heartbeat either',
+     r.res.ok === false && r.hb.length === 0);
+  r = run({ progress: { ok: true, rows: [], orphan_rows: 0 }, heartbeatPrograms: [prog('mule', '2026-08-31')] });
+  ok('a cache with no rows at all still sends the heartbeat (that quiet is exactly the case it exists for)',
+     r.hb.length === 1);
+}
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\npublish to core: all passed');
 process.exit(fail ? 1 : 0);

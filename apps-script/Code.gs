@@ -2850,7 +2850,8 @@ function publishSpiffToCore_(opts) {
   var scopes = Object.keys(byPeriod).sort();
   if (!scopes.length) {
     return { ok: true, published: [], skipped: 'the cache holds no rows with a usable window',
-             undated_program_ids: dedupe_(undated) };
+             undated_program_ids: dedupe_(undated),
+             heartbeat: publishNoProgramHeartbeat_(secret, opts.notes) };
   }
 
   /* ONE COMPUTATION FOR EVERY SCOPE. The per-store chip is a now-fact, not a slice of any period's
@@ -2916,7 +2917,61 @@ function publishSpiffToCore_(opts) {
   });
 
   return { ok: !failed.length, published: done, failed: failed,
-           undated_program_ids: dedupe_(undated) };
+           undated_program_ids: dedupe_(undated),
+           heartbeat: publishNoProgramHeartbeat_(secret, opts.notes) };
+}
+
+/* ── THE "NO PROGRAM STARTS THIS PERIOD" HEARTBEAT ────────────────────────────────────────────────
+ * Core's watchdog alerts when SPIFF's newest published pay period is not the current one. SPIFF only
+ * publishes a period it has measured rows for, so in a fortnight where NO program starts, the newest
+ * period is honestly the previous one, forever, and the watchdog would cry stale after its 48 h
+ * rollover grace. Core cannot see the program list. This can, so it says so: a separate
+ * `spiff-heartbeat` publication for the current period (GXCore.publishSpiffHeartbeat, library v359+).
+ * It never touches the `spiff` rows the kiosk and Crew read.
+ *
+ * WHAT IT REFUSES TO SAY, because the other reading is "the check could not run":
+ *   - an empty or unreadable program list is NOT "no programs" (a failed read looks exactly like it);
+ *   - any program whose start date will not parse blocks it: this app cannot claim none start;
+ *   - any program starting in the current period or later blocks it. Then the normal rows carry the
+ *     period, and a SPIFF that has programs but failed to roll must still alert.
+ * Pure on purpose: the caller reads the programs, this decides. */
+function noProgramHeartbeatPayload_(programs, today) {
+  if (!programs || !programs.length) {
+    return { ok: false, reason: 'program list empty or unreadable: not claiming "no programs"' };
+  }
+  var cur = periodStartFor_(today);
+  if (!cur) return { ok: false, reason: 'no current pay period' };
+  var last = '';
+  for (var i = 0; i < programs.length; i++) {
+    var sp = periodStartFor_(textDate_(programs[i] && programs[i].start_date));
+    if (!sp) return { ok: false, reason: 'program ' + (programs[i] && programs[i].program_id) +
+                                         ' has no usable start date: cannot say none start' };
+    if (sp >= cur) return { ok: false, reason: 'a program starts in ' + sp + ': normal rows carry it' };
+    if (sp > last) last = sp;
+  }
+  return { ok: true, scope: cur, payload: {
+    heartbeat: true, pay_period: cur, no_programs_starting: true,
+    last_program_period: last, programs_read: programs.length, checked_at: nowStamp_() } };
+}
+
+function publishNoProgramHeartbeat_(secret, notes) {
+  var programs;
+  try { programs = listPrograms_(); }       // fresh, not the 5-minute cache: this is a claim about NOW
+  catch (e) { return { ok: false, skipped: 'program list unreadable: ' + scrubSecrets_(e && e.message || e) }; }
+  var hb = noProgramHeartbeatPayload_(programs, today_());
+  if (!hb.ok) return { ok: true, sent: false, skipped: hb.reason };
+  /* A GXCore pin from before the heartbeat existed has no such function. That must degrade to "not
+     sent", not throw into the money path. */
+  if (typeof GXCore.publishSpiffHeartbeat !== 'function') {
+    return { ok: false, sent: false, skipped: 'pinned GXCore predates publishSpiffHeartbeat' };
+  }
+  try {
+    var r = GXCore.publishSpiffHeartbeat(secret, hb.scope, hb.payload, { by: 'spiff', notes: notes || 'hourly refresh' });
+    return r && r.ok ? { ok: true, sent: true, scope: hb.scope }
+                     : { ok: false, sent: false, error: (r && r.error) || 'unknown' };
+  } catch (e) {
+    return { ok: false, sent: false, error: scrubSecrets_(e && e.message || e) };
+  }
 }
 
 /* ── THE PROGRAM SIDECAR — what a row cannot say about the program it belongs to ─────────────────
