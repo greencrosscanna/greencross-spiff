@@ -251,10 +251,10 @@ function saveJoin(p, answer, role) {
   const calls = [];
   let lists = 0, signIn = 0, paints = 0;
   const src = ['mkStatus', 'mkApply', 'mkSaver'].map(n => G.grab(n, js)).join('\n');
-  const fn = new Function('MK', 'state', '$', 'canEdit', 'mkUi', 'mkPaint', 'renderPrograms', 'ENG', 'session', 'clearSession', 'openSignIn',
+  const fn = new Function('MK', 'state', '$', 'canEdit', 'mkUi', 'mkPaint', 'mkRenderViews', 'renderPrograms', 'ENG', 'session', 'clearSession', 'openSignIn',
     'var mkSaverInst = null;\n' + src + '\nreturn { mkApply };');
   const state = { record: p, programs: [p] };
-  const api = fn(MK, state, () => status, () => role !== 'viewer', { moving: '', saved: {} }, () => { paints++; },
+  const api = fn(MK, state, () => status, () => role !== 'viewer', { moving: '', saved: {} }, () => { paints++; }, () => {},
     () => { lists++; },
     { jsonp: async (action, params) => { calls.push({ action, params }); return answer(params); } },
     () => ({ user: 'sky', token: 'tok', role: role || 'admin' }), () => {}, () => { signIn++; });

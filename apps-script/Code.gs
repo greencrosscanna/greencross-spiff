@@ -384,6 +384,12 @@ function doGet(e) {
          a foreign key into spiff_progress and into Core's published payload — see
          renameProgramId_. Dry by default; apply=1 to move it. */
       case 'renameProgramId': out = renameProgramId_(p);                            break;
+      /* Penciled brands: a signed-in read, and editor-only writes. Their own tab, read by nothing
+         that pays anybody; none of these is hedged on the client. See PENCILED BRANDS. */
+      case 'pencils':       out = pencilsRead_(p);                                  break;
+      case 'savePencil':    out = savePencil_(p);                                   break;
+      case 'releasePencil': out = releasePencil_(p);                                break;
+      case 'lockPencil':    out = lockPencil_(p);                                   break;
       /* One-time correction of the pay-period column on rows that predate the derivation.
          Secret-gated, dry by default — see backfillPayPeriods_. */
       case 'backfillPayPeriods': out = backfillPayPeriods_(p);                      break;
@@ -1683,6 +1689,179 @@ function deleteProgram_(p) {
            deleted_by: auth.user, program_name: want,
            warning: dropError ? 'Program removed, but its cached progress rows could not be '
                               + 'dropped (' + dropError + ') — re-run the delete.' : undefined };
+}
+
+/* ── PENCILED BRANDS (SPIFF 2.0, phase 2) ─────────────────────────────────────────────────────
+ * A pencil holds a slot on the calendar for a brand that has not signed up yet: brand, first and last
+ * pay period, an optional note, who and when. Sky, 2026-11-01.
+ *
+ * THEY LIVE IN THEIR OWN TAB, NEVER IN `programs`, and that is the whole safety argument. The hourly
+ * job turns a draft ACTIVE on its start date, and an active program reaches the kiosks and Crew's pay.
+ * A pencil stored as a program could go live by itself. In its own tab nothing that reads programs
+ * can see one: no status roll, no progress sweep, no publication to Core, no kiosk card, no pay. Do
+ * not read this tab from any of those, and do not add a pencil route to the client's
+ * ENGINE_HEDGE_READS (a hedged write runs twice). tests/marketing_pay_isolation_test.js holds both.
+ *
+ * Rows are never deleted. `status` is penciled | locked | released, and every read serves only
+ * `penciled`, so releasing a slot or locking it in takes it off the screen and leaves the record.
+ *
+ * A pencil whose start date has passed stays exactly where it is. Nothing here looks at the clock;
+ * the screen says it has started, and a person locks it in with new dates or releases it. */
+var PENCILS_TAB = 'pencils';
+var PENCIL_HEADERS = ['pencil_id', 'brand', 'start_date', 'end_date', 'note', 'status',
+                      'created_by', 'created_at', 'closed_by', 'closed_at', 'program_id'];
+
+function pencilSheet_() {
+  var book = dataSheet_().getParent();
+  var sh = book.getSheetByName(PENCILS_TAB);
+  if (!sh) {
+    sh = book.insertSheet(PENCILS_TAB);
+    sh.getRange(1, 1, 1, PENCIL_HEADERS.length).setValues([PENCIL_HEADERS]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    /* Dates are TEXT at rest; pinned before the first row is written. */
+    var rows = Math.max(sh.getMaxRows() - 1, 1);
+    sh.getRange(2, 3, rows, 2).setNumberFormat('@');
+    sh.getRange(2, 8, rows, 1).setNumberFormat('@');
+    sh.getRange(2, 10, rows, 1).setNumberFormat('@');
+  }
+  return sh;
+}
+
+function rowToPencil_(r) {
+  return {
+    pencil_id: String(r[0] || ''), brand: String(r[1] || ''),
+    start_date: textDate_(r[2]), end_date: textDate_(r[3]), note: String(r[4] || ''),
+    status: String(r[5] || ''), created_by: String(r[6] || ''), created_at: textDate_(r[7]),
+    closed_by: String(r[8] || ''), closed_at: textDate_(r[9]), program_id: String(r[10] || '')
+  };
+}
+
+function readPencils_() {
+  var sh = pencilSheet_(), last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, PENCIL_HEADERS.length).getValues()
+    .filter(function (r) { return r[0]; }).map(rowToPencil_);
+}
+
+/* Signed-in read. Served from the sheet each time: the tab is tiny and a slot that was just released
+   must not reappear from a cache. */
+function pencilsRead_() {
+  return { ok: true, pencils: readPencils_().filter(function (x) { return x.status === 'penciled'; }) };
+}
+
+/* The last day of the pay period that STARTS on `start`. */
+function periodEndOf_(start) {
+  var a = String(start).split('-'), days = payPeriodCfg_().days;
+  var d = new Date(Date.UTC(+a[0], +a[1] - 1, +a[2] + days - 1));
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0')
+       + '-' + String(d.getUTCDate()).padStart(2, '0');
+}
+
+/* A pencil's window is whole pay periods, first start to last end. Returns '' when it is, else why not. */
+function pencilWindowError_(start, end) {
+  var iso = /^\d{4}-\d{2}-\d{2}$/;
+  if (!iso.test(String(start || '')) || !iso.test(String(end || ''))) return 'Pick a first and a last pay period.';
+  if (periodStartFor_(start) !== start) return 'The first date must be the start of a pay period.';
+  if (periodEndOf_(periodStartFor_(end)) !== end) return 'The last date must be the end of a pay period.';
+  if (end < start) return 'The last pay period comes before the first.';
+  return '';
+}
+
+function pencilEditor_(p, verb) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { fail: { ok: false, error: auth.error || 'Not signed in', needsAuth: true } };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) {
+    return { fail: { ok: false, error: 'Your role (' + auth.role + ') cannot ' + verb + ' penciled brands' } };
+  }
+  return { auth: auth };
+}
+
+function findPencilRow_(sh, id) {
+  var last = sh.getLastRow();
+  if (last < 2 || !id) return 0;
+  var rows = sh.getRange(2, 1, last - 1, PENCIL_HEADERS.length).getValues();
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]) === String(id)) return i + 2;
+  }
+  return 0;
+}
+
+function closePencil_(sh, rowNo, status, by, programId) {
+  var cur = sh.getRange(rowNo, 1, 1, PENCIL_HEADERS.length).getValues()[0];
+  cur[PENCIL_HEADERS.indexOf('status')] = status;
+  cur[PENCIL_HEADERS.indexOf('closed_by')] = by;
+  cur[PENCIL_HEADERS.indexOf('closed_at')] = nowStamp_();
+  cur[PENCIL_HEADERS.indexOf('program_id')] = programId || '';
+  sh.getRange(rowNo, 1, 1, PENCIL_HEADERS.length).setValues([cur]);
+}
+
+function savePencil_(p) {
+  var who = pencilEditor_(p, 'pencil');
+  if (who.fail) return who.fail;
+  var brand = String(p.brand || '').trim().slice(0, 80);
+  if (!brand) return { ok: false, error: 'Add a brand name to pencil it in.' };
+  var start = String(p.start_date || '').trim(), end = String(p.end_date || '').trim();
+  var bad = pencilWindowError_(start, end);
+  if (bad) return { ok: false, error: bad };
+  var note = String(p.note || '').trim().slice(0, 300);
+
+  /* A retried call is not a second pencil: writes ride on GET and gx-client retries a slow reply. */
+  var same = readPencils_().filter(function (x) {
+    return x.status === 'penciled' && x.created_by === who.auth.user && x.brand.toLowerCase() === brand.toLowerCase()
+        && x.start_date === start && x.end_date === end;
+  })[0];
+  if (same) return { ok: true, pencil: same, created: false, replay: true };
+
+  var id = 'pen-' + Date.now().toString(36) + '-' + Math.floor(Math.random() * 1296).toString(36);
+  var pencil = { pencil_id: id, brand: brand, start_date: start, end_date: end, note: note,
+                 status: 'penciled', created_by: who.auth.user, created_at: nowStamp_(),
+                 closed_by: '', closed_at: '', program_id: '' };
+  pencilSheet_().appendRow(PENCIL_HEADERS.map(function (h) { return pencil[h]; }));
+  return { ok: true, pencil: pencil, created: true };
+}
+
+function releasePencil_(p) {
+  var who = pencilEditor_(p, 'release');
+  if (who.fail) return who.fail;
+  var sh = pencilSheet_(), rowNo = findPencilRow_(sh, p.id);
+  if (!rowNo) return { ok: false, error: 'That penciled slot is not there any more.' };
+  var cur = rowToPencil_(sh.getRange(rowNo, 1, 1, PENCIL_HEADERS.length).getValues()[0]);
+  if (cur.status !== 'penciled') return { ok: true, pencil_id: cur.pencil_id, released: false, status: cur.status };
+  closePencil_(sh, rowNo, 'released', who.auth.user, '');
+  return { ok: true, pencil_id: cur.pencil_id, released: true };
+}
+
+/* LOCK IT IN: the pencil becomes a DRAFT program through createProgram_, so the id, the collision
+   rules, the role check and the brand check are the ones every program gets. It is a draft with a
+   zero payout and no goals: nothing is owed to anybody until a person sets them in the Calculator.
+   Optional start_date / end_date replace the pencil's window (the way out for a slot whose start
+   has passed). The pencil is closed only once the program exists, so a failed create leaves the slot. */
+function lockPencil_(p) {
+  var who = pencilEditor_(p, 'lock in');
+  if (who.fail) return who.fail;
+  var sh = pencilSheet_(), rowNo = findPencilRow_(sh, p.id);
+  if (!rowNo) return { ok: false, error: 'That penciled slot is not there any more.' };
+  var cur = rowToPencil_(sh.getRange(rowNo, 1, 1, PENCIL_HEADERS.length).getValues()[0]);
+  if (cur.status !== 'penciled') {
+    return { ok: false, error: 'That slot was already ' + cur.status + '.', status: cur.status, program_id: cur.program_id };
+  }
+  var start = String(p.start_date || cur.start_date).trim(), end = String(p.end_date || cur.end_date).trim();
+  var bad = pencilWindowError_(start, end);
+  if (bad) return { ok: false, error: bad };
+
+  var stores = parseJson_(p.stores, []);
+  stores = (Array.isArray(stores) ? stores : []).filter(function (s) { return /^[a-z0-9-]{1,40}$/.test(String(s)); });
+  var draft = {
+    program_name: 'All products', vendor: cur.brand,
+    start_date: start, end_date: end, stores_json: stores,
+    cost_json: { mode: 'flat', per_unit: 0, source_label: 'penciled' },
+    payout_type: 'flat', payout_json: { model: 'flat', amount: 0 },
+    target_json: { units: 0, budtenders: 0, by_store: {}, per_bt: {}, bts_by_store: {} }
+  };
+  var made = createProgram_({ token: p.token, program: JSON.stringify(draft), confirm_brand: '1' });
+  if (!made || !made.ok) return made || { ok: false, error: 'Could not make the program.' };
+  closePencil_(sh, rowNo, 'locked', who.auth.user, made.program_id);
+  return { ok: true, pencil_id: cur.pencil_id, program_id: made.program_id, locked: true };
 }
 
 /* Validate a GX Core session token and resolve this user's role on `spiff`.

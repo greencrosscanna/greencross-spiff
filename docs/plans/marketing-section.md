@@ -92,6 +92,8 @@ Tasks, due dates, overdue flags and compliance notes are computed on read, not s
 
 ## Penciled brands
 
+**Built 2026-11-01 (phase 2, v1.463).** Stored as `pencils` tab rows with a `status` (penciled, locked, released); locking in makes a draft program with a zero payout for the Calculator to fill.
+
 A pencil is brand + first and last pay period + an optional note, plus who penciled it and when. It shows as a dashed bar on the calendar and in its own list on the Programs tab. Actions: **Lock it in** turns it into a draft program, and its tasks start from there. **Release the slot** removes it.
 
 - **Pencils live in their own `pencils` tab, not in `programs`.** The hourly job turns a draft ACTIVE on its start date, and active programs reach kiosks and Crew pay, so a pencil stored as a program could go live by itself. In its own tab, nothing that reads programs can see it.

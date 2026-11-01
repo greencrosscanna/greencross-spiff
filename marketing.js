@@ -505,7 +505,263 @@
     });
   }
 
+  /* ── PHASE 2: the Calendar and Tasks views, and penciled brands ──────────────────────────────────
+     A pencil holds a slot for a brand that has not signed up. It is NOT a program: it has no tasks, no
+     kiosk card and no pay, and it lives in its own engine tab that nothing paying anybody reads. This
+     file only draws pencils and builds the operations; the engine stores them. */
+  function shortDate(s) {
+    if (!ISO.test(String(s || ''))) return '';
+    return new Date(toUtc(s)).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
+  }
+  function dow(s) { return new Date(toUtc(s)).getUTCDay(); }
+  function monthStart(today, offset) {
+    var a = String(today).split('-'), d = new Date(Date.UTC(+a[0], +a[1] - 1 + (offset || 0), 1));
+    return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-01';
+  }
+  function hueOf(s) {
+    var h = 0, t = String(s || '');
+    for (var i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) % 360;
+    return h;
+  }
+
+  /* Bars: a program with a window, and every pencil. Programs take the top lanes so the official
+     schedule reads as one line and pencils stack beneath it. */
+  function barsOf(programs, pencils) {
+    function byStart(a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : 0; }
+    var bars = (programs || []).filter(function (p) {
+      return ISO.test(String(p.start_date || '')) && ISO.test(String(p.end_date || '')) && p.end_date >= p.start_date;
+    }).map(function (p) {
+      return { id: p.program_id, label: p.vendor || p.program_name || 'Program', start: p.start_date, end: p.end_date,
+               kind: p.status === 'active' ? 'run' : p.status === 'closed' ? 'done' : 'draft' };
+    }).sort(byStart);
+    var pens = (pencils || []).filter(function (x) {
+      return ISO.test(String(x.start_date || '')) && ISO.test(String(x.end_date || '')) && x.end_date >= x.start_date;
+    }).map(function (x) {
+      return { id: x.pencil_id, label: x.brand, start: x.start_date, end: x.end_date, kind: 'pencil' };
+    }).sort(byStart);
+    return bars.concat(pens);
+  }
+  function assignLanes(bars) {
+    var lanes = [];
+    bars.forEach(function (b) {
+      var l = 0;
+      while (lanes[l] && lanes[l].some(function (o) { return o.start <= b.end && o.end >= b.start; })) l++;
+      (lanes[l] = lanes[l] || []).push(b);
+      b.lane = l;
+    });
+    return bars;
+  }
+
+  /* What else is running or penciled in that window. Warns; it never blocks. */
+  function overlapNames(programs, pencils, start, end, skipId) {
+    var names = [];
+    (programs || []).forEach(function (p) {
+      if (p.status !== 'closed' && p.start_date && p.end_date && p.start_date <= end && p.end_date >= start) names.push(p.vendor || p.program_name);
+    });
+    (pencils || []).forEach(function (x) {
+      if (x.pencil_id !== skipId && x.start_date <= end && x.end_date >= start) names.push(x.brand + ' (penciled)');
+    });
+    return names;
+  }
+  function overlapHtml(programs, pencils, start, end, skipId) {
+    var o = start && end ? overlapNames(programs, pencils, start, end, skipId) : [];
+    return o.length ? '<div class="mk-warn">Also in this period: ' + esc(o.join(', ')) + '.</div>' : '';
+  }
+
+  function weekHtml(ws, mo, bars, ctx) {
+    var we = addDays(ws, 6), h = '<div class="mk-wk"><div class="bg">', i;
+    for (i = 0; i < 7; i++) {
+      var d = addDays(ws, i), out = +d.slice(5, 7) !== mo;
+      h += '<button type="button" tabindex="-1" aria-label="Pencil a brand around ' + esc(shortDate(d)) + '" data-mk-day="' + d + '"'
+        + ' class="' + (out ? 'out ' : '') + (d === ctx.today ? 'today' : '') + '"' + (ctx.canEdit && !out ? '' : ' disabled') + '></button>';
+    }
+    h += '</div>';
+    for (i = 0; i < 7; i++) {
+      var d2 = addDays(ws, i), inMonth = +d2.slice(5, 7) === mo;
+      h += '<div class="dn" style="grid-column:' + (i + 1) + (inMonth ? '' : ';visibility:hidden') + '">' + (+d2.slice(8, 10)) + '</div>';
+    }
+    bars.forEach(function (b) {
+      if (b.end < ws || b.start > we) return;
+      var s = Math.max(0, daysBetween(ws, b.start)), e = Math.min(6, daysBetween(ws, b.end));
+      var cls = 'mk-vb ' + b.kind + (b.start >= ws ? ' l' : '') + (b.end <= we ? ' r' : '');
+      var act = b.kind === 'pencil' ? 'data-mk-pencil="' + esc(b.id) + '"' : 'data-mk-open="' + esc(b.id) + '"';
+      var word = b.kind === 'pencil' ? 'Penciled, not official' : b.kind === 'run' ? 'Running' : b.kind === 'done' ? 'Closed' : 'Draft';
+      h += '<button type="button" class="' + cls + '" ' + act + ' style="--h:' + hueOf(b.label) + ';grid-column:' + (s + 1) + '/' + (e + 2) + ';grid-row:' + (2 + b.lane) + '"'
+        + ' title="' + esc(b.label + ' · ' + word + ' · ' + shortDate(b.start) + ' to ' + shortDate(b.end)) + '">'
+        + (b.kind === 'pencil' ? '&#9998; ' : '') + esc(b.label) + '</button>';
+    });
+    return h + '</div>';
+  }
+
+  /* Three months, as whole weeks, with one bar per program across the days of each week it spans.
+     ctx: { today, canEdit, offset }. */
+  function calendarHtml(programs, pencils, ctx) {
+    var offset = ctx.offset || 0, months = [0, 1, 2].map(function (n) { return monthStart(ctx.today, offset + n); });
+    var first = months[0], gridStart = addDays(first, -dow(first));
+    var lastM = months[2], lastD = addDays(monthStart(lastM, 1), -1);
+    var gridEnd = addDays(lastD, 6 - dow(lastD));
+    var bars = assignLanes(barsOf(programs, pencils).filter(function (b) { return b.end >= gridStart && b.start <= gridEnd; }));
+    var legend = '<div class="mk-legend"><span><i class="lg run"></i>Running</span><span><i class="lg draft"></i>Draft</span>'
+      + '<span><i class="lg done"></i>Closed</span><span><i class="lg pencil"></i>Penciled, not official</span></div>';
+    var nav = '<span class="mk-seg"><button type="button" data-mk-nav="-1" aria-label="Earlier">&lsaquo;</button>'
+      + '<button type="button" data-mk-nav="0">Today</button><button type="button" data-mk-nav="1" aria-label="Later">&rsaquo;</button></span>';
+    var body = months.map(function (m) {
+      var mo = +m.slice(5, 7), ws = addDays(m, -dow(m)), weeks = '', lastDay = addDays(monthStart(m, 1), -1);
+      while (ws <= lastDay) { weeks += weekHtml(ws, mo, bars, ctx); ws = addDays(ws, 7); }
+      var label = new Date(toUtc(m)).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long', year: 'numeric' });
+      return '<div class="mk-month"><h3>' + esc(label) + '</h3><div class="mk-dow">'
+        + ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(function (d) { return '<span>' + d + '</span>'; }).join('')
+        + '</div>' + weeks + '</div>';
+    }).join('');
+    return '<div class="mk-row2"><h3 class="mk-h" style="margin:0">Calendar</h3><div class="mk-row2 mk-acts">' + nav
+      + (ctx.canEdit ? '<button type="button" class="gx-btn gx-btn-green" data-mk-act="penadd">&#9998; Pencil a brand</button>' : '') + '</div></div>'
+      + legend + '<p class="mk-sub">' + (ctx.canEdit ? 'Click an empty day to pencil a brand there. ' : '') + 'Click a bar to open it.</p>'
+      + '<div class="mk-cal-scroll"><div class="mk-cal">' + body + '</div></div>';
+  }
+
+  /* ── Tasks across every program, grouped by who owns them ──────────────────────────────────────
+     Open tasks only, from programs that have a marketing plan and are not closed. The same derived
+     tasks as the program screen, so a date moved there is moved here. */
+  function openTasksAcross(programs, opts) {
+    var out = [];
+    (programs || []).forEach(function (p) {
+      if (!hasPlan(p) || p.status === 'closed') return;
+      groupTasks(tasksOf(p, opts)).forEach(function (g) { if (g.open) out.push({ p: p, g: g }); });
+    });
+    return out;
+  }
+  function tasksAcrossHtml(programs, ctx) {
+    var opts = { stores: ctx.stores.map(function (s) { return s.store_id; }) };
+    var rows = openTasksAcross(programs, opts), ro = ctx.canEdit ? '' : ' disabled';
+    var owners = ['INV', 'DIR', 'MGR', 'VEN'];
+    var seg = '<span class="mk-seg"><button type="button" data-mk-owner=""' + (ctx.owner ? '' : ' class="is-on"') + '>Everyone</button>'
+      + owners.slice(0, 3).map(function (o) {
+          return '<button type="button" data-mk-owner="' + o + '"' + (ctx.owner === o ? ' class="is-on"' : '') + '>' + esc(OWNERS[o]) + '</button>';
+        }).join('') + '</span>';
+    var shown = rows.filter(function (r) { return !ctx.owner || r.g.own === ctx.owner; });
+    var groups = owners.map(function (o) {
+      var mine = shown.filter(function (r) { return r.g.own === o; }).sort(function (a, b) {
+        if (a.g.due === b.g.due) return 0;
+        if (!a.g.due) return 1;
+        if (!b.g.due) return -1;
+        return a.g.due < b.g.due ? -1 : 1;
+      });
+      if (!mine.length) return '';
+      return '<div class="mk-phase">' + esc(OWNERS[o]) + '<span>' + mine.length + '</span></div>' + mine.map(function (r) {
+        var g = r.g, p = r.p, sub = [esc(p.vendor || p.program_name)];
+        if (g.item) sub.push(esc(ITEMS[g.item].t));
+        if (g.each) sub.push('each store: ' + (g.rows.length - g.open) + ' of ' + g.rows.length);
+        var pid = esc(p.program_id);
+        var box = g.each ? '<span></span>'
+          : '<input type="checkbox" data-mk-xtask="' + esc(g.key) + '" data-mk-prog="' + pid + '"' + ro + ' aria-label="Mark done">';
+        var stores = !g.each ? '' : '<div class="mk-task-stores">' + g.rows.map(function (t) {
+          return '<button type="button" class="mk-store-tick' + (t.done ? ' on' : '') + '" data-mk-xtask="' + esc(t.key) + '" data-mk-prog="' + pid + '"'
+            + ' aria-pressed="' + (t.done ? 'true' : 'false') + '"' + ro + '>' + esc(ctx.storeName(t.store)) + '</button>';
+        }).join('') + '</div>';
+        return '<div class="mk-task">' + box + '<span class="tx">' + esc(g.text) + '<small>' + sub.join(' · ') + '</small>' + stores + '</span>'
+          + '<button type="button" class="mk-link" data-mk-open="' + pid + '" title="Open this program">Open</button>' + dueHtml(g, ctx.today) + '</div>';
+      }).join('');
+    }).join('');
+    return '<div class="mk-row2"><div><h3 class="mk-h">Open tasks, every program</h3>'
+      + '<p class="mk-sub mk-tight">Soonest first within each person. Tick one off here or on its program.</p></div>' + seg + '</div>'
+      + '<div class="mk-card">' + (groups || '<p class="mk-sub">Nothing open.</p>') + '</div>';
+  }
+
+  /* ── Penciled brands ─────────────────────────────────────────────────────────────────────────── */
+  function pencilListHtml(pencils, ctx) {
+    if (!pencils || !pencils.length) return '';
+    return '<div class="mk-label">Penciled <span>' + pencils.length + ' holding a slot, not official</span></div>'
+      + '<div class="mk-rows mk-pen-rows">' + pencils.slice().sort(function (a, b) { return a.start_date < b.start_date ? -1 : 1; }).map(function (x) {
+          var past = x.start_date <= ctx.today;
+          return '<div class="mk-row" data-mk-pencil="' + esc(x.pencil_id) + '" tabindex="0" role="button">'
+            + '<div><div class="n">&#9998; ' + esc(x.brand) + '</div><div class="s">' + esc(niceDate(x.start_date)) + ' &rarr; ' + esc(niceDate(x.end_date)) + '</div></div>'
+            + '<div class="s">' + esc(x.note || '') + '</div>'
+            + '<span class="mk-pill mk-pen-pill">' + (past ? 'STARTED, NOT LOCKED' : 'PENCILED') + '</span></div>';
+        }).join('') + '</div>';
+  }
+
+  function periodOptions(periods, selected, useEnd) {
+    return periods.map(function (q) {
+      var v = useEnd ? q.end : q.start;
+      return '<option value="' + v + '"' + (v === selected ? ' selected' : '') + '>' + esc(shortDate(q.start) + ' – ' + shortDate(q.end)) + '</option>';
+    }).join('');
+  }
+  function periodAround(periods, day) {
+    var hit = null;
+    periods.forEach(function (q) { if (day && q.start <= day && q.end >= day) hit = q; });
+    return hit || periods[0];
+  }
+
+  /* ctx: { periods:[{start,end}] ascending, programs, pencils, day, error } */
+  function pencilFormHtml(ctx) {
+    var q = periodAround(ctx.periods, ctx.day);
+    return '<h3 class="mk-h">Pencil a brand</h3><p class="mk-sub">Holds the slot on the calendar. It stays unofficial until someone locks it in: no tasks, nothing on kiosks, nothing in pay.</p>'
+      + '<label class="mk-fld">Brand<input id="mkPfBrand" type="text" maxlength="80" placeholder="Brand name"></label>'
+      + '<div class="mk-2col"><label class="mk-fld">First pay period<select id="mkPfFirst" data-mk-pf>' + periodOptions(ctx.periods, q.start, false) + '</select></label>'
+      + '<label class="mk-fld">Last pay period<select id="mkPfLast" data-mk-pf>' + periodOptions(ctx.periods, q.end, true) + '</select></label></div>'
+      + '<label class="mk-fld">Note (optional)<input id="mkPfNote" type="text" maxlength="300" placeholder="For example: waiting on their budget"></label>'
+      + '<div id="mkPfWarn">' + (ctx.error ? '<div class="mk-warn">' + esc(ctx.error) + '</div>' : '') + overlapHtml(ctx.programs, ctx.pencils, q.start, q.end) + '</div>'
+      + '<div class="mk-dlg-act"><button type="button" class="gx-btn gx-btn-green" data-mk-act="pensave">Pencil it in</button>'
+      + '<button type="button" class="gx-btn" data-mk-act="dlgclose">Cancel</button></div>';
+  }
+
+  /* A slot that has started is not activated or moved: it says so, and offers new dates to lock in. */
+  function pencilDetailHtml(x, ctx) {
+    var past = x.start_date <= ctx.today, h = '';
+    h += '<h3 class="mk-h">&#9998; ' + esc(x.brand) + '</h3><p class="mk-sub">Penciled for ' + esc(shortDate(x.start_date)) + ' – ' + esc(shortDate(x.end_date))
+      + ' by ' + esc(x.created_by || 'someone') + (x.created_at ? ' on ' + esc(shortDate(x.created_at.slice(0, 10))) : '') + '. Not official yet.</p>';
+    if (x.note) h += '<p class="mk-note">' + esc(x.note) + '</p>';
+    var win = '';
+    if (past) {
+      var fut = ctx.periods.filter(function (q) { return q.start > ctx.today; });
+      var span = 1;
+      ctx.periods.forEach(function (q, i) { if (q.start === x.start_date) ctx.periods.forEach(function (r, j) { if (r.end === x.end_date) span = j - i + 1; }); });
+      var firstIdx = fut.length ? ctx.periods.indexOf(fut[0]) : 0, lastIdx = Math.min(ctx.periods.length - 1, firstIdx + Math.max(1, span) - 1);
+      h += '<div class="mk-warn">This slot has already started. It has not been activated and will not be. Lock it in with new dates, or release it.</div>';
+      win = '<div class="mk-2col"><label class="mk-fld">New first pay period<select id="mkLkFirst">' + periodOptions(ctx.periods, ctx.periods[firstIdx].start, false) + '</select></label>'
+        + '<label class="mk-fld">New last pay period<select id="mkLkLast">' + periodOptions(ctx.periods, ctx.periods[lastIdx].end, true) + '</select></label></div>';
+    }
+    h += overlapHtml(ctx.programs, ctx.pencils, x.start_date, x.end_date, x.pencil_id) + win;
+    h += '<div id="mkPfWarn">' + (ctx.error ? '<div class="mk-warn">' + esc(ctx.error) + '</div>' : '') + '</div>';
+    h += ctx.canEdit
+      ? '<div class="mk-dlg-act"><button type="button" class="gx-btn gx-btn-green" data-mk-act="penlock" data-mk-id="' + esc(x.pencil_id) + '">Lock it in</button>'
+        + '<button type="button" class="gx-btn" data-mk-act="penrelease" data-mk-id="' + esc(x.pencil_id) + '">Release the slot</button>'
+        + '<button type="button" class="gx-btn" data-mk-act="dlgclose">Close</button></div>'
+        + '<p class="mk-sub" style="margin:12px 0 0">Locking in makes this a draft program with no payout set yet. Its marketing tasks and dates start from there.</p>'
+      : '<div class="mk-dlg-act"><button type="button" class="gx-btn" data-mk-act="dlgclose">Close</button></div><p class="mk-sub" style="margin:12px 0 0">Sign in as an editor to lock it in or release it.</p>';
+    return h;
+  }
+
+  /* Clicks for the Calendar, Tasks and pencil dialog, delegated so a repaint keeps working. */
+  function wireViews(host, api) {
+    if (host.__mkViewsWired) return;
+    host.__mkViewsWired = true;
+    host.addEventListener('click', function (e) {
+      var t = e.target.closest ? e.target.closest('button,[data-mk-pencil],[data-mk-open],[data-mk-view]') : null;
+      if (!t || t.disabled || !host.contains(t)) return;
+      var d = t.dataset;
+      if (d.mkView) return api.view(d.mkView);
+      if (d.mkNav !== undefined) return api.nav(+d.mkNav);
+      if (d.mkOwner !== undefined) return api.owner(d.mkOwner);
+      if (d.mkXtask) return api.tick(d.mkProg, d.mkXtask, t.tagName === 'INPUT' ? t.checked : !t.classList.contains('on'));
+      if (d.mkDay) return api.penAdd(d.mkDay);
+      if (d.mkAct) return api.act(d.mkAct, d.mkId || '');
+      if (d.mkPencil) return api.pencil(d.mkPencil);
+      if (d.mkOpen) return api.open(d.mkOpen);
+    });
+    host.addEventListener('change', function (e) {
+      var t = e.target;
+      if (!t || !t.dataset) return;
+      if (t.dataset.mkXtask && t.type === 'checkbox') return api.tick(t.dataset.mkProg, t.dataset.mkXtask, t.checked);
+      if (t.dataset.mkPf !== undefined) return api.pfChange();
+    });
+  }
+
   var api = {
+    shortDate: shortDate, barsOf: barsOf, assignLanes: assignLanes, overlapNames: overlapNames, overlapHtml: overlapHtml,
+    calendarHtml: calendarHtml, openTasksAcross: openTasksAcross, tasksAcrossHtml: tasksAcrossHtml,
+    pencilListHtml: pencilListHtml, pencilFormHtml: pencilFormHtml, pencilDetailHtml: pencilDetailHtml,
+    wireViews: wireViews, monthStart: monthStart,
     isVisible: isVisible, SECTIONS: SECTIONS, ITEMS: ITEMS, CORE: CORE, OWNERS: OWNERS,
     addDays: addDays, daysBetween: daysBetween, planOf: planOf, hasPlan: hasPlan, isOn: isOn,
     pickedItems: pickedItems, storesOf: storesOf, tasksOf: tasksOf, groupTasks: groupTasks,

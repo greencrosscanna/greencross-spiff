@@ -66,6 +66,7 @@
     employees: [],   // from GX Core — SPIFF READS the roster, never writes it
     programs:  [],
     brands:    null, // GX Core's shared brand list, reps included; null until it has loaded
+    pencils:   null, // penciled brands (marketing, behind the switch); null until read
     record:    null  // program open in the record modal
   };
 
@@ -551,6 +552,7 @@
       ? listSection(heading, note, rest, 'see all in History')
       : (heroes.length || drafts.length ? '' : '<div class="sp-notice">Nothing matches that filter. '
           + closedN + ' closed program' + (closedN === 1 ? '' : 's') + ' in History.</div>');
+    mkRenderViews();
   }
 
   /* One headed block of rows. Shared so the Drafts and Closed sections cannot drift apart --
@@ -1379,15 +1381,20 @@
     el.classList.toggle('is-bad', !!bad);
   }
 
-  function mkApply(ops) {
-    var p = state.record;
+  /* `programId` is for the Tasks view, which ticks a task on a program that is not the one open.
+     It saves through the same delta path, so the two screens cannot disagree about what is done. */
+  function mkApply(ops, programId) {
+    var p = programId
+      ? (state.programs || []).filter(function (x) { return x.program_id === programId; })[0]
+      : state.record;
     if (!p || !ops || !ops.length || !canEdit()) return;
     if (!Object.prototype.hasOwnProperty.call(p, 'marketing_json')) return;
     var id = p.program_id;
     if (!Object.prototype.hasOwnProperty.call(mkUi.saved, id)) mkUi.saved[id] = p.marketing_json;
     p.marketing_json = MK.applyOps(p.marketing_json, ops);
     mkUi.moving = '';
-    mkPaint(p);
+    if (state.record === p) mkPaint(p);
+    mkRenderViews();
     mkSaver().add(id, ops);
   }
 
@@ -1410,6 +1417,7 @@
         if (p && Object.prototype.hasOwnProperty.call(mkUi.saved, id)) p.marketing_json = mkUi.saved[id];
         delete mkUi.saved[id];
         if (p && state.record === p) mkPaint(p);
+        mkRenderViews();
         mkStatus('Not saved: ' + String((res && res.message) || 'save failed').replace(/[.\s]+$/, '')
                  + '. The screen is back to what is stored.', true);
         return;
@@ -1427,6 +1435,170 @@
       if (phase === 'saved') mkStatus('Saved');
     });
     return mkSaverInst;
+  }
+
+  /* ── PHASE 2: LIST / CALENDAR / TASKS, AND PENCILED BRANDS ─────────────────────────────────────
+     All inside the Programs tab (the app deliberately has three top-level tabs), all behind the same
+     switch as the rest of the section: with mkOn() false nothing here draws and the tab is exactly
+     what it was. A pencil is NOT a program. It lives in the engine's own `pencils` tab, which nothing
+     that pays anybody or feeds a kiosk reads; the only way one becomes a program is a person pressing
+     Lock it in. None of the pencil routes is in ENGINE_HEDGE_READS: a hedged write runs twice. */
+  var mkView = { view: 'list', offset: 0, owner: '', dlg: null, wired: false, loading: false, ready: true };
+
+  function mkStoreList() {
+    return state.stores.map(function (s) { return { store_id: s.store_id, name: s.display_name || s.store_id }; });
+  }
+  /* Whole pay periods, ascending: last fortnight, this one, and a run ahead. */
+  function mkPeriods() {
+    var now = periodIndexOf(today()), out = [];
+    for (var i = now - 1; i <= now + PP_FUTURE + 2; i++) out.push(periodByIndex(i));
+    return out;
+  }
+
+  async function mkLoadPencils() {
+    if (mkView.loading || state.pencils) return;
+    mkView.loading = true;
+    try {
+      var r = await ENG.jsonp('pencils', { token: (session() || {}).token });
+      if (r && r.needsAuth) { state.pencils = null; return; }
+      /* An engine that has not been updated answers "Unknown action". Say so instead of showing an
+         empty calendar that looks like there is nothing penciled. */
+      mkView.ready = !!(r && r.ok && Array.isArray(r.pencils));
+      state.pencils = mkView.ready ? r.pencils : [];
+    } catch (e) {
+      mkView.ready = false;
+      state.pencils = [];
+    } finally {
+      mkView.loading = false;
+    }
+    mkRenderViews();
+  }
+
+  function mkRenderViews() {
+    var seg = $('#mkViewSeg'), host = $('#mkView'), pens = $('#mkPencils');
+    if (!seg || !host || !pens) return;
+    var on = mkOn(), view = on ? mkView.view : 'list';
+    seg.hidden = !on;
+    ['#progStats', '#progRunning', '#progDrafts', '#progClosed'].forEach(function (sel) {
+      var el = $(sel);
+      if (el) el.hidden = view !== 'list';
+    });
+    if (!on) { pens.innerHTML = ''; host.innerHTML = ''; host.hidden = true; return; }
+    mkWireViews();
+    $$('#mkViewSeg button').forEach(function (b) { b.classList.toggle('is-on', b.dataset.mkView === view); });
+    var late = MK.overdueTotal(state.programs, today(), mkOpts());
+    var badge = $('#mkLateBadge');
+    if (badge) badge.textContent = late || '';
+    mkLoadPencils();
+
+    var pencils = state.pencils || [];
+    var ctx = { today: today(), canEdit: canEdit(), offset: mkView.offset, owner: mkView.owner,
+                stores: mkStoreList(), storeName: storeName };
+    var notice = mkView.ready ? '' : '<div class="mk-warn">The engine has not been updated yet, so penciled brands cannot load or save. The rest works.</div>';
+    pens.innerHTML = view === 'list' ? MK.pencilListHtml(pencils, ctx) : '';
+    host.hidden = view === 'list';
+    if (view === 'calendar') host.innerHTML = notice + MK.calendarHtml(state.programs, pencils, ctx);
+    else if (view === 'tasks') host.innerHTML = MK.tasksAcrossHtml(state.programs, ctx);
+    else host.innerHTML = '';
+    mkDlgPaint();
+  }
+
+  function mkDlgPaint() {
+    var d = $('#mkDlg'), s = mkView.dlg;
+    if (!d) return;
+    if (!s || !mkOn()) { d.hidden = true; d.innerHTML = ''; return; }
+    var pencils = state.pencils || [];
+    var ctx = { today: today(), canEdit: canEdit(), periods: mkPeriods(), programs: state.programs, pencils: pencils,
+                day: s.day, error: s.error || '' };
+    var x = s.kind === 'detail'
+      ? pencils.filter(function (q) { return q.pencil_id === s.id; })[0] : null;
+    if (s.kind === 'detail' && !x) { mkView.dlg = null; d.hidden = true; d.innerHTML = ''; return; }
+    var keep = d.querySelector('#mkPfBrand'), note = d.querySelector('#mkPfNote');
+    var typed = { brand: keep ? keep.value : '', note: note ? note.value : '' };
+    d.innerHTML = '<div class="mk-dlg-box" role="dialog" aria-modal="true">'
+      + (s.kind === 'form' ? MK.pencilFormHtml(ctx) : MK.pencilDetailHtml(x, ctx)) + '</div>';
+    d.hidden = false;
+    var b = d.querySelector('#mkPfBrand'), n = d.querySelector('#mkPfNote');
+    if (b && typed.brand) b.value = typed.brand;
+    if (n && typed.note) n.value = typed.note;
+    var first = d.querySelector('input,button');
+    if (first && !s.painted) { first.focus(); s.painted = true; }
+  }
+
+  function mkDlgOpen(state_) { mkView.dlg = state_; mkDlgPaint(); }
+  function mkDlgClose() { mkView.dlg = null; mkDlgPaint(); }
+  function mkDlgError(msg) { if (mkView.dlg) { mkView.dlg.error = msg; mkDlgPaint(); } }
+
+  async function mkPencilCall(action, params) {
+    var r = await ENG.jsonp(action, Object.assign({ token: (session() || {}).token }, params));
+    if (r && r.needsAuth) { clearSession(); openSignIn(); throw new Error('You were signed out. Sign in and try again.'); }
+    if (!r || !r.ok) throw new Error((r && r.error) || 'That did not save');
+    return r;
+  }
+
+  async function mkPencilAct(name, id) {
+    var d = $('#mkDlg');
+    if (name === 'dlgclose') return mkDlgClose();
+    if (name === 'penadd') return mkDlgOpen({ kind: 'form', day: '' });
+    if (!canEdit()) return;
+    try {
+      if (name === 'pensave') {
+        var brand = ($('#mkPfBrand', d) || {}).value || '', first = ($('#mkPfFirst', d) || {}).value, last = ($('#mkPfLast', d) || {}).value;
+        if (!brand.trim()) return mkDlgError('Add a brand name to pencil it in.');
+        if (last < first) return mkDlgError('The last pay period comes before the first. Pick a later one.');
+        var r = await mkPencilCall('savePencil', { brand: brand.trim(), start_date: first, end_date: last, note: ($('#mkPfNote', d) || {}).value || '' });
+        state.pencils = (state.pencils || []).filter(function (q) { return q.pencil_id !== r.pencil.pencil_id; }).concat([r.pencil]);
+        mkDlgClose(); mkRenderViews();
+      } else if (name === 'penrelease') {
+        await mkPencilCall('releasePencil', { id: id });
+        state.pencils = (state.pencils || []).filter(function (q) { return q.pencil_id !== id; });
+        mkDlgClose(); mkRenderViews();
+      } else if (name === 'penlock') {
+        var nf = $('#mkLkFirst', d), nl = $('#mkLkLast', d);
+        if (nf && nl && nl.value < nf.value) return mkDlgError('The last pay period comes before the first. Pick a later one.');
+        var res = await mkPencilCall('lockPencil', {
+          id: id, start_date: nf ? nf.value : '', end_date: nl ? nl.value : '',
+          stores: JSON.stringify(state.stores.map(function (s) { return s.store_id; }))
+        });
+        state.pencils = (state.pencils || []).filter(function (q) { return q.pencil_id !== id; });
+        mkDlgClose();
+        await loadPrograms();
+        mkRenderViews();
+        openProgram(res.program_id);
+      }
+    } catch (e) {
+      mkDlgError(String((e && e.message) || e));
+    }
+  }
+
+  function mkWireViews() {
+    if (mkView.wired) return;
+    mkView.wired = true;
+    var api = {
+      view: function (v) { mkView.view = v; mkRenderViews(); },
+      nav: function (n) { mkView.offset = n === 0 ? 0 : mkView.offset + n; mkRenderViews(); },
+      owner: function (o) { mkView.owner = o; mkRenderViews(); },
+      tick: function (programId, key, on) {
+        mkApply(MK.doneOp(key, on, (session() || {}).user || '', new Date().toISOString()), programId);
+      },
+      penAdd: function (day) { if (canEdit()) mkDlgOpen({ kind: 'form', day: day }); },
+      pencil: function (id) { mkDlgOpen({ kind: 'detail', id: id }); },
+      act: mkPencilAct,
+      open: function (id) { mkDlgClose(); openProgram(id); },
+      pfChange: function () {
+        var d = $('#mkDlg'), w = $('#mkPfWarn', d), a = $('#mkPfFirst', d), b = $('#mkPfLast', d);
+        if (!w || !a || !b) return;
+        w.innerHTML = b.value < a.value ? '<div class="mk-warn">The last pay period comes before the first. Pick a later one.</div>'
+          : MK.overlapHtml(state.programs, state.pencils || [], a.value, b.value);
+      }
+    };
+    ['#mkView', '#mkPencils', '#mkViewSeg', '#mkDlg'].forEach(function (sel) {
+      var el = $(sel);
+      if (el) MK.wireViews(el, api);
+    });
+    var dlg = $('#mkDlg');
+    if (dlg) dlg.addEventListener('click', function (e) { if (e.target === dlg) mkDlgClose(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && mkView.dlg) mkDlgClose(); });
   }
 
   /* ── THE WAY INTO A PROGRAM ───────────────────────────────────────────────────────────────
