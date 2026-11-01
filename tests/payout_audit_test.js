@@ -94,7 +94,7 @@ function auditor(programs, opts) {
   const api = G.load({
     real: ['auditClosedPayouts_', 'auditFingerprint_', 'runPayoutAuditDaily_', 'auditNoteTitle_',
            'auditNoteBody_', 'auditPayoutsWeb_', 'listPrograms_', 'rowToProgram_', 'moneyStr_',
-           'textDate_', 'parseJson_', 'normalizePitch_', 'scrubSecrets_'],
+           'textDate_', 'parseJson_', 'normalizePitch_', 'normalizeMarketing_', 'scrubSecrets_'],
     vars: ['PROGRAM_HEADERS', 'AUDIT_STATE_PROP', 'AUDIT_UNIT_PCT', 'AUDIT_UNIT_MIN',
            'GX_SECRET_PROP', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
     stubs: {

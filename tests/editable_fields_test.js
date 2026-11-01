@@ -176,7 +176,7 @@ function edit(patch, opts) {
     real: ['editProgram_', 'saveProgram_', 'getProgram_', 'listPrograms_', 'rowToProgram_',
            'programToRow_', 'measurementInvalidatedBy_', 'brandMatchCheck_', 'dropProgressRows_',
            'invalidatePrograms_', 'parseJson_', 'textDate_', 'nowStamp_', 'slug_',
-           'normalizePitch_', 'periodStartFor_', 'stripDerivedActuals_', 'scrubSecrets_'],
+           'normalizePitch_', 'normalizeMarketing_', 'periodStartFor_', 'stripDerivedActuals_', 'scrubSecrets_'],
     vars: ['PROGRAM_HEADERS', 'PROGRESS_HEADERS', 'EDIT_ROLES', 'MEASURED_BY', 'DERIVED_ACTUALS',
            'PROGRAMS_CACHE_KEY', 'PITCH_MAX_LEN'],
     /* EDITABLE_FIELDS by value for the reason above; PITCH_MAX_TIPS pinned because the harness's

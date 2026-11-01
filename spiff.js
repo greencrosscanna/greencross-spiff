@@ -503,7 +503,9 @@
       + statTile(money(atStake), 'at stake for budtenders', '')
       + statTile((netReturn >= 0 ? '+' : '') + money0(netReturn), 'net return, ' + all.length + ' programs',
                  netReturn >= 0 ? 'is-pos' : 'is-neg')
-      + statTile(needCheck, 'records need checking', needCheck ? 'is-warn' : '');
+      + statTile(needCheck, 'records need checking', needCheck ? 'is-warn' : '')
+      + mkOverdueTile(all);
+    stats.classList.toggle('mk-five', mkOn());
 
     /* ---- the one running program, as a hero.
        The hero obeys the filter like everything else. It used to render unconditionally, which
@@ -761,6 +763,7 @@
       +     '</div>'
       +   '</div>'
       +   '<div class="sp-hero-bar">' + paceBar(pace) + '</div>'
+      +   mkListLine(p)
       +   '<div class="sp-hero-foot">' + verdict
       /* ONE button. "Open progress" and "Edit record" now land on the identical screen —
          progress is a section of the program, not a tab beside it — so two buttons were two
@@ -964,6 +967,7 @@
       +   (rate && !dupe ? '<span class="sp-flag is-warn" title="Modeled at ' + money(pay)
                   + ', settled at ' + money(a.spiff_amount) + '">rate ' + money(pay)
                   + ' &rarr; ' + money(a.spiff_amount) + '</span>' : '')
+      +   (p.status === 'draft' ? mkListLine(p) : '')
       + '</div>'
       + '<div class="sp-row-dots">' + dots + '</div>'
       + '<div class="sp-num">' + money(pay) + '</div>'
@@ -1302,6 +1306,7 @@
       wrap.hidden = true;
       state.record = null;
       renderRecordSummary(null);
+      syncMarketing(null);
       return;
     }
     state.record = p;
@@ -1310,6 +1315,118 @@
     /* The fold's summary is the record for anyone not opening it, so it is painted with the body
        rather than by whoever happens to collapse the section. */
     renderRecordSummary(p);
+    syncMarketing(p);
+  }
+
+  /* ── THE MARKETING SECTION (SPIFF 2.0) ─────────────────────────────────────────────────────────
+     The content and the rules are all in marketing.js. This is only the join to the app, and every
+     piece of it answers nothing at all unless that file's switch says this user may see it. If the
+     file fails to load, the rest of the screen carries on without it.
+
+     Saves carry only what changed, and do not go through collectPatch: the section's fields have no
+     data-key, so the program's Save button neither reads nor resends them. confirm_brand is sent
+     because ticking a task is not a decision about the brand; a program whose brand is not stocked
+     yet must not stop somebody recording that the email went out. */
+  var MK = window.SpiffMarketing || null;
+  function mkOn() { return !!(MK && MK.isVisible(session())); }
+  function mkOpts() { return { stores: state.stores.map(function (s) { return s.store_id; }) }; }
+
+  function mkListLine(p) { return mkOn() ? MK.listLine(p, today(), mkOpts()) : ''; }
+
+  function mkOverdueTile(all) {
+    if (!mkOn()) return '';
+    var n = MK.overdueTotal(all, today(), mkOpts());
+    return statTile(n, 'marketing tasks overdue', n ? 'is-neg' : '');
+  }
+
+  var mkUi = { moving: '', saved: {} };
+
+  function mkPaint(p) {
+    var note = $('#calcMarketingNote'), host = $('#calcMarketingBody');
+    if (note) note.textContent = MK.foldNote(p, today(), mkOpts());
+    if (!host) return;
+    host.innerHTML = MK.sectionHtml(p, {
+      today: today(), canEdit: canEdit(), moving: mkUi.moving,
+      /* An engine that has not been updated does not send the field at all, and would answer a save
+         with "unchanged" while dropping it. */
+      engineReady: Object.prototype.hasOwnProperty.call(p, 'marketing_json'),
+      stores: state.stores.map(function (s) { return { store_id: s.store_id, name: s.display_name || s.store_id }; }),
+      storeName: storeName
+    });
+  }
+
+  function syncMarketing(p) {
+    var fold = $('#calcMarketingFold'), host = $('#calcMarketingBody');
+    if (!fold || !host) return;
+    if (!p || !mkOn()) { fold.hidden = true; host.innerHTML = ''; return; }
+    fold.hidden = false;
+    mkPaint(p);
+    MK.wire(host, {
+      program: function () { return state.record; },
+      opts: mkOpts,
+      moving: function (id) { mkUi.moving = id; mkPaint(state.record); },
+      apply: mkApply,
+      tick: function (key, on) {
+        mkApply(MK.doneOp(key, on, (session() || {}).user || '', new Date().toISOString()));
+      }
+    });
+  }
+
+  function mkStatus(text, bad) {
+    var el = $('[data-mk-status]');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('is-bad', !!bad);
+  }
+
+  function mkApply(ops) {
+    var p = state.record;
+    if (!p || !ops || !ops.length || !canEdit()) return;
+    if (!Object.prototype.hasOwnProperty.call(p, 'marketing_json')) return;
+    var id = p.program_id;
+    if (!Object.prototype.hasOwnProperty.call(mkUi.saved, id)) mkUi.saved[id] = p.marketing_json;
+    p.marketing_json = MK.applyOps(p.marketing_json, ops);
+    mkUi.moving = '';
+    mkPaint(p);
+    mkSaver().add(id, ops);
+  }
+
+  var mkSaverInst = null;
+  function mkSaver() {
+    if (mkSaverInst) return mkSaverInst;
+    mkSaverInst = MK.makeSaver(async function (id, ops) {
+      var r = await ENG.jsonp('editProgram', {
+        token: (session() || {}).token, id: id, confirm_brand: '1',
+        patch: JSON.stringify({ marketing_delta: ops })
+      });
+      if (r && r.needsAuth) { clearSession(); openSignIn(); throw new Error('signed out'); }
+      if (!r || !r.ok) throw new Error((r && r.error) || 'save failed');
+      return r;
+    }, function (phase, res, id) {
+      var p = (state.programs || []).filter(function (x) { return x.program_id === id; })[0];
+      if (phase === 'saving') { mkStatus('Saving…'); return; }
+      if (phase === 'failed') {
+        /* The screen was ahead of the sheet. Put it back, so nothing reads as done that is not. */
+        if (p && Object.prototype.hasOwnProperty.call(mkUi.saved, id)) p.marketing_json = mkUi.saved[id];
+        delete mkUi.saved[id];
+        if (p && state.record === p) mkPaint(p);
+        mkStatus('Not saved: ' + String((res && res.message) || 'save failed').replace(/[.\s]+$/, '')
+                 + '. The screen is back to what is stored.', true);
+        return;
+      }
+      /* What the engine stored is the truth, once nothing newer is waiting to go. */
+      if (p && res && Object.prototype.hasOwnProperty.call(res, 'marketing_json')) {
+        mkUi.saved[id] = res.marketing_json;
+        if (phase === 'saved') {
+          var same = JSON.stringify(p.marketing_json) === JSON.stringify(res.marketing_json);
+          p.marketing_json = res.marketing_json;
+          if (!same && state.record === p) mkPaint(p);
+          renderPrograms();
+        }
+      }
+      if (phase === 'saved') mkStatus('Saved');
+    });
+    return mkSaverInst;
   }
 
   /* ── THE WAY INTO A PROGRAM ───────────────────────────────────────────────────────────────
@@ -5108,9 +5225,9 @@
      happened to be higher up would be a second answer. appendChild MOVES a node, so this is a
      reorder and not a rebuild: the per-store table keeps its focus, the goal slider keeps a drag
      in progress, and not one listener is dropped. */
-  var STAGE = { draft:   ['calcModelFold', 'calcLive', 'calcActuals', 'calcResults', 'calcRecordFold'],
-                running: ['calcLive', 'calcModelFold', 'calcActuals', 'calcResults', 'calcRecordFold'],
-                settled: ['calcActuals', 'calcResults', 'calcLive', 'calcModelFold', 'calcRecordFold'] };
+  var STAGE = { draft:   ['calcModelFold', 'calcLive', 'calcActuals', 'calcResults', 'calcRecordFold', 'calcMarketingFold'],
+                running: ['calcLive', 'calcModelFold', 'calcActuals', 'calcResults', 'calcRecordFold', 'calcMarketingFold'],
+                settled: ['calcActuals', 'calcResults', 'calcLive', 'calcModelFold', 'calcRecordFold', 'calcMarketingFold'] };
 
   function stageSections(which) {
     var panel = $('#panel-calculator');

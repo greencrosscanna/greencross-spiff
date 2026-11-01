@@ -85,7 +85,7 @@ function run(params, opts) {
   const programs = G.makeSheet(PH, o.programs || [portlandHeights(),
                                                  otherProgram('portland-heights-2026-03-30-2026-04-12', 'Portland Heights spring')]);
   const progress = G.makeSheet(PROG_H, o.progress || progressRows('green-cross-test-202608'));
-  const deleted  = G.makeSheet(PH.concat(['deleted_by', 'deleted_at', 'reason']));
+  const deleted  = G.makeSheet(PH.concat(['deleted_by', 'deleted_at', 'deleted_reason']));
   const cache = G.makeCache();
   const t = G.trace();
   const published = [];
@@ -93,10 +93,12 @@ function run(params, opts) {
   const api = G.load({
     real: ['renameProgramId_', 'repointProgressRows_', 'countProgressRows_', 'getProgram_',
            'listPrograms_', 'rowToProgram_', 'programToRow_', 'invalidatePrograms_',
-           'slug_', 'scrubSecrets_', 'textDate_', 'parseJson_', 'normalizePitch_',
+           'writeTombstone_', 'ensureColumns_',
+           'slug_', 'scrubSecrets_', 'textDate_', 'parseJson_', 'normalizePitch_', 'normalizeMarketing_',
            'periodStartFor_', 'stripDerivedActuals_', 'nowStamp_'],
     vars: ['PROGRAM_HEADERS', 'EDIT_ROLES', 'PROGRESS_HEADERS', 'DERIVED_ACTUALS',
            'PROGRAMS_CACHE_KEY', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
+    varValues: { DELETED_HEADERS: PH.concat(['deleted_by', 'deleted_at', 'deleted_reason']) },
     stubs: {
       dataSheet_:     () => programs,
       progressSheet_: () => progress,
@@ -263,7 +265,7 @@ ok('nothing calls an invalidator that does not exist',
 {
   const del = G.load({
     real: ['deleteProgram_', 'getProgram_', 'listPrograms_', 'rowToProgram_', 'textDate_',
-           'parseJson_', 'normalizePitch_'],
+           'parseJson_', 'normalizePitch_', 'normalizeMarketing_'],
     vars: ['PROGRAM_HEADERS', 'EDIT_ROLES', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
     stubs: {
       dataSheet_: () => G.makeSheet(PH, [portlandHeights()]),
@@ -271,6 +273,7 @@ ok('nothing calls an invalidator that does not exist',
       gxAuth_: () => ({ ok: true, user: 'sky', role: 'admin' }),
       annotateActuals_: () => {}, annotateUnmeasurable_: () => {},
       invalidatePrograms_: () => {}, dropProgressRows_: () => 0, programToRow_: () => [],
+      writeTombstone_: () => { throw new Error('a closed program must never be tombstoned'); },
       nowStamp_: () => '2026-09-15 12:00:00',
     },
   });

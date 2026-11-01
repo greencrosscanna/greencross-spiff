@@ -182,6 +182,21 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   read path, and it matters more here. Pinned by `tests/orphan_sweep_test.js`.
   Hist: "Orphaned cache rows are swept".
 
+- **Marketing is hidden behind one switch, and stores only what a person decided** (SPIFF 2.0, phase 1,
+  Sky 2026-11-01; plan in `docs/plans/marketing-section.md`). `marketing.js` holds the menu and the
+  rules; `VISIBLE_TO_EVERYONE` / `PREVIEW_USERS` at its top decide who sees anything, and only Sky does
+  until he approves the flip. That is a curtain: `editProgram_`'s role check protects the save.
+  **Task ids are the stored key**: reword a task freely, never rename its id, or its ticks are orphaned.
+  Tasks, due dates, overdue and compliance are computed on read; `normalizeMarketing_` builds the
+  `marketing_json` cell from a list of what may be kept, so nothing derived gets frozen. **Saves send
+  only what changed** (`marketing_delta` through `editProgram`), because a whole plan can pass the
+  ~10,000-character URL limit the live engine has; `applyOps` and `applyMarketingDelta_` must stay
+  twins. **Nothing that pays anybody reads this column.** Before adding another column to `programs`:
+  `migrateHeaders_` grows the grid and adds a trailing column in place. A tab past its grid throws, and
+  `dataSheet_` runs on every read, so a mistake there stops every route and the hourly job. Pinned by
+  `tests/marketing_tasks_test.js`, `tests/marketing_json_test.js` and
+  `tests/marketing_pay_isolation_test.js`.
+
 ### Money: payout, cost, vendor send
 
 - **Payout model.** Most programs are **flat**: a fixed dollar bounty to each budtender who hits their

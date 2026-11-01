@@ -125,7 +125,7 @@ function sweeper(rows, answers, memory) {
     /* scrubSecrets_ is REAL, not stubbed, because the refusal memory below is written through it —
        a stub would let a fake scrub vouch for the thing the refusal assertions are checking. */
     real: ['snapshotPending_', 'rowToProgram_', 'snapshotFingerprint_', 'textDate_', 'parseJson_',
-           'normalizePitch_', 'slug_', 'scrubSecrets_'],
+           'normalizePitch_', 'normalizeMarketing_', 'slug_', 'scrubSecrets_'],
     vars: ['PROGRAM_HEADERS', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
     stubs: {
       dataSheet_: () => sheet,
