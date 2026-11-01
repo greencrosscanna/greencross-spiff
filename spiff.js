@@ -1368,10 +1368,63 @@
       opts: mkOpts,
       moving: function (id) { mkUi.moving = id; mkPaint(state.record); },
       apply: mkApply,
+      plan: mkPlanAction,
       tick: function (key, on) {
         mkApply(MK.doneOp(key, on, (session() || {}).user || '', new Date().toISOString()));
       }
     });
+  }
+
+  /* ── PHASE 3: THE VENDOR PLAN AND THE TEAM EMAIL ───────────────────────────────────────────────
+     Three buttons, each an editor's click. Nothing here sends to a brand: the plan is built, shown or
+     filed in SPIFF Reports, and the one email goes to the internal team after a confirmation that
+     names the recipients. Retries are off and neither route is hedged, because a second copy of the
+     email is a second email; the engine also refuses a repeat unless resend is sent. */
+  function mkPlanStatus(text, bad) {
+    var el = $('[data-mk-planstatus]');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('is-bad', !!bad);
+  }
+
+  async function mkPlanAction(what, btn) {
+    var p = state.record;
+    if (!p || !canEdit()) return;
+    var base = { token: (session() || {}).token, id: p.program_id };
+    var opt = { timeoutMs: 60000, retries: 0 };
+    if (btn) btn.disabled = true;
+    try {
+      if (what === 'notify') return await mkNotify(base, opt);
+      mkPlanStatus(what === 'save' ? 'Saving to SPIFF Reports…' : 'Building the plan…');
+      var r = await ENG.jsonp('marketingOverview', what === 'save' ? Object.assign({ save: '1' }, base) : base, opt);
+      if (r && r.needsAuth) { clearSession(); openSignIn(); return; }
+      if (!r || !r.ok) { mkPlanStatus((r && r.error) || 'Could not build the plan', true); return; }
+      if (what === 'save') { mkPlanStatus('Saved to SPIFF Reports: ' + r.name); return; }
+      var blob = new Blob(['<!doctype html><meta charset="utf-8"><title>' + r.name + '</title><body style="margin:36px">' + r.html + '</body>'], { type: 'text/html' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = r.name.replace(/\.pdf$/, '.html'); a.target = '_blank';
+      document.body.appendChild(a); a.click(); a.remove();
+      mkPlanStatus('Plan downloaded. Open it to print or save as a PDF.');
+    } catch (err) {
+      mkPlanStatus('Not confirmed: ' + String(err && err.message || err), true);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function mkNotify(base, opt) {
+    mkPlanStatus('Preparing the email…');
+    var d = await ENG.jsonp('marketingNotify', Object.assign({ kind: 'plan' }, base), opt);
+    if (d && d.needsAuth) { clearSession(); openSignIn(); return; }
+    if (!d || !d.ok) { mkPlanStatus((d && d.error) || 'Could not prepare the email', true); return; }
+    if (!window.confirm('Email the Green Cross team?\n\nTo: ' + d.to.join(', ') + '\nSubject: ' + d.subject + '\n\n' + d.body)) {
+      mkPlanStatus('Not sent.'); return;
+    }
+    var r = await ENG.jsonp('marketingNotify', Object.assign({ kind: 'plan', send: '1' }, base), opt);
+    if (r && r.already && window.confirm((r.error || 'Already sent.') + '\n\nSend it again anyway?')) {
+      r = await ENG.jsonp('marketingNotify', Object.assign({ kind: 'plan', send: '1', resend: '1' }, base), opt);
+    }
+    mkPlanStatus(r && r.ok ? 'Emailed ' + r.to.join(', ') : 'Not sent: ' + ((r && r.error) || 'failed'), !(r && r.ok));
   }
 
   function mkStatus(text, bad) {

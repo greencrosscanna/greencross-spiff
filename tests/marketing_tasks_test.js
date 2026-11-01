@@ -237,11 +237,11 @@ function joined(sessionValue, MkImpl) {
   const nodes = { '#calcMarketingFold': fold, '#calcMarketingBody': host, '#calcMarketingNote': note };
   const src = ['mkOn', 'mkOpts', 'mkListLine', 'mkOverdueTile', 'mkPaint', 'syncMarketing']
     .map(n => G.grab(n, js)).join('\n');
-  const fn = new Function('MK', 'session', 'state', '$', 'today', 'statTile', 'canEdit', 'storeName', 'mkUi', 'mkApply',
+  const fn = new Function('MK', 'session', 'state', '$', 'today', 'statTile', 'canEdit', 'storeName', 'mkUi', 'mkApply', 'mkPlanAction',
     src + '\nreturn { mkOn, mkListLine, mkOverdueTile, syncMarketing };');
   const api = fn(MkImpl === undefined ? MK : MkImpl, () => sessionValue,
     { stores: ALL6.map(s => ({ store_id: s })), record: null },
-    s => nodes[s] || null, () => TODAY, (v, l) => '[' + v + ' ' + l + ']', () => true, s => s, { moving: '', saved: {} }, () => {});
+    s => nodes[s] || null, () => TODAY, (v, l) => '[' + v + ' ' + l + ']', () => true, s => s, { moving: '', saved: {} }, () => {}, () => {});
   return { api, fold, host };
 }
 /* spiff.js's own save join, run against a stubbed engine: what the screen shows after each outcome. */

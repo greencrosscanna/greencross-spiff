@@ -400,6 +400,10 @@ function doGet(e) {
       /* SENDS AN EMAIL. Editor session only, and never hedged client-side — a second copy would be
          a second email. See sendBrandEmail_. */
       case 'sendBrandEmail': out = sendBrandEmail_(p);                              break;
+      /* Marketing (phase 3). Editor sessions only, neither hedged on the client. marketingNotify
+         EMAILS THE INTERNAL TEAM (never a brand) and refuses a repeat without resend=1. */
+      case 'marketingOverview': out = marketingOverview_(p);                        break;
+      case 'marketingNotify':   out = marketingNotify_(p);                          break;
       case 'giftCards':   out = giftCardList_(p);                                   break;
       case 'clientView':  out = clientView_(p);                                     break;
       case 'shareLink':   out = shareLink_(p);                                      break;
@@ -6277,6 +6281,257 @@ function sendBrandEmail_(p) {
     sent[to] = nowStamp_();
     props.setProperty(key, JSON.stringify(sent));
     return { ok: true, to: to, from: from, attachment: pdf.getName(), by: auth.user, sent_at: sent[to] };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* ── THE MARKETING VENDOR PLAN AND THE TEAM EMAIL (SPIFF 2.0, phase 3) ───────────────────────────
+ * Two routes, both an editor's click, neither on a trigger and neither on ENGINE_HEDGE_READS:
+ *
+ *   marketingOverview_  builds the vendor-facing plan in the brand page's styling. It returns the
+ *                       HTML for a download and, with save=1, files a PDF in the SPIFF Reports folder
+ *                       (REPORT_FOLDER_ID) and nowhere else. It SENDS NOTHING: a vendor only hears
+ *                       from us through "Send to brand".
+ *   marketingNotify_    emails the INTERNAL team through sendMail_. Dry by default (it returns the
+ *                       draft for a confirmation); send=1 sends. A repeat is refused without
+ *                       resend=1, because writes ride on GET and a URL gets re-fetched.
+ *
+ * WHAT THE VENDOR PLAN MAY HOLD. It is built from an allow-list of fields: the vendor's name, the
+ * window, the stores, which add-ons were picked, their typed DATES and menu choices, and calendar
+ * events. It never reads payout_json, cost_json, actual_json, target_json, progress or the roster,
+ * so no budtender name, payout dollar or cost and margin figure can reach it. Free-text fields
+ * (details, notes) are internal chatter and are left out too. tests/marketing_vendor_plan_test.js
+ * runs this builder on a program stuffed with all of those and looks for them in the output.
+ *
+ * The menu ids below mirror marketing.js's ITEMS; the same test fails if the two drift apart. The
+ * artwork guidance is deliberately non-numeric: nobody has confirmed sizes, so none is promised. */
+var MKT_NOTIFY_PROP = 'MARKETING_NOTIFY_TO';
+var MKT_NOTIFY_DOMAIN = '@greencrosscanna.com';
+var MKT_NOTIFIED_PREFIX = 'mktnotified:';
+
+var MKT_MENU_ = {
+  edu:      { t: 'Budtender education', need: 'A training video or talking points, and product samples for the team.', spec: 'Video link or file, plus a one-page product summary.' },
+  shirts:   { t: 'Staff swag (shirts / hats)', need: 'Branded apparel for staff, with sizes confirmed.', spec: 'Logo files in vector form (EPS, AI or PDF).' },
+  incentive:{ t: 'Budtender incentive', need: 'Written sign-off on the incentive structure.', spec: '' },
+  prizes:   { t: 'Other employee prizes', need: 'The prize, and how it is won.', spec: '' },
+  email:    { t: 'Email blast', need: 'Email creative and the offer, for our review.', spec: 'Web-ready image files (JPG or PNG) and the link they should point to.', dated: 'date', datedLabel: 'Email goes out' },
+  sms:      { t: 'Text blast', need: 'Text copy, for our review and approval.', spec: 'Plain text only. Include the offer and any opt-out wording.', dated: 'date', datedLabel: 'Text goes out' },
+  social:   { t: 'Social media', need: 'Your handles, tags and any media you want used.', spec: 'Photos or video in original quality, plus your preferred tags.', datedLabel: '' },
+  ecom:     { t: 'Online menu feature', need: 'Product images and descriptions for the featured spot.', spec: 'Clean product images on a plain background.' },
+  vday:     { t: 'Vendor day', need: 'Your rep’s name, and the games or discounts you plan to run.', spec: '', dated: 'date', datedLabel: 'Vendor day' },
+  raffle:   { t: 'Customer raffle', need: 'The prize. It cannot be cannabis.', spec: '', dated: 'date', datedLabel: 'Raffle drawing' },
+  swag:     { t: 'Customer swag', need: 'Giveaway items, counted and shipped to us.', spec: '' },
+  'case':   { t: 'Featured case', need: 'Display material for the featured case.', spec: 'Print-ready artwork, or ship the physical display.' },
+  signage:  { t: 'Signage & readerboard', need: 'Printed signage and readerboard copy.', spec: 'Print-ready PDF artwork. Tell us the sizes you are sending.' },
+  led:      { t: 'LED sign board', need: 'Artwork for the LED board.', spec: 'Still image or short loop, sent as a file we can load.' },
+  counter:  { t: 'Countertop ads', need: 'Artwork for checkout and countertop ads.', spec: 'Print-ready PDF artwork.' },
+  bags:     { t: 'Branded exit bags', need: 'Bags, counted, shipped to us.', spec: '' }
+};
+
+var MKT_OREGON_RULES_ = 'Everything we run follows Oregon rules: no buy-one-get-one offers, no tiered spend thresholds, '
+  + 'no cannabis gift-with-purchase, no health claims, and nothing that appeals to minors.';
+
+function mktEsc_(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
+}
+
+function mktPickedIds_(plan) {
+  var sel = (plan && plan.sel) || {};
+  return Object.keys(MKT_MENU_).filter(function (id) { return id === 'incentive' || sel[id]; });
+}
+
+/* The facts the plan is made of, already stripped to the allow-list. Everything the vendor sees goes
+   through here, so adding a field to the document starts with adding it to this list. */
+function mktPlanFacts_(p) {
+  var plan = normalizeMarketing_(p.marketing_json) || {};
+  var names = Object.create(null);
+  try { (gxStores_() || []).forEach(function (x) { names[slug_(x.store_id)] = x.display_name || x.store_id; }); }
+  catch (e) { /* slugs are a poor label, not a blank one */ }
+  var storeIds = (plan.stores && plan.stores.length) ? plan.stores : (p.stores_json || []);
+  var ids = mktPickedIds_(plan);
+  var items = ids.map(function (id) {
+    var m = MKT_MENU_[id], d = (plan.d && plan.d[id]) || {};
+    var ISO = /^\d{4}-\d{2}-\d{2}$/;
+    return { id: id, title: m.t, need: m.need, spec: m.spec,
+             date: m.dated && ISO.test(String(d[m.dated] || '')) ? d[m.dated] : '',
+             dateLabel: m.datedLabel || '',
+             choice: [d.format, d.cost, d.maker].filter(function (x) { return x; }).join(', ') };
+  });
+  return {
+    vendor: String(p.vendor || '').trim(),
+    label: brandProgramLabel_(p),
+    start: p.start_date || '', end: p.end_date || '',
+    stores: storeIds.map(function (s) { return names[slug_(s)] || s; }),
+    items: items,
+    events: (plan.events || []).filter(function (e) { return e.date; })
+      .map(function (e) { return { name: e.name, date: e.date, time: e.time }; })
+  };
+}
+
+function marketingOverviewHtml_(p, opts) {
+  opts = opts || {};
+  var f = mktPlanFacts_(p), esc = mktEsc_;
+  var FONT = 'font-family:Helvetica,Arial,sans-serif;';
+  var INK = '#1a1f1d', MUTE = '#5a635f', LINE = '#d7dedb';
+  var H = function (t) {
+    return '<div style="' + FONT + 'font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:' + MUTE
+      + ';border-bottom:1px solid ' + LINE + ';padding:0 0 5px;margin:20px 0 8px">' + esc(t) + '</div>';
+  };
+  var P = function (t) {
+    return '<p style="' + FONT + 'font-size:13px;line-height:1.5;color:' + INK + ';margin:0 0 8px">' + t + '</p>';
+  };
+  var LI = function (t) { return '<li style="' + FONT + 'font-size:13px;line-height:1.5;color:' + INK + ';margin:0 0 4px">' + t + '</li>'; };
+  var UL = function (rows) { return rows.length ? '<ul style="margin:0 0 8px;padding-left:20px">' + rows.join('') + '</ul>' : ''; };
+
+  var period = f.start ? prettyDay_(f.start) + ' – ' + prettyDay_(f.end || '') : 'dates to be confirmed';
+
+  /* Two weeks at a glance: the window's first fourteen days. */
+  var glance = [];
+  if (f.start) {
+    var last = addDaysLocal_(f.start, 13);
+    glance.push({ day: f.start, text: 'The program starts' });
+    f.items.forEach(function (i) { if (i.date && i.date >= f.start && i.date <= last) glance.push({ day: i.date, text: i.dateLabel }); });
+    f.events.forEach(function (e) { if (e.date >= f.start && e.date <= last) glance.push({ day: e.date, text: e.name + (e.time ? ' (' + e.time + ')' : '') }); });
+    if (f.end && f.end <= last) glance.push({ day: f.end, text: 'The program ends' });
+    glance.sort(function (a, b) { return a.day < b.day ? -1 : a.day > b.day ? 1 : 0; });
+  }
+
+  var needs = f.items.filter(function (i) { return i.need; });
+  var specs = f.items.filter(function (i) { return i.spec; });
+
+  var head = '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-top:2px solid ' + INK + ';border-bottom:2px solid ' + INK + ';margin:14px 0">'
+    + '<tr><td style="padding:14px 0"><img src="' + LOGO_ONLIGHT + '" alt="Green Cross" height="22" style="height:22px;width:auto;display:block;margin:0 0 10px">'
+    + '<div style="' + FONT + 'font-size:16px;font-weight:800;color:' + INK + '">' + esc(f.label) + ' — marketing plan</div>'
+    + '<div style="' + FONT + 'font-size:12px;color:' + MUTE + '">Green Cross Cannabis Emporium · ' + esc(period) + '</div></td></tr></table>';
+
+  var body =
+    H('Your team and ours')
+    + P('<b>' + esc(f.vendor || 'Your team') + '</b> — your rep is our main contact for everything below.')
+    + P('<b>Green Cross:</b> Tawny (inventory and buying) and Mike (marketing).')
+    + H('Your plan')
+    + P(esc(period) + (f.stores.length ? ' · ' + esc(f.stores.join(', ')) : ''))
+    + UL(f.items.map(function (i) {
+        return LI('<b>' + esc(i.title) + '</b>' + (i.choice ? ' — ' + esc(i.choice) : '')
+          + (i.date ? ' · ' + esc(prettyDay_(i.date)) : ''));
+      }))
+    + H('Two weeks at a glance')
+    + (glance.length ? UL(glance.map(function (g) { return LI('<b>' + esc(prettyDay_(g.day)) + '</b> — ' + esc(g.text)); }))
+                     : P('Dates will be added as they are set.'))
+    + H('What we need from you')
+    + (needs.length ? UL(needs.map(function (i) { return LI('<b>' + esc(i.title) + ':</b> ' + esc(i.need)); }))
+                    : P('Nothing yet.'))
+    + H('Incentive options')
+    + P('We can reward our budtenders for hitting a goal on your product. Two common ways: a set amount for each '
+        + 'budtender who reaches their goal, or an amount for every unit sold. We will confirm the structure with you in writing before staff hear about it.')
+    + H('Artwork specs')
+    + (specs.length ? UL(specs.map(function (i) { return LI('<b>' + esc(i.title) + ':</b> ' + esc(i.spec)); })) : '')
+    + P(esc(MKT_OREGON_RULES_) + ' We review all copy and artwork before it runs.');
+
+  return '<div style="' + FONT + 'max-width:640px;color:' + INK + '">' + head + body
+    + P('<span style="color:' + MUTE + ';font-size:11px">Prepared ' + esc(today_()) + '.</span>') + '</div>';
+}
+
+function mktEditor_(p, verb) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { fail: { ok: false, error: auth.error || 'Not signed in', needsAuth: true } };
+  var coreSaysEdit = false;
+  try { coreSaysEdit = GXCore.roleCanEdit(auth.role) === true; } catch (e) { coreSaysEdit = false; }
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0 || !coreSaysEdit) {
+    return { fail: { ok: false, error: 'Your role (' + auth.role + ') cannot ' + verb } };
+  }
+  return { auth: auth };
+}
+
+function marketingOverview_(p) {
+  var who = mktEditor_(p, 'build marketing plans');
+  if (who.fail) return who.fail;
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var prog = res.program;
+  var html = marketingOverviewHtml_(prog);
+  var stamp = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'MMddyy');
+  var name = 'Green Cross Marketing Plan - ' + (prog.vendor || prog.title || 'Brand') + ' - ' + stamp + '.pdf';
+  var out = { ok: true, name: name, html: html, by: who.auth.user };
+  if (String(p.save) === '1') {
+    try {
+      var doc = '<html><head><meta charset="utf-8"></head><body style="margin:36px">' + html + '</body></html>';
+      var blob = Utilities.newBlob(doc, 'text/html', 'p.html').getAs('application/pdf').setName(name);
+      var file = DriveApp.getFolderById(REPORT_FOLDER_ID).createFile(blob);
+      out.saved = true; out.file_id = file.getId(); out.url = file.getUrl();
+    } catch (e) {
+      return { ok: false, error: 'Could not write to the reports folder: ' + scrubSecrets_(e && e.message || e) };
+    }
+  }
+  return out;
+}
+
+/* The internal recipients, or a refusal that says what to set. Nothing is hardcoded: a team address
+   in the code would be a person's inbox decided by whoever last edited this file. Every address must
+   be a Green Cross one, so a typo in the property can never point this at a vendor. */
+function mktRecipients_() {
+  var raw = String(PropertiesService.getScriptProperties().getProperty(MKT_NOTIFY_PROP) || '');
+  var list = raw.split(/[,;\s]+/).map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
+  if (!list.length) {
+    return { error: 'The team email is not set up yet: set the script property ' + MKT_NOTIFY_PROP
+      + ' to the internal address(es) that should get it.' };
+  }
+  var bad = list.filter(function (a) {
+    return !/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(a) || a.slice(-MKT_NOTIFY_DOMAIN.length) !== MKT_NOTIFY_DOMAIN;
+  });
+  if (bad.length) {
+    return { error: MKT_NOTIFY_PROP + ' holds an address that is not a ' + MKT_NOTIFY_DOMAIN + ' one (' + bad.join(', ')
+      + '). The team email goes to Green Cross addresses only.' };
+  }
+  return { to: list };
+}
+
+function marketingNotify_(p) {
+  var who = mktEditor_(p, 'email the marketing team');
+  if (who.fail) return who.fail;
+  var kind = String(p.kind || 'plan');
+  if (kind !== 'plan' && kind !== 'summary') return { ok: false, error: 'Unknown kind: ' + kind };
+  var rcpt = mktRecipients_();
+  if (rcpt.error) return { ok: false, error: rcpt.error };
+
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var prog = res.program;
+  var f = mktPlanFacts_(prog);
+  var period = f.start ? prettyDay_(f.start) + ' – ' + prettyDay_(f.end || '') : 'dates not set';
+  var subject = (kind === 'plan' ? 'Marketing plan ready for review — ' : 'Marketing summary — ') + f.label;
+  var lines = [
+    kind === 'plan' ? 'The marketing plan for ' + f.label + ' is ready for review.' : 'Where the marketing for ' + f.label + ' stands.',
+    '', 'Window : ' + period,
+    'Stores : ' + (f.stores.join(', ') || '(program stores)'),
+    'Signed up for:'
+  ].concat(f.items.map(function (i) { return '  - ' + i.title + (i.date ? ' (' + i.date + ')' : ''); }))
+   .concat(['', 'Sent from SPIFF by ' + who.auth.user + ' on ' + nowStamp_() + '.']);
+  var body = lines.join('\n');
+
+  if (String(p.send) !== '1') {
+    return { ok: true, preview: true, to: rcpt.to, subject: subject, body: body, kind: kind };
+  }
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return { ok: false, error: 'Another send is in progress. Try again in a moment.' };
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var key = MKT_NOTIFIED_PREFIX + prog.program_id + ':' + kind;
+    var before = props.getProperty(key);
+    if (before && String(p.resend) !== '1') {
+      return { ok: false, already: true, sent_at: before,
+               error: 'The team was already emailed this on ' + String(before).slice(0, 10) + '. Send again only if you mean to.' };
+    }
+    try {
+      sendMail_({ to: rcpt.to.join(','), subject: subject, body: body, name: 'Green Cross SPIFF' });
+    } catch (e) {
+      return { ok: false, error: 'Could not send: ' + scrubSecrets_(e && e.message || e) };
+    }
+    var stamp = nowStamp_();
+    props.setProperty(key, stamp);
+    return { ok: true, sent: true, to: rcpt.to, subject: subject, sent_at: stamp, by: who.auth.user };
   } finally {
     lock.releaseLock();
   }

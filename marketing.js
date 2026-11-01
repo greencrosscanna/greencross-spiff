@@ -478,6 +478,14 @@
       + '<div class="mk-card"><div class="mk-row2"><div><h3 class="mk-h">Tasks</h3>'
       + '<p class="mk-sub mk-tight">Dates count from the window. Move the window and every date moves with it.</p></div>'
       + '<span class="mk-pill">' + open + ' open of ' + groups.length + '</span></div>' + tasks + '</div>'
+      + '<div class="mk-card"><h3 class="mk-h">Vendor plan and team</h3>'
+      + '<p class="mk-sub">The plan is a page for the vendor: no staff names, pay or costs. Building or saving it sends nothing to anyone. '
+      + 'The email goes to the Green Cross team only, after you confirm it.</p>'
+      + '<div class="mk-actions">'
+      + '<button type="button" class="gx-btn" data-mk-plan="view"' + (ctx.engineReady ? ro : ' disabled') + '>View vendor plan</button> '
+      + '<button type="button" class="gx-btn" data-mk-plan="save"' + (ctx.engineReady ? ro : ' disabled') + '>Save to SPIFF Reports</button> '
+      + '<button type="button" class="gx-btn" data-mk-plan="notify"' + (ctx.engineReady ? ro : ' disabled') + '>Email the team…</button></div>'
+      + '<div class="mk-status" data-mk-planstatus role="status"></div></div>'
       + '<div class="mk-status" data-mk-status role="status"></div>';
   }
 
@@ -490,6 +498,7 @@
       if (!t || t.disabled || !host.contains(t)) return;
       var p = api.program();
       if (!p) return;
+      if (t.dataset.mkPlan) return api.plan(t.dataset.mkPlan, t);
       if (t.dataset.mkPick) return api.apply(toggleItemOp(p, t.dataset.mkPick));
       if (t.dataset.mkStore) return api.apply(toggleStoreOp(p, t.dataset.mkStore, api.opts()));
       if (t.dataset.mkMoving) return api.moving(t.dataset.mkMoving);
