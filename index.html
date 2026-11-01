@@ -33,7 +33,7 @@
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
 <link rel="stylesheet" href="spiff-tokens.css?v=1.442"/>
 <link rel="stylesheet" href="spiff.css?v=1.448"/>
-<link rel="stylesheet" href="marketing.css?v=1.462"/>
+<link rel="stylesheet" href="marketing.css?v=1.463"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -117,6 +117,13 @@
     <!-- Store pills lived here until 2026-08-31. A SPIFF runs chain-wide, so filtering the
          program list by store answered a question nobody has: every program matches every
          store. Store detail belongs on Progress, where the per-store grid is the point. -->
+    <!-- SPIFF 2.0 phase 2, behind the switch at the top of marketing.js: stays hidden for everyone
+         else. Inside the Programs tab on purpose; the app deliberately has three top-level tabs. -->
+    <span class="mk-seg" id="mkViewSeg" role="group" aria-label="Programs view" hidden>
+      <button type="button" data-mk-view="list" class="is-on">List</button>
+      <button type="button" data-mk-view="calendar">Calendar</button>
+      <button type="button" data-mk-view="tasks">Tasks <b class="mk-badge" id="mkLateBadge"></b></button>
+    </span>
     <div class="sp-subnav-right">
       <button class="gx-btn gx-btn-green" id="btnNewProgram">+ New program</button>
     </div>
@@ -156,7 +163,9 @@
       <div class="sp-stats" id="progStats"></div>
       <div id="progRunning"></div>
       <div id="progDrafts"></div>
+      <div id="mkPencils"></div>
       <div id="progClosed"></div>
+      <div id="mkView" class="mk-view" hidden></div>
       <div class="empty" id="programsEmpty" hidden>
         <p>No programs yet.</p>
         <p class="dim">Start one from scratch — this app is the system of record, and the
@@ -532,6 +541,7 @@
     </section>
 
   </main>
+  <div class="mk-dlg" id="mkDlg" hidden></div>
 
   <!-- ============ SETTINGS ============ -->
   <!-- Reached from the user chip's Settings row (Sky, 2026-09-08), not from a fold at the bottom
@@ -651,7 +661,7 @@
     // 2026-09-08, so every LOCAL session showed staff their legal names and logged a BLOCKED
     // warning that looked like a roster outage. Production was always fine; only dev lied.
     'boot', 'brands', 'catalog', 'clientView', 'config', 'emailDraft', 'employees', 'login', 'productStats',
-    'programs', 'progress', 'refunits', 'sellthrough', 'storeLinks', 'storeView', 'stores',
+    'pencils', 'programs', 'progress', 'refunits', 'sellthrough', 'storeLinks', 'storeView', 'stores',
     'version_history'
   ];
 </script>
@@ -666,7 +676,7 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="marketing.js?v=1.462"></script>
-<script src="spiff.js?v=1.462"></script>
+<script src="marketing.js?v=1.463"></script>
+<script src="spiff.js?v=1.463"></script>
 </body>
 </html>

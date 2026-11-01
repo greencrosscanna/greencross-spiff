@@ -12,6 +12,12 @@
  *   · the publication to Core   what the kiosks and Crew's screen read
  *   · the hourly sweep          what writes the figures both of those serve
  *   · the status roll           which programs are running at all
+ *
+ * PENCILED BRANDS get the same treatment (phase 2). A pencil is a brand holding a calendar slot, kept
+ * in its own `pencils` tab precisely so that nothing which reads programs can see one. Here every one
+ * of the routes above runs with a pencil whose start date has already passed sitting in that tab, the
+ * tab's accessors are rigged to fail the test if anything pay-shaped touches them, and the source of
+ * every pay, publication, kiosk and boot function is checked for the word.
  */
 'use strict';
 const G = require('./_gas');
@@ -64,6 +70,7 @@ function progressRow(program, emp, units, target, earned) {
   return r;
 }
 
+let PENCIL_TOUCHES = 0;
 function engine(plan) {
   const programs = G.makeSheet(PH, programsRows(plan));
   const progress = G.makeSheet(PROG_H, [progressRow('running', 'e1', 6, 5, 50), progressRow('running', 'e2', 2, 5, 0)]);
@@ -83,6 +90,9 @@ function engine(plan) {
     varValues: { PITCH_MAX_TIPS: 5 },
     stubs: {
       dataSheet_: () => programs,
+      /* Rigged: a pay, publication or kiosk route that reaches for the pencils tab is a failure. */
+      pencilSheet_: () => { PENCIL_TOUCHES++; throw new Error('a pay route read the pencils tab'); },
+      readPencils_: () => { PENCIL_TOUCHES++; throw new Error('a pay route read the pencils'); },
       progressSheet_: () => progress,
       listProgramsCached_: () => api.listPrograms_(),
       annotateActuals_: () => {}, annotateUnmeasurable_: () => {},
@@ -139,6 +149,35 @@ ok('  …it still does its job', rolled.statuses.filter(s => s[0] === 'ended')[0
   const before = e.programs.rows.map(r => r[col('marketing_json')]);
   e.api.rollProgramStatuses_();
   ok('  …and leaves the plan alone', JSON.stringify(e.programs.rows.map(r => r[col('marketing_json')])) === JSON.stringify(before));
+}
+
+console.log('\n5. penciled brands');
+ok('no route above reached for the pencils tab', PENCIL_TOUCHES === 0);
+{
+  const NAMES = ['spiffProgress_', 'publishSpiffToCore_', 'publishToCore_', 'refreshSpiffProgress_', 'refreshProgressPlan_',
+                 'rollProgramStatuses_', 'listPrograms_', 'listProgramsCached_', 'rowToProgram_', 'programToRow_',
+                 'storeView_', 'lastProgramsByStore_', 'recordMeasuredActuals_', 'recordActualsWeb_', 'bootAll_',
+                 'byEmployee_', 'progEarned_', 'programRunsAt_', 'noProgramHeartbeatPayload_', 'publishNoProgramHeartbeat_',
+                 'sweepOrphanProgress_', 'dropProgressRows_', 'auditClosedPayouts_', 'clientView_'];
+  const named = [];
+  NAMES.forEach((n) => { try { named.push([n, G.grab(n)]); } catch (e) { /* a name that is not in the engine has nothing to leak */ } });
+  ok('the functions checked are really there (' + named.length + ' of ' + NAMES.length + ')', named.length >= 18);
+  const leaks = named.filter(([n, src]) => /pencil/i.test(src)).map(([n]) => n);
+  ok('  …and none of them mentions a pencil: ' + (leaks.join(', ') || 'none'), leaks.length === 0);
+  /* Only the pencil routes themselves may use the tab's accessors. */
+  const users = ['pencilSheet_(', 'readPencils_('];
+  const owners = ['pencilSheet_', 'rowToPencil_', 'readPencils_', 'pencilsRead_', 'findPencilRow_', 'closePencil_',
+                  'savePencil_', 'releasePencil_', 'lockPencil_'];
+  let rest = G.GS;
+  owners.forEach((n) => { rest = rest.replace(G.grab(n), ''); });
+  ok('  …and nothing else in the engine calls the pencils tab', users.every((u) => rest.indexOf(u) < 0));
+}
+{
+  const e = engine(true);
+  const before = e.programs.rows.length;
+  e.api.rollProgramStatuses_();
+  ok('the status roll makes no program and reads no pencil, whatever dates are penciled',
+     e.programs.rows.length === before && PENCIL_TOUCHES === 0);
 }
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nmarketing pay isolation: all passed');

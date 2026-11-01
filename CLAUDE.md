@@ -196,6 +196,14 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   `dataSheet_` runs on every read, so a mistake there stops every route and the hourly job. Pinned by
   `tests/marketing_tasks_test.js`, `tests/marketing_json_test.js` and
   `tests/marketing_pay_isolation_test.js`.
+  **Phase 2 (2026-11-01): the Programs tab has a List / Calendar / Tasks switch, and brands can be
+  penciled.** A pencil is brand + whole pay periods + note, in its **own `pencils` tab, never in
+  `programs`**, because the hourly job turns a draft ACTIVE on its start date and active programs
+  reach kiosks and pay. Nothing that pays, publishes or feeds a kiosk may read that tab; the
+  isolation test pins it. Rows are never deleted (`status` is penciled / locked / released). A pencil
+  whose start has passed stays penciled and says so. **Lock it in** goes through `createProgram_`
+  and makes a DRAFT with a zero payout; no pencil route goes on `ENGINE_HEDGE_READS`. Pinned by
+  `tests/pencils_engine_test.js` and `tests/marketing_calendar_test.js`.
 
 ### Money: payout, cost, vendor send
 

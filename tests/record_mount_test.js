@@ -139,7 +139,9 @@ ok('  …and the actuals have exactly one, and it is the strip',
 ok('openProgram is the single way in',
    (js.match(/function openProgram\s*\(/g) || []).length === 1);
 ok('  …and it hands off to the Calculator', /openInCalculator\(p\)/.test(grab('openProgram')));
-ok('all seven entry points call it', (js.match(/openProgram\(/g) || []).length === 8);
+/* 8 = the definition + seven ways in; 10 adds the two Marketing callers (the calendar/tasks "Open"
+   and Lock it in), which land on the same single door. */
+ok('all seven entry points call it', (js.match(/openProgram\(/g) || []).length === 10);
 
 /* Unsaved edits are carried forward ONLY from a form showing the same program. Every list row
    lands here now, and the mounted form is usually the LAST program opened — collecting that would
