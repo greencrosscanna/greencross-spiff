@@ -59,6 +59,8 @@ function program(id, status, start, end) {
   r[col('status')]     = status;
   r[col('start_date')] = start;
   r[col('end_date')]   = end;
+  r[col('payout_type')] = 'flat';
+  r[col('payout_json')] = '{"amount":25,"model":"flat"}';
   return r;
 }
 
@@ -77,6 +79,9 @@ function run(rows, opts) {
     function nowStamp_() { return '${TODAY} 09:00:00'; }
     function invalidatePrograms_() { BUMP(); }
     ${grab('textDate_')}
+    ${grab('parseJson_')}
+    ${grab('payoutModelOf_')}
+    ${grab('payoutRateOf_')}
     ${grab('rollProgramStatuses_')}
     return rollProgramStatuses_;
   `)(sheet, HEADERS, () => invalidated++, UTILITIES);
@@ -119,6 +124,34 @@ t = run([program('never-ran', 'draft', '2026-07-01', '2026-07-14')]);
 ok('a draft whose window has passed is NOT auto-closed', statusOf(t.rows, 'never-ran') === 'draft');
 ok('...it is reported as stale so a human can decide', t.res.stale.length === 1
    && t.res.stale[0].program_id === 'never-ran');
+
+/* ── a draft with no payout waits: a locked-in pencil must not reach kiosks offering nothing ── */
+const priced = (id, status, start, end, type, json) => {
+  const r = program(id, status, start, end);
+  r[col('payout_type')] = type;
+  r[col('payout_json')] = json;
+  return r;
+};
+t = run([
+  priced('locked-pencil', 'draft', TODAY, '2026-09-13', 'flat', '{"model":"flat","amount":0}'),
+  priced('blank-payout',  'draft', TODAY, '2026-09-13', '',     ''),
+]);
+ok('a draft at $0 stays a draft on its start date', statusOf(t.rows, 'locked-pencil') === 'draft');
+ok('...a draft with a blank payout does too', statusOf(t.rows, 'blank-payout') === 'draft');
+ok('...both are reported as waiting on a payout', t.res.no_payout.length === 2 && t.res.changed.length === 0);
+ok('...and nothing is written', invalidated === 0);
+
+t = run([priced('filled-in', 'draft', '2026-08-24', '2026-09-13', 'flat', '{"model":"flat","amount":50}')]);
+ok('once a payout is set it goes active, even after its start date', statusOf(t.rows, 'filled-in') === 'active');
+
+t = run([priced('per-unit', 'draft', TODAY, '2026-09-13', 'per_unit', '{"model":"per_unit","amount":1}')]);
+ok('a per-unit rate counts as a payout', statusOf(t.rows, 'per-unit') === 'active');
+
+t = run([priced('old-unpriced', 'draft', '2026-07-01', '2026-07-14', 'flat', '{"amount":0}')]);
+ok('an unpriced draft whose window passed is still reported as stale', t.res.stale.length === 1 && t.res.no_payout.length === 0);
+
+t = run([priced('running-zero', 'active', '2026-08-17', '2026-08-30', 'flat', '{"amount":0}')]);
+ok('an active program closes on time whatever its payout', statusOf(t.rows, 'running-zero') === 'closed');
 
 /* ── no schedule, nothing to act on ── */
 t = run([

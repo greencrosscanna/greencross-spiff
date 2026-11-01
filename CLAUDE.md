@@ -102,7 +102,9 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   typo'd `end_date` must never reopen a program whose actuals may already be on a vendor report.
   And a **draft whose window passed entirely is left alone** and reported as `stale`, because
   "drafted and never run" is a different fact from "ran and finished" and only a human knows which.
-  Rows with no window are skipped.
+  Rows with no window are skipped. **A draft with no payout stays a draft** and is reported as
+  `no_payout` (Sky, 2026-11-01): locking in a penciled brand makes a $0 draft, which must not reach
+  kiosk cards. It goes active on the first hourly run after a payout is set, even past its start date.
   `?action=progress&status=active` is resolved from this field, and **GX Crew's incentive column and
   the Leaderboard kiosk cards both read that route** — a program left active past its end date keeps
   drawing on kiosk cards. Preview a roll with `?action=rollStatuses&dry=1` (deploy-secret gated,

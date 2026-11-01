@@ -2947,10 +2947,12 @@ function rollProgramStatuses_(opts) {
   var sdCol = PROGRAM_HEADERS.indexOf('start_date');
   var edCol = PROGRAM_HEADERS.indexOf('end_date');
   var upCol = PROGRAM_HEADERS.indexOf('updated_at');
+  var ptCol = PROGRAM_HEADERS.indexOf('payout_type');
+  var pjCol = PROGRAM_HEADERS.indexOf('payout_json');
 
   var rows = sh.getRange(2, 1, sh.getLastRow() - 1, PROGRAM_HEADERS.length).getValues();
   var day = today_(), now = nowStamp_();
-  var changed = [], stale = [], skipped = [];
+  var changed = [], stale = [], skipped = [], noPayout = [];
 
   for (var i = 0; i < rows.length; i++) {
     var id = String(rows[i][idCol] || '');
@@ -2975,6 +2977,14 @@ function rollProgramStatuses_(opts) {
     else if (was === 'active' && day > ed)          want = 'closed';
     if (!want) continue;
 
+    /* A draft with no payout set waits (Sky, 2026-11-01). A program can be created at $0 for the
+       Calculator to fill in; left alone it would reach kiosk cards on its start date offering
+       nothing. It goes active on the first hourly run after someone sets the payout. */
+    if (want === 'active' && !(payoutRateOf_({ payout_type: rows[i][ptCol], payout_json: parseJson_(rows[i][pjCol], {}) }) > 0)) {
+      noPayout.push({ program_id: id, window: sd + ' -> ' + ed });
+      continue;
+    }
+
     changed.push({ program_id: id, from: was, to: want, window: sd + ' -> ' + ed });
     if (dryRun) continue;
     sh.getRange(i + 2, stCol + 1).setValue(want);
@@ -2983,7 +2993,7 @@ function rollProgramStatuses_(opts) {
 
   if (changed.length && !dryRun) invalidatePrograms_();
   return { ok: true, dry_run: dryRun, today: day, scanned: rows.length,
-           changed: changed, stale: stale, skipped: skipped };
+           changed: changed, stale: stale, skipped: skipped, no_payout: noPayout };
 }
 
 /** Installed once; hourly is well inside Dutchie's freshness and nowhere near the quota. */
