@@ -86,7 +86,7 @@ function run(programRow, p, auth) {
     real: ['createProgram_', 'createIsReplay_', 'canonJson_', 'saveProgram_', 'getProgram_',
            'listPrograms_', 'rowToProgram_', 'programToRow_', 'measurementInvalidatedBy_',
            'brandMatchCheck_', 'dropProgressRows_', 'invalidatePrograms_', 'parseJson_',
-           'textDate_', 'nowStamp_', 'slug_', 'normalizePitch_', 'periodStartFor_',
+           'textDate_', 'nowStamp_', 'slug_', 'normalizePitch_', 'normalizeMarketing_', 'periodStartFor_',
            'stripDerivedActuals_'],
     vars: ['PROGRAM_HEADERS', 'EDIT_ROLES', 'MEASURED_BY', 'CREATE_REPLAY_FIELDS', 'PITCH_MAX_LEN'],
     varValues: { PITCH_MAX_TIPS: 5 },

@@ -83,7 +83,8 @@ const missed = fns.filter(name => {
   if (!/\.setValues?\(/.test(body)) return false;
   if (/PROGRESS_HEADERS/.test(body)) return false;          // the progress cache tab, not programs
   if (/PROGRAM_HEADERS\]\)\.setFontWeight/.test(body)) return false;  // header row only
-  if (!/PROGRAM_HEADERS|pCol|stCol/.test(body)) return false;
+  /* \b because "stCol" also matches getLastColumn, which says nothing about whose row is written. */
+  if (!/PROGRAM_HEADERS|\bpCol\b|\bstCol\b/.test(body)) return false;
   return !/invalidatePrograms_\(\)/.test(body);
 });
 ok('no OTHER function writes a program row without busting the cache'

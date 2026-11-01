@@ -56,7 +56,7 @@ const PH = G.grabVar('PROGRAM_HEADERS');
 const api = G.load({
   real: ['snapshotFingerprint_', 'snapshotRefusalFor_', 'annotateUnmeasurable_',
          'programToRow_', 'rowToProgram_',
-         'textDate_', 'slug_', 'parseJson_', 'normalizePitch_', 'stripDerivedActuals_',
+         'textDate_', 'slug_', 'parseJson_', 'normalizePitch_', 'normalizeMarketing_', 'stripDerivedActuals_',
          'periodStartFor_'],
   vars: ['PROGRAM_HEADERS', 'DERIVED_ACTUALS', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
   stubs: {

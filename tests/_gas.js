@@ -105,6 +105,8 @@ function makeSheet(headers, rows) {
     getLastRow() { return this.rows.length; },
     getLastColumn() { return (this.rows[0] || []).length; },
     getMaxRows() { return Math.max(this.rows.length, 1); },
+    getMaxColumns() { return Math.max((this.rows[0] || []).length, 1); },
+    insertColumnsAfter() { return this; },
     getDataRange() { const s = this; return { getValues: () => s.rows.map(r => r.slice()) }; },
     appendRow(row) { this.rows.push(row.slice()); return this; },
     deleteRow(n) { this.rows.splice(n - 1, 1); return this; },

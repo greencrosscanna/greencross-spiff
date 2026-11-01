@@ -116,7 +116,7 @@ function saver(catalogBrands) {
   const sheet = G.makeSheet(PH, [row]);
   const api = G.load({
     real: ['saveProgram_', 'brandMatchCheck_', 'measurementInvalidatedBy_', 'rowToProgram_',
-           'programToRow_', 'textDate_', 'parseJson_', 'normalizePitch_', 'periodStartFor_',
+           'programToRow_', 'textDate_', 'parseJson_', 'normalizePitch_', 'normalizeMarketing_', 'periodStartFor_',
            'stripDerivedActuals_', 'nowStamp_', 'slug_'],
     vars: ['PROGRAM_HEADERS', 'MEASURED_BY', 'DERIVED_ACTUALS', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
     stubs: {

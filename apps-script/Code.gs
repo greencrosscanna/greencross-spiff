@@ -61,6 +61,8 @@
  *                  it from by_store / per_bt instead, which is exact wherever those two multiply.
  *   actual_json    { units_sold, revenue, bts_hit, investment, roi, roi_pct }
  *                  present only for programs that already ran
+ *   marketing_json what the vendor is in for and what is done; see normalizeMarketing_. Nothing
+ *                  that pays anybody reads it.
  *   source         where the row came from, e.g. 'calculator:Wyld 10pc'
  *   updated_at     TEXT timestamp
  *
@@ -101,7 +103,12 @@ var PROGRAM_HEADERS = [
      into a display field is how the kiosk ends up promising $25 on a program that was
      re-modeled to $20.
      So this column holds only what has no other home: the words. */
-  'pitch_json'
+  'pitch_json',
+  /* ── WHAT THE VENDOR IS IN FOR (2026-11-01) ─────────────────────────────────────────────────
+     The Marketing section: which add-ons, for which stores, what is done. See
+     normalizeMarketing_. Nothing that pays anybody reads it. KEEP IT LAST: the tab is at 26 columns,
+     the whole of a default Sheets grid, and migrateHeaders_ adds a trailing column in place. */
+  'marketing_json'
 ];
 
 // Shared passphrase for vendor-facing links. Set it from the script editor:
@@ -151,7 +158,7 @@ var EDITABLE_FIELDS = [
      Core's brand registry and are edited through saveBrandContact; accepting them here would give
      a program a second, private contact list that the vendor login no longer reads. The columns
      stay on the sheet because names are names, and they hold only test values. */
-  'pitch_json'
+  'pitch_json', 'marketing_json'
 ];
 
 /* Which GXCore version THIS DEPLOYMENT is bound to, over HTTP. Requested by inventory, and it
@@ -640,6 +647,105 @@ function normalizePitch_(v) {
   return { tips: out };
 }
 
+/* ── THE MARKETING RECORD: ONLY WHAT A PERSON DECIDED ────────────────────────────────────────────
+ * { v:1, stores:[store_id], sel:{item:true}, skip:{item:true}, d:{item:{field:value}},
+ *   done:{task_key:{by,at}}, due:{task_key:'YYYY-MM-DD'}, events:[{name,date,time}], notes:'' }
+ *
+ * Tasks, due dates, overdue flags and compliance notes are computed on read by marketing.js and
+ * never stored, for the same reason as the record warnings: a stored due date stops agreeing the
+ * moment the window moves. This builds the record from a list of what MAY be kept, so a derived
+ * field a caller sends is dropped rather than frozen.
+ *
+ * Bounded, because every row travels in the 95KB programs cache. A program nobody has planned
+ * returns null and costs the sheet an empty cell.
+ */
+function normalizeMarketing_(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  /* Keys are store slugs, item ids and `task@store`. The leading letter also refuses __proto__. */
+  var KEY = /^[a-z][a-z0-9_.@-]{0,80}$/;
+  var ISO = /^\d{4}-\d{2}-\d{2}$/;
+  var text = function (x, max) { return String(x == null ? '' : x).trim().slice(0, max); };
+  var flags = function (src) {
+    var o = {};
+    Object.keys(src && typeof src === 'object' ? src : {}).forEach(function (k) {
+      if (KEY.test(k) && src[k]) o[k] = true;
+    });
+    return o;
+  };
+  var out = { v: 1 };
+
+  out.stores = (Array.isArray(v.stores) ? v.stores : [])
+    .map(function (s) { return text(s, 60); })
+    .filter(function (s, i, a) { return KEY.test(s) && a.indexOf(s) === i; });
+  /* An empty list means "the program's own stores", which is what a missing one means too. */
+  if (!out.stores.length) delete out.stores;
+
+  out.sel = flags(v.sel);
+  out.skip = flags(v.skip);
+
+  out.d = {};
+  var src = v.d && typeof v.d === 'object' ? v.d : {};
+  Object.keys(src).forEach(function (item) {
+    if (!KEY.test(item) || !src[item] || typeof src[item] !== 'object') return;
+    var fields = {};
+    Object.keys(src[item]).forEach(function (f) {
+      var val = src[item][f];
+      if (KEY.test(f) && val !== '' && val != null && typeof val !== 'object') fields[f] = text(val, 500);
+    });
+    if (Object.keys(fields).length) out.d[item] = fields;
+  });
+
+  out.done = {};
+  var done = v.done && typeof v.done === 'object' ? v.done : {};
+  Object.keys(done).forEach(function (k) {
+    if (!KEY.test(k) || !done[k]) return;
+    out.done[k] = { by: text(done[k].by, 80), at: text(done[k].at, 40) };
+  });
+
+  out.due = {};
+  var due = v.due && typeof v.due === 'object' ? v.due : {};
+  Object.keys(due).forEach(function (k) {
+    var day = text(due[k], 10);
+    if (KEY.test(k) && ISO.test(day)) out.due[k] = day;
+  });
+
+  out.events = (Array.isArray(v.events) ? v.events : []).slice(0, 50)
+    .filter(function (e) { return e && typeof e === 'object' && text(e.name, 120); })
+    .map(function (e) {
+      var day = text(e.date, 10);
+      return { name: text(e.name, 120), date: ISO.test(day) ? day : '', time: text(e.time, 40) };
+    });
+
+  out.notes = text(v.notes, 2000);
+
+  var planned = out.stores || out.notes || out.events.length
+    || ['sel', 'skip', 'd', 'done', 'due'].some(function (k) { return Object.keys(out[k]).length; });
+  return planned ? out : null;
+}
+
+/* ONE CLICK, ONE SMALL CHANGE: [section, key, value], or [section, null, value] to replace a whole
+   section, with a null value meaning remove. Applied to what is stored NOW, not to what a browser
+   last saw, so two people ticking different tasks cannot undo each other. It also keeps a save short
+   enough to ride on GET: the live engine refuses a URL past about 10,000 characters (measured
+   2026-11-01), and a whole plan with every task ticked would pass that on a program's last day.
+   marketing.js's applyOps mirrors this for the screen; marketing_json_test.js holds them together. */
+function applyMarketingDelta_(current, ops) {
+  var out = JSON.parse(JSON.stringify(current || {}));
+  var sections = ['stores', 'sel', 'skip', 'd', 'done', 'due', 'events', 'notes'];
+  (Array.isArray(ops) ? ops : []).forEach(function (op) {
+    if (!Array.isArray(op) || sections.indexOf(op[0]) < 0) return;
+    var section = op[0], key = op[1], value = op[2];
+    if (key === null || key === undefined) {
+      if (value === null || value === undefined) delete out[section]; else out[section] = value;
+      return;
+    }
+    if (!/^[a-z]/.test(String(key))) return;
+    var map = out[section] && typeof out[section] === 'object' ? out[section] : (out[section] = {});
+    if (value === null || value === undefined) delete map[key]; else map[key] = value;
+  });
+  return normalizeMarketing_(out);
+}
+
 function stripDerivedActuals_(a) {
   if (!a) return a;
   var out = {}, k;
@@ -755,11 +861,29 @@ function dataSheet_() {
    rather than trusted to line up. Re-importing would repair machine-written rows, but
    not a record Tawny hand-corrected — so this migrates in place instead of clearing. */
 function migrateHeaders_(sh) {
+  /* THE GRID COMES FIRST. A new tab has 26 columns and this one uses all 26, so asking for a 27th
+     throws "outside the dimensions of the sheet". dataSheet_ runs this on EVERY read, so that throw
+     would stop every route and the hourly job, pay included, not just the new column. */
+  ensureColumns_(sh, PROGRAM_HEADERS.length);
+
   var width = Math.max(sh.getLastColumn(), PROGRAM_HEADERS.length);
   var old   = sh.getRange(1, 1, 1, width).getValues()[0].map(function (h) { return String(h || '').trim(); });
 
   var same = PROGRAM_HEADERS.every(function (h, i) { return old[i] === h; }) && old.length === PROGRAM_HEADERS.length;
   if (same) return;
+
+  /* ONLY NEW COLUMNS ON THE END: write those header cells and touch nothing else. No row shifts, so
+     there is nothing to remap. The full rewrite below clears the tab first, which also drops the
+     plain-text format the dates rely on, and a second execution reading mid-clear sees no programs.
+     Neither is worth risking for a column nothing has been written to yet. */
+  var kept = 0;
+  while (kept < PROGRAM_HEADERS.length && old[kept] === PROGRAM_HEADERS[kept]) kept++;
+  var restBlank = old.slice(kept).every(function (h) { return !h; });
+  if (kept && restBlank && sh.getLastColumn() <= kept) {
+    sh.getRange(1, kept + 1, 1, PROGRAM_HEADERS.length - kept)
+      .setValues([PROGRAM_HEADERS.slice(kept)]).setFontWeight('bold');
+    return;
+  }
 
   var last = sh.getLastRow();
   var rows = last >= 2 ? sh.getRange(2, 1, last - 1, width).getValues() : [];
@@ -775,6 +899,12 @@ function migrateHeaders_(sh) {
   sh.getRange(1, 1, 1, PROGRAM_HEADERS.length).setValues([PROGRAM_HEADERS]).setFontWeight('bold');
   sh.setFrozenRows(1);
   if (remapped.length) sh.getRange(2, 1, remapped.length, PROGRAM_HEADERS.length).setValues(remapped);
+}
+
+/* Reading or writing past the grid throws, and appendRow is the only write that grows it. */
+function ensureColumns_(sh, n) {
+  var have = sh.getMaxColumns();
+  if (have < n) sh.insertColumnsAfter(have, n - have);
 }
 
 /* Writing '2025-08-01' into a default-formatted cell does NOT store text — Sheets
@@ -1057,6 +1187,8 @@ function editProgram_(p) {
   if (!current.ok) return current;
 
   var merged = current.program, changed = [];
+  var hasDelta = Object.prototype.hasOwnProperty.call(patch, 'marketing_delta');
+  if (hasDelta) patch.marketing_json = applyMarketingDelta_(merged.marketing_json, patch.marketing_delta);
   EDITABLE_FIELDS.forEach(function (f) {
     // patch is JSON.parse'd from the request: a key literally named "hasOwnProperty" would
     // shadow the method and turn this into a TypeError. Call it off the prototype instead.
@@ -1065,11 +1197,16 @@ function editProgram_(p) {
     merged[f] = patch[f];
     changed.push(f);
   });
-  if (!changed.length) return { ok: true, program_id: p.id, unchanged: true };
+  /* The browser takes this as the truth after a tick, in place of what it guessed. */
+  if (!changed.length) {
+    return hasDelta ? { ok: true, program_id: p.id, unchanged: true, marketing_json: merged.marketing_json }
+                    : { ok: true, program_id: p.id, unchanged: true };
+  }
 
   var res = saveProgram_(merged, { editedBy: auth.user, confirmBrand: String(p.confirm_brand || '') === '1' });
   res.changed = changed;
   res.edited_by = auth.user;
+  if (hasDelta) res.marketing_json = merged.marketing_json;
   return res;
 }
 
@@ -1229,6 +1366,30 @@ function deletedSheet_() {
 }
 
 var DELETED_HEADERS = PROGRAM_HEADERS.concat(['deleted_by', 'deleted_at', 'deleted_reason']);
+
+/* A TOMBSTONE IS WRITTEN BY HEADER NAME. The live tab's columns end in deleted_by / deleted_at /
+   deleted_reason, and a program column added since belongs after those on that tab: appended by
+   position, every later tombstone's "who deleted it" would land under the wrong heading, beside
+   older rows that are right. Nothing reads this tab but a person recovering a mistake, so nothing
+   would ever notice. */
+function writeTombstone_(prog, by, reason) {
+  var sh = deletedSheet_();
+  var row = programToRow_(prog, { edited_by: prog.edited_by, edited_at: prog.edited_at })
+    .concat([by, nowStamp_(), reason]);
+  var width = sh.getLastColumn();
+  var have = (width ? sh.getRange(1, 1, 1, width).getValues()[0] : [])
+    .map(function (h) { return String(h || '').trim(); });
+  var missing = DELETED_HEADERS.filter(function (h) { return have.indexOf(h) < 0; });
+  if (missing.length) {
+    ensureColumns_(sh, have.length + missing.length);
+    sh.getRange(1, have.length + 1, 1, missing.length).setValues([missing]).setFontWeight('bold');
+    have = have.concat(missing);
+  }
+  sh.appendRow(have.map(function (h) {
+    var i = DELETED_HEADERS.indexOf(h);
+    return i < 0 ? '' : row[i];
+  }));
+}
 
 /* ── BACKFILLING THE PAY-PERIOD COLUMN ────────────────────────────────────────────────────────
  * programToRow_ derives it on every write from 2026-09-08, so anything saved after that is right.
@@ -1392,9 +1553,7 @@ function renameProgramId_(p) {
      program is not. Reuses the deleted_programs tab deliberately — it is the audit trail for "this
      id no longer exists", which is true of a rename too, and a second near-identical tab would be
      a second place to look. */
-  deletedSheet_().appendRow(
-    programToRow_(prog, { edited_by: prog.edited_by, edited_at: prog.edited_at })
-      .concat([auth.user, nowStamp_(), 'renamed to ' + to]));
+  writeTombstone_(prog, auth.user, 'renamed to ' + to);
 
   /* 1. THE MEASUREMENTS FIRST — see the header. */
   var moved = 0;
@@ -1499,9 +1658,7 @@ function deleteProgram_(p) {
 
   /* Tombstone BEFORE the row goes, so a failure between the two leaves a duplicate rather than
      nothing at all. A copy is recoverable; a gap is not. */
-  deletedSheet_().appendRow(
-    programToRow_(prog, { edited_by: prog.edited_by, edited_at: prog.edited_at })
-      .concat([auth.user, nowStamp_(), String(p.reason || '').slice(0, 500)]));
+  writeTombstone_(prog, auth.user, String(p.reason || '').slice(0, 500));
 
   var sh = dataSheet_(), last = sh.getLastRow(), idCol = PROGRAM_HEADERS.indexOf('program_id');
   var removed = false;
@@ -1655,7 +1812,9 @@ function programToRow_(p, audit) {
     p.source || '', nowStamp_(), by, at, p.share_token || '',
     p.contact_name || '', p.contact_email || '', JSON.stringify(p.doc_json || {}),
     p.progress_json ? JSON.stringify(p.progress_json) : '',
-    JSON.stringify(normalizePitch_(p.pitch_json))
+    JSON.stringify(normalizePitch_(p.pitch_json)),
+    /* Same funnel, same reason: whatever a caller computed is dropped here. */
+    (function (m) { return m ? JSON.stringify(m) : ''; })(normalizeMarketing_(p.marketing_json))
   ];
 }
 
@@ -1675,7 +1834,8 @@ function rowToProgram_(r) {
     edited_by: r[18] || '', edited_at: textDate_(r[19]), share_token: r[20] || '',
     contact_name: r[21] || '', contact_email: r[22] || '', doc_json: parseJson_(r[23], {}),
     progress_json: parseJson_(r[24], null),
-    pitch_json: normalizePitch_(parseJson_(r[25], null))
+    pitch_json: normalizePitch_(parseJson_(r[25], null)),
+    marketing_json: normalizeMarketing_(parseJson_(r[26], null))
   };
 }
 

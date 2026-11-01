@@ -86,7 +86,7 @@ function run(params, opts) {
 
   const api = G.load({
     real: ['sweepOrphanProgress_', 'listPrograms_', 'rowToProgram_', 'textDate_', 'parseJson_',
-           'normalizePitch_', 'nowStamp_'],
+           'normalizePitch_', 'normalizeMarketing_', 'nowStamp_'],
     vars: ['PROGRAM_HEADERS', 'PROGRESS_HEADERS', 'SWEPT_TAB', 'GX_SECRET_PROP',
            'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
     stubs: {

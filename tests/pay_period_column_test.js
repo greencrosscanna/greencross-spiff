@@ -52,7 +52,7 @@ const PH = G.grabVar('PROGRAM_HEADERS');
 const PP = PH.indexOf('pay_period');
 
 const R = G.load({
-  real: ['programToRow_', 'periodStartFor_', 'textDate_', 'stripDerivedActuals_', 'normalizePitch_'],
+  real: ['programToRow_', 'periodStartFor_', 'textDate_', 'stripDerivedActuals_', 'normalizePitch_', 'normalizeMarketing_'],
   vars: ['PROGRAM_HEADERS', 'DERIVED_ACTUALS', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
   stubs: { payPeriodCfg_: () => ({ anchor: '2026-05-11', days: 14 }), nowStamp_: () => '2026-09-15 14:00:00' },
 });

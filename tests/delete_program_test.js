@@ -78,10 +78,12 @@ function run(params, opts) {
 
   const api = G.load({
     real: ['deleteProgram_', 'getProgram_', 'listPrograms_', 'rowToProgram_', 'programToRow_',
-           'dropProgressRows_', 'invalidatePrograms_', 'textDate_', 'parseJson_', 'normalizePitch_',
+           'writeTombstone_', 'ensureColumns_',
+           'dropProgressRows_', 'invalidatePrograms_', 'textDate_', 'parseJson_', 'normalizePitch_', 'normalizeMarketing_',
            'periodStartFor_', 'stripDerivedActuals_', 'nowStamp_'],
     vars: ['PROGRAM_HEADERS', 'PROGRESS_HEADERS', 'EDIT_ROLES', 'DERIVED_ACTUALS',
            'PROGRAMS_CACHE_KEY', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
+    varValues: { DELETED_HEADERS: G.grabVar('PROGRAM_HEADERS').concat(['deleted_by', 'deleted_at', 'deleted_reason']) },
     stubs: {
       dataSheet_: () => programs,
       progressSheet_: () => progress,
@@ -134,10 +136,12 @@ console.log('engine');
   const cache = G.makeCache();
   const api = G.load({
     real: ['deleteProgram_', 'getProgram_', 'listPrograms_', 'rowToProgram_', 'programToRow_',
-           'dropProgressRows_', 'invalidatePrograms_', 'textDate_', 'parseJson_', 'normalizePitch_',
+           'writeTombstone_', 'ensureColumns_',
+           'dropProgressRows_', 'invalidatePrograms_', 'textDate_', 'parseJson_', 'normalizePitch_', 'normalizeMarketing_',
            'periodStartFor_', 'stripDerivedActuals_', 'nowStamp_'],
     vars: ['PROGRAM_HEADERS', 'PROGRESS_HEADERS', 'EDIT_ROLES', 'DERIVED_ACTUALS',
            'PROGRAMS_CACHE_KEY', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
+    varValues: { DELETED_HEADERS: PH.concat(['deleted_by', 'deleted_at', 'deleted_reason']) },
     stubs: {
       dataSheet_: () => programs, progressSheet_: () => broken,
       deletedSheet_: () => deleted,

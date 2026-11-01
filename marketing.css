@@ -1,0 +1,85 @@
+/* The Marketing section of a SPIFF program. Everything here is mk-* and draws only inside markup
+   marketing.js renders, so with the section hidden this file changes nothing on screen. */
+:root {
+  --mk-bg: var(--gx-surface, #121816);
+  --mk-in: var(--sp-inset, #0d1211);
+  --mk-line: var(--sp-divider, #1c2320);
+  --mk-mut: var(--gx-text-mute, #8a968f);
+  --mk-txt: var(--gx-text, #e8efe9);
+  --mk-green: #4ade80;
+  --mk-gold: #d4a847;
+  --mk-red: #f87171;
+}
+
+.sp-stats.mk-five { grid-template-columns: repeat(5, 1fr); }
+@media (max-width: 1100px) { .sp-stats.mk-five { grid-template-columns: repeat(2, 1fr); } }
+
+.mk-mline { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-top: 10px; padding: 8px 10px; border: 1px solid var(--mk-line); border-radius: 8px; font-size: 13px; color: var(--mk-txt); }
+.sp-hero .mk-mline { margin: 14px 0 0; }
+.mk-chip { font-size: 12px; border-radius: 999px; padding: 2px 9px; background: var(--mk-in); border: 1px solid var(--mk-line); color: var(--mk-txt); }
+.mk-chip.late { border-color: var(--mk-red); color: var(--mk-red); }
+.mk-chip.soon { border-color: var(--mk-gold); color: var(--mk-gold); }
+
+.mk-card { background: var(--mk-bg); border: 1px solid var(--mk-line); border-radius: 12px; padding: 16px 18px; margin: 14px 0 0; }
+.mk-h { font-family: var(--sp-display, inherit); font-size: 18px; font-weight: 800; margin: 0 0 4px; color: var(--mk-txt); }
+.mk-sub { color: var(--mk-mut); font-size: 13px; margin: 0 0 12px; }
+.mk-sub.mk-tight, .mk-sub.mk-incentive { margin-bottom: 8px; }
+.mk-sub.mk-tight { margin: 0; }
+.mk-pill { display: inline-block; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; background: var(--mk-in); border: 1px solid var(--mk-line); color: var(--mk-txt); white-space: nowrap; }
+.mk-row2 { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin: 0 0 12px; }
+
+.mk-grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+@media (max-width: 900px) { .mk-grid4 { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .mk-grid4 { grid-template-columns: 1fr; } }
+.mk-sec h5 { margin: 0 0 2px; font-size: 14px; color: var(--mk-txt); }
+.mk-sec p { margin: 0 0 8px; color: var(--mk-mut); font-size: 12px; }
+.mk-opt { display: flex; gap: 8px; align-items: flex-start; width: 100%; text-align: left; background: var(--mk-in); border: 1px solid var(--mk-line); color: var(--mk-txt); border-radius: 8px; padding: 8px 10px; margin: 0 0 6px; cursor: pointer; font: inherit; font-size: 13px; }
+.mk-opt .box { flex: 0 0 16px; height: 16px; border-radius: 4px; border: 2px solid var(--mk-mut); margin-top: 1px; box-sizing: border-box; }
+.mk-opt.on { border-color: var(--mk-green); }
+.mk-opt.on .box { background: var(--mk-green); border-color: var(--mk-green); }
+.mk-opt.lock, .mk-opt[disabled] { cursor: default; opacity: .85; }
+.mk-opt small { display: block; color: var(--mk-mut); font-size: 11px; }
+
+.mk-stores-h { margin: 16px 0 6px; font-size: 14px; color: var(--mk-txt); }
+.mk-stores { display: flex; flex-wrap: wrap; gap: 6px; }
+.mk-stores button { background: var(--mk-in); border: 1px solid var(--mk-line); color: var(--mk-txt); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.mk-stores button.on { border-color: var(--mk-green); color: var(--mk-green); font-weight: 600; }
+.mk-stores button[disabled] { cursor: default; }
+
+.mk-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; }
+.mk-item { background: var(--mk-in); border: 1px solid var(--mk-line); border-radius: 10px; padding: 12px 14px; }
+.mk-item h6 { margin: 0 0 8px; font-size: 14px; color: var(--mk-txt); }
+.mk-fld { display: block; font-size: 12px; color: var(--mk-mut); margin: 0 0 8px; }
+.mk-fld input, .mk-fld select { display: block; width: 100%; box-sizing: border-box; margin-top: 3px; background: var(--mk-bg); border: 1px solid var(--mk-line); border-radius: 6px; color: var(--mk-txt); padding: 6px 8px; font: inherit; font-size: 13px; }
+.mk-comp { font-size: 12px; border-left: 3px solid var(--mk-gold); background: rgba(212, 168, 71, .08); padding: 6px 8px; border-radius: 0 6px 6px 0; color: #f0dca8; }
+.mk-warn { font-size: 13px; border: 1px solid var(--mk-gold); background: rgba(212, 168, 71, .08); color: #f0dca8; border-radius: 8px; padding: 8px 12px; margin: 12px 0 0; }
+
+.mk-phase { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--mk-mut); display: flex; gap: 8px; }
+.mk-task { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 7px 4px; border-bottom: 1px solid var(--mk-line); font-size: 13px; color: var(--mk-txt); }
+.mk-task input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--mk-green); }
+.mk-task.done .tx { color: var(--mk-mut); }
+.mk-task.done .tx > small { text-decoration: none; }
+.mk-task .tx small { display: block; color: var(--mk-mut); font-size: 11px; }
+.mk-task-stores { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.mk-store-tick { background: var(--mk-in); border: 1px solid var(--mk-line); color: var(--mk-mut); border-radius: 999px; padding: 1px 8px; font: inherit; font-size: 11px; cursor: pointer; }
+.mk-store-tick.on { border-color: var(--mk-green); color: var(--mk-green); }
+.mk-store-tick[disabled] { cursor: default; }
+.mk-own { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.o-INV { background: #1f3b2a; color: #86efac; }
+.o-DIR { background: #1e2f4a; color: #93c5fd; }
+.o-MGR { background: #3a2a12; color: #fcd34d; }
+.o-VEN { background: #33213f; color: #d8b4fe; }
+.mk-due { font-size: 12px; color: var(--mk-mut); white-space: nowrap; min-width: 92px; display: inline-block; text-align: right; }
+.mk-due.late { color: var(--mk-red); font-weight: 700; }
+.mk-due.soon { color: var(--mk-gold); font-weight: 600; }
+.mk-link { background: none; border: 0; padding: 0; font: inherit; font-size: 12px; color: var(--mk-mut); cursor: pointer; }
+.mk-link:hover .mk-due { text-decoration: underline; }
+.mk-move { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.mk-move input { background: var(--mk-bg); border: 1px solid var(--mk-line); border-radius: 6px; color: var(--mk-txt); padding: 3px 6px; font: inherit; font-size: 12px; }
+.mk-status { min-height: 18px; margin-top: 8px; font-size: 12px; color: var(--mk-mut); }
+.mk-status.is-bad { color: var(--mk-red); }
+
+@media (max-width: 640px) {
+  .mk-task { grid-template-columns: 22px minmax(0, 1fr) auto; }
+  .mk-task .mk-own { grid-column: 2; justify-self: start; }
+}

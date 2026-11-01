@@ -123,7 +123,7 @@ function saver(prog) {
   const cache = G.makeCache();
   const api = G.load({
     real: ['saveProgram_', 'measurementInvalidatedBy_', 'dropProgressRows_', 'rowToProgram_',
-           'programToRow_', 'invalidatePrograms_', 'textDate_', 'parseJson_', 'normalizePitch_',
+           'programToRow_', 'invalidatePrograms_', 'textDate_', 'parseJson_', 'normalizePitch_', 'normalizeMarketing_',
            'periodStartFor_', 'stripDerivedActuals_', 'nowStamp_'],
     vars: ['PROGRAM_HEADERS', 'PROGRESS_HEADERS', 'MEASURED_BY', 'DERIVED_ACTUALS',
            'PROGRAMS_CACHE_KEY', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],

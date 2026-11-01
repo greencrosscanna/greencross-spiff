@@ -94,7 +94,7 @@ function recorder(programs) {
   const cache = G.makeCache();
   const api = G.load({
     real: ['recordMeasuredActuals_', 'actualsFromSnapshot_', 'rowToProgram_', 'payoutRateOf_',
-           'payoutModelOf_', 'textDate_', 'parseJson_', 'normalizePitch_', 'invalidatePrograms_'],
+           'payoutModelOf_', 'textDate_', 'parseJson_', 'normalizePitch_', 'normalizeMarketing_', 'invalidatePrograms_'],
     vars: ['PROGRAM_HEADERS', 'PROGRAMS_CACHE_KEY', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN'],
     stubs: { dataSheet_: () => sheet, nowStamp_: () => '2026-09-15 14:00:00' },
     globals: { CacheService: cache.CacheService },
