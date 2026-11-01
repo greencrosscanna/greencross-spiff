@@ -81,6 +81,8 @@ Tasks, due dates, overdue flags and compliance notes are computed on read, not s
 2. **Calendar + cross-program task list**, on the Programs tab.
 3. **Vendor overview PDF + internal team email.**
 
+**Phase 3 built 2026-11-01 (v1.464).** `marketingOverview_` (vendor plan, built from an allow-list that never reads pay, cost or roster fields; `save=1` files a PDF in SPIFF Reports) and `marketingNotify_` (internal email via `sendMail_`; recipients come from the script property `MARKETING_NOTIFY_TO`, Green Cross addresses only; dry until `send=1`; a repeat needs `resend=1`). Both editor-only, neither hedged, neither on a trigger. Artwork guidance is non-numeric until someone confirms real sizes.
+
 ## Decisions (Sky)
 
 - **Nothing is imported from the planner** (2026-10-14): it holds no real vendors, and this is all new.

@@ -180,5 +180,33 @@ ok('no route above reached for the pencils tab', PENCIL_TOUCHES === 0);
      e.programs.rows.length === before && PENCIL_TOUCHES === 0);
 }
 
+console.log('\n6. the vendor plan and the team email (phase 3)');
+{
+  const PAY = ['spiffProgress_', 'publishSpiffToCore_', 'publishToCore_', 'refreshSpiffProgress_', 'refreshProgressPlan_',
+               'rollProgramStatuses_', 'listPrograms_', 'storeView_', 'lastProgramsByStore_', 'recordMeasuredActuals_',
+               'bootAll_', 'byEmployee_', 'progEarned_', 'payoutFactsOf_', 'auditClosedPayouts_', 'clientView_',
+               'sendBrandEmail_', 'buildReport_', 'giftCardList_'];
+  const named = [];
+  PAY.forEach((n) => { try { named.push([n, G.grab(n)]); } catch (e) { /* not in the engine, nothing to leak */ } });
+  ok('the pay-side functions checked are really there (' + named.length + ')', named.length >= 14);
+  const hits = named.filter(([n, src]) => /marketingOverview_|marketingNotify_|mkt[A-Z]\w*_|MKT_/.test(src)).map(([n]) => n);
+  ok('  …and none of them calls the vendor plan or the team email: ' + (hits.join(', ') || 'none'), hits.length === 0);
+
+  /* The other direction: the new routes read the allow-list of plan facts and no pay field. */
+  const mine = ['mktPlanFacts_', 'marketingOverviewHtml_', 'marketingOverview_', 'marketingNotify_', 'mktRecipients_']
+    .map((n) => G.grab(n)).join('\n');
+  const payFields = ['payout_json', 'payout_type', 'cost_json', 'actual_json', 'target_json', 'baseline_json', 'progress_json',
+                     'payoutFactsOf_', 'measuredRowsFor_', 'spiff_progress', 'earned', 'gxRosterFull_', 'GXCore.getEmployees']
+    .filter((f) => mine.indexOf(f) >= 0);
+  ok('the new routes never name a pay, cost or roster field: ' + (payFields.join(', ') || 'none'), payFields.length === 0);
+
+  /* Neither runs from a trigger: nothing but the doGet dispatch mentions them. */
+  const rest = G.GS.replace(G.grab('marketingOverview_'), '').replace(G.grab('marketingNotify_'), '');
+  const callers = (rest.match(/^.*\b(marketingOverview_|marketingNotify_)\(.*$/gm) || []).filter((l) => !/^\s*case '/.test(l));
+  ok('  …and nothing but the click route calls them: ' + (callers.join(' | ') || 'none'), callers.length === 0);
+  ok('  …and the dispatch lists them once each', (G.GS.match(/case 'marketingOverview'/g) || []).length === 1
+     && (G.GS.match(/case 'marketingNotify'/g) || []).length === 1);
+}
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nmarketing pay isolation: all passed');
 process.exit(fail ? 1 : 0);
