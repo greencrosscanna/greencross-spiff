@@ -227,6 +227,13 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   1920×1080 / 3840×2160 horizontal or vertical as image or MP4, standard social sizes, 8.5×11 print.
   **Saving the plan files it in the program's vendor files folder** (`d.files.url`) when that is a
   Drive folder link, else in SPIFF Reports.
+  **Every vendor has an upload folder, made by the engine** (Sky, 2026-11-02): under Marketing ▸
+  Vendors (`VENDOR_FOLDERS_PARENT`, a shared drive), found by folded name, shared "anyone with the
+  link can edit" (Contributor on a shared drive: add, not delete). `createProgram_` makes the
+  vendor's folder if missing and links it as `d.files.url`, inside a try so Drive never blocks a
+  create. `?action=vendorFolders` (secret, dry unless `apply=1`) does every vendor from programs and
+  Core's brand list and links programs that are not closed; it never overwrites a link already set.
+  A plan holding only the link is not "planned" (`hasPlan`). Pinned by `tests/vendor_folders_test.js`.
 
 ### Money: payout, cost, vendor send
 
