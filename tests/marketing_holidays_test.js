@@ -178,5 +178,28 @@ console.log('\n7. on the Calendar and in the Tasks view');
   ok('a name cannot inject markup', MK.holidayDialogHtml(Object.assign({}, H, { name: '<b>x' }), { today, canEdit: true, storeName: s => s }).indexOf('<b>x') < 0);
 }
 
+console.log('\n8. the suggested send date is the Monday before the holiday');
+{
+  const T = '2026-11-02';
+  const s = (name, typed, today) => MK.sendSuggestion(name, typed || '', today || T);
+  ok('Thanksgiving 2026 (Thu Nov 26) suggests Mon Nov 23', s('Thanksgiving').date === '2026-11-23' && /Thanksgiving/.test(s('Thanksgiving').text));
+  ok('Black Friday (Nov 27) and Green Wednesday (Nov 25) suggest the same Monday',
+     s('Black Friday deals').date === '2026-11-23' && s('Green Wednesday').date === '2026-11-23');
+  ok('Christmas 2026 (Fri) suggests Mon Dec 21', s('Christmas').date === '2026-12-21');
+  ok('New Year\'s Eve 2026 (Thu) suggests Mon Dec 28', s('New Year\'s Eve').date === '2026-12-28' && s('NYE blast').date === '2026-12-28');
+  ok('a holiday already past this year looks to next year: 4/20 → Mon Apr 19, 2027', s('4/20').date === '2027-04-19');
+  ok('Memorial Day 2027 (Mon May 31) sends the Monday a week before', s('Memorial Day', '', '2027-01-10').date === '2027-05-24');
+  ok('Labor Day 2027 is the first Monday of September', MK.holidayOn('Labor Day', '2027-01-10').day === '2027-09-06');
+  ok('a name it does not know, with no date, suggests nothing', s('Spring cleanout') === null);
+  ok('any date that is not a Monday is offered the Monday before it', s('Spring cleanout', '2026-12-03').date === '2026-11-30');
+  ok('a Monday that is not a holiday needs no suggestion', s('Spring cleanout', '2026-11-30') === null);
+  ok('the dialog shows the suggestion with a Use-it button while the date differs',
+     /Suggested: Mon, Nov 23.*data-mk-act="holsuggest" data-mk-id="2026-11-23"/.test(
+       MK.holidayDialogHtml(Object.assign({}, H, { send_date: '2026-11-25' }), { today: T, canEdit: true, storeName: x => x })));
+  ok('  …a blank new one says nothing until a name or date is typed', !/Suggested/.test(MK.holidayDialogHtml(null, { today: T, canEdit: true })));
+  ok('  …and just the note once the date matches', !/holsuggest/.test(MK.suggestionHtml(s('Thanksgiving'), '2026-11-23')));
+  ok('  …and nothing for a viewer', !/Suggested/.test(MK.holidayDialogHtml(H, { today: T, canEdit: false })));
+}
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nmarketing holidays: all passed');
 process.exit(fail ? 1 : 0);

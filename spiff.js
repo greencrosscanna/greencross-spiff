@@ -1654,6 +1654,7 @@
       d.querySelector('#mkHfDate').value = typed.send_date;
       d.querySelector('#mkHfNote').value = typed.note;
       $$('[data-mk-hfch]', d).forEach(function (c) { c.checked = typed.channels.indexOf(c.dataset.mkHfch) >= 0; });
+      mkHolidaySuggest(d, false);
     }
     MK.wire(d, {
       program: function () {
@@ -1669,8 +1670,22 @@
         mkApply(MK.doneOp(key, on, (session() || {}).user || '', new Date().toISOString()), mkView.dlg && mkView.dlg.id);
       }
     });
+    if (!d.__mkHolSuggest) {
+      d.__mkHolSuggest = true;
+      d.addEventListener('input', function (e) { if (e.target.id === 'mkHfName' || e.target.id === 'mkHfDate') mkHolidaySuggest(d, e.target.id === 'mkHfName'); });
+    }
     var first = d.querySelector('input,button');
     if (first && !s.painted) { first.focus(); s.painted = true; }
+  }
+  /* The suggested send date (see sendSuggestion in marketing.js). Typing a known holiday's name fills
+     the date only while the box is empty or still holds the date it filled in last, so a date the
+     person chose is never overwritten. */
+  function mkHolidaySuggest(d, fromName) {
+    var name = $('#mkHfName', d), date = $('#mkHfDate', d), hint = $('#mkHfHint', d);
+    if (!name || !date || !hint || !canEdit()) return;
+    var s = MK.sendSuggestion(name.value, date.value, today());
+    if (fromName && s && (!date.value || date.value === date.dataset.auto)) { date.value = s.date; date.dataset.auto = s.date; }
+    hint.innerHTML = MK.suggestionHtml(MK.sendSuggestion(name.value, date.value, today()), date.value);
   }
   function mkHolidayForm(d) {
     return {
@@ -1696,6 +1711,11 @@
     if (name === 'dlgclose') return mkDlgClose();
     if (name === 'penadd') return mkDlgOpen({ kind: 'form', day: '' });
     if (name === 'holadd') return mkDlgOpen({ kind: 'holiday', id: '' });
+    if (name === 'holsuggest') {
+      var box = $('#mkHfDate', d);
+      if (box) { box.value = id; box.dataset.auto = id; mkHolidaySuggest(d, false); }
+      return;
+    }
     if (!canEdit()) return;
     try {
       if (name === 'holsave') {

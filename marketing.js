@@ -930,6 +930,62 @@
              marketing_json: { v: 1, sel: sel, d: d, done: m.done || {}, due: m.due || {}, own: m.own || {} } };
   }
 
+  /* SUGGESTED SEND DATE (Sky, 2026-11-02): the cycle is built around a Monday send, so a holiday's
+     send goes out the Monday BEFORE the holiday. Naming a known holiday fills that date in; any other
+     date that is not a Monday gets the Monday before it offered. Only ever a suggestion: the person
+     typing can set any date. Holidays are matched by name, each with its own date rule. */
+  function nthWeekday(y, month, weekday, n) {   /* month 1-12, weekday 0=Sun; n<0 counts from the end */
+    var first = y + '-' + pad(month) + '-01';
+    if (n > 0) return addDays(first, (weekday - dow(first) + 7) % 7 + (n - 1) * 7);
+    var last = addDays(monthStart(first, 1), -1);
+    return addDays(last, -((dow(last) - weekday + 7) % 7));
+  }
+  var KNOWN_HOLIDAYS = [
+    [/green wednesday/i, 'Green Wednesday', function (y) { return addDays(nthWeekday(y, 11, 4, 4), -1); }],
+    [/black friday/i, 'Black Friday', function (y) { return addDays(nthWeekday(y, 11, 4, 4), 1); }],
+    [/thanksgiving/i, 'Thanksgiving', function (y) { return nthWeekday(y, 11, 4, 4); }],
+    [/christmas eve/i, 'Christmas Eve', function (y) { return y + '-12-24'; }],
+    [/christmas|xmas/i, 'Christmas', function (y) { return y + '-12-25'; }],
+    [/new year'?s eve|\bnye\b/i, 'New Year’s Eve', function (y) { return y + '-12-31'; }],
+    [/valentine/i, 'Valentine’s Day', function (y) { return y + '-02-14'; }],
+    [/4\/?20|four.?twenty/i, '4/20', function (y) { return y + '-04-20'; }],
+    [/memorial day/i, 'Memorial Day', function (y) { return nthWeekday(y, 5, 1, -1); }],
+    [/independence|4th of july|fourth of july|july 4/i, 'the Fourth of July', function (y) { return y + '-07-04'; }],
+    [/labor day/i, 'Labor Day', function (y) { return nthWeekday(y, 9, 1, 1); }],
+    [/halloween/i, 'Halloween', function (y) { return y + '-10-31'; }]
+  ];
+  /* The Monday strictly before a day (a Monday holiday sends the Monday a week earlier). */
+  function mondayBefore(day) {
+    if (!ISO.test(String(day || ''))) return '';
+    return addDays(day, -((dow(day) + 6) % 7 || 7));
+  }
+  /* A known holiday's next date on or after today, by name. */
+  function holidayOn(name, today) {
+    var hit = KNOWN_HOLIDAYS.filter(function (h) { return h[0].test(String(name || '')); })[0];
+    if (!hit || !ISO.test(String(today || ''))) return null;
+    var y = +today.slice(0, 4), day = hit[2](y);
+    if (day < today) day = hit[2](y + 1);
+    return { label: hit[1], day: day };
+  }
+  /* { date, text }: what to suggest for this name and typed date, or null when nothing to say. The
+     date is filled in by the screen only while the box is empty or still holds its own suggestion. */
+  function sendSuggestion(name, typed, today) {
+    var h = holidayOn(name, today);
+    if (h) {
+      var send = mondayBefore(h.day);
+      return { date: send, text: 'Suggested: ' + niceDate(send) + ', the Monday before ' + h.label + ' (' + niceDate(h.day) + ').' };
+    }
+    if (ISO.test(String(typed || '')) && dow(typed) !== 1) {
+      var mon = mondayBefore(typed);
+      return { date: mon, text: 'Blasts go out on a Monday. Suggested: ' + niceDate(mon) + '.' };
+    }
+    return null;
+  }
+  function suggestionHtml(s, typed) {
+    if (!s || s.date === typed) return s ? '<span>' + esc(s.text) + '</span>' : '';
+    return '<span>' + esc(s.text) + '</span> <button type="button" class="mk-link" data-mk-act="holsuggest" data-mk-id="' + esc(s.date) + '">Use it</button>';
+  }
+
   /* ctx: { today, canEdit, moving, storeName, error }. h null = a new one. */
   function holidayDialogHtml(h, ctx) {
     var on = function (c) { return !h || (h.channels || []).indexOf(c) >= 0; };
@@ -943,6 +999,7 @@
       + Object.keys(CHANNEL_WORDS).map(function (c) {
           return '<label><input type="checkbox" data-mk-hfch="' + c + '"' + (on(c) ? ' checked' : '') + ro + '> ' + CHANNEL_WORDS[c] + '</label>';
         }).join(' ') + '</div></div></div>'
+      + '<p class="mk-sub mk-hf-hint" id="mkHfHint">' + (ctx.canEdit ? suggestionHtml(sendSuggestion(h ? h.name : '', h ? h.send_date : '', ctx.today), h ? h.send_date : '') : '') + '</p>'
       + '<label class="mk-fld">Note (optional)<input id="mkHfNote" type="text" maxlength="300" value="' + esc(h ? h.note : '') + '"' + ro + '></label>'
       + '<div id="mkPfWarn">' + (ctx.error ? '<div class="mk-warn">' + esc(ctx.error) + '</div>' : '') + '</div>';
     if (h) {
@@ -1055,6 +1112,7 @@
     pencilListHtml: pencilListHtml, pencilFormHtml: pencilFormHtml, pencilDetailHtml: pencilDetailHtml,
     wireViews: wireViews, monthStart: monthStart,
     holidayProgram: holidayProgram, holidayDialogHtml: holidayDialogHtml, channelWords: channelWords,
+    sendSuggestion: sendSuggestion, suggestionHtml: suggestionHtml, mondayBefore: mondayBefore, holidayOn: holidayOn,
     isVisible: isVisible, SECTIONS: SECTIONS, ITEMS: ITEMS, CORE: CORE, BLAST: BLAST, OWNERS: OWNERS,
     addDays: addDays, daysBetween: daysBetween, planOf: planOf, hasPlan: hasPlan, isOn: isOn,
     pickedItems: pickedItems, storesOf: storesOf, tasksOf: tasksOf, groupTasks: groupTasks,
