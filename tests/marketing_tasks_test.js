@@ -72,6 +72,7 @@ console.log('\n2. what is on the list');
   const ids = [];
   MK.CORE.forEach(k => ids.push(k[0]));
   Object.keys(MK.ITEMS).forEach(id => MK.ITEMS[id].k.forEach(k => ids.push(k[0])));
+  MK.BLAST.forEach(k => ids.push(k[0]));
   ok('every task id is unique, because done state is stored against it',
      new Set(ids).size === ids.length);
   ok('every item carries its compliance note', Object.keys(MK.ITEMS).every(id => MK.ITEMS[id].c));
@@ -109,7 +110,11 @@ console.log('\n4. which date wins');
 {
   const typed = withPlan({ sel: { email: true }, d: { email: { date: '2026-10-15' } } });
   ok('a typed send date moves the send task', find(MK.tasksOf(typed, OPTS), 'email.send').due === '2026-10-15');
-  ok('  …and only that task', find(MK.tasksOf(typed, OPTS), 'email.review').due === '2026-10-05');
+  ok('  …and the blast item\'s other before-start tasks count back from it', find(MK.tasksOf(typed, OPTS), 'email.review').due === '2026-10-12');
+  ok('  …but not the program\'s own tasks', find(MK.tasksOf(typed, OPTS), 'core.menu').due === '2026-09-21');
+  const raffle = withPlan({ sel: { raffle: true }, d: { raffle: { date: '2026-10-30' } } });
+  ok('  …and on an item that is not a blast, a typed date still moves only its own task',
+     find(MK.tasksOf(raffle, OPTS), 'raffle.rules').due === '2026-10-02' && find(MK.tasksOf(raffle, OPTS), 'raffle.draw').due === '2026-10-30');
   const moved = withPlan({ sel: { email: true }, d: { email: { date: '2026-10-15' } }, due: { 'email.send': '2026-10-20' } });
   const t = find(MK.tasksOf(moved, OPTS), 'email.send');
   ok('a date moved by hand wins over the typed one', t.due === '2026-10-20' && t.moved === true);
@@ -325,7 +330,8 @@ async function saveJoinChecks() {
        && JSON.stringify(JSON.parse(j.calls[0].params.patch).marketing_delta) === '[["own","email.send","tawny"]]');
     const mail = j.calls[1] || {};
     ok('  …then asks the engine to tell that person, naming the task and its date', mail.action === 'marketingAssign'
-       && mail.params.person === 'tawny' && mail.params.task === 'email.send' && mail.params.text === 'Send email blast' && /^\d{4}-\d{2}-\d{2}$/.test(mail.params.due));
+       && mail.params.person === 'tawny' && mail.params.task === 'email.send' && /^Send at 11 AM/.test(mail.params.text)
+       && mail.params.item === 'Email blast' && /^\d{4}-\d{2}-\d{2}$/.test(mail.params.due));
     ok('  …and says who was emailed', /Emailed tawny@greencrosscanna.com/.test(j.status.textContent));
     ok('the task now shows its new owner', MK.tasksOf(p, {}).filter(t => t.id === 'email.send')[0].owner === 'Tawny');
   }
@@ -355,27 +361,94 @@ async function saveJoinChecks() {
   const view = MK.sectionHtml(withPlan({ sel: { email: true } }),
     { today: TODAY, canEdit: false, engineReady: true, stores: ALL6.map(s => ({ store_id: s, name: s })), storeName: s => s });
   ok('a viewer sees the owner, not a picker', !/data-mk-assign/.test(view) && /class="mk-own o-DIR">Mike/.test(view));
+  {
+    const p = withPlan({ sel: { sms: true } });
+    const j = saveJoin(p, (params) => params.patch
+      ? { ok: true, marketing_json: Object.assign({}, p.marketing_json) }
+      : { ok: true, sent: true, to: 'sky@greencrosscanna.com' });
+    await j.api.mkAssign('blast.copy', 'sky');
+    await flush();
+    const mail = j.calls[1] || {};
+    ok('a blast-cycle task can be handed off too, and its email carries no item name',
+       JSON.stringify(JSON.parse(j.calls[0].params.patch).marketing_delta) === '[["own","blast.copy","sky"]]'
+       && mail.action === 'marketingAssign' && mail.params.task === 'blast.copy' && mail.params.item === '');
+  }
+}
+
+/* ── THE BLAST CYCLE (Sky, 2026-11-02) ─────────────────────────────────────────────────────────────
+   Send day is a Monday. Tawny locks the deal the Wednesday before, Mike has copy and the Dutchie
+   draft Thursday and sends Sky the proofs, Sky approves at the Friday L10, Mike sends at 11 AM. */
+function blastChecks() {
+  console.log('\n13. the blast cycle');
+  const MON = { start_date: '2026-11-16', end_date: '2026-11-29' };
+  const byId = (p) => { const m = {}; MK.groupTasks(MK.tasksOf(p, OPTS)).forEach(g => { m[g.id] = g; }); return m; };
+  const email = byId(withPlan({ sel: { email: true } }, MON));
+  ok('the deal is Tawny\'s, locked the Wednesday before the send', email['blast.deal'].owner === 'Tawny' && email['blast.deal'].due === '2026-11-11');
+  ok('copy and the Dutchie draft are Mike\'s, Thursday', email['blast.copy'].owner === 'Mike' && email['blast.copy'].due === '2026-11-12');
+  ok('the email proof is Mike\'s, due Friday, and says Sky approves at the L10',
+     email['email.review'].owner === 'Mike' && email['email.review'].due === '2026-11-13' && /Sky approves at the Friday L10/.test(email['email.review'].text));
+  ok('the send is Mike\'s, on the Monday, at 11 AM, with the sent-vs-planned check',
+     email['email.send'].owner === 'Mike' && email['email.send'].due === '2026-11-16' && /11 AM/.test(email['email.send'].text) && /sent vs planned/.test(email['email.send'].text));
+  ok('stats are unchanged: Mike, three days after the end', email['email.stats'].owner === 'Mike' && email['email.stats'].due === '2026-12-02');
+  ok('no task is Sky\'s by default', !Object.keys(email).some(id => email[id].defOwn === 'SKY'));
+
+  const sms = byId(withPlan({ sel: { sms: true } }, MON));
+  ok('a text blast alone gets the deal and copy tasks too', sms['blast.deal'] && sms['blast.copy']);
+  ok('the text proof is Mike\'s, due Friday, same wording', sms['sms.approve'].owner === 'Mike' && sms['sms.approve'].due === '2026-11-13'
+     && /text proof to Sky Thursday; tick when Sky approves at the Friday L10/.test(sms['sms.approve'].text));
+  ok('the text send is at 11 AM', /^Send at 11 AM$/.test(sms['sms.send'].text));
+  ok('the text cost model is unchanged: Tawny, two weeks out', sms['sms.cost'].owner === 'Tawny' && sms['sms.cost'].due === '2026-11-02');
+
+  const both = MK.tasksOf(withPlan({ sel: { email: true, sms: true } }, MON), OPTS);
+  ok('both picked: the deal and copy tasks come once each, not twice',
+     both.filter(t => t.id === 'blast.deal').length === 1 && both.filter(t => t.id === 'blast.copy').length === 1);
+  ok('neither picked: no blast-cycle tasks', !MK.tasksOf(withPlan({ sel: { signage: true } }, MON), OPTS).some(t => /^blast\./.test(t.id)));
+
+  ok('creative from the vendor: the creative task shows', !!byId(withPlan({ sel: { email: true }, d: { email: { maker: 'Vendor supplies' } } }, MON))['email.creative']);
+  ok('a plan saved before the field: the creative task still shows', !!email['email.creative']);
+  ok('we make the creative: no creative task', !byId(withPlan({ sel: { email: true }, d: { email: { maker: 'We do' } } }, MON))['email.creative']);
+  ok('the field offers exactly the two answers', JSON.stringify(MK.ITEMS.email.f[0]) === JSON.stringify(['sel', 'maker', 'Who makes the creative', ['We do', 'Vendor supplies']]));
+
+  /* A typed send date (a later Monday) moves the whole cycle, not just the send. */
+  const typed = byId(withPlan({ sel: { email: true, sms: true }, d: { email: { date: '2026-11-23', maker: 'Vendor supplies' }, sms: { date: '2026-11-30' } } }, MON));
+  ok('the email tasks count back from the email send date',
+     typed['email.creative'].due === '2026-11-09' && typed['email.review'].due === '2026-11-20' && typed['email.send'].due === '2026-11-23');
+  ok('the text tasks count back from the text send date',
+     typed['sms.cost'].due === '2026-11-16' && typed['sms.approve'].due === '2026-11-27' && typed['sms.send'].due === '2026-11-30');
+  ok('the deal and copy count back from the earlier of the two', typed['blast.deal'].due === '2026-11-18' && typed['blast.copy'].due === '2026-11-19');
+  ok('after-the-end tasks still follow the window', typed['email.stats'].due === '2026-12-02');
+  const half = byId(withPlan({ sel: { email: true, sms: true }, d: { sms: { date: '2026-11-30' } } }, MON));
+  ok('one send date typed: the email side stays on the window, the shared tasks take the typed one',
+     half['email.review'].due === '2026-11-13' && half['blast.deal'].due === '2026-11-25');
+  const handMoved = byId(withPlan({ sel: { email: true }, d: { email: { date: '2026-11-23' } }, due: { 'email.review': '2026-11-19' } }, MON));
+  ok('a date moved by hand still wins over the send date', handMoved['email.review'].due === '2026-11-19' && handMoved['email.review'].moved);
+  ok('the new tasks can be handed to the three people', MK.assignOp({}, 'blast.deal', 'mike')[0][2] === 'mike'
+     && JSON.stringify(MK.assignOp({}, 'blast.deal', 'tawny')) === '[["own","blast.deal",null]]');
 }
 
 async function main() {
   await saverChecks();
 
-  console.log('\n10. only Sky sees it until the switch is flipped');
+  console.log('\n10. only Sky, Mike and Tawny see it until the switch is flipped');
   ok('Sky sees it', MK.isVisible({ user: 'sky', role: 'admin' }));
-  ok('Tawny does not, editor or not', !MK.isVisible({ user: 'tawny', role: 'editor' }));
+  ok('Mike and Tawny see it (their GX Core sign-in names)', MK.isVisible({ user: 'mike', role: 'editor' }) && MK.isVisible({ user: 'Tawny', role: 'editor' }));
+  ok('Shawn does not, editor or not', !MK.isVisible({ user: 'shawn', role: 'editor' }));
   ok('the dev viewer does not', !MK.isVisible({ user: 'dev', role: 'viewer' }));
   ok('nobody signed out does', !MK.isVisible(null));
   ok('the switch ships OFF', /var VISIBLE_TO_EVERYONE = false;/.test(SRC));
   const open = loadMk(SRC.replace('var VISIBLE_TO_EVERYONE = false;', 'var VISIBLE_TO_EVERYONE = true;'));
-  ok('flipped, everyone signed in sees it', open.isVisible({ user: 'tawny', role: 'editor' }));
+  ok('flipped, everyone signed in sees it', open.isVisible({ user: 'shawn', role: 'editor' }));
   ok('  …and still nobody signed out', !open.isVisible(null));
 
   const p = withPlan({ sel: { email: true } });
-  const tawny = joined({ user: 'tawny', role: 'editor' });
-  ok('for Tawny the list line is empty', tawny.api.mkListLine(p) === '');
-  ok('  …the overdue box is not drawn', tawny.api.mkOverdueTile([p]) === '');
-  tawny.api.syncMarketing(p);
-  ok('  …and the section stays hidden and empty', tawny.fold.hidden === true && tawny.host.innerHTML === '');
+  const shawn = joined({ user: 'shawn', role: 'editor' });
+  ok('for anyone else the list line is empty', shawn.api.mkListLine(p) === '');
+  ok('  …the overdue box is not drawn', shawn.api.mkOverdueTile([p]) === '');
+  shawn.api.syncMarketing(p);
+  ok('  …and the section stays hidden and empty', shawn.fold.hidden === true && shawn.host.innerHTML === '');
+  const mike = joined({ user: 'mike', role: 'editor' });
+  mike.api.syncMarketing(p);
+  ok('for Mike the section shows', mike.fold.hidden === false && /What is Kaprikorn in for/.test(mike.host.innerHTML));
 
   const sky = joined({ user: 'sky', role: 'admin' });
   ok('for Sky the list line is there', /Marketing/.test(sky.api.mkListLine(p)));
@@ -395,6 +468,7 @@ async function main() {
      missing.api.mkListLine(p) === '' && missing.api.mkOverdueTile([p]) === '');
 
   await saveJoinChecks();
+  blastChecks();
 
   console.log(fail ? '\n' + fail + ' FAILED' : '\nmarketing tasks: all passed');
   process.exit(fail ? 1 : 0);

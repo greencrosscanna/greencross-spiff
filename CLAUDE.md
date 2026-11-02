@@ -186,7 +186,7 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
 
 - **Marketing is hidden behind one switch, and stores only what a person decided** (SPIFF 2.0, phase 1,
   Sky 2026-11-01; plan in `docs/plans/marketing-section.md`). `marketing.js` holds the menu and the
-  rules; `VISIBLE_TO_EVERYONE` / `PREVIEW_USERS` at its top decide who sees anything, and only Sky does
+  rules; `VISIBLE_TO_EVERYONE` / `PREVIEW_USERS` at its top decide who sees anything, and only Sky, Mike and Tawny do
   until he approves the flip. That is a curtain: `editProgram_`'s role check protects the save.
   **Task ids are the stored key**: reword a task freely, never rename its id, or its ticks are orphaned.
   Tasks, due dates, overdue and compliance are computed on read; `normalizeMarketing_` builds the
@@ -223,6 +223,15 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   never to someone who took the task themselves, and once per hand-off (`mktassigned:` property).
   Addresses are fixed in `MKT_PEOPLE_` (mirrored by `PEOPLE` in marketing.js), never read from the request.
   Pinned by `tests/marketing_vendor_plan_test.js` section 7 and `tests/marketing_tasks_test.js` section 12.
+  **Email and text blasts follow the real cycle** (Sky, 2026-11-02; send day = Monday): Tawny
+  locks the deal Wednesday (`blast.deal`, -5), Mike has copy and the Dutchie draft Thursday
+  (`blast.copy`, -4), Mike's proof tasks (`email.review`, `sms.approve`, -3) are ticked when Sky
+  approves at the Friday L10 — Sky approves all customer copy, and there is no separate Sky task.
+  The two `blast.*` tasks come once however many channels are picked. On a `blast` item every
+  before-start task counts back from that item's typed send date; the `blast.*` pair from the
+  earliest one. `email.creative` drops out when "Who makes the creative" is "We do" (blank keeps
+  it). Pinned by `tests/marketing_tasks_test.js` section 13. The section shows to sky, mike and
+  tawny (their GX Core sign-in names) until `VISIBLE_TO_EVERYONE` is flipped.
   **The vendor plan's artwork sizes are generic on purpose** (Sky, 2026-11-02, `MKT_SIZES_`): TV
   1920×1080 / 3840×2160 horizontal or vertical as image or MP4, standard social sizes, 8.5×11 print.
   **Saving the plan files it in the program's vendor files folder** (`d.files.url`) when that is a
