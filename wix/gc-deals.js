@@ -243,4 +243,10 @@
     }
   }
   customElements.define('gc-deals', GcDeals);
+  // The Wix editor kept publishing this element under its placeholder tag even with "gc-deals"
+  // set in Element Attributes (seen 2026-11-02 on the test site). Nothing else defines that tag
+  // once our Server URL replaces Wix's placeholder script, so answer to it too.
+  if (!customElements.get('wix-default-custom-element')) {
+    customElements.define('wix-default-custom-element', class extends GcDeals {});
+  }
 })();
