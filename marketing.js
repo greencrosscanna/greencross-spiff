@@ -203,7 +203,17 @@
   /* A program nobody has planned stays out of every count. Every program has core tasks on paper, so
      without this the 25 closed records and any program already running would all read as overdue
      for marketing nobody ever signed up for. */
-  function hasPlan(p) { return !!(p && p.marketing_json); }
+  function hasPlan(p) {
+    var m = p && p.marketing_json;
+    if (!m) return false;
+    /* A vendor files link alone is not a plan: every new program gets one automatically. */
+    return Object.keys(m).some(function (k) {
+      if (k === 'v') return false;
+      if (k === 'd') return Object.keys(m.d || {}).some(function (i) { return i !== 'files'; });
+      var x = m[k];
+      return Array.isArray(x) ? x.length > 0 : x && typeof x === 'object' ? Object.keys(x).length > 0 : !!x;
+    });
+  }
 
   function isOn(p, id) {
     if (ITEMS[id] && ITEMS[id].lock) return true;

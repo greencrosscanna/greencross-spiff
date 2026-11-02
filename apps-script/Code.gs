@@ -513,6 +513,13 @@ function doGet(e) {
               ? { ok: false, error: 'Unauthorized' }
               : rollProgramStatuses_({ dryRun: String(p.dry || '') === '1' });
         break;
+      /* Gives every known vendor an upload folder and links it on programs that are not closed.
+         Secret-gated because it WRITES; dry unless apply=1. See vendorFoldersRun_. */
+      case 'vendorFolders':
+        out = (String(p.secret || '') !== PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP))
+              ? { ok: false, error: 'Unauthorized' }
+              : vendorFoldersRun_(String(p.apply || '') === '1');
+        break;
       case 'installProgressTrigger':
         out = (String(p.secret || '') === PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP)
                && String(p.confirm || '') === 'yes')
@@ -1361,6 +1368,14 @@ function createProgram_(p) {
   draft.title      = draft.program_name;
   draft.status     = 'draft';       // becomes active when Tawny starts it
   draft.source     = 'calculator-app:' + auth.user;
+
+  /* The vendor's upload folder: made if it is missing and linked on the new program. Never in the
+     way of creating the program: a Drive hiccup leaves the link empty for the backfill to fill. */
+  try {
+    var vf = vendorFolderFor_(draft.vendor, true);
+    var withLink = vf && vf.url ? withVendorFolder_(draft.marketing_json, vf.url) : null;
+    if (withLink) draft.marketing_json = withLink;
+  } catch (e) { /* see above */ }
 
   var res = saveProgram_(draft, { editedBy: auth.user, confirmBrand: String(p.confirm_brand || '') === '1' });
   res.program_id = id;
@@ -6540,6 +6555,104 @@ function marketingOverview_(p) {
     }
   }
   return out;
+}
+
+/* ── ONE UPLOAD FOLDER PER VENDOR ──────────────────────────────────────────────────────────────
+ * Sky, 2026-11-02: each vendor gets a folder under Marketing ▸ Vendors (a shared drive), shared so
+ * anyone with the link can add files, and that link sits on the vendor's programs so the plan is
+ * saved there and the rep can be sent it. A new program makes its vendor's folder if there is none;
+ * ?action=vendorFolders (secret, dry by default) does the same for every vendor already known.
+ *
+ * Found by NAME, folded (case and punctuation ignored), so "National Cannabis Co." and "National
+ * Cannabis Co" are one folder. "Anyone with the link can edit" on a shared drive is the Contributor
+ * role: add and edit, not delete. The vendors' link gives them their own folder and nothing else. */
+var VENDOR_FOLDERS_PARENT = '13BwoZ6Brt0d-vM-Z-ca_KSIMPyCG6eaW';
+
+function vendorFold_(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ''); }
+
+/* Returns {id, url, name, created, shared} or null for a blank vendor. With make=false it never
+   creates or changes anything, and reports what it would do. */
+function vendorFolderFor_(vendor, make) {
+  var name = String(vendor || '').trim().replace(/[.\s]+$/, '');
+  if (!vendorFold_(name)) return null;
+  var parent = DriveApp.getFolderById(VENDOR_FOLDERS_PARENT), it = parent.getFolders(), hit = null;
+  while (it.hasNext()) {
+    var f = it.next();
+    if (vendorFold_(f.getName()) === vendorFold_(name)) { hit = f; break; }
+  }
+  var out = { name: hit ? hit.getName() : name, created: false, shared: false };
+  if (!hit) {
+    if (!make) return Object.assign(out, { id: '', url: '', created: true, shared: true, dry: true });
+    hit = parent.createFolder(name);
+    out.created = true;
+  }
+  var open = hit.getSharingAccess() === DriveApp.Access.ANYONE_WITH_LINK && hit.getSharingPermission() === DriveApp.Permission.EDIT;
+  if (!open) {
+    if (make) hit.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.EDIT);
+    out.shared = true;
+  }
+  out.id = hit.getId();
+  out.url = 'https://drive.google.com/drive/folders/' + out.id;
+  return out;
+}
+
+/* The plan with its vendor files link set, unless one is set already. */
+function withVendorFolder_(plan, url) {
+  var m = JSON.parse(JSON.stringify(plan || {}));
+  m.d = m.d && typeof m.d === 'object' ? m.d : {};
+  if (m.d.files && m.d.files.url) return null;
+  m.d.files = { url: url };
+  return normalizeMarketing_(m);
+}
+
+/* Every vendor SPIFF knows (its programs and GX Core's brand list), each given a folder; programs
+   that are not closed get the link. Closed programs are left as they were reported. */
+function vendorFoldersRun_(apply) {
+  var skip = Object.create(null);
+  skip[vendorFold_('Green Cross')] = true;
+  try { (gxStores_() || []).forEach(function (s) { skip[vendorFold_(s.display_name)] = true; skip[vendorFold_(s.store_id)] = true; }); }
+  catch (e) { /* a store name slipping through costs one empty folder */ }
+  var names = Object.create(null), order = [];
+  var add = function (n) {
+    var k = vendorFold_(n);
+    if (!k || skip[k] || names[k]) return;
+    names[k] = String(n).trim().replace(/[.\s]+$/, '');
+    order.push(k);
+  };
+  var programs = listPrograms_();
+  programs.forEach(function (p) { add(p.vendor); });
+  var br = brandsRead_({});
+  if (br.ok) (br.brands || []).forEach(function (b) {
+    if (b && b.active !== false && String(b.active).toLowerCase() !== 'false') add(b.display_name || b.brand_id);
+  });
+
+  var folders = [], linked = [], errors = [];
+  order.forEach(function (k) {
+    try { folders.push(vendorFolderFor_(names[k], apply)); }
+    catch (e) { errors.push(names[k] + ': ' + scrubSecrets_(e && e.message || e)); }
+  });
+  var byName = Object.create(null);
+  folders.forEach(function (f) { if (f) byName[vendorFold_(f.name)] = f; });
+  programs.forEach(function (p) {
+    if (p.status === 'closed') return;
+    var f = byName[vendorFold_(String(p.vendor || '').trim().replace(/[.\s]+$/, ''))];
+    if (!f) return;
+    var plan = withVendorFolder_(p.marketing_json, f.url || '(new folder)');
+    if (!plan) return;
+    linked.push(p.program_id);
+    if (apply && f.url) {
+      var cur = getProgram_(p.program_id);
+      if (!cur.ok) return;
+      var fresh = withVendorFolder_(cur.program.marketing_json, f.url);
+      if (!fresh) return;
+      cur.program.marketing_json = fresh;
+      var r = saveProgram_(cur.program, { editedBy: 'vendor-folders', confirmBrand: true });
+      if (!r.ok) errors.push(p.program_id + ': ' + r.error);
+    }
+  });
+  return { ok: !errors.length, dry: !apply, brands_read: br.ok,
+           folders: folders.filter(Boolean).map(function (f) { return { name: f.name, url: f.url, created: f.created, shared: f.shared }; }),
+           linked: linked, errors: errors };
 }
 
 /* The folder id in the program's vendor files link (d.files.url), or '' when there is none. */
