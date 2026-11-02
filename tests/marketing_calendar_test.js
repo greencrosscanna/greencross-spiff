@@ -291,7 +291,8 @@ function pencilJoin(role, answer) {
   ok('with the switch off the new buttons stay hidden and the list is untouched', nodes['#mkViewSeg'].hidden === true && nodes['#progStats'].hidden === false
      && nodes['#mkView'].innerHTML === '' && nodes['#mkPencils'].innerHTML === '');
   ok('  …and the pencils are not even fetched', loads.length === 0);
-  ok('the switch is still closed to everyone but Sky', /var VISIBLE_TO_EVERYONE = false;/.test(SRC) && /var PREVIEW_USERS = \['sky'\];/.test(SRC));
+  /* Sky, 2026-11-02: Mike runs the blast cycle and Tawny the deals, so the preview opens to them. */
+  ok('the switch is still closed to everyone but Sky, Mike and Tawny', /var VISIBLE_TO_EVERYONE = false;/.test(SRC) && /var PREVIEW_USERS = \['sky', 'mike', 'tawny'\];/.test(SRC));
   ok('the app still has three top-level tabs', (fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').match(/data-tab="/g) || []).length === 3);
 
   console.log(fail ? '\n' + fail + ' FAILED' : '\nmarketing calendar: all passed');

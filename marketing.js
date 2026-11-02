@@ -19,7 +19,9 @@
   'use strict';
 
   var VISIBLE_TO_EVERYONE = false;
-  var PREVIEW_USERS = ['sky'];
+  /* Sign-in names as GX Core's roster holds them (app_roster for spiff, checked 2026-11-02). Mike
+     runs every blast cycle from the Tasks view, Tawny sets the deals. */
+  var PREVIEW_USERS = ['sky', 'mike', 'tawny'];
 
   function isVisible(session) {
     if (VISIBLE_TO_EVERYONE) return !!session;
@@ -40,7 +42,9 @@
 
   /* A task is [id, owner, text, anchor, offset days, flags]. Anchor 's' counts from the start of the
      window and 'e' from its end. `each` fans out one task per store. `on` names the item's date
-     field: once somebody types that date, the task follows it.
+     field: once somebody types that date, the task follows it. `unless` [field, value] drops the
+     task while that detail holds that value. On an item marked `blast`, every 's' task counts back
+     from the item's typed send date instead of the window's start.
 
      THE IDS ARE THE STORED KEY. done and due are keyed on them, so a task can be reworded or moved
      around this list freely, but renaming an id orphans every tick already made against it. */
@@ -50,6 +54,15 @@
     ['core.managers', 'DIR', 'Send managers the summary for this vendor', 's', -7],
     ['core.wrapup', 'DIR', 'Wrap-up notes on what ran', 'e', 10],
     ['core.results', 'INV', 'Share results with vendor; talk next cycle', 'e', 14]
+  ];
+
+  /* The blast cycle (Sky, 2026-11-02). Send day is a Monday: the deal is locked the Wednesday
+     before, copy and the Dutchie draft are ready Thursday, Sky approves the proofs at the Friday L10.
+     These come once per program when an email or a text blast is picked, never twice for both, and
+     count back from the earliest typed send date, else the window's start. */
+  var BLAST = [
+    ['blast.deal', 'INV', 'Deal and timeline set with the vendor, locked', 's', -5],
+    ['blast.copy', 'DIR', 'Copy and Dutchie draft ready (with Sky and Claude)', 's', -4]
   ];
 
   /* f is [type, key, label, options]. c is the Oregon compliance note shown on the item's card. */
@@ -79,20 +92,24 @@
       c: 'Prizes are not cannabis.',
       k: [['prizes.confirm', 'INV', 'Confirm the extra prize with vendor', 's', -14],
           ['prizes.award', 'DIR', 'Announce winner and present the prize', 'e', 2]] },
-    email: { t: 'Email blast', s: 'One send to our list', sec: 'mkt',
-      f: [['date', 'date', 'Send date']],
+    /* Sky approves all customer copy, so the proof tasks are Mike's to send and tick once Sky has
+       approved at the Friday L10; there is no separate Sky task. A blank "who makes the creative"
+       keeps the creative task, which is how every plan saved before the field read. */
+    email: { t: 'Email blast', s: 'One send to our list', sec: 'mkt', blast: 1,
+      f: [['sel', 'maker', 'Who makes the creative', ['We do', 'Vendor supplies']],
+          ['date', 'date', 'Send date']],
       c: 'Review copy and offer before sending. Prohibited under Oregon rules: BOGO, tiered spend thresholds, tied discounts, cannabis gift-with-purchase.',
-      k: [['email.creative', 'DIR', 'Receive email creative and offer from vendor', 's', -14],
-          ['email.review', 'DIR', 'Compliance review and proof approval', 's', -7],
-          ['email.send', 'DIR', 'Send email blast', 's', 0, { on: 'date' }],
+      k: [['email.creative', 'DIR', 'Receive email creative and offer from vendor', 's', -14, { unless: ['maker', 'We do'] }],
+          ['email.review', 'DIR', 'Send email proof to Sky Thursday; tick when Sky approves at the Friday L10', 's', -3],
+          ['email.send', 'DIR', 'Send at 11 AM, then check emails sent vs planned', 's', 0, { on: 'date' }],
           ['email.stats', 'DIR', 'Record opens and clicks', 'e', 3]] },
-    sms: { t: 'Text blast', s: 'One SMS send', sec: 'mkt',
+    sms: { t: 'Text blast', s: 'One SMS send', sec: 'mkt', blast: 1,
       f: [['sel', 'cost', 'Cost model', ['Vendor credit', 'Vendor pays per text', 'We cover it']],
           ['date', 'date', 'Send date']],
       c: 'Review copy, offer and opt-in / opt-out wording. Same Oregon offer rules as email.',
       k: [['sms.cost', 'INV', 'Agree on cost model and vendor credit', 's', -14],
-          ['sms.approve', 'DIR', 'Approve text copy and send time', 's', -5],
-          ['sms.send', 'DIR', 'Send text blast', 's', 0, { on: 'date' }]] },
+          ['sms.approve', 'DIR', 'Send text proof to Sky Thursday; tick when Sky approves at the Friday L10', 's', -3],
+          ['sms.send', 'DIR', 'Send at 11 AM', 's', 0, { on: 'date' }]] },
     social: { t: 'Social media', s: 'Posts on our accounts', sec: 'mkt',
       f: [['sel', 'maker', 'Who makes the posts', ['We do', 'Vendor supplies', 'Both']]],
       list: { kind: 'date', label: 'Post dates', add: '+ Add a post date' },
@@ -236,9 +253,15 @@
      wins, then the item's own typed date, then the window. */
   function tasksOf(p, opts) {
     var plan = planOf(p), stores = storesOf(p, opts), out = [];
-    function push(itemId, row) {
+    function sendDay(itemId) {
+      var day = (plan.d[itemId] || {}).date;
+      return ISO.test(String(day || '')) ? day : '';
+    }
+    function push(itemId, row, from) {
       var flags = row[5] || {};
-      var anchor = row[3] === 's' ? p.start_date : p.end_date;
+      if (flags.unless && itemId && (plan.d[itemId] || {})[flags.unless[0]] === flags.unless[1]) return;
+      var start = from || (itemId && ITEMS[itemId].blast && sendDay(itemId)) || p.start_date;
+      var anchor = row[3] === 's' ? start : p.end_date;
       var typed = flags.on && itemId && plan.d[itemId] ? plan.d[itemId][flags.on] : '';
       var planned = ISO.test(String(typed || '')) ? typed : addDays(anchor, row[4]);
       /* A reassignment is per task, for every store and date it fans out to. */
@@ -284,6 +307,11 @@
       });
     }
     CORE.forEach(function (row) { push(null, row); });
+    var blasts = Object.keys(ITEMS).filter(function (id) { return ITEMS[id].blast && isOn(p, id); });
+    if (blasts.length) {
+      var first = blasts.map(sendDay).filter(Boolean).sort()[0] || '';
+      BLAST.forEach(function (row) { push(null, row, first); });
+    }
     Object.keys(ITEMS).forEach(function (id) {
       if (isOn(p, id)) ITEMS[id].k.forEach(function (row) { push(id, row); });
     });
@@ -416,7 +444,7 @@
   /* Handing a task to someone. Picking the person who owns it by default clears the override. */
   function assignOp(p, taskId, person) {
     var row = null;
-    CORE.concat.apply(CORE, Object.keys(ITEMS).map(function (id) { return ITEMS[id].k; }))
+    CORE.concat.apply(CORE.concat(BLAST), Object.keys(ITEMS).map(function (id) { return ITEMS[id].k; }))
       .forEach(function (r) { if (r[0] === taskId) row = r; });
     if (!row || (person && !PEOPLE[person])) return [];
     return [['own', taskId, person && PEOPLE[person] !== row[1] ? person : null]];
@@ -645,7 +673,7 @@
       + filesHtml(plan, ctx)
       + '<div class="mk-items">' + cards + '</div></div>'
       + '<div class="mk-card"><div class="mk-row2"><div><h3 class="mk-h">Tasks</h3>'
-      + '<p class="mk-sub mk-tight">Dates count from the window. Move the window and every date moves with it.</p></div>'
+      + '<p class="mk-sub mk-tight">Dates count from the window, and email and text tasks from their send date. Move either and the dates move with it.</p></div>'
       + '<span class="mk-pill">' + open + ' open of ' + groups.length + '</span></div>' + tasks + '</div>'
       + '<div class="mk-card"><h3 class="mk-h">Vendor plan and team</h3>'
       + '<p class="mk-sub">The plan is a page for the vendor: no staff names, pay or costs. Building or saving it sends nothing to anyone. '
@@ -961,7 +989,7 @@
     calendarHtml: calendarHtml, openTasksAcross: openTasksAcross, tasksAcrossHtml: tasksAcrossHtml,
     pencilListHtml: pencilListHtml, pencilFormHtml: pencilFormHtml, pencilDetailHtml: pencilDetailHtml,
     wireViews: wireViews, monthStart: monthStart,
-    isVisible: isVisible, SECTIONS: SECTIONS, ITEMS: ITEMS, CORE: CORE, OWNERS: OWNERS,
+    isVisible: isVisible, SECTIONS: SECTIONS, ITEMS: ITEMS, CORE: CORE, BLAST: BLAST, OWNERS: OWNERS,
     addDays: addDays, daysBetween: daysBetween, planOf: planOf, hasPlan: hasPlan, isOn: isOn,
     pickedItems: pickedItems, storesOf: storesOf, tasksOf: tasksOf, groupTasks: groupTasks,
     phaseOf: phaseOf, lateOf: lateOf, nextOf: nextOf, overdueTotal: overdueTotal,
