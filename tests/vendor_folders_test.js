@@ -38,7 +38,24 @@ function fakeDrive(existing) {
     Permission: { EDIT: 'EDIT', VIEW: 'VIEW' },
     getFolderById: (id) => { if (id !== G.grabVar('VENDOR_FOLDERS_PARENT')) throw new Error('wrong folder ' + id); return parent; }
   };
-  return { DriveApp, kids, made, shared };
+  /* Sharing goes through the Drive REST API (DriveApp.setSharing is refused on a shared drive). */
+  const calls = [];
+  const UrlFetchApp = {
+    fetch(url, o) {
+      calls.push({ url, o });
+      const id = (url.match(/files\/([^/]+)\/permissions/) || [])[1];
+      const f = kids.filter(k => k.id === id)[0];
+      const reply = (code, body) => ({ getResponseCode: () => code, getContentText: () => JSON.stringify(body) });
+      if (!f) return reply(404, { error: 'no such file' });
+      if (!/supportsAllDrives=true/.test(url)) return reply(404, { error: 'shared drive item needs supportsAllDrives' });
+      if (o.method === 'get') return reply(200, { permissions: f.access === 'ANYONE_WITH_LINK' ? [{ type: 'anyone', role: f.perm === 'EDIT' ? 'writer' : 'reader' }] : [] });
+      const b = JSON.parse(o.payload);
+      if (b.type === 'anyone' && b.role === 'writer') { f.access = 'ANYONE_WITH_LINK'; f.perm = 'EDIT'; shared.push(f.name); }
+      return reply(200, { id: 'p1' });
+    }
+  };
+  const ScriptApp = { getOAuthToken: () => 'tok' };
+  return { DriveApp, UrlFetchApp, ScriptApp, kids, made, shared, calls };
 }
 
 function engine(o) {
@@ -46,8 +63,9 @@ function engine(o) {
   const saved = [];
   const programs = (o.programs || []).map(p => JSON.parse(JSON.stringify(p)));
   const api = G.load({
-    real: ['vendorFold_', 'vendorFolderFor_', 'withVendorFolder_', 'vendorFoldersRun_', 'normalizeMarketing_'],
-    vars: ['VENDOR_FOLDERS_PARENT', 'MKT_PEOPLE_'],
+    real: ['vendorFold_', 'vendorFolderFor_', 'withVendorFolder_', 'vendorFoldersRun_', 'normalizeMarketing_',
+           'driveApi_', 'anyoneCanAdd_', 'shareAnyoneCanAdd_'],
+    vars: ['VENDOR_FOLDERS_PARENT', 'MKT_PEOPLE_', 'DRIVE_PERMS_URL_'],
     stubs: {
       gxStores_: () => [{ store_id: 'portland-rd', display_name: 'Portland Rd' }],
       listPrograms_: () => programs,
@@ -56,7 +74,7 @@ function engine(o) {
       brandsRead_: () => (o.brandsFail ? { ok: false } : { ok: true, brands: o.brands || [] }),
       scrubSecrets_: (x) => String(x),
     },
-    globals: { DriveApp: drive.DriveApp },
+    globals: { DriveApp: drive.DriveApp, UrlFetchApp: drive.UrlFetchApp, ScriptApp: drive.ScriptApp },
   });
   return { api, drive, saved };
 }
@@ -72,6 +90,10 @@ console.log('\n1. a folder for a vendor');
   ok('  …its link is a Drive folder link', a.url === 'https://drive.google.com/drive/folders/f1');
   const again = e.api.vendorFolderFor_('gron', true);
   ok('asked again, it changes nothing', !again.created && !again.shared && e.drive.shared.length === 1);
+  const post = e.drive.calls.filter(c => c.o.method === 'post')[0];
+  ok('the share is one "anyone, writer" permission, not findable by search, sent with the token',
+     JSON.stringify(JSON.parse(post.o.payload)) === '{"type":"anyone","role":"writer","allowFileDiscovery":false}'
+     && post.o.headers.Authorization === 'Bearer tok' && /supportsAllDrives=true/.test(post.url));
   const b = e.api.vendorFolderFor_('National Cannabis Co.', true);
   const c = e.api.vendorFolderFor_('National Cannabis Co', true);
   ok('"National Cannabis Co." and "National Cannabis Co" are one folder, named without the dot',
@@ -116,6 +138,10 @@ console.log('\n3. the backfill for every vendor already known');
   e = engine({ programs: [P('g', 'Gron')], brandsFail: true });
   const noBrands = e.api.vendorFoldersRun_(false);
   ok('if Core\'s brand list is down, the programs\' vendors still get done, and it says so', noBrands.brands_read === false && noBrands.folders.length === 1);
+  e = engine({ programs: [P('g', 'Gron')], folders: [{ name: 'Gron' }] });
+  e.drive.UrlFetchApp.fetch = () => ({ getResponseCode: () => 403, getContentText: () => '{"error":"sharing is off for this drive"}' });
+  const refused = e.api.vendorFoldersRun_(true);
+  ok('if Drive refuses the share, it says so and links nothing', !refused.ok && /403/.test(refused.errors[0]) && e.saved.length === 0);
 }
 
 console.log('\n4. the route and the screen');

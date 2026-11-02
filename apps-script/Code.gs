@@ -6586,14 +6586,38 @@ function vendorFolderFor_(vendor, make) {
     hit = parent.createFolder(name);
     out.created = true;
   }
-  var open = hit.getSharingAccess() === DriveApp.Access.ANYONE_WITH_LINK && hit.getSharingPermission() === DriveApp.Permission.EDIT;
-  if (!open) {
-    if (make) hit.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.EDIT);
+  out.id = hit.getId();
+  if (!anyoneCanAdd_(out.id)) {
+    if (make) shareAnyoneCanAdd_(out.id);
     out.shared = true;
   }
-  out.id = hit.getId();
   out.url = 'https://drive.google.com/drive/folders/' + out.id;
   return out;
+}
+
+/* Sharing goes through the Drive REST API, not DriveApp: DriveApp.setSharing answers "Access
+   denied" on a shared-drive item (measured 2026-11-02, every folder refused), while the API with
+   supportsAllDrives does it under the drive scope the engine already holds. */
+var DRIVE_PERMS_URL_ = 'https://www.googleapis.com/drive/v3/files/';
+function driveApi_(method, path, body) {
+  var res = UrlFetchApp.fetch(DRIVE_PERMS_URL_ + path, {
+    method: method, contentType: 'application/json', muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    payload: body ? JSON.stringify(body) : undefined
+  });
+  var code = res.getResponseCode(), text = res.getContentText();
+  if (code >= 300) throw new Error('Drive said ' + code + ': ' + String(text).slice(0, 200));
+  return text ? JSON.parse(text) : {};
+}
+function anyoneCanAdd_(id) {
+  var r = driveApi_('get', id + '/permissions?supportsAllDrives=true&fields=permissions(type,role)');
+  return (r.permissions || []).some(function (x) {
+    return x.type === 'anyone' && ['writer', 'fileOrganizer', 'organizer'].indexOf(x.role) >= 0;
+  });
+}
+function shareAnyoneCanAdd_(id) {
+  driveApi_('post', id + '/permissions?supportsAllDrives=true',
+            { type: 'anyone', role: 'writer', allowFileDiscovery: false });
 }
 
 /* The plan with its vendor files link set, unless one is set already. */
