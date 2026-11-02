@@ -67,6 +67,7 @@
     programs:  [],
     brands:    null, // GX Core's shared brand list, reps included; null until it has loaded
     pencils:   null, // penciled brands (marketing, behind the switch); null until read
+    holidays:  null, // holiday sends (marketing, behind the switch); null until read
     record:    null  // program open in the record modal
   };
 
@@ -1431,21 +1432,25 @@
   /* Handing a task to someone: save it like any other click, then, once it is stored, ask the
      engine to tell that person. The engine only emails when the stored owner is that person and it
      has not told them already, so a re-fetched URL sends nothing. Not hedged, no retries. */
-  async function mkAssign(taskId, person) {
-    var p = state.record;
+  /* `holidayId` hands off a task on a holiday send (its dialog) rather than the open program. */
+  async function mkAssign(taskId, person, holidayId) {
+    var h = holidayId ? mkFind(holidayId) : null;
+    var p = holidayId ? h : state.record;
     if (!p || !canEdit()) return;
-    var ops = MK.assignOp(p, taskId, person);
+    var view = h ? MK.holidayProgram(h) : p;
+    var ops = MK.assignOp(view, taskId, person);
     if (!ops.length) return;
-    await mkApply(ops);
+    await mkApply(ops, holidayId);
     var stored = ((p.marketing_json || {}).own || {})[taskId] || '';
     if (!stored || stored !== person) return;
-    var g = MK.groupTasks(MK.tasksOf(p, mkOpts())).filter(function (x) { return x.id === taskId; })[0];
+    view = h ? MK.holidayProgram(h) : p;
+    var g = MK.groupTasks(MK.tasksOf(view, mkOpts())).filter(function (x) { return x.id === taskId; })[0];
     if (!g) return;
     try {
-      var r = await ENG.jsonp('marketingAssign', {
-        token: (session() || {}).token, id: p.program_id, task: taskId, person: person,
+      var r = await ENG.jsonp('marketingAssign', Object.assign({
+        token: (session() || {}).token, id: view.program_id, task: taskId, person: person,
         text: g.text, due: g.due || '', item: g.item ? MK.ITEMS[g.item].t : ''
-      }, { timeoutMs: 60000, retries: 0 });
+      }, h ? { kind: 'holiday' } : {}), { timeoutMs: 60000, retries: 0 });
       if (r && r.needsAuth) { clearSession(); openSignIn(); return; }
       mkStatus(r && r.ok ? (r.sent ? 'Saved. Emailed ' + r.to + '.' : 'Saved.') : 'Saved, but the email did not go: ' + ((r && r.error) || 'failed'), !(r && r.ok));
     } catch (err) {
@@ -1454,21 +1459,26 @@
   }
 
   function mkStatus(text, bad) {
-    var el = $('[data-mk-status]');
+    var el = (mkView.dlg && mkView.dlg.kind === 'holiday' && $('#mkDlg [data-mk-status]')) || $('[data-mk-status]');
     if (!el) return;
     el.textContent = text;
     el.classList.toggle('is-bad', !!bad);
   }
 
-  /* `programId` is for the Tasks view, which ticks a task on a program that is not the one open.
-     It saves through the same delta path, so the two screens cannot disagree about what is done. */
+  /* A program, or a holiday send (its own tab, its own save route), by id. */
+  function mkFind(id) {
+    return (state.programs || []).filter(function (x) { return x.program_id === id; })[0]
+      || (state.holidays || []).filter(function (x) { return x.holiday_id === id; })[0] || null;
+  }
+
+  /* `programId` is for the Tasks view, which ticks a task on a program that is not the one open,
+     and for a holiday send. It saves through the same delta path, so the screens cannot disagree
+     about what is done. */
   function mkApply(ops, programId) {
-    var p = programId
-      ? (state.programs || []).filter(function (x) { return x.program_id === programId; })[0]
-      : state.record;
+    var p = programId ? mkFind(programId) : state.record;
     if (!p || !ops || !ops.length || !canEdit()) return;
     if (!Object.prototype.hasOwnProperty.call(p, 'marketing_json')) return;
-    var id = p.program_id;
+    var id = p.program_id || p.holiday_id;
     if (!Object.prototype.hasOwnProperty.call(mkUi.saved, id)) mkUi.saved[id] = p.marketing_json;
     p.marketing_json = MK.applyOps(p.marketing_json, ops);
     mkUi.moving = '';
@@ -1481,15 +1491,16 @@
   function mkSaver() {
     if (mkSaverInst) return mkSaverInst;
     mkSaverInst = MK.makeSaver(async function (id, ops) {
-      var r = await ENG.jsonp('editProgram', {
-        token: (session() || {}).token, id: id, confirm_brand: '1',
-        patch: JSON.stringify({ marketing_delta: ops })
-      });
+      var patch = JSON.stringify({ marketing_delta: ops });
+      var holiday = (state.holidays || []).some(function (x) { return x.holiday_id === id; });
+      var r = holiday
+        ? await ENG.jsonp('saveHolidayPlan', { token: (session() || {}).token, id: id, patch: patch })
+        : await ENG.jsonp('editProgram', { token: (session() || {}).token, id: id, confirm_brand: '1', patch: patch });
       if (r && r.needsAuth) { clearSession(); openSignIn(); throw new Error('signed out'); }
       if (!r || !r.ok) throw new Error((r && r.error) || 'save failed');
       return r;
     }, function (phase, res, id) {
-      var p = (state.programs || []).filter(function (x) { return x.program_id === id; })[0];
+      var p = mkFind(id);
       if (phase === 'saving') { mkStatus('Saving…'); return; }
       if (phase === 'failed') {
         /* The screen was ahead of the sheet. Put it back, so nothing reads as done that is not. */
@@ -1508,6 +1519,7 @@
           var same = JSON.stringify(p.marketing_json) === JSON.stringify(res.marketing_json);
           p.marketing_json = res.marketing_json;
           if (!same && state.record === p) mkPaint(p);
+          if (!same && p.holiday_id) mkRenderViews();
           renderPrograms();
         }
       }
@@ -1522,7 +1534,8 @@
      what it was. A pencil is NOT a program. It lives in the engine's own `pencils` tab, which nothing
      that pays anybody or feeds a kiosk reads; the only way one becomes a program is a person pressing
      Lock it in. None of the pencil routes is in ENGINE_HEDGE_READS: a hedged write runs twice. */
-  var mkView = { view: 'list', offset: 0, owner: '', dlg: null, wired: false, loading: false, ready: true };
+  var mkView = { view: 'list', offset: 0, owner: '', dlg: null, wired: false, loading: false, ready: true,
+                 holLoading: false, holReady: true };
 
   function mkStoreList() {
     return state.stores.map(function (s) { return { store_id: s.store_id, name: s.display_name || s.store_id }; });
@@ -1553,6 +1566,26 @@
     mkRenderViews();
   }
 
+  /* Holiday sends: their own tab and their own read, never hedged. Like pencils, an engine that has
+     not been updated says so rather than looking like there are none. */
+  async function mkLoadHolidays() {
+    if (mkView.holLoading || state.holidays) return;
+    mkView.holLoading = true;
+    try {
+      var r = await ENG.jsonp('holidays', { token: (session() || {}).token });
+      if (r && r.needsAuth) { state.holidays = null; return; }
+      mkView.holReady = !!(r && r.ok && Array.isArray(r.holidays));
+      state.holidays = mkView.holReady ? r.holidays : [];
+    } catch (e) {
+      mkView.holReady = false;
+      state.holidays = [];
+    } finally {
+      mkView.holLoading = false;
+    }
+    mkRenderViews();
+  }
+  function mkHolidayPrograms() { return (state.holidays || []).map(MK.holidayProgram); }
+
   function mkRenderViews() {
     var seg = $('#mkViewSeg'), host = $('#mkView'), pens = $('#mkPencils');
     if (!seg || !host || !pens) return;
@@ -1565,19 +1598,21 @@
     if (!on) { pens.innerHTML = ''; host.innerHTML = ''; host.hidden = true; return; }
     mkWireViews();
     $$('#mkViewSeg button').forEach(function (b) { b.classList.toggle('is-on', b.dataset.mkView === view); });
-    var late = MK.overdueTotal(state.programs, today(), mkOpts());
+    var late = MK.overdueTotal((state.programs || []).concat(mkHolidayPrograms()), today(), mkOpts());
     var badge = $('#mkLateBadge');
     if (badge) badge.textContent = late || '';
     mkLoadPencils();
+    mkLoadHolidays();
 
     var pencils = state.pencils || [];
     var ctx = { today: today(), canEdit: canEdit(), offset: mkView.offset, owner: mkView.owner,
-                stores: mkStoreList(), storeName: storeName };
-    var notice = mkView.ready ? '' : '<div class="mk-warn">The engine has not been updated yet, so penciled brands cannot load or save. The rest works.</div>';
+                stores: mkStoreList(), storeName: storeName, holidays: state.holidays || [] };
+    var notice = (mkView.ready ? '' : '<div class="mk-warn">The engine has not been updated yet, so penciled brands cannot load or save. The rest works.</div>')
+      + (mkView.holReady ? '' : '<div class="mk-warn">The engine has not been updated yet, so holiday sends cannot load or save. The rest works.</div>');
     pens.innerHTML = view === 'list' ? MK.pencilListHtml(pencils, ctx) : '';
     host.hidden = view === 'list';
     if (view === 'calendar') host.innerHTML = notice + MK.calendarHtml(state.programs, pencils, ctx);
-    else if (view === 'tasks') host.innerHTML = MK.tasksAcrossHtml(state.programs, ctx);
+    else if (view === 'tasks') host.innerHTML = MK.tasksAcrossHtml((state.programs || []).concat(mkHolidayPrograms()), ctx);
     else host.innerHTML = '';
     mkDlgPaint();
   }
@@ -1586,6 +1621,7 @@
     var d = $('#mkDlg'), s = mkView.dlg;
     if (!d) return;
     if (!s || !mkOn()) { d.hidden = true; d.innerHTML = ''; return; }
+    if (s.kind === 'holiday') return mkHolidayDlgPaint(d, s);
     var pencils = state.pencils || [];
     var ctx = { today: today(), canEdit: canEdit(), periods: mkPeriods(), programs: state.programs, pencils: pencils,
                 day: s.day, error: s.error || '' };
@@ -1604,6 +1640,46 @@
     if (first && !s.painted) { first.focus(); s.painted = true; }
   }
 
+  /* A holiday send's dialog: its fields, and once saved its tasks, ticked and handed off exactly as a
+     program's are. What has been typed and not saved survives a repaint (a tick repaints). */
+  function mkHolidayDlgPaint(d, s) {
+    var h = s.id ? (state.holidays || []).filter(function (x) { return x.holiday_id === s.id; })[0] : null;
+    if (s.id && !h) { mkView.dlg = null; d.hidden = true; d.innerHTML = ''; return; }
+    var typed = d.querySelector('#mkHfName') ? mkHolidayForm(d) : null;
+    d.innerHTML = '<div class="mk-dlg-box" role="dialog" aria-modal="true">'
+      + MK.holidayDialogHtml(h, { today: today(), canEdit: canEdit(), moving: mkUi.moving, storeName: storeName, error: s.error || '' }) + '</div>';
+    d.hidden = false;
+    if (typed) {
+      d.querySelector('#mkHfName').value = typed.name;
+      d.querySelector('#mkHfDate').value = typed.send_date;
+      d.querySelector('#mkHfNote').value = typed.note;
+      $$('[data-mk-hfch]', d).forEach(function (c) { c.checked = typed.channels.indexOf(c.dataset.mkHfch) >= 0; });
+    }
+    MK.wire(d, {
+      program: function () {
+        var cur = mkView.dlg && mkView.dlg.kind === 'holiday' && mkView.dlg.id ? mkFind(mkView.dlg.id) : null;
+        return cur ? MK.holidayProgram(cur) : null;
+      },
+      opts: function () { return {}; },
+      moving: function (id) { mkUi.moving = id; mkDlgPaint(); },
+      apply: function (ops) { return mkApply(ops, mkView.dlg && mkView.dlg.id); },
+      plan: function () {},
+      assign: function (task, person) { return mkAssign(task, person, mkView.dlg && mkView.dlg.id); },
+      tick: function (key, on) {
+        mkApply(MK.doneOp(key, on, (session() || {}).user || '', new Date().toISOString()), mkView.dlg && mkView.dlg.id);
+      }
+    });
+    var first = d.querySelector('input,button');
+    if (first && !s.painted) { first.focus(); s.painted = true; }
+  }
+  function mkHolidayForm(d) {
+    return {
+      name: ($('#mkHfName', d) || {}).value || '', send_date: ($('#mkHfDate', d) || {}).value || '',
+      note: ($('#mkHfNote', d) || {}).value || '',
+      channels: $$('[data-mk-hfch]', d).filter(function (c) { return c.checked; }).map(function (c) { return c.dataset.mkHfch; })
+    };
+  }
+
   function mkDlgOpen(state_) { mkView.dlg = state_; mkDlgPaint(); }
   function mkDlgClose() { mkView.dlg = null; mkDlgPaint(); }
   function mkDlgError(msg) { if (mkView.dlg) { mkView.dlg.error = msg; mkDlgPaint(); } }
@@ -1619,9 +1695,26 @@
     var d = $('#mkDlg');
     if (name === 'dlgclose') return mkDlgClose();
     if (name === 'penadd') return mkDlgOpen({ kind: 'form', day: '' });
+    if (name === 'holadd') return mkDlgOpen({ kind: 'holiday', id: '' });
     if (!canEdit()) return;
     try {
-      if (name === 'pensave') {
+      if (name === 'holsave') {
+        var f = mkHolidayForm(d);
+        if (!f.name.trim()) return mkDlgError('Name the holiday send.');
+        if (!f.send_date) return mkDlgError('Pick a send date.');
+        if (!f.channels.length) return mkDlgError('Pick email, text, or both.');
+        var hr = await mkPencilCall('saveHoliday', { id: id, name: f.name.trim(), send_date: f.send_date, channels: f.channels.join(','), note: f.note });
+        state.holidays = (state.holidays || []).filter(function (q) { return q.holiday_id !== hr.holiday.holiday_id; }).concat([hr.holiday]);
+        /* A new one stays open, now showing its tasks. */
+        mkView.dlg = { kind: 'holiday', id: hr.holiday.holiday_id, painted: true };
+        d.innerHTML = '';
+        mkRenderViews();
+      } else if (name === 'holcancel') {
+        if (!window.confirm('Cancel this holiday send? Its tasks come off every list. The record is kept.')) return;
+        await mkPencilCall('cancelHoliday', { id: id });
+        state.holidays = (state.holidays || []).filter(function (q) { return q.holiday_id !== id; });
+        mkDlgClose(); mkRenderViews();
+      } else if (name === 'pensave') {
         var brand = ($('#mkPfBrand', d) || {}).value || '', first = ($('#mkPfFirst', d) || {}).value, last = ($('#mkPfLast', d) || {}).value;
         if (!brand.trim()) return mkDlgError('Add a brand name to pencil it in.');
         if (last < first) return mkDlgError('The last pay period comes before the first. Pick a later one.');
@@ -1662,6 +1755,7 @@
       },
       penAdd: function (day) { if (canEdit()) mkDlgOpen({ kind: 'form', day: day }); },
       pencil: function (id) { mkDlgOpen({ kind: 'detail', id: id }); },
+      holiday: function (id) { mkDlgOpen({ kind: 'holiday', id: id }); },
       act: mkPencilAct,
       open: function (id) { mkDlgClose(); openProgram(id); },
       pfChange: function () {

@@ -18,6 +18,9 @@
  * of the routes above runs with a pencil whose start date has already passed sitting in that tab, the
  * tab's accessors are rigged to fail the test if anything pay-shaped touches them, and the source of
  * every pay, publication, kiosk and boot function is checked for the word.
+ *
+ * HOLIDAY SENDS (Sky, 2026-11-02) get the same: their own `holidays` tab, its accessors rigged to
+ * fail the test if a pay route touches them, and the same source check for the word.
  */
 'use strict';
 const G = require('./_gas');
@@ -71,6 +74,7 @@ function progressRow(program, emp, units, target, earned) {
 }
 
 let PENCIL_TOUCHES = 0;
+let HOLIDAY_TOUCHES = 0;
 function engine(plan) {
   const programs = G.makeSheet(PH, programsRows(plan));
   const progress = G.makeSheet(PROG_H, [progressRow('running', 'e1', 6, 5, 50), progressRow('running', 'e2', 2, 5, 0)]);
@@ -93,6 +97,10 @@ function engine(plan) {
       /* Rigged: a pay, publication or kiosk route that reaches for the pencils tab is a failure. */
       pencilSheet_: () => { PENCIL_TOUCHES++; throw new Error('a pay route read the pencils tab'); },
       readPencils_: () => { PENCIL_TOUCHES++; throw new Error('a pay route read the pencils'); },
+      /* Rigged the same way for holiday sends. */
+      holidaySheet_: () => { HOLIDAY_TOUCHES++; throw new Error('a pay route read the holidays tab'); },
+      readHolidays_: () => { HOLIDAY_TOUCHES++; throw new Error('a pay route read the holidays'); },
+      getHoliday_: () => { HOLIDAY_TOUCHES++; throw new Error('a pay route read a holiday'); },
       progressSheet_: () => progress,
       listProgramsCached_: () => api.listPrograms_(),
       annotateActuals_: () => {}, annotateUnmeasurable_: () => {},
@@ -178,6 +186,41 @@ ok('no route above reached for the pencils tab', PENCIL_TOUCHES === 0);
   e.api.rollProgramStatuses_();
   ok('the status roll makes no program and reads no pencil, whatever dates are penciled',
      e.programs.rows.length === before && PENCIL_TOUCHES === 0);
+}
+
+console.log('\n5b. holiday sends');
+ok('no route above reached for the holidays tab', HOLIDAY_TOUCHES === 0);
+{
+  const NAMES = ['spiffProgress_', 'publishSpiffToCore_', 'publishToCore_', 'refreshSpiffProgress_', 'refreshProgressPlan_',
+                 'rollProgramStatuses_', 'listPrograms_', 'listProgramsCached_', 'rowToProgram_', 'programToRow_',
+                 'storeView_', 'lastProgramsByStore_', 'recordMeasuredActuals_', 'recordActualsWeb_', 'bootAll_',
+                 'byEmployee_', 'progEarned_', 'programRunsAt_', 'noProgramHeartbeatPayload_', 'publishNoProgramHeartbeat_',
+                 'sweepOrphanProgress_', 'dropProgressRows_', 'auditClosedPayouts_', 'clientView_', 'payoutFactsOf_',
+                 'sendBrandEmail_', 'buildReport_', 'giftCardList_'];
+  const named = [];
+  NAMES.forEach((n) => { try { named.push([n, G.grab(n)]); } catch (e) { /* not in the engine, nothing to leak */ } });
+  ok('the functions checked are really there (' + named.length + ' of ' + NAMES.length + ')', named.length >= 20);
+  const leaks = named.filter(([n, src]) => /holiday/i.test(src)).map(([n]) => n);
+  ok('  …and none of them mentions a holiday: ' + (leaks.join(', ') || 'none'), leaks.length === 0);
+  /* Only the holiday routes, and the hand-off email that reads a holiday's stored owner, may use the
+     tab's accessors. */
+  const users = ['holidaySheet_(', 'readHolidays_(', 'getHoliday_('];
+  const owners = ['holidaySheet_', 'holidayChannels_', 'holidayPlan_', 'rowToHoliday_', 'holidayToRow_', 'readHolidays_',
+                  'holidaysRead_', 'findHolidayRow_', 'getHoliday_', 'saveHoliday_', 'cancelHoliday_', 'saveHolidayPlan_',
+                  'marketingAssign_'];
+  let rest = G.GS;
+  owners.forEach((n) => { rest = rest.replace(G.grab(n), ''); });
+  ok('  …and nothing else in the engine calls the holidays tab', users.every((u) => rest.indexOf(u) < 0));
+  /* A holiday is never written into programs, and never through a program route. */
+  const writes = ['saveHoliday_', 'cancelHoliday_', 'saveHolidayPlan_'].map((n) => G.grab(n)).join('\n');
+  ok('  …and the holiday writes never touch programs, progress or Core',
+     !/dataSheet_\(\)\.(append|getRange)|progressSheet_|saveProgram_|createProgram_|editProgram_|GXCore\.publish|invalidatePrograms_/.test(writes));
+}
+{
+  /* The screen side: a holiday route is never hedged, because a hedged write runs twice. */
+  const js = require('fs').readFileSync(require('path').join(__dirname, '..', 'spiff.js'), 'utf8');
+  const hedge = (js.match(/var ENGINE_HEDGE_READS = \{([\s\S]*?)\};/) || [])[1] || '';
+  ok('no holiday route is hedged on the client', !/holiday/i.test(hedge));
 }
 
 console.log('\n6. the vendor plan and the team email (phase 3)');
