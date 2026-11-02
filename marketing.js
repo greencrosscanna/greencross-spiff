@@ -44,7 +44,8 @@
      window and 'e' from its end. `each` fans out one task per store. `on` names the item's date
      field: once somebody types that date, the task follows it. `unless` [field, value] drops the
      task while that detail holds that value. On an item marked `blast`, every 's' task counts back
-     from the item's typed send date instead of the window's start.
+     from the item's typed send date instead of the window's start. `vendor` marks a task only a
+     vendor program has, which a holiday send leaves out.
 
      THE IDS ARE THE STORED KEY. done and due are keyed on them, so a task can be reworded or moved
      around this list freely, but renaming an id orphans every tick already made against it. */
@@ -99,7 +100,7 @@
       f: [['sel', 'maker', 'Who makes the creative', ['We do', 'Vendor supplies']],
           ['date', 'date', 'Send date']],
       c: 'Review copy and offer before sending. Prohibited under Oregon rules: BOGO, tiered spend thresholds, tied discounts, cannabis gift-with-purchase.',
-      k: [['email.creative', 'DIR', 'Receive email creative and offer from vendor', 's', -14, { unless: ['maker', 'We do'] }],
+      k: [['email.creative', 'DIR', 'Receive email creative and offer from vendor', 's', -14, { unless: ['maker', 'We do'], vendor: 1 }],
           ['email.review', 'DIR', 'Send email proof to Sky Thursday; tick when Sky approves at the Friday L10', 's', -3],
           ['email.send', 'DIR', 'Send at 11 AM, then check emails sent vs planned', 's', 0, { on: 'date' }],
           ['email.stats', 'DIR', 'Record opens and clicks', 'e', 3]] },
@@ -107,7 +108,7 @@
       f: [['sel', 'cost', 'Cost model', ['Vendor credit', 'Vendor pays per text', 'We cover it']],
           ['date', 'date', 'Send date']],
       c: 'Review copy, offer and opt-in / opt-out wording. Same Oregon offer rules as email.',
-      k: [['sms.cost', 'INV', 'Agree on cost model and vendor credit', 's', -14],
+      k: [['sms.cost', 'INV', 'Agree on cost model and vendor credit', 's', -14, { vendor: 1 }],
           ['sms.approve', 'DIR', 'Send text proof to Sky Thursday; tick when Sky approves at the Friday L10', 's', -3],
           ['sms.send', 'DIR', 'Send at 11 AM', 's', 0, { on: 'date' }]] },
     social: { t: 'Social media', s: 'Posts on our accounts', sec: 'mkt',
@@ -260,6 +261,7 @@
     function push(itemId, row, from) {
       var flags = row[5] || {};
       if (flags.unless && itemId && (plan.d[itemId] || {})[flags.unless[0]] === flags.unless[1]) return;
+      if (flags.vendor && p.holiday) return;
       var start = from || (itemId && ITEMS[itemId].blast && sendDay(itemId)) || p.start_date;
       var anchor = row[3] === 's' ? start : p.end_date;
       var typed = flags.on && itemId && plan.d[itemId] ? plan.d[itemId][flags.on] : '';
@@ -306,13 +308,15 @@
         emit(store, store ? row[0] + '@' + store : row[0], '', planned);
       });
     }
-    CORE.forEach(function (row) { push(null, row); });
+    /* A holiday send is the blast cycle alone: no program tasks, no incentive, nothing vendor-only. */
+    if (!p.holiday) CORE.forEach(function (row) { push(null, row); });
     var blasts = Object.keys(ITEMS).filter(function (id) { return ITEMS[id].blast && isOn(p, id); });
     if (blasts.length) {
       var first = blasts.map(sendDay).filter(Boolean).sort()[0] || '';
       BLAST.forEach(function (row) { push(null, row, first); });
     }
     Object.keys(ITEMS).forEach(function (id) {
+      if (p.holiday && !ITEMS[id].blast) return;
       if (isOn(p, id)) ITEMS[id].k.forEach(function (row) { push(id, row); });
     });
     return out;
@@ -753,6 +757,11 @@
                        + (v.time ? ', ' + v.time : ''), start: v.date, end: v.date, kind: 'vday' });
       });
     });
+    /* Holiday sends are one-day markers too, on their send date. */
+    ((ctx && ctx.holidays) || []).forEach(function (h) {
+      if (!ISO.test(String(h.send_date || ''))) return;
+      vdays.push({ id: h.holiday_id, label: h.name + ' (' + channelWords(h) + ')', start: h.send_date, end: h.send_date, kind: 'holiday' });
+    });
     vdays.sort(byStart);
     var bars = (programs || []).filter(function (p) {
       return ISO.test(String(p.start_date || '')) && ISO.test(String(p.end_date || '')) && p.end_date >= p.start_date;
@@ -810,12 +819,13 @@
       if (b.end < ws || b.start > we) return;
       var s = Math.max(0, daysBetween(ws, b.start)), e = Math.min(6, daysBetween(ws, b.end));
       var cls = 'mk-vb ' + b.kind + (b.start >= ws ? ' l' : '') + (b.end <= we ? ' r' : '');
-      var act = b.kind === 'pencil' ? 'data-mk-pencil="' + esc(b.id) + '"' : 'data-mk-open="' + esc(b.id) + '"';
-      var word = b.kind === 'pencil' ? 'Penciled, not official' : b.kind === 'vday' ? 'Vendor day'
+      var act = b.kind === 'pencil' ? 'data-mk-pencil="' + esc(b.id) + '"'
+        : b.kind === 'holiday' ? 'data-mk-holiday="' + esc(b.id) + '"' : 'data-mk-open="' + esc(b.id) + '"';
+      var word = b.kind === 'pencil' ? 'Penciled, not official' : b.kind === 'vday' ? 'Vendor day' : b.kind === 'holiday' ? 'Holiday send'
         : b.kind === 'run' ? 'Running' : b.kind === 'done' ? 'Closed' : 'Draft';
       h += '<button type="button" class="' + cls + '" ' + act + ' style="--h:' + hueOf(b.label) + ';grid-column:' + (s + 1) + '/' + (e + 2) + ';grid-row:' + (2 + b.lane) + '"'
         + ' title="' + esc(b.label + ' · ' + word + ' · ' + shortDate(b.start) + ' to ' + shortDate(b.end)) + '">'
-        + (b.kind === 'pencil' ? '&#9998; ' : b.kind === 'vday' ? '&#9733; ' : '') + esc(b.label) + '</button>';
+        + (b.kind === 'pencil' ? '&#9998; ' : b.kind === 'vday' ? '&#9733; ' : b.kind === 'holiday' ? '&#9993; ' : '') + esc(b.label) + '</button>';
     });
     return h + '</div>';
   }
@@ -829,7 +839,8 @@
     var gridEnd = addDays(lastD, 6 - dow(lastD));
     var bars = assignLanes(barsOf(programs, pencils, ctx).filter(function (b) { return b.end >= gridStart && b.start <= gridEnd; }));
     var legend = '<div class="mk-legend"><span><i class="lg run"></i>Running</span><span><i class="lg draft"></i>Draft</span>'
-      + '<span><i class="lg done"></i>Closed</span><span><i class="lg vday"></i>Vendor day</span><span><i class="lg pencil"></i>Penciled, not official</span></div>';
+      + '<span><i class="lg done"></i>Closed</span><span><i class="lg vday"></i>Vendor day</span><span><i class="lg holiday"></i>Holiday send</span>'
+      + '<span><i class="lg pencil"></i>Penciled, not official</span></div>';
     var nav = '<span class="mk-seg"><button type="button" data-mk-nav="-1" aria-label="Earlier">&lsaquo;</button>'
       + '<button type="button" data-mk-nav="0">Today</button><button type="button" data-mk-nav="1" aria-label="Later">&rsaquo;</button></span>';
     var body = months.map(function (m) {
@@ -841,7 +852,8 @@
         + '</div>' + weeks + '</div>';
     }).join('');
     return '<div class="mk-row2"><h3 class="mk-h" style="margin:0">Calendar</h3><div class="mk-row2 mk-acts">' + nav
-      + (ctx.canEdit ? '<button type="button" class="gx-btn gx-btn-green" data-mk-act="penadd">&#9998; Pencil a brand</button>' : '') + '</div></div>'
+      + (ctx.canEdit ? '<button type="button" class="gx-btn" data-mk-act="holadd">&#9993; Holiday send</button>'
+        + '<button type="button" class="gx-btn gx-btn-green" data-mk-act="penadd">&#9998; Pencil a brand</button>' : '') + '</div></div>'
       + legend + '<p class="mk-sub">' + (ctx.canEdit ? 'Click an empty day to pencil a brand there. ' : '') + 'Click a bar to open it.</p>'
       + '<div class="mk-cal-scroll"><div class="mk-cal">' + body + '</div></div>';
   }
@@ -879,6 +891,7 @@
         if (g.item) sub.push(esc(ITEMS[g.item].t));
         if (g.each) sub.push('each store: ' + (g.rows.length - g.open) + ' of ' + g.rows.length);
         var pid = esc(p.program_id);
+        if (p.holiday) sub.splice(1, 0, 'Holiday send');
         var box = g.each ? '<span></span>'
           : '<input type="checkbox" data-mk-xtask="' + esc(g.key) + '" data-mk-prog="' + pid + '"' + ro + ' aria-label="Mark done">';
         var stores = !g.each ? '' : '<div class="mk-task-stores">' + g.rows.map(function (t) {
@@ -886,12 +899,63 @@
             + ' aria-pressed="' + (t.done ? 'true' : 'false') + '"' + ro + '>' + esc(ctx.storeName(t.store)) + '</button>';
         }).join('') + '</div>';
         return '<div class="mk-task">' + box + '<span class="tx">' + esc(g.text) + '<small>' + sub.join(' · ') + '</small>' + stores + '</span>'
-          + '<button type="button" class="mk-link" data-mk-open="' + pid + '" title="Open this program">Open</button>' + dueHtml(g, ctx.today) + '</div>';
+          + (p.holiday ? '<button type="button" class="mk-link" data-mk-holiday="' + pid + '" title="Open this holiday send">Open</button>'
+            : '<button type="button" class="mk-link" data-mk-open="' + pid + '" title="Open this program">Open</button>') + dueHtml(g, ctx.today) + '</div>';
       }).join('');
     }).join('');
     return '<div class="mk-row2"><div><h3 class="mk-h">Open tasks, every program</h3>'
       + '<p class="mk-sub mk-tight">Soonest first within each person. Tick one off here or on its program.</p></div>' + seg + '</div>'
       + '<div class="mk-card">' + (groups || '<p class="mk-sub">Nothing open.</p>') + '</div>';
+  }
+
+  /* ── Holiday sends ───────────────────────────────────────────────────────────────────────────────
+     A holiday blast of our own: name, send date, email and/or text, note. NOT a program: it lives in
+     the engine's own `holidays` tab, which nothing that pays anybody or feeds a kiosk reads. On the
+     screen it is read AS a program that has only its blast items picked, so its tasks, dates,
+     ticks and hand-offs are the vendor programs' own code: holidayProgram builds that view on every
+     read, and only done / due / own are ever stored. Its program_id is the holiday's own id. */
+  var CHANNEL_WORDS = { email: 'Email', sms: 'Text' };
+  function channelWords(h) {
+    return (h.channels || []).map(function (c) { return CHANNEL_WORDS[c] || c; }).join(' + ') || 'no channel';
+  }
+  function holidayProgram(h) {
+    var m = h.marketing_json || {}, sel = {}, d = {};
+    (h.channels || []).forEach(function (c) {
+      if (!CHANNEL_WORDS[c]) return;
+      sel[c] = true;
+      d[c] = h.send_date ? { date: h.send_date } : {};
+    });
+    return { program_id: h.holiday_id, holiday: true, vendor: h.name, program_name: h.name, status: 'active',
+             start_date: h.send_date, end_date: h.send_date, stores_json: [], note: h.note || '',
+             marketing_json: { v: 1, sel: sel, d: d, done: m.done || {}, due: m.due || {}, own: m.own || {} } };
+  }
+
+  /* ctx: { today, canEdit, moving, storeName, error }. h null = a new one. */
+  function holidayDialogHtml(h, ctx) {
+    var on = function (c) { return !h || (h.channels || []).indexOf(c) >= 0; };
+    var ro = ctx.canEdit ? '' : ' disabled';
+    var html = '<h3 class="mk-h">&#9993; ' + (h ? esc(h.name) : 'New holiday send') + '</h3>'
+      + '<p class="mk-sub">Our own email or text blast. It is not a vendor program: no pay, no kiosk, nothing in the status roll. '
+      + 'Its tasks count back from the send date.</p>'
+      + '<label class="mk-fld">Name<input id="mkHfName" type="text" maxlength="80" placeholder="For example: Thanksgiving" value="' + esc(h ? h.name : '') + '"' + ro + '></label>'
+      + '<div class="mk-2col"><label class="mk-fld">Send date<input id="mkHfDate" type="date" value="' + esc(h ? h.send_date : '') + '"' + ro + '></label>'
+      + '<div class="mk-fld">Channels<div class="mk-hf-ch">'
+      + Object.keys(CHANNEL_WORDS).map(function (c) {
+          return '<label><input type="checkbox" data-mk-hfch="' + c + '"' + (on(c) ? ' checked' : '') + ro + '> ' + CHANNEL_WORDS[c] + '</label>';
+        }).join(' ') + '</div></div></div>'
+      + '<label class="mk-fld">Note (optional)<input id="mkHfNote" type="text" maxlength="300" value="' + esc(h ? h.note : '') + '"' + ro + '></label>'
+      + '<div id="mkPfWarn">' + (ctx.error ? '<div class="mk-warn">' + esc(ctx.error) + '</div>' : '') + '</div>';
+    if (h) {
+      var hp = holidayProgram(h), groups = groupTasks(tasksOf(hp, {}));
+      html += '<div class="mk-phase">Tasks<span>' + groups.filter(function (g) { return g.open; }).length + ' open of ' + groups.length + '</span></div>'
+        + groups.map(function (g) { return taskHtml(g, hp, ctx); }).join('');
+    }
+    html += ctx.canEdit
+      ? '<div class="mk-dlg-act"><button type="button" class="gx-btn gx-btn-green" data-mk-act="holsave" data-mk-id="' + esc(h ? h.holiday_id : '') + '">' + (h ? 'Save changes' : 'Add it') + '</button>'
+        + (h ? '<button type="button" class="gx-btn" data-mk-act="holcancel" data-mk-id="' + esc(h.holiday_id) + '">Cancel this send</button>' : '')
+        + '<button type="button" class="gx-btn" data-mk-act="dlgclose">Close</button></div>'
+      : '<div class="mk-dlg-act"><button type="button" class="gx-btn" data-mk-act="dlgclose">Close</button></div>';
+    return html + '<div class="mk-status" data-mk-status role="status"></div>';
   }
 
   /* ── Penciled brands ─────────────────────────────────────────────────────────────────────────── */
@@ -964,7 +1028,7 @@
     if (host.__mkViewsWired) return;
     host.__mkViewsWired = true;
     host.addEventListener('click', function (e) {
-      var t = e.target.closest ? e.target.closest('button,[data-mk-pencil],[data-mk-open],[data-mk-view]') : null;
+      var t = e.target.closest ? e.target.closest('button,[data-mk-pencil],[data-mk-holiday],[data-mk-open],[data-mk-view]') : null;
       if (!t || t.disabled || !host.contains(t)) return;
       var d = t.dataset;
       if (d.mkView) return api.view(d.mkView);
@@ -974,6 +1038,7 @@
       if (d.mkDay) return api.penAdd(d.mkDay);
       if (d.mkAct) return api.act(d.mkAct, d.mkId || '');
       if (d.mkPencil) return api.pencil(d.mkPencil);
+      if (d.mkHoliday) return api.holiday(d.mkHoliday);
       if (d.mkOpen) return api.open(d.mkOpen);
     });
     host.addEventListener('change', function (e) {
@@ -989,6 +1054,7 @@
     calendarHtml: calendarHtml, openTasksAcross: openTasksAcross, tasksAcrossHtml: tasksAcrossHtml,
     pencilListHtml: pencilListHtml, pencilFormHtml: pencilFormHtml, pencilDetailHtml: pencilDetailHtml,
     wireViews: wireViews, monthStart: monthStart,
+    holidayProgram: holidayProgram, holidayDialogHtml: holidayDialogHtml, channelWords: channelWords,
     isVisible: isVisible, SECTIONS: SECTIONS, ITEMS: ITEMS, CORE: CORE, BLAST: BLAST, OWNERS: OWNERS,
     addDays: addDays, daysBetween: daysBetween, planOf: planOf, hasPlan: hasPlan, isOn: isOn,
     pickedItems: pickedItems, storesOf: storesOf, tasksOf: tasksOf, groupTasks: groupTasks,

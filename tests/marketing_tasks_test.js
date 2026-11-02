@@ -252,15 +252,15 @@ function joined(sessionValue, MkImpl) {
   return { api, fold, host };
 }
 /* spiff.js's own save join, run against a stubbed engine: what the screen shows after each outcome. */
-function saveJoin(p, answer, role) {
+function saveJoin(p, answer, role, holidays) {
   const js = fs.readFileSync(path.join(__dirname, '..', 'spiff.js'), 'utf8');
   const status = { textContent: '', classList: { bad: false, toggle(_, on) { this.bad = on; } } };
   const calls = [];
   let lists = 0, signIn = 0, paints = 0;
-  const src = ['mkStatus', 'mkApply', 'mkSaver', 'mkAssign'].map(n => G.grab(n, js)).join('\n');
+  const src = ['mkStatus', 'mkFind', 'mkApply', 'mkSaver', 'mkAssign'].map(n => G.grab(n, js)).join('\n');
   const fn = new Function('MK', 'state', '$', 'canEdit', 'mkUi', 'mkPaint', 'mkRenderViews', 'renderPrograms', 'ENG', 'session', 'clearSession', 'openSignIn',
-    'function mkOpts() { return { stores: [] }; }\nvar mkSaverInst = null;\n' + src + '\nreturn { mkApply, mkAssign };');
-  const state = { record: p, programs: [p] };
+    'function mkOpts() { return { stores: [] }; }\nvar mkSaverInst = null;\nvar mkView = { dlg: null };\n' + src + '\nreturn { mkApply, mkAssign };');
+  const state = { record: p, programs: p ? [p] : [], holidays: holidays || [] };
   const api = fn(MK, state, () => status, () => role !== 'viewer', { moving: '', saved: {} }, () => { paints++; }, () => {},
     () => { lists++; },
     { jsonp: async (action, params) => { calls.push({ action, params }); return answer(params); } },
@@ -372,6 +372,22 @@ async function saveJoinChecks() {
     ok('a blast-cycle task can be handed off too, and its email carries no item name',
        JSON.stringify(JSON.parse(j.calls[0].params.patch).marketing_delta) === '[["own","blast.copy","sky"]]'
        && mail.action === 'marketingAssign' && mail.params.task === 'blast.copy' && mail.params.item === '');
+  }
+  {
+    /* A holiday send is not a program: its ticks and hand-offs go to its own route, never editProgram. */
+    const h = { holiday_id: 'hol-1', name: 'Thanksgiving', send_date: '2026-11-23', channels: ['email'], marketing_json: { v: 1 } };
+    const j = saveJoin(withPlan({}), (params) => params.patch
+      ? { ok: true, holiday_id: 'hol-1', marketing_json: Object.assign({}, h.marketing_json) }
+      : { ok: true, sent: true, to: 'mike@greencrosscanna.com' }, 'admin', [h]);
+    j.api.mkApply(MK.doneOp('blast.deal', true, 'sky', 'x'), 'hol-1');
+    await flush(); await flush();
+    ok('a holiday tick saves through saveHolidayPlan, not editProgram', j.calls[0].action === 'saveHolidayPlan'
+       && j.calls[0].params.id === 'hol-1' && !('confirm_brand' in j.calls[0].params));
+    await j.api.mkAssign('blast.deal', 'mike', 'hol-1');
+    await flush();
+    const mail = j.calls[j.calls.length - 1] || {};
+    ok('  …and a holiday hand-off asks the engine as a holiday', j.calls[j.calls.length - 2].action === 'saveHolidayPlan'
+       && mail.action === 'marketingAssign' && mail.params.kind === 'holiday' && mail.params.id === 'hol-1' && mail.params.due === '2026-11-18');
   }
 }
 

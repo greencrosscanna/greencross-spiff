@@ -232,6 +232,15 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   earliest one. `email.creative` drops out when "Who makes the creative" is "We do" (blank keeps
   it). Pinned by `tests/marketing_tasks_test.js` section 13. The section shows to sky, mike and
   tawny (their GX Core sign-in names) until `VISIBLE_TO_EVERYONE` is flipped.
+  **Holiday sends are not programs** (Sky, 2026-11-02): name + send date + channels (email/sms) +
+  note, in their **own `holidays` tab, never in `programs`** — same reason as pencils. Rows are never
+  deleted (`status` planned / canceled). The screen reads one as a program with only its blast
+  items picked (`holidayProgram`), so it gets the blast cycle counted back from its send date, minus
+  the vendor-only tasks (`vendor` flag: `email.creative`, `sms.cost`); only `done` / `due` / `own`
+  are stored, in the row's `marketing_json`, through `saveHolidayPlan` (the same delta ops).
+  `marketingAssign` takes `kind=holiday`. Nothing that pays, publishes or feeds a kiosk may read the
+  tab; no holiday route on `ENGINE_HEDGE_READS`. Nothing is seeded. Pinned by
+  `tests/marketing_holidays_test.js` and the isolation test's section 5b.
   **The vendor plan's artwork sizes are generic on purpose** (Sky, 2026-11-02, `MKT_SIZES_`): TV
   1920×1080 / 3840×2160 horizontal or vertical as image or MP4, standard social sizes, 8.5×11 print.
   **Saving the plan files it in the program's vendor files folder** (`d.files.url`) when that is a

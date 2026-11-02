@@ -390,6 +390,12 @@ function doGet(e) {
       case 'savePencil':    out = savePencil_(p);                                   break;
       case 'releasePencil': out = releasePencil_(p);                                break;
       case 'lockPencil':    out = lockPencil_(p);                                   break;
+      /* Holiday sends: the same shape. Their own tab, read by nothing that pays anybody or feeds a
+         kiosk; none hedged on the client. See HOLIDAY SENDS. */
+      case 'holidays':        out = holidaysRead_(p);                               break;
+      case 'saveHoliday':     out = saveHoliday_(p);                                break;
+      case 'cancelHoliday':   out = cancelHoliday_(p);                              break;
+      case 'saveHolidayPlan': out = saveHolidayPlan_(p);                            break;
       /* One-time correction of the pay-period column on rows that predate the derivation.
          Secret-gated, dry by default — see backfillPayPeriods_. */
       case 'backfillPayPeriods': out = backfillPayPeriods_(p);                      break;
@@ -1920,6 +1926,174 @@ function lockPencil_(p) {
   if (!made || !made.ok) return made || { ok: false, error: 'Could not make the program.' };
   closePencil_(sh, rowNo, 'locked', who.auth.user, made.program_id);
   return { ok: true, pencil_id: cur.pencil_id, program_id: made.program_id, locked: true };
+}
+
+/* ── HOLIDAY SENDS (SPIFF 2.0, Sky 2026-11-02) ─────────────────────────────────────────────────
+ * A holiday blast (Thanksgiving, Christmas, New Year's Eve) is an email and/or text send of our own:
+ * name, send date, channels, note. It runs the same blast cycle as a vendor program's email and text
+ * (deal locked, copy ready, proofs to Sky, send, stats), counted back from its send date, and its
+ * ticks, hand-moved dates and hand-offs are kept in its own `marketing_json` cell.
+ *
+ * IT IS NOT A PROGRAM, and lives in its own tab for the same reason pencils do: nothing that reads
+ * `programs` can see one, so no status roll, no progress sweep, no publication to Core, no kiosk
+ * card and no pay. Do not read this tab from any of those, and do not add a holiday route to the
+ * client's ENGINE_HEDGE_READS. tests/marketing_pay_isolation_test.js holds both.
+ *
+ * Rows are never deleted: `status` is planned | canceled, and every read serves only `planned`.
+ * Nothing is seeded; Sky adds the holidays himself. */
+var HOLIDAYS_TAB = 'holidays';
+var HOLIDAY_HEADERS = ['holiday_id', 'name', 'send_date', 'channels', 'note', 'status', 'marketing_json',
+                       'created_by', 'created_at', 'closed_by', 'closed_at'];
+var HOLIDAY_CHANNELS = ['email', 'sms'];
+
+function holidaySheet_() {
+  var book = dataSheet_().getParent();
+  var sh = book.getSheetByName(HOLIDAYS_TAB);
+  if (!sh) {
+    sh = book.insertSheet(HOLIDAYS_TAB);
+    sh.getRange(1, 1, 1, HOLIDAY_HEADERS.length).setValues([HOLIDAY_HEADERS]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    /* Dates are TEXT at rest; pinned before the first row is written. */
+    var rows = Math.max(sh.getMaxRows() - 1, 1);
+    sh.getRange(2, 3, rows, 1).setNumberFormat('@');
+    sh.getRange(2, 9, rows, 1).setNumberFormat('@');
+    sh.getRange(2, 11, rows, 1).setNumberFormat('@');
+  }
+  return sh;
+}
+
+function holidayChannels_(v) {
+  var list = Array.isArray(v) ? v : String(v || '').split(',');
+  return HOLIDAY_CHANNELS.filter(function (c) {
+    return list.some(function (x) { return String(x).trim().toLowerCase() === c; });
+  });
+}
+
+/* What a holiday's plan may keep: ticks, hand-moved dates and hand-offs. Its channels and send date
+   are columns, so nothing in the cell can disagree with them. */
+function holidayPlan_(v) {
+  var n = normalizeMarketing_(v) || {};
+  var out = { v: 1 };
+  ['done', 'due', 'own'].forEach(function (k) { if (n[k] && Object.keys(n[k]).length) out[k] = n[k]; });
+  return out;
+}
+
+function rowToHoliday_(r) {
+  return {
+    holiday_id: String(r[0] || ''), name: String(r[1] || ''), send_date: textDate_(r[2]),
+    channels: holidayChannels_(r[3]), note: String(r[4] || ''), status: String(r[5] || ''),
+    marketing_json: holidayPlan_(parseJson_(r[6], {})),
+    created_by: String(r[7] || ''), created_at: textDate_(r[8]),
+    closed_by: String(r[9] || ''), closed_at: textDate_(r[10])
+  };
+}
+
+function holidayToRow_(h) {
+  return HOLIDAY_HEADERS.map(function (k) {
+    if (k === 'channels') return h.channels.join(',');
+    if (k === 'marketing_json') return JSON.stringify(h.marketing_json || { v: 1 });
+    return h[k] == null ? '' : h[k];
+  });
+}
+
+function readHolidays_() {
+  var sh = holidaySheet_(), last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, HOLIDAY_HEADERS.length).getValues()
+    .filter(function (r) { return r[0]; }).map(rowToHoliday_);
+}
+
+/* Signed-in read, from the sheet each time: the tab is tiny, and a canceled send must not reappear
+   from a cache. */
+function holidaysRead_() {
+  return { ok: true, holidays: readHolidays_().filter(function (h) { return h.status === 'planned'; }) };
+}
+
+function findHolidayRow_(sh, id) {
+  var last = sh.getLastRow();
+  if (last < 2 || !id) return 0;
+  var ids = sh.getRange(2, 1, last - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) if (String(ids[i][0]) === String(id)) return i + 2;
+  return 0;
+}
+
+function getHoliday_(id) {
+  var sh = holidaySheet_(), rowNo = findHolidayRow_(sh, id);
+  if (!rowNo) return { ok: false, error: 'That holiday send is not there any more.' };
+  return { ok: true, holiday: rowToHoliday_(sh.getRange(rowNo, 1, 1, HOLIDAY_HEADERS.length).getValues()[0]), sh: sh, rowNo: rowNo };
+}
+
+/* Create (no id) or change name / send date / channels / note (with id). */
+function saveHoliday_(p) {
+  var who = mktEditor_(p, 'plan holiday sends');
+  if (who.fail) return who.fail;
+  var name = String(p.name || '').trim().slice(0, 80);
+  if (!name) return { ok: false, error: 'Name the holiday send.' };
+  var day = String(p.send_date || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return { ok: false, error: 'Pick a send date.' };
+  var channels = holidayChannels_(p.channels);
+  if (!channels.length) return { ok: false, error: 'Pick email, text, or both.' };
+  var note = String(p.note || '').trim().slice(0, 300);
+
+  if (p.id) {
+    var got = getHoliday_(p.id);
+    if (!got.ok) return got;
+    if (got.holiday.status !== 'planned') return { ok: false, error: 'That holiday send was ' + got.holiday.status + '.' };
+    var h = got.holiday;
+    h.name = name; h.send_date = day; h.channels = channels; h.note = note;
+    got.sh.getRange(got.rowNo, 1, 1, HOLIDAY_HEADERS.length).setValues([holidayToRow_(h)]);
+    return { ok: true, holiday: h, created: false };
+  }
+
+  /* A retried call is not a second send: writes ride on GET and gx-client retries a slow reply. */
+  var same = readHolidays_().filter(function (x) {
+    return x.status === 'planned' && x.created_by === who.auth.user && x.name.toLowerCase() === name.toLowerCase()
+        && x.send_date === day;
+  })[0];
+  if (same) return { ok: true, holiday: same, created: false, replay: true };
+
+  var made = { holiday_id: 'hol-' + Date.now().toString(36) + '-' + Math.floor(Math.random() * 1296).toString(36),
+               name: name, send_date: day, channels: channels, note: note, status: 'planned',
+               marketing_json: { v: 1 }, created_by: who.auth.user, created_at: nowStamp_(),
+               closed_by: '', closed_at: '' };
+  holidaySheet_().appendRow(holidayToRow_(made));
+  return { ok: true, holiday: made, created: true };
+}
+
+function cancelHoliday_(p) {
+  var who = mktEditor_(p, 'cancel holiday sends');
+  if (who.fail) return who.fail;
+  var got = getHoliday_(p.id);
+  if (!got.ok) return got;
+  if (got.holiday.status !== 'planned') return { ok: true, holiday_id: got.holiday.holiday_id, canceled: false, status: got.holiday.status };
+  var h = got.holiday;
+  h.status = 'canceled'; h.closed_by = who.auth.user; h.closed_at = nowStamp_();
+  got.sh.getRange(got.rowNo, 1, 1, HOLIDAY_HEADERS.length).setValues([holidayToRow_(h)]);
+  return { ok: true, holiday_id: h.holiday_id, canceled: true };
+}
+
+/* A tick, a moved date or a hand-off: the same [section, key, value] operations a program's plan
+   takes (applyMarketingDelta_), applied to what is stored NOW under the script lock, so two people
+   ticking different tasks cannot undo each other. */
+function saveHolidayPlan_(p) {
+  var who = mktEditor_(p, 'change holiday sends');
+  if (who.fail) return who.fail;
+  var ops = parseJson_(p.patch, {});
+  ops = ops && Array.isArray(ops.marketing_delta) ? ops.marketing_delta : null;
+  if (!ops) return { ok: false, error: 'Nothing to save.' };
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return { ok: false, error: 'Another save is in progress. Try again in a moment.' };
+  try {
+    var got = getHoliday_(p.id);
+    if (!got.ok) return got;
+    if (got.holiday.status !== 'planned') return { ok: false, error: 'That holiday send was ' + got.holiday.status + '.' };
+    var h = got.holiday;
+    h.marketing_json = holidayPlan_(applyMarketingDelta_(h.marketing_json, ops));
+    got.sh.getRange(got.rowNo, 1, 1, HOLIDAY_HEADERS.length).setValues([holidayToRow_(h)]);
+    return { ok: true, holiday_id: h.holiday_id, marketing_json: h.marketing_json };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /* Validate a GX Core session token and resolve this user's role on `spiff`.
@@ -6776,9 +6950,11 @@ function marketingAssign_(p) {
   var person = String(p.person || '').toLowerCase(), task = String(p.task || '');
   if (!Object.prototype.hasOwnProperty.call(MKT_PEOPLE_, person)) return { ok: false, error: 'Unknown person: ' + person };
   if (!/^[a-z][a-z0-9_.-]{0,80}$/.test(task)) return { ok: false, error: 'Unknown task' };
-  var res = getProgram_(p.id);
+  /* A holiday send keeps its hand-offs the same way, in its own tab (see HOLIDAY SENDS). */
+  var holiday = String(p.kind || '') === 'holiday';
+  var res = holiday ? getHoliday_(p.id) : getProgram_(p.id);
   if (!res.ok) return res;
-  var prog = res.program;
+  var prog = holiday ? res.holiday : res.program;
   var plan = normalizeMarketing_(prog.marketing_json) || {};
   if (((plan.own || {})[task] || '') !== person) {
     return { ok: false, error: 'That task is not assigned to ' + person + ' in what is saved.' };
@@ -6789,9 +6965,9 @@ function marketingAssign_(p) {
   if (!lock.tryLock(15000)) return { ok: false, error: 'Another send is in progress. Try again in a moment.' };
   try {
     var props = PropertiesService.getScriptProperties();
-    var key = MKT_ASSIGNED_PREFIX + prog.program_id + ':' + task;
+    var key = MKT_ASSIGNED_PREFIX + (holiday ? prog.holiday_id : prog.program_id) + ':' + task;
     if (props.getProperty(key) === person) return { ok: true, sent: false, why: 'already told' };
-    var label = brandProgramLabel_(prog);
+    var label = holiday ? 'Holiday send: ' + prog.name + ' (' + prettyDay_(prog.send_date) + ')' : brandProgramLabel_(prog);
     var text = String(p.text || '').trim().slice(0, 200) || task;
     var item = String(p.item || '').trim().slice(0, 80);
     var due = /^\d{4}-\d{2}-\d{2}$/.test(String(p.due || '')) ? prettyDay_(p.due) : 'no date yet';
