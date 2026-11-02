@@ -49,7 +49,7 @@ function engine(o) {
     real: ['vendorFold_', 'vendorFolderFor_', 'withVendorFolder_', 'vendorFoldersRun_', 'normalizeMarketing_'],
     vars: ['VENDOR_FOLDERS_PARENT', 'MKT_PEOPLE_'],
     stubs: {
-      gxStores_: () => [{ store_id: 'portland-rd', display_name: 'Portland Heights' }],
+      gxStores_: () => [{ store_id: 'portland-rd', display_name: 'Portland Rd' }],
       listPrograms_: () => programs,
       getProgram_: (id) => { const p = programs.filter(x => x.program_id === id)[0]; return p ? { ok: true, program: JSON.parse(JSON.stringify(p)) } : { ok: false }; },
       saveProgram_: (p) => { saved.push(p); return { ok: true }; },

@@ -6610,6 +6610,9 @@ function withVendorFolder_(plan, url) {
 function vendorFoldersRun_(apply) {
   var skip = Object.create(null);
   skip[vendorFold_('Green Cross')] = true;
+  /* A store's old name, filed as the vendor on its own 2026-08 fortnight; the live store list no
+     longer carries it, so it is named here. */
+  skip[vendorFold_('Portland Heights')] = true;
   try { (gxStores_() || []).forEach(function (s) { skip[vendorFold_(s.display_name)] = true; skip[vendorFold_(s.store_id)] = true; }); }
   catch (e) { /* a store name slipping through costs one empty folder */ }
   var names = Object.create(null), order = [];
