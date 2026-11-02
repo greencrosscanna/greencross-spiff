@@ -1369,6 +1369,7 @@
       moving: function (id) { mkUi.moving = id; mkPaint(state.record); },
       apply: mkApply,
       plan: mkPlanAction,
+      assign: mkAssign,
       tick: function (key, on) {
         mkApply(MK.doneOp(key, on, (session() || {}).user || '', new Date().toISOString()));
       }
@@ -1427,6 +1428,31 @@
     mkPlanStatus(r && r.ok ? 'Emailed ' + r.to.join(', ') : 'Not sent: ' + ((r && r.error) || 'failed'), !(r && r.ok));
   }
 
+  /* Handing a task to someone: save it like any other click, then, once it is stored, ask the
+     engine to tell that person. The engine only emails when the stored owner is that person and it
+     has not told them already, so a re-fetched URL sends nothing. Not hedged, no retries. */
+  async function mkAssign(taskId, person) {
+    var p = state.record;
+    if (!p || !canEdit()) return;
+    var ops = MK.assignOp(p, taskId, person);
+    if (!ops.length) return;
+    await mkApply(ops);
+    var stored = ((p.marketing_json || {}).own || {})[taskId] || '';
+    if (!stored || stored !== person) return;
+    var g = MK.groupTasks(MK.tasksOf(p, mkOpts())).filter(function (x) { return x.id === taskId; })[0];
+    if (!g) return;
+    try {
+      var r = await ENG.jsonp('marketingAssign', {
+        token: (session() || {}).token, id: p.program_id, task: taskId, person: person,
+        text: g.text, due: g.due || '', item: g.item ? MK.ITEMS[g.item].t : ''
+      }, { timeoutMs: 60000, retries: 0 });
+      if (r && r.needsAuth) { clearSession(); openSignIn(); return; }
+      mkStatus(r && r.ok ? (r.sent ? 'Saved. Emailed ' + r.to + '.' : 'Saved.') : 'Saved, but the email did not go: ' + ((r && r.error) || 'failed'), !(r && r.ok));
+    } catch (err) {
+      mkStatus('Saved, but the email is not confirmed: ' + String(err && err.message || err), true);
+    }
+  }
+
   function mkStatus(text, bad) {
     var el = $('[data-mk-status]');
     if (!el) return;
@@ -1448,7 +1474,7 @@
     mkUi.moving = '';
     if (state.record === p) mkPaint(p);
     mkRenderViews();
-    mkSaver().add(id, ops);
+    return mkSaver().add(id, ops);
   }
 
   var mkSaverInst = null;

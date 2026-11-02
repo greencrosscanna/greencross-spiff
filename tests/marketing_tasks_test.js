@@ -239,11 +239,11 @@ function joined(sessionValue, MkImpl) {
   const nodes = { '#calcMarketingFold': fold, '#calcMarketingBody': host, '#calcMarketingNote': note };
   const src = ['mkOn', 'mkOpts', 'mkListLine', 'mkOverdueTile', 'mkPaint', 'syncMarketing']
     .map(n => G.grab(n, js)).join('\n');
-  const fn = new Function('MK', 'session', 'state', '$', 'today', 'statTile', 'canEdit', 'storeName', 'mkUi', 'mkApply', 'mkPlanAction',
+  const fn = new Function('MK', 'session', 'state', '$', 'today', 'statTile', 'canEdit', 'storeName', 'mkUi', 'mkApply', 'mkPlanAction', 'mkAssign',
     src + '\nreturn { mkOn, mkListLine, mkOverdueTile, syncMarketing };');
   const api = fn(MkImpl === undefined ? MK : MkImpl, () => sessionValue,
     { stores: ALL6.map(s => ({ store_id: s })), record: null },
-    s => nodes[s] || null, () => TODAY, (v, l) => '[' + v + ' ' + l + ']', () => true, s => s, { moving: '', saved: {} }, () => {}, () => {});
+    s => nodes[s] || null, () => TODAY, (v, l) => '[' + v + ' ' + l + ']', () => true, s => s, { moving: '', saved: {} }, () => {}, () => {}, () => {});
   return { api, fold, host };
 }
 /* spiff.js's own save join, run against a stubbed engine: what the screen shows after each outcome. */
@@ -252,9 +252,9 @@ function saveJoin(p, answer, role) {
   const status = { textContent: '', classList: { bad: false, toggle(_, on) { this.bad = on; } } };
   const calls = [];
   let lists = 0, signIn = 0, paints = 0;
-  const src = ['mkStatus', 'mkApply', 'mkSaver'].map(n => G.grab(n, js)).join('\n');
+  const src = ['mkStatus', 'mkApply', 'mkSaver', 'mkAssign'].map(n => G.grab(n, js)).join('\n');
   const fn = new Function('MK', 'state', '$', 'canEdit', 'mkUi', 'mkPaint', 'mkRenderViews', 'renderPrograms', 'ENG', 'session', 'clearSession', 'openSignIn',
-    'var mkSaverInst = null;\n' + src + '\nreturn { mkApply };');
+    'function mkOpts() { return { stores: [] }; }\nvar mkSaverInst = null;\n' + src + '\nreturn { mkApply, mkAssign };');
   const state = { record: p, programs: [p] };
   const api = fn(MK, state, () => status, () => role !== 'viewer', { moving: '', saved: {} }, () => { paints++; }, () => {},
     () => { lists++; },
@@ -312,6 +312,49 @@ async function saveJoinChecks() {
     await flush();
     ok('against an engine without the column, nothing is sent or pretended', j.calls.length === 0 && !p.marketing_json);
   }
+
+  console.log('\n12. handing a task to someone');
+  {
+    const p = withPlan({ sel: { email: true } });
+    const j = saveJoin(p, (params) => params.patch
+      ? { ok: true, marketing_json: Object.assign({}, p.marketing_json) }
+      : { ok: true, sent: true, to: 'tawny@greencrosscanna.com' });
+    await j.api.mkAssign('email.send', 'tawny');
+    await flush();
+    ok('it saves the new owner first, through the edit route', j.calls[0].action === 'editProgram'
+       && JSON.stringify(JSON.parse(j.calls[0].params.patch).marketing_delta) === '[["own","email.send","tawny"]]');
+    const mail = j.calls[1] || {};
+    ok('  …then asks the engine to tell that person, naming the task and its date', mail.action === 'marketingAssign'
+       && mail.params.person === 'tawny' && mail.params.task === 'email.send' && mail.params.text === 'Send email blast' && /^\d{4}-\d{2}-\d{2}$/.test(mail.params.due));
+    ok('  …and says who was emailed', /Emailed tawny@greencrosscanna.com/.test(j.status.textContent));
+    ok('the task now shows its new owner', MK.tasksOf(p, {}).filter(t => t.id === 'email.send')[0].owner === 'Tawny');
+  }
+  {
+    const p = withPlan({ sel: { email: true }, own: { 'email.send': 'tawny' } });
+    const j = saveJoin(p, () => ({ ok: true, marketing_json: Object.assign({}, p.marketing_json) }));
+    await j.api.mkAssign('email.send', '');
+    await flush();
+    ok('handing it back to its default owner saves, and emails nobody', j.calls.length === 1 && j.calls[0].action === 'editProgram'
+       && !(p.marketing_json.own || {})['email.send']);
+  }
+  {
+    const p = withPlan({ sel: { email: true } });
+    const j = saveJoin(p, () => { throw new Error('the engine said no.'); });
+    await j.api.mkAssign('email.send', 'sky');
+    await flush();
+    ok('a save that fails sends no email', j.calls.length === 1 && j.calls[0].action === 'editProgram');
+  }
+  ok('picking the default owner clears the override, and an unknown person is refused',
+     JSON.stringify(MK.assignOp({}, 'core.menu', 'tawny')) === '[["own","core.menu",null]]'
+     && MK.assignOp({}, 'core.menu', 'bob').length === 0 && MK.assignOp({}, 'nope', 'sky').length === 0);
+  const html = MK.sectionHtml(withPlan({ sel: { email: true }, own: { 'email.send': 'sky' } }),
+    { today: TODAY, canEdit: true, engineReady: true, stores: ALL6.map(s => ({ store_id: s, name: s })), storeName: s => s });
+  ok('an editor gets an owner picker on each task, showing who has it', /<select class="mk-own o-SKY" data-mk-assign="email.send"/.test(html)
+     && /<option value="sky" selected>Sky<\/option>/.test(html));
+  ok('  …offering its default owner and the three people, no one twice', /data-mk-assign="core.menu"[^>]*><option value="" selected>Tawny<\/option><option value="mike">Mike<\/option><option value="sky">Sky<\/option><\/select>/.test(html));
+  const view = MK.sectionHtml(withPlan({ sel: { email: true } }),
+    { today: TODAY, canEdit: false, engineReady: true, stores: ALL6.map(s => ({ store_id: s, name: s })), storeName: s => s });
+  ok('a viewer sees the owner, not a picker', !/data-mk-assign/.test(view) && /class="mk-own o-DIR">Mike/.test(view));
 }
 
 async function main() {

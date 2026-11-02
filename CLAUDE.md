@@ -217,6 +217,12 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   stores). The vendor files link is `d.files.url`, internal only. Cards show no compliance note —
   Sky's workflows carry those guardrails; `c` stays on each item as the record. The incentive has
   no Details card.
+  **A task can be handed to Tawny, Mike or Sky — those three only** (Sky, 2026-11-02).
+  `marketing_json.own` = `{task_id: person}`; picking the default owner clears it. After the save
+  lands, `?action=marketingAssign` emails that person. It sends only if the STORED owner is them,
+  never to someone who took the task themselves, and once per hand-off (`mktassigned:` property).
+  Addresses are fixed in `MKT_PEOPLE_` (mirrored by `PEOPLE` in marketing.js), never read from the request.
+  Pinned by `tests/marketing_vendor_plan_test.js` section 7 and `tests/marketing_tasks_test.js` section 12.
 
 ### Money: payout, cost, vendor send
 

@@ -404,6 +404,9 @@ function doGet(e) {
          EMAILS THE INTERNAL TEAM (never a brand) and refuses a repeat without resend=1. */
       case 'marketingOverview': out = marketingOverview_(p);                        break;
       case 'marketingNotify':   out = marketingNotify_(p);                          break;
+      /* EMAILS ONE TEAMMATE that a task is now theirs, only if the stored owner is that person and
+         they have not been told already. Editor session only, never hedged. */
+      case 'marketingAssign':   out = marketingAssign_(p);                          break;
       case 'giftCards':   out = giftCardList_(p);                                   break;
       case 'clientView':  out = clientView_(p);                                     break;
       case 'shareLink':   out = shareLink_(p);                                      break;
@@ -660,7 +663,7 @@ function normalizePitch_(v) {
 /* ── THE MARKETING RECORD: ONLY WHAT A PERSON DECIDED ────────────────────────────────────────────
  * { v:1, stores:[store_id], sel:{item:true}, skip:{item:true}, d:{item:{field:value}},
  *   done:{task_key:{by,at}}, due:{task_key:'YYYY-MM-DD'}, events:[{name,date,time}],
- *   vdays:[{store,date,time}], rows:{item:[{date,text,stores}]}, notes:'' }
+ *   vdays:[{store,date,time}], rows:{item:[{date,text,stores}]}, own:{task_id:person}, notes:'' }
  *
  * Tasks, due dates, overdue flags and compliance notes are computed on read by marketing.js and
  * never stored, for the same reason as the record warnings: a stored due date stops agreeing the
@@ -753,9 +756,18 @@ function normalizeMarketing_(v) {
   });
   if (!Object.keys(out.rows).length) delete out.rows;
 
+  /* A task handed to someone other than its default owner: {task_id: person}, one of MKT_PEOPLE_. */
+  out.own = {};
+  var own = v.own && typeof v.own === 'object' && !Array.isArray(v.own) ? v.own : {};
+  Object.keys(own).forEach(function (k) {
+    var who = text(own[k], 20).toLowerCase();
+    if (KEY.test(k) && Object.prototype.hasOwnProperty.call(MKT_PEOPLE_, who)) out.own[k] = who;
+  });
+  if (!Object.keys(out.own).length) delete out.own;
+
   out.notes = text(v.notes, 2000);
 
-  var planned = out.stores || out.notes || out.events.length || out.vdays || out.rows
+  var planned = out.stores || out.notes || out.events.length || out.vdays || out.rows || out.own
     || ['sel', 'skip', 'd', 'done', 'due'].some(function (k) { return Object.keys(out[k]).length; });
   return planned ? out : null;
 }
@@ -768,7 +780,7 @@ function normalizeMarketing_(v) {
    marketing.js's applyOps mirrors this for the screen; marketing_json_test.js holds them together. */
 function applyMarketingDelta_(current, ops) {
   var out = JSON.parse(JSON.stringify(current || {}));
-  var sections = ['stores', 'sel', 'skip', 'd', 'done', 'due', 'events', 'vdays', 'rows', 'notes'];
+  var sections = ['stores', 'sel', 'skip', 'd', 'done', 'due', 'events', 'vdays', 'rows', 'own', 'notes'];
   (Array.isArray(ops) ? ops : []).forEach(function (op) {
     if (!Array.isArray(op) || sections.indexOf(op[0]) < 0) return;
     var section = op[0], key = op[1], value = op[2];
@@ -6583,6 +6595,61 @@ function marketingNotify_(p) {
     var stamp = nowStamp_();
     props.setProperty(key, stamp);
     return { ok: true, sent: true, to: rcpt.to, subject: subject, sent_at: stamp, by: who.auth.user };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* ── A TASK HANDED TO SOMEONE ─────────────────────────────────────────────────────────────────
+ * The screen saves the new owner through editProgram, then calls this. It emails that person only
+ * when the STORED owner of the task is them, and only once per hand-off: the last person told is
+ * kept per program and task, so a re-fetched URL sends nothing, and handing it A → B → A tells A
+ * again. Nobody is emailed about a task they handed to themselves. The addresses are fixed here,
+ * never taken from the request, so this can only ever reach these three. */
+var MKT_PEOPLE_ = { tawny: 'tawny@greencrosscanna.com', mike: 'mike@greencrosscanna.com', sky: 'sky@greencrosscanna.com' };
+var MKT_ASSIGNED_PREFIX = 'mktassigned:';
+var MKT_APP_URL = 'https://greencrosscanna.github.io/greencross-spiff/';
+
+function marketingAssign_(p) {
+  var who = mktEditor_(p, 'assign marketing tasks');
+  if (who.fail) return who.fail;
+  var person = String(p.person || '').toLowerCase(), task = String(p.task || '');
+  if (!Object.prototype.hasOwnProperty.call(MKT_PEOPLE_, person)) return { ok: false, error: 'Unknown person: ' + person };
+  if (!/^[a-z][a-z0-9_.-]{0,80}$/.test(task)) return { ok: false, error: 'Unknown task' };
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var prog = res.program;
+  var plan = normalizeMarketing_(prog.marketing_json) || {};
+  if (((plan.own || {})[task] || '') !== person) {
+    return { ok: false, error: 'That task is not assigned to ' + person + ' in what is saved.' };
+  }
+  if (String(who.auth.user || '').toLowerCase() === person) return { ok: true, sent: false, why: 'self' };
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return { ok: false, error: 'Another send is in progress. Try again in a moment.' };
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var key = MKT_ASSIGNED_PREFIX + prog.program_id + ':' + task;
+    if (props.getProperty(key) === person) return { ok: true, sent: false, why: 'already told' };
+    var label = brandProgramLabel_(prog);
+    var text = String(p.text || '').trim().slice(0, 200) || task;
+    var item = String(p.item || '').trim().slice(0, 80);
+    var due = /^\d{4}-\d{2}-\d{2}$/.test(String(p.due || '')) ? prettyDay_(p.due) : 'no date yet';
+    var to = MKT_PEOPLE_[person];
+    var body = [
+      who.auth.user + ' assigned you a marketing task in SPIFF.', '',
+      'Task    : ' + text + (item ? ' (' + item + ')' : ''),
+      'Program : ' + label,
+      'Due     : ' + due, '',
+      'Open SPIFF: ' + MKT_APP_URL
+    ].join('\n');
+    try {
+      sendMail_({ to: to, subject: 'Assigned to you: ' + text + ' — ' + label, body: body, name: 'Green Cross SPIFF' });
+    } catch (e) {
+      return { ok: false, error: 'Could not send: ' + scrubSecrets_(e && e.message || e) };
+    }
+    props.setProperty(key, person);
+    return { ok: true, sent: true, to: to };
   } finally {
     lock.releaseLock();
   }
