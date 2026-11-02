@@ -55,9 +55,9 @@ function engine(o) {
   const api = G.load({
     real: ['marketingOverview_', 'marketingOverviewHtml_', 'mktPlanFacts_', 'mktEsc_', 'mktPickedIds_', 'mktEditor_',
            'mktRecipients_', 'marketingNotify_', 'normalizeMarketing_', 'brandProgramLabel_', 'prettyDay_',
-           'addDaysLocal_', 'slug_', 'today_', 'marketingAssign_'],
+           'addDaysLocal_', 'slug_', 'today_', 'marketingAssign_', 'mktVendorFolderId_'],
     vars: ['EDIT_ROLES', 'LOGO_ONLIGHT', 'MKT_NOTIFY_PROP', 'MKT_NOTIFY_DOMAIN', 'MKT_NOTIFIED_PREFIX', 'MKT_OREGON_RULES_', 'REPORT_FOLDER_ID', 'MKT_MENU_',
-           'MKT_PEOPLE_', 'MKT_ASSIGNED_PREFIX', 'MKT_APP_URL'],
+           'MKT_PEOPLE_', 'MKT_ASSIGNED_PREFIX', 'MKT_APP_URL', 'MKT_SIZES_'],
     stubs: {
       gxAuth_: (t) => (t === 'good' ? { ok: true, user: 'tawny', role: o.role || 'editor' } : { ok: false, error: 'bad token' }),
       getProgram_: (id) => (id === 'wyld-1' ? { ok: true, program: program_ } : { ok: false, error: 'not found: ' + id }),
@@ -188,6 +188,30 @@ console.log('\n6. the buttons');
   MK.wire(host, { program: () => p, plan: (w) => calls.push(w), apply() {}, opts() { return {}; }, moving() {}, tick() {} });
   host.click({ target: { closest: () => ({ disabled: false, dataset: { mkPlan: 'notify' } }) } });
   ok('a click reaches the plan handler', calls[0] === 'notify');
+}
+
+console.log('\n2b. with a vendor files folder linked, the plan is filed there instead');
+{
+  const linked = (url) => program({ marketing_json: Object.assign({}, FULL_PLAN, { d: Object.assign({}, FULL_PLAN.d, { files: { url } }) }) });
+  let e = engine({ program: linked('https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOp?usp=sharing') });
+  const r = e.api.marketingOverview_({ token: 'good', id: 'wyld-1', save: '1' });
+  ok('it saves into the linked folder, and only there', r.ok && r.folder === 'vendor' && e.folders.join() === '1AbCdEfGhIjKlMnOp' && e.files.length === 1);
+  ok('  …and mails nobody', e.mails.length === 0);
+  e = engine({ program: linked('https://drive.google.com/drive/u/1/folders/1ZyXwVuTsRqPoNm') });
+  e.api.marketingOverview_({ token: 'good', id: 'wyld-1', save: '1' });
+  ok('a signed-in-as link (/u/1/) works too', e.folders.join() === '1ZyXwVuTsRqPoNm');
+  e = engine({ program: linked('https://example.com/folders/1AbCdEfGhIjKlMnOp') });
+  const r2 = e.api.marketingOverview_({ token: 'good', id: 'wyld-1', save: '1' });
+  ok('a link that is not a Drive folder falls back to SPIFF Reports', r2.folder === 'reports' && e.folders.join() === G.grabVar('REPORT_FOLDER_ID'));
+  const MKc = {}; vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'marketing.js'), 'utf8'), MKc);
+  const MK = MKc.SpiffMarketing;
+  const sec = MK.sectionHtml(linked('https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOp'),
+    { today: '2026-10-14', canEdit: true, engineReady: true, stores: [], storeName: s => s });
+  ok('the button says where it will save', /Save to vendor folder/.test(sec)
+     && /Save to SPIFF Reports/.test(MK.sectionHtml(program(), { today: '2026-10-14', canEdit: true, engineReady: true, stores: [], storeName: s => s })));
+  const page = program();
+  ok('the plan lists the standard sizes', ['1920×1080', '3840×2160', '1080×1350', '8.5×11'].every(s =>
+    engine({ program: page }).api.marketingOverviewHtml_(page).indexOf(s) >= 0));
 }
 
 console.log('\n7. telling someone a task is now theirs');

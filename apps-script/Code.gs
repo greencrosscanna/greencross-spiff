@@ -6354,7 +6354,13 @@ function sendBrandEmail_(p) {
  * runs this builder on a program stuffed with all of those and looks for them in the output.
  *
  * The menu ids below mirror marketing.js's ITEMS; the same test fails if the two drift apart. The
- * artwork guidance is deliberately non-numeric: nobody has confirmed sizes, so none is promised. */
+ * artwork sizes are the generic set Sky chose on 2026-11-02 (MKT_SIZES_): from those three families
+ * the team can make just about any screen, post or print piece work. */
+var MKT_SIZES_ = {
+  screen: 'TV screens: 1920×1080 (HD) or 3840×2160 (4K), horizontal or vertical, as JPG/PNG images or MP4 video.',
+  social: 'Social: 1080×1080 square, 1080×1350 portrait and 1080×1920 stories/reels, as JPG/PNG or MP4.',
+  print:  'Print: 8.5×11 in, print-ready PDF.'
+};
 var MKT_NOTIFY_PROP = 'MARKETING_NOTIFY_TO';
 var MKT_NOTIFY_DOMAIN = '@greencrosscanna.com';
 var MKT_NOTIFIED_PREFIX = 'mktnotified:';
@@ -6366,15 +6372,15 @@ var MKT_MENU_ = {
   prizes:   { t: 'Other employee prizes', need: 'The prize, and how it is won.', spec: '' },
   email:    { t: 'Email blast', need: 'Email creative and the offer, for our review.', spec: 'Web-ready image files (JPG or PNG) and the link they should point to.', dated: 'date', datedLabel: 'Email goes out' },
   sms:      { t: 'Text blast', need: 'Text copy, for our review and approval.', spec: 'Plain text only. Include the offer and any opt-out wording.', dated: 'date', datedLabel: 'Text goes out' },
-  social:   { t: 'Social media', need: 'Your handles, tags and any media you want used.', spec: 'Photos or video in original quality, plus your preferred tags.', datedLabel: '' },
+  social:   { t: 'Social media', need: 'Your handles, tags and any media you want used.', spec: '1080×1080 square, 1080×1350 portrait or 1080×1920 stories/reels, as JPG/PNG or MP4, plus your preferred tags.', datedLabel: '' },
   ecom:     { t: 'Online menu feature', need: 'Product images and descriptions for the featured spot.', spec: 'Clean product images on a plain background.' },
   vday:     { t: 'Vendor day', need: 'Your rep’s name, and the games or discounts you plan to run.', spec: '', dated: 'date', datedLabel: 'Vendor day' },
   raffle:   { t: 'Customer raffle', need: 'The prize. It cannot be cannabis.', spec: '', dated: 'date', datedLabel: 'Raffle drawing' },
   swag:     { t: 'Customer swag', need: 'Giveaway items, counted and shipped to us.', spec: '' },
-  'case':   { t: 'Featured case', need: 'Display material for the featured case.', spec: 'Print-ready artwork, or ship the physical display.' },
-  signage:  { t: 'Signage & readerboard', need: 'Printed signage and readerboard copy.', spec: 'Print-ready PDF artwork. Tell us the sizes you are sending.' },
-  led:      { t: 'LED sign board', need: 'Artwork for the LED board.', spec: 'Still image or short loop, sent as a file we can load.' },
-  counter:  { t: 'Countertop ads', need: 'Artwork for checkout and countertop ads.', spec: 'Print-ready PDF artwork.' },
+  'case':   { t: 'Featured case', need: 'Display material for the featured case.', spec: '8.5×11 in print-ready PDF, or ship the physical display.' },
+  signage:  { t: 'Signage & readerboard', need: 'Printed signage and readerboard copy.', spec: '8.5×11 in print-ready PDF.' },
+  led:      { t: 'LED sign board', need: 'Artwork for the LED board.', spec: '1920×1080 or 3840×2160, horizontal or vertical, as JPG/PNG or MP4.' },
+  counter:  { t: 'Countertop ads', need: 'Artwork for checkout and countertop ads.', spec: '8.5×11 in print-ready PDF.' },
   bags:     { t: 'Branded exit bags', need: 'Bags, counted, shipped to us.', spec: '' }
 };
 
@@ -6489,6 +6495,8 @@ function marketingOverviewHtml_(p, opts) {
     + P('We can reward our budtenders for hitting a goal on your product. Two common ways: a set amount for each '
         + 'budtender who reaches their goal, or an amount for every unit sold. We will confirm the structure with you in writing before staff hear about it.')
     + H('Artwork specs')
+    + P('Standard sizes we work from:')
+    + UL([MKT_SIZES_.screen, MKT_SIZES_.social, MKT_SIZES_.print].map(function (s) { return LI(esc(s)); }))
     + (specs.length ? UL(specs.map(function (i) { return LI('<b>' + esc(i.title) + ':</b> ' + esc(i.spec)); })) : '')
     + P(esc(MKT_OREGON_RULES_) + ' We review all copy and artwork before it runs.');
 
@@ -6518,16 +6526,28 @@ function marketingOverview_(p) {
   var name = 'Green Cross Marketing Plan - ' + (prog.vendor || prog.title || 'Brand') + ' - ' + stamp + '.pdf';
   var out = { ok: true, name: name, html: html, by: who.auth.user };
   if (String(p.save) === '1') {
+    /* Into the program's own vendor files folder when one is linked (Sky, 2026-11-02), else SPIFF Reports. */
+    var vendorFolder = mktVendorFolderId_(prog);
     try {
       var doc = '<html><head><meta charset="utf-8"></head><body style="margin:36px">' + html + '</body></html>';
       var blob = Utilities.newBlob(doc, 'text/html', 'p.html').getAs('application/pdf').setName(name);
-      var file = DriveApp.getFolderById(REPORT_FOLDER_ID).createFile(blob);
+      var file = DriveApp.getFolderById(vendorFolder || REPORT_FOLDER_ID).createFile(blob);
       out.saved = true; out.file_id = file.getId(); out.url = file.getUrl();
+      out.folder = vendorFolder ? 'vendor' : 'reports';
     } catch (e) {
-      return { ok: false, error: 'Could not write to the reports folder: ' + scrubSecrets_(e && e.message || e) };
+      return { ok: false, error: 'Could not write to the ' + (vendorFolder ? 'vendor files' : 'reports') + ' folder: '
+        + scrubSecrets_(e && e.message || e) };
     }
   }
   return out;
+}
+
+/* The folder id in the program's vendor files link (d.files.url), or '' when there is none. */
+function mktVendorFolderId_(prog) {
+  var plan = normalizeMarketing_(prog && prog.marketing_json) || {};
+  var url = String(((plan.d || {}).files || {}).url || '');
+  var m = url.match(/^https:\/\/drive\.google\.com\/(?:drive\/(?:u\/\d+\/)?folders\/|open\?id=)([A-Za-z0-9_-]{10,})/);
+  return m ? m[1] : '';
 }
 
 /* The internal recipients, or a refusal that says what to set. Nothing is hardcoded: a team address

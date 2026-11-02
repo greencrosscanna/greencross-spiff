@@ -223,6 +223,10 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   never to someone who took the task themselves, and once per hand-off (`mktassigned:` property).
   Addresses are fixed in `MKT_PEOPLE_` (mirrored by `PEOPLE` in marketing.js), never read from the request.
   Pinned by `tests/marketing_vendor_plan_test.js` section 7 and `tests/marketing_tasks_test.js` section 12.
+  **The vendor plan's artwork sizes are generic on purpose** (Sky, 2026-11-02, `MKT_SIZES_`): TV
+  1920×1080 / 3840×2160 horizontal or vertical as image or MP4, standard social sizes, 8.5×11 print.
+  **Saving the plan files it in the program's vendor files folder** (`d.files.url`) when that is a
+  Drive folder link, else in SPIFF Reports.
 
 ### Money: payout, cost, vendor send
 

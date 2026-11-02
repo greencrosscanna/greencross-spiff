@@ -642,7 +642,7 @@
       + 'The email goes to the Green Cross team only, after you confirm it.</p>'
       + '<div class="mk-actions">'
       + '<button type="button" class="gx-btn" data-mk-plan="view"' + (ctx.engineReady ? ro : ' disabled') + '>View vendor plan</button> '
-      + '<button type="button" class="gx-btn" data-mk-plan="save"' + (ctx.engineReady ? ro : ' disabled') + '>Save to SPIFF Reports</button> '
+      + '<button type="button" class="gx-btn" data-mk-plan="save"' + (ctx.engineReady ? ro : ' disabled') + '>' + (/^https:\/\/drive\.google\.com\//i.test(String((plan.d.files || {}).url || '')) ? 'Save to vendor folder' : 'Save to SPIFF Reports') + '</button> '
       + '<button type="button" class="gx-btn" data-mk-plan="notify"' + (ctx.engineReady ? ro : ' disabled') + '>Email the team…</button></div>'
       + '<div class="mk-status" data-mk-planstatus role="status"></div></div>'
       + '<div class="mk-status" data-mk-status role="status"></div>';

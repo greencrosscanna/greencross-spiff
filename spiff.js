@@ -1400,7 +1400,7 @@
       var r = await ENG.jsonp('marketingOverview', what === 'save' ? Object.assign({ save: '1' }, base) : base, opt);
       if (r && r.needsAuth) { clearSession(); openSignIn(); return; }
       if (!r || !r.ok) { mkPlanStatus((r && r.error) || 'Could not build the plan', true); return; }
-      if (what === 'save') { mkPlanStatus('Saved to SPIFF Reports: ' + r.name); return; }
+      if (what === 'save') { mkPlanStatus((r.folder === 'vendor' ? 'Saved to the vendor folder: ' : 'Saved to SPIFF Reports: ') + r.name); return; }
       var blob = new Blob(['<!doctype html><meta charset="utf-8"><title>' + r.name + '</title><body style="margin:36px">' + r.html + '</body>'], { type: 'text/html' });
       var a = document.createElement('a');
       a.href = URL.createObjectURL(blob); a.download = r.name.replace(/\.pdf$/, '.html'); a.target = '_blank';
