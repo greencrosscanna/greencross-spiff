@@ -103,13 +103,15 @@
       c: 'Review the placement and any offer shown with it.',
       k: [['ecom.set', 'INV', 'Set featured placement on the online menu', 's', -1],
           ['ecom.remove', 'INV', 'Remove featured placement', 'e', 1]] },
-    vday: { t: 'Vendor day', s: 'Rep in store, best 4–7 PM', sec: 'cust',
-      f: [['date', 'date', 'Vendor day date'], ['text', 'time', 'Time (4–7 PM recommended)']],
+    /* Several days, each at one store (or every store), are kept in the plan's own `vdays` list rather
+       than in `d`. A plan saved before that holds one day as d.vday {date, time}; vdaysOf reads it. */
+    vday: { t: 'Vendor day', s: 'Rep in store, best 4–7 PM', sec: 'cust', days: 1,
+      f: [],
       c: 'Review the vendor’s planned games and discounts before the day. Same Oregon offer rules.',
       k: [['vday.slots', 'INV', 'Set vendor day dates and slots per store', 's', -14],
           ['vday.confirm', 'INV', 'Confirm rep, dates and times with vendor', 's', -10],
           ['vday.relay', 'DIR', 'Relay schedule to managers', 's', -7],
-          ['vday.held', 'MGR', 'Vendor day held', 's', 0, { each: 1, on: 'date' }],
+          ['vday.held', 'MGR', 'Vendor day held', 's', 0, { each: 1, vdays: 1 }],
           ['vday.photos', 'DIR', 'Collect photos and video', 'e', 3]] },
     raffle: { t: 'Customer raffle', s: 'Entries in store, one winner', sec: 'cust',
       f: [['text', 'prize', 'Prize'], ['date', 'date', 'Draw date']],
@@ -174,7 +176,15 @@
   function planOf(p) {
     var m = (p && p.marketing_json) || {};
     return { stores: m.stores || null, sel: m.sel || {}, skip: m.skip || {}, d: m.d || {},
-             done: m.done || {}, due: m.due || {}, events: m.events || [], notes: m.notes || '' };
+             done: m.done || {}, due: m.due || {}, events: m.events || [], vdays: m.vdays || [], notes: m.notes || '' };
+  }
+
+  /* The vendor days, as [{store, date, time}]. An empty store means every store on the plan. */
+  function vdaysOf(p) {
+    var plan = planOf(p);
+    if (plan.vdays.length) return plan.vdays.map(function (v) { return { store: v.store || '', date: v.date || '', time: v.time || '' }; });
+    var old = plan.d.vday || {};
+    return old.date || old.time ? [{ store: '', date: old.date || '', time: old.time || '' }] : [];
   }
   /* A program nobody has planned stays out of every count. Every program has core tasks on paper, so
      without this the 25 closed records and any program already running would all read as overdue
@@ -207,13 +217,28 @@
       var anchor = row[3] === 's' ? p.start_date : p.end_date;
       var typed = flags.on && itemId && plan.d[itemId] ? plan.d[itemId][flags.on] : '';
       var planned = ISO.test(String(typed || '')) ? typed : addDays(anchor, row[4]);
-      (flags.each ? stores : [null]).forEach(function (store) {
-        var key = store ? row[0] + '@' + store : row[0];
+      function emit(store, key, day, on) {
         var moved = plan.due[key] || plan.due[row[0]] || '';
-        var done = plan.done[key] || null;
         out.push({ key: key, id: row[0], item: itemId, own: row[1], owner: OWNERS[row[1]] || row[1],
-                   text: row[2], store: store, each: !!flags.each, due: moved || planned,
-                   planned: planned, moved: !!moved, done: done });
+                   text: row[2], store: store, each: !!flags.each, due: moved || on,
+                   planned: on, moved: !!moved, done: plan.done[key] || null, day: day || '' });
+      }
+      /* One "held" row per vendor day per store, due on that day. A second day at the same store gets
+         `.2` on its key so each has its own tick. With no dated day yet, every store waits on the window. */
+      var days = flags.vdays ? vdaysOf(p).filter(function (v) { return ISO.test(String(v.date || '')); }) : [];
+      if (days.length) {
+        var seen = {};
+        /* List order, not date order: changing a date must not hand one day's tick to another. */
+        days.forEach(function (v) {
+          (v.store ? [v.store] : stores).forEach(function (store) {
+            seen[store] = (seen[store] || 0) + 1;
+            emit(store, row[0] + '@' + store + (seen[store] > 1 ? '.' + seen[store] : ''), v.date, v.date);
+          });
+        });
+        return;
+      }
+      (flags.each ? stores : [null]).forEach(function (store) {
+        emit(store, store ? row[0] + '@' + store : row[0], '', planned);
       });
     }
     CORE.forEach(function (row) { push(null, row); });
@@ -285,7 +310,7 @@
      plan with every task ticked would pass on the last day of a program. It also means two people
      ticking different tasks cannot overwrite each other. The engine's applyMarketingDelta_ applies
      the same operations to what is stored; a test holds the two together. */
-  var OP_SECTIONS = { stores: 1, sel: 1, skip: 1, d: 1, done: 1, due: 1, events: 1, notes: 1 };
+  var OP_SECTIONS = { stores: 1, sel: 1, skip: 1, d: 1, done: 1, due: 1, events: 1, vdays: 1, notes: 1 };
   function applyOps(plan, ops) {
     var out = JSON.parse(JSON.stringify(plan || {}));
     (ops || []).forEach(function (op) {
@@ -318,6 +343,16 @@
     var cur = JSON.parse(JSON.stringify(planOf(p).d[item] || {}));
     if (value === '' || value == null) delete cur[field]; else cur[field] = value;
     return [['d', item, cur]];
+  }
+  /* Vendor days go as the whole (short) list, which also retires the one-day d.vday a plan held before. */
+  function vdaysOps(list) { return [['vdays', null, list.length ? list : null], ['d', 'vday', null]]; }
+  function addVdayOp(p) { return vdaysOps(vdaysOf(p).concat([{ store: '', date: '', time: '' }])); }
+  function removeVdayOp(p, i) { var l = vdaysOf(p); l.splice(+i, 1); return vdaysOps(l); }
+  function setVdayOp(p, i, field, value) {
+    var l = vdaysOf(p);
+    if (!l[+i] || ['store', 'date', 'time'].indexOf(field) < 0) return [];
+    l[+i][field] = String(value || '');
+    return vdaysOps(l);
   }
   function doneOp(key, on, by, at) { return [['done', key, on ? { by: by, at: at } : null]]; }
   function dueOp(key, day) { return [['due', key, day || null]]; }
@@ -403,7 +438,8 @@
       : '<input type="checkbox" data-mk-task="' + esc(g.key) + '"' + (g.open ? '' : ' checked') + ro + '>';
     var stores = !g.each ? '' : '<div class="mk-task-stores">' + g.rows.map(function (r) {
       return '<button type="button" class="mk-store-tick' + (r.done ? ' on' : '') + '" data-mk-task="' + esc(r.key) + '"'
-        + ' aria-pressed="' + (r.done ? 'true' : 'false') + '"' + ro + '>' + esc(ctx.storeName(r.store)) + '</button>';
+        + ' aria-pressed="' + (r.done ? 'true' : 'false') + '"' + ro + '>' + esc(ctx.storeName(r.store))
+        + (r.day ? ' &middot; ' + esc(shortDate(r.day)) : '') + '</button>';
     }).join('') + '</div>';
     var sub = [];
     if (item) sub.push(esc(item));
@@ -426,6 +462,26 @@
     }
     return '<label class="mk-fld">' + esc(f[2]) + '<input type="' + (f[0] === 'date' ? 'date' : 'text') + '"' + data
       + ' value="' + esc(val == null ? '' : val) + '"' + ro + '></label>';
+  }
+
+  /* The vendor day card: one row per day, each with its store, date and time. */
+  function vdayHtml(p, ctx, on) {
+    var ro = ctx.canEdit ? '' : ' disabled';
+    var rows = vdaysOf(p).map(function (v, i) {
+      var ids = ctx.stores.filter(function (s) { return on.indexOf(s.store_id) >= 0 || s.store_id === v.store; });
+      var data = ' data-mk-vday="' + i + '"';
+      return '<div class="mk-vday">'
+        + '<label class="mk-fld">Store<select' + data + ' data-mk-vfield="store"' + ro + '><option value="">All stores</option>'
+        + ids.map(function (s) {
+            return '<option value="' + esc(s.store_id) + '"' + (s.store_id === v.store ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+          }).join('') + '</select></label>'
+        + '<label class="mk-fld">Date<input type="date"' + data + ' data-mk-vfield="date" value="' + esc(v.date) + '"' + ro + '></label>'
+        + '<label class="mk-fld">Time<input type="text"' + data + ' data-mk-vfield="time" placeholder="4–7 PM" value="' + esc(v.time) + '"' + ro + '></label>'
+        + (ctx.canEdit ? '<button type="button" class="mk-link mk-vdel" data-mk-vdel="' + i + '" aria-label="Remove this vendor day">Remove</button>' : '')
+        + '</div>';
+    }).join('');
+    return (rows || '<p class="mk-sub">No days set yet.</p>')
+      + (ctx.canEdit ? '<button type="button" class="gx-btn mk-vadd" data-mk-vadd="1">+ Add a vendor day</button>' : '');
   }
 
   /* The whole section for one program. ctx: { today, canEdit, engineReady, stores:[{store_id,name}],
@@ -453,6 +509,7 @@
       var it = ITEMS[id];
       var body = it.lock
         ? '<p class="mk-sub mk-incentive">' + esc(incentiveLine(p)) + '. Payout, goals and stores come from the Calculator above; sales results are SPIFF’s own measurements.</p>'
+        : it.days ? vdayHtml(p, ctx, on)
         : it.f.map(function (f) { return fieldHtml(id, f, plan, ctx); }).join('');
       return '<div class="mk-item"><h6>' + esc(it.t) + '</h6>' + body + '<div class="mk-comp">' + esc(it.c) + '</div></div>';
     }).join('');
@@ -499,6 +556,8 @@
       var p = api.program();
       if (!p) return;
       if (t.dataset.mkPlan) return api.plan(t.dataset.mkPlan, t);
+      if (t.dataset.mkVadd) return api.apply(addVdayOp(p));
+      if (t.dataset.mkVdel) return api.apply(removeVdayOp(p, t.dataset.mkVdel));
       if (t.dataset.mkPick) return api.apply(toggleItemOp(p, t.dataset.mkPick));
       if (t.dataset.mkStore) return api.apply(toggleStoreOp(p, t.dataset.mkStore, api.opts()));
       if (t.dataset.mkMoving) return api.moving(t.dataset.mkMoving);
@@ -508,6 +567,7 @@
     host.addEventListener('change', function (e) {
       var t = e.target, p = api.program();
       if (!p || !t.dataset) return;
+      if (t.dataset.mkVday) return api.apply(setVdayOp(p, t.dataset.mkVday, t.dataset.mkVfield, t.value));
       if (t.dataset.mkTask) return api.tick(t.dataset.mkTask, t.checked);
       if (t.dataset.mkDue) return api.apply(dueOp(t.dataset.mkDue, t.value));
       if (t.dataset.mkItem) return api.apply(detailOp(p, t.dataset.mkItem, t.dataset.mkField, t.value));
@@ -535,8 +595,20 @@
 
   /* Bars: a program with a window, and every pencil. Programs take the top lanes so the official
      schedule reads as one line and pencils stack beneath it. */
-  function barsOf(programs, pencils) {
+  function barsOf(programs, pencils, ctx) {
     function byStart(a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : 0; }
+    var name = (ctx && ctx.storeName) || function (s) { return s; };
+    /* Each dated vendor day is a one-day marker under the programs, opening its program. */
+    var vdays = [];
+    (programs || []).forEach(function (p) {
+      if (!isOn(p, 'vday')) return;
+      vdaysOf(p).forEach(function (v) {
+        if (!ISO.test(String(v.date || ''))) return;
+        vdays.push({ id: p.program_id, label: (p.vendor || p.program_name || 'Vendor') + ' at ' + (v.store ? name(v.store) : 'all stores')
+                       + (v.time ? ', ' + v.time : ''), start: v.date, end: v.date, kind: 'vday' });
+      });
+    });
+    vdays.sort(byStart);
     var bars = (programs || []).filter(function (p) {
       return ISO.test(String(p.start_date || '')) && ISO.test(String(p.end_date || '')) && p.end_date >= p.start_date;
     }).map(function (p) {
@@ -548,7 +620,7 @@
     }).map(function (x) {
       return { id: x.pencil_id, label: x.brand, start: x.start_date, end: x.end_date, kind: 'pencil' };
     }).sort(byStart);
-    return bars.concat(pens);
+    return bars.concat(vdays, pens);
   }
   function assignLanes(bars) {
     var lanes = [];
@@ -594,10 +666,11 @@
       var s = Math.max(0, daysBetween(ws, b.start)), e = Math.min(6, daysBetween(ws, b.end));
       var cls = 'mk-vb ' + b.kind + (b.start >= ws ? ' l' : '') + (b.end <= we ? ' r' : '');
       var act = b.kind === 'pencil' ? 'data-mk-pencil="' + esc(b.id) + '"' : 'data-mk-open="' + esc(b.id) + '"';
-      var word = b.kind === 'pencil' ? 'Penciled, not official' : b.kind === 'run' ? 'Running' : b.kind === 'done' ? 'Closed' : 'Draft';
+      var word = b.kind === 'pencil' ? 'Penciled, not official' : b.kind === 'vday' ? 'Vendor day'
+        : b.kind === 'run' ? 'Running' : b.kind === 'done' ? 'Closed' : 'Draft';
       h += '<button type="button" class="' + cls + '" ' + act + ' style="--h:' + hueOf(b.label) + ';grid-column:' + (s + 1) + '/' + (e + 2) + ';grid-row:' + (2 + b.lane) + '"'
         + ' title="' + esc(b.label + ' · ' + word + ' · ' + shortDate(b.start) + ' to ' + shortDate(b.end)) + '">'
-        + (b.kind === 'pencil' ? '&#9998; ' : '') + esc(b.label) + '</button>';
+        + (b.kind === 'pencil' ? '&#9998; ' : b.kind === 'vday' ? '&#9733; ' : '') + esc(b.label) + '</button>';
     });
     return h + '</div>';
   }
@@ -609,9 +682,9 @@
     var first = months[0], gridStart = addDays(first, -dow(first));
     var lastM = months[2], lastD = addDays(monthStart(lastM, 1), -1);
     var gridEnd = addDays(lastD, 6 - dow(lastD));
-    var bars = assignLanes(barsOf(programs, pencils).filter(function (b) { return b.end >= gridStart && b.start <= gridEnd; }));
+    var bars = assignLanes(barsOf(programs, pencils, ctx).filter(function (b) { return b.end >= gridStart && b.start <= gridEnd; }));
     var legend = '<div class="mk-legend"><span><i class="lg run"></i>Running</span><span><i class="lg draft"></i>Draft</span>'
-      + '<span><i class="lg done"></i>Closed</span><span><i class="lg pencil"></i>Penciled, not official</span></div>';
+      + '<span><i class="lg done"></i>Closed</span><span><i class="lg vday"></i>Vendor day</span><span><i class="lg pencil"></i>Penciled, not official</span></div>';
     var nav = '<span class="mk-seg"><button type="button" data-mk-nav="-1" aria-label="Earlier">&lsaquo;</button>'
       + '<button type="button" data-mk-nav="0">Today</button><button type="button" data-mk-nav="1" aria-label="Later">&rsaquo;</button></span>';
     var body = months.map(function (m) {
@@ -777,6 +850,7 @@
     phaseOf: phaseOf, lateOf: lateOf, nextOf: nextOf, overdueTotal: overdueTotal,
     incentiveLine: incentiveLine, applyOps: applyOps, toggleItemOp: toggleItemOp,
     toggleStoreOp: toggleStoreOp, detailOp: detailOp, doneOp: doneOp, dueOp: dueOp,
+    vdaysOf: vdaysOf, addVdayOp: addVdayOp, removeVdayOp: removeVdayOp, setVdayOp: setVdayOp,
     makeSaver: makeSaver, listLine: listLine, foldNote: foldNote, sectionHtml: sectionHtml, wire: wire
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -659,7 +659,8 @@ function normalizePitch_(v) {
 
 /* ── THE MARKETING RECORD: ONLY WHAT A PERSON DECIDED ────────────────────────────────────────────
  * { v:1, stores:[store_id], sel:{item:true}, skip:{item:true}, d:{item:{field:value}},
- *   done:{task_key:{by,at}}, due:{task_key:'YYYY-MM-DD'}, events:[{name,date,time}], notes:'' }
+ *   done:{task_key:{by,at}}, due:{task_key:'YYYY-MM-DD'}, events:[{name,date,time}],
+ *   vdays:[{store,date,time}], notes:'' }
  *
  * Tasks, due dates, overdue flags and compliance notes are computed on read by marketing.js and
  * never stored, for the same reason as the record warnings: a stored due date stops agreeing the
@@ -726,9 +727,19 @@ function normalizeMarketing_(v) {
       return { name: text(e.name, 120), date: ISO.test(day) ? day : '', time: text(e.time, 40) };
     });
 
+  /* Vendor days: [{store, date, time}], an empty store meaning every store. A blank row is kept,
+     because it is the one an editor just added and is about to fill in. */
+  out.vdays = (Array.isArray(v.vdays) ? v.vdays : []).slice(0, 30)
+    .filter(function (e) { return e && typeof e === 'object' && !Array.isArray(e); })
+    .map(function (e) {
+      var day = text(e.date, 10), store = text(e.store, 60);
+      return { store: KEY.test(store) ? store : '', date: ISO.test(day) ? day : '', time: text(e.time, 40) };
+    });
+  if (!out.vdays.length) delete out.vdays;
+
   out.notes = text(v.notes, 2000);
 
-  var planned = out.stores || out.notes || out.events.length
+  var planned = out.stores || out.notes || out.events.length || out.vdays
     || ['sel', 'skip', 'd', 'done', 'due'].some(function (k) { return Object.keys(out[k]).length; });
   return planned ? out : null;
 }
@@ -741,7 +752,7 @@ function normalizeMarketing_(v) {
    marketing.js's applyOps mirrors this for the screen; marketing_json_test.js holds them together. */
 function applyMarketingDelta_(current, ops) {
   var out = JSON.parse(JSON.stringify(current || {}));
-  var sections = ['stores', 'sel', 'skip', 'd', 'done', 'due', 'events', 'notes'];
+  var sections = ['stores', 'sel', 'skip', 'd', 'done', 'due', 'events', 'vdays', 'notes'];
   (Array.isArray(ops) ? ops : []).forEach(function (op) {
     if (!Array.isArray(op) || sections.indexOf(op[0]) < 0) return;
     var section = op[0], key = op[1], value = op[2];
@@ -6361,11 +6372,22 @@ function mktPlanFacts_(p) {
   catch (e) { /* slugs are a poor label, not a blank one */ }
   var storeIds = (plan.stores && plan.stores.length) ? plan.stores : (p.stores_json || []);
   var ids = mktPickedIds_(plan);
+  var ISO = /^\d{4}-\d{2}-\d{2}$/;
+  /* Vendor days, each with its store; a plan saved before the list existed holds one in d.vday. */
+  var oldDay = (plan.d && plan.d.vday) || {};
+  var vdays = (plan.vdays && plan.vdays.length ? plan.vdays : (oldDay.date ? [{ store: '', date: oldDay.date, time: oldDay.time || '' }] : []))
+    .filter(function (v) { return ids.indexOf('vday') >= 0 && ISO.test(String(v.date || '')); })
+    .map(function (v) {
+      return { name: 'Vendor day at ' + (v.store ? (names[slug_(v.store)] || v.store) : 'all stores'), date: v.date, time: v.time || '' };
+    });
   var items = ids.map(function (id) {
     var m = MKT_MENU_[id], d = (plan.d && plan.d[id]) || {};
-    var ISO = /^\d{4}-\d{2}-\d{2}$/;
+    var daysLine = id === 'vday' && vdays.length
+      ? vdays.map(function (v) { return prettyDay_(v.date) + ' ' + v.name.replace('Vendor day at ', '') + (v.time ? ' (' + v.time + ')' : ''); }).join('; ')
+      : '';
     return { id: id, title: m.t, need: m.need, spec: m.spec,
-             date: m.dated && ISO.test(String(d[m.dated] || '')) ? d[m.dated] : '',
+             date: id !== 'vday' && m.dated && ISO.test(String(d[m.dated] || '')) ? d[m.dated] : '',
+             days: daysLine,
              dateLabel: m.datedLabel || '',
              choice: [d.format, d.cost, d.maker].filter(function (x) { return x; }).join(', ') };
   });
@@ -6376,7 +6398,7 @@ function mktPlanFacts_(p) {
     stores: storeIds.map(function (s) { return names[slug_(s)] || s; }),
     items: items,
     events: (plan.events || []).filter(function (e) { return e.date; })
-      .map(function (e) { return { name: e.name, date: e.date, time: e.time }; })
+      .map(function (e) { return { name: e.name, date: e.date, time: e.time }; }).concat(vdays)
   };
 }
 
@@ -6424,7 +6446,7 @@ function marketingOverviewHtml_(p, opts) {
     + P(esc(period) + (f.stores.length ? ' · ' + esc(f.stores.join(', ')) : ''))
     + UL(f.items.map(function (i) {
         return LI('<b>' + esc(i.title) + '</b>' + (i.choice ? ' — ' + esc(i.choice) : '')
-          + (i.date ? ' · ' + esc(prettyDay_(i.date)) : ''));
+          + (i.date ? ' · ' + esc(prettyDay_(i.date)) : '') + (i.days ? ' · ' + esc(i.days) : ''));
       }))
     + H('Two weeks at a glance')
     + (glance.length ? UL(glance.map(function (g) { return LI('<b>' + esc(prettyDay_(g.day)) + '</b> — ' + esc(g.text)); }))

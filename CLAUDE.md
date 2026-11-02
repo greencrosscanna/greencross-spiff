@@ -206,6 +206,11 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   whose start has passed stays penciled and says so. **Lock it in** goes through `createProgram_`
   and makes a DRAFT with a zero payout; no pencil route goes on `ENGINE_HEDGE_READS`. Pinned by
   `tests/pencils_engine_test.js` and `tests/marketing_calendar_test.js`.
+  **Vendor days are a list** (Sky, 2026-11-02: Gron ran five): `marketing_json.vdays` =
+  `[{store, date, time}]`, empty store = every store. Each dated day draws a one-day marker on the
+  Calendar and its own "Vendor day held" tick (`vday.held@store`, `.2` for a second day at that
+  store, keyed in LIST order so editing a date never moves a tick). A plan saved earlier holds one
+  day in `d.vday`; it is read as a one-row list and retired on the first edit.
 
 ### Money: payout, cost, vendor send
 

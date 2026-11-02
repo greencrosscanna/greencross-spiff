@@ -82,6 +82,47 @@ console.log('\n2. penciled brands on the calendar');
   ok('  …and says nothing when the period is clear', MK.overlapHtml([], [], '2026-11-09', '2026-11-22') === '');
 }
 
+console.log('\n2b. vendor days on the calendar and in the tasks');
+{
+  /* Gron, Nov 2026: five vendor days at five stores, two of them on the same Tuesday. */
+  const VD = [{ store: 'commercial', date: '2026-11-03', time: '1 to 3:30 PM' }, { store: 'river-rd', date: '2026-11-03', time: '4 to 6:30 PM' },
+              { store: 'bend', date: '2026-11-05', time: '' }, { store: 'portland', date: '2026-11-06', time: '' },
+              { store: 'center', date: '2026-11-06', time: '' }];
+  const gron = prog({ program_id: 'gron', vendor: 'Gron', start_date: '2026-10-26', end_date: '2026-11-08', stores_json: ALL6,
+                      marketing_json: { sel: { vday: true }, vdays: VD } });
+  const html = MK.calendarHtml([gron], [], cx({ storeName: s => s.toUpperCase() }));
+  const marks = html.match(/<button[^>]*class="mk-vb vday[^"]*"[^>]*>[^<]*/g) || [];
+  ok('each vendor day is its own one-day marker', marks.length === 5);
+  ok('  …named for the vendor, store and time', /Gron at COMMERCIAL, 1 to 3:30 PM/.test(marks.join('')) && /Gron at RIVER-RD, 4 to 6:30 PM/.test(marks.join('')));
+  ok('  …and opens its program', marks.every(m => /data-mk-open="gron"/.test(m)));
+  ok('the legend names them', /lg vday/.test(html));
+  const lanes = MK.assignLanes(MK.barsOf([gron], []));
+  const tue = lanes.filter(b => b.kind === 'vday' && b.start === '2026-11-03');
+  ok('two on the same day stack rather than overlap', tue.length === 2 && tue[0].lane !== tue[1].lane);
+  ok('an item not picked draws no markers', !/mk-vb vday/.test(MK.calendarHtml([prog({ marketing_json: { sel: {}, vdays: VD } })], [], cx())));
+
+  const held = MK.tasksOf(gron, {}).filter(t => t.id === 'vday.held');
+  ok('"Vendor day held" is one row per vendor day, at its store, due that day',
+     held.length === 5 && held.every((t, i) => t.store === VD[i].store && t.due === VD[i].date));
+  ok('  …and stores with no vendor day get none', !held.some(t => t.store === 'century'));
+  const twice = MK.tasksOf(prog({ marketing_json: { sel: { vday: true }, vdays: [{ store: 'bend', date: '2026-10-14' }, { store: 'bend', date: '2026-10-21' }] } }), {})
+    .filter(t => t.id === 'vday.held').map(t => t.key);
+  ok('two days at one store each get their own tick', twice.join('|') === 'vday.held@bend|vday.held@bend.2');
+  const all = MK.tasksOf(prog({ marketing_json: { sel: { vday: true }, vdays: [{ store: '', date: '2026-10-14' }] } }), {}).filter(t => t.id === 'vday.held');
+  ok('a day with no store means every store on the plan', all.map(t => t.store).join('|') === 'bend|center');
+  const old = MK.tasksOf(prog({ marketing_json: { sel: { vday: true }, d: { vday: { date: '2026-10-16' } } } }), {}).filter(t => t.id === 'vday.held');
+  ok('an old one-day plan keeps its store ticks and its date', old.map(t => t.key + '=' + t.due).join('|') === 'vday.held@bend=2026-10-16|vday.held@center=2026-10-16');
+  const none = MK.tasksOf(prog({ marketing_json: { sel: { vday: true } } }), {}).filter(t => t.id === 'vday.held');
+  ok('with no day set yet, every store waits on the window start', none.length === 2 && none.every(t => t.due === '2026-10-12'));
+
+  const sec = MK.sectionHtml(gron, cx({ stores: STORES, storeName: s => s, engineReady: true }));
+  ok('the card shows a row per day with store, date and time', (sec.match(/class="mk-vday"/g) || []).length === 5
+     && /data-mk-vfield="store"/.test(sec) && /value="2026-11-06"/.test(sec) && /\+ Add a vendor day/.test(sec));
+  ok('  …the store picker offers "All stores"', /<option value="">All stores<\/option>/.test(sec));
+  const ro = MK.sectionHtml(gron, cx({ canEdit: false, stores: STORES, storeName: s => s, engineReady: true }));
+  ok('a viewer can neither add nor remove days', !/data-mk-vadd/.test(ro) && !/data-mk-vdel/.test(ro));
+}
+
 console.log('\n3. the pencil form and detail');
 {
   const periods = [];

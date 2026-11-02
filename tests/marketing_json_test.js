@@ -330,5 +330,44 @@ console.log('\n6. a save stays short enough to ride on GET');
   ok('one tick is small (' + one + ' characters)', one < 400);
 }
 
+console.log('\n7. several vendor days, each at its own store');
+{
+  /* Gron, Nov 2026: five days across five stores, typed one at a time on the screen. A plan saved
+     before the list existed holds one day in d.vday; the first edit moves it into the list. */
+  const legacy = { sel: { vday: true }, d: { vday: { date: '2026-11-03', time: '1-3:30' } } };
+  const p = () => ({ start_date: '2026-10-26', end_date: '2026-11-08', marketing_json: screen });
+  let screen = JSON.parse(JSON.stringify(N(legacy))), engine = JSON.parse(JSON.stringify(N(legacy))), same = true;
+  ok('an old one-day plan reads as one day for every store', JSON.stringify(MK.vdaysOf(p())) === JSON.stringify([{ store: '', date: '2026-11-03', time: '1-3:30' }]));
+  const step = (opsFn) => {
+    const ops = opsFn(p());
+    screen = JSON.parse(JSON.stringify(N(MK.applyOps(screen, ops))));
+    engine = rowApi.applyMarketingDelta_(engine, ops);
+    if (JSON.stringify(screen) !== JSON.stringify(engine)) same = false;
+  };
+  step(q => MK.setVdayOp(q, 0, 'store', 'commercial'));
+  step(q => MK.addVdayOp(q));
+  step(q => MK.setVdayOp(q, 1, 'store', 'river-rd'));
+  step(q => MK.setVdayOp(q, 1, 'date', '2026-11-03'));
+  step(q => MK.setVdayOp(q, 1, 'time', '4 to 6:30 PM'));
+  step(q => MK.addVdayOp(q));
+  step(q => MK.setVdayOp(q, 2, 'date', '2026-11-05'));
+  ok('screen and engine agree at every step', same);
+  ok('the first edit retires the old one-day field', !engine.d.vday);
+  ok('three days, each with its own store and time', engine.vdays.length === 3 && engine.vdays[0].store === 'commercial'
+     && engine.vdays[0].time === '1-3:30' && engine.vdays[1].store === 'river-rd' && engine.vdays[1].time === '4 to 6:30 PM');
+  ok('  …a day with no store yet means every store', engine.vdays[2].store === '' && engine.vdays[2].date === '2026-11-05');
+  step(q => MK.removeVdayOp(q, 0));
+  ok('removing one keeps the others in order', engine.vdays.length === 2 && engine.vdays[0].store === 'river-rd' && same);
+  step(q => MK.removeVdayOp(q, 0));
+  step(q => MK.removeVdayOp(q, 0));
+  ok('removing the last leaves no list at all', !('vdays' in engine) && engine.sel.vday === true && same);
+  const junk = N({ vdays: [{ store: '__proto__', date: 'Nov 3', time: 'x'.repeat(99) }, 'nope', [1]] });
+  ok('the engine keeps only a store slug, an ISO date and a short time',
+     junk.vdays.length === 1 && junk.vdays[0].store === '' && junk.vdays[0].date === '' && junk.vdays[0].time.length === 40);
+  const five = MK.addVdayOp({ marketing_json: { vdays: Array.from({ length: 5 }, (_, i) => ({ store: 'river-rd', date: '2026-11-0' + (i + 1), time: '4 to 6:30 PM' })) } });
+  const len = encodeURIComponent(JSON.stringify({ marketing_delta: five })).length;
+  ok('a six-day edit still rides on GET (' + len + ' characters)', len < 2000);
+}
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nmarketing_json: all passed');
 process.exit(fail ? 1 : 0);
