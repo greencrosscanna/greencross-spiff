@@ -99,6 +99,7 @@
 .lg.run { background: #7cc4a0; }
 .lg.draft { background: #2b4a3c; }
 .lg.done { background: #3a423e; }
+.lg.vday { background: #e8c45a; }
 .lg.pencil { background: transparent; border: 1px dashed #9fb8ab; box-sizing: border-box; }
 
 .mk-cal-scroll { overflow-x: auto; }
@@ -123,6 +124,11 @@
 .mk-vb.draft { background: hsl(var(--h) 35% 26%); color: hsl(var(--h) 70% 86%); }
 .mk-vb.done { background: hsl(var(--h) 8% 24%); color: hsl(var(--h) 10% 72%); }
 .mk-vb.pencil { background: repeating-linear-gradient(135deg, transparent 0 5px, hsla(var(--h), 50%, 60%, .16) 5px 10px); border: 1px dashed hsl(var(--h) 55% 62%); color: hsl(var(--h) 65% 80%); font-style: italic; font-weight: 600; }
+.mk-vb.vday { background: #e8c45a; color: #1a1606; font-size: 11px; padding: 0 6px; }
+.mk-vday { display: grid; grid-template-columns: 1.2fr 1.2fr 1fr auto; gap: 8px; align-items: end; }
+.mk-vday .mk-vdel { margin: 0 0 14px; }
+.mk-vadd { margin-top: 4px; }
+@media (max-width: 520px) { .mk-vday { grid-template-columns: 1fr 1fr; } }
 .mk-vb:focus-visible { outline: 2px solid var(--mk-txt); outline-offset: 1px; }
 
 .mk-label { font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin: 24px 0 10px; color: var(--mk-txt); }
