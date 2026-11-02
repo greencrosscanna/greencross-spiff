@@ -211,6 +211,12 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   Calendar and its own "Vendor day held" tick (`vday.held@store`, `.2` for a second day at that
   store, keyed in LIST order so editing a date never moves a tick). A plan saved earlier holds one
   day in `d.vday`; it is read as a one-row list and retired on the first edit.
+  **Items can carry their own list** (Sky, 2026-11-02): `marketing_json.rows[item]` =
+  `[{date, text, stores}]` — social post dates (one "Publish posts" tick per date, keyed on the date),
+  signs (text), featured cases (text + the stores that have that case; case tasks go only to those
+  stores). The vendor files link is `d.files.url`, internal only. Cards show no compliance note —
+  Sky's workflows carry those guardrails; `c` stays on each item as the record. The incentive has
+  no Details card.
 
 ### Money: payout, cost, vendor send
 

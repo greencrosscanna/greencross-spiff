@@ -128,6 +128,13 @@
 .mk-vday { display: grid; grid-template-columns: 1.2fr 1.2fr 1fr auto; gap: 8px; align-items: end; }
 .mk-vday .mk-vdel { margin: 0 0 14px; }
 .mk-vadd { margin-top: 4px; }
+.mk-files { display: flex; gap: 10px; align-items: end; margin: 0 0 14px; }
+.mk-files .mk-fld { flex: 1; margin: 0; }
+.mk-files .gx-btn { white-space: nowrap; text-decoration: none; }
+.mk-lrow { margin: 0 0 10px; }
+.mk-lrow-in { display: flex; gap: 8px; align-items: center; }
+.mk-lrow-in input { flex: 1; min-width: 0; box-sizing: border-box; background: var(--mk-bg); border: 1px solid var(--mk-line); border-radius: 6px; color: var(--mk-txt); padding: 6px 8px; font: inherit; font-size: 13px; }
+.mk-lrow .mk-task-stores { margin-top: 6px; }
 @media (max-width: 520px) { .mk-vday { grid-template-columns: 1fr 1fr; } }
 .mk-vb:focus-visible { outline: 2px solid var(--mk-txt); outline-offset: 1px; }
 

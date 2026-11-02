@@ -660,7 +660,7 @@ function normalizePitch_(v) {
 /* ── THE MARKETING RECORD: ONLY WHAT A PERSON DECIDED ────────────────────────────────────────────
  * { v:1, stores:[store_id], sel:{item:true}, skip:{item:true}, d:{item:{field:value}},
  *   done:{task_key:{by,at}}, due:{task_key:'YYYY-MM-DD'}, events:[{name,date,time}],
- *   vdays:[{store,date,time}], notes:'' }
+ *   vdays:[{store,date,time}], rows:{item:[{date,text,stores}]}, notes:'' }
  *
  * Tasks, due dates, overdue flags and compliance notes are computed on read by marketing.js and
  * never stored, for the same reason as the record warnings: a stored due date stops agreeing the
@@ -737,9 +737,25 @@ function normalizeMarketing_(v) {
     });
   if (!out.vdays.length) delete out.vdays;
 
+  /* An item's own list (social post dates, signs, featured cases): {item:[{date, text, stores}]}. */
+  out.rows = {};
+  var rows = v.rows && typeof v.rows === 'object' && !Array.isArray(v.rows) ? v.rows : {};
+  Object.keys(rows).forEach(function (item) {
+    if (!KEY.test(item) || !Array.isArray(rows[item])) return;
+    var list = rows[item].slice(0, 30).filter(function (r) { return r && typeof r === 'object' && !Array.isArray(r); })
+      .map(function (r) {
+        var day = text(r.date, 10);
+        return { date: ISO.test(day) ? day : '', text: text(r.text, 300),
+                 stores: (Array.isArray(r.stores) ? r.stores : []).map(function (s) { return text(s, 60); })
+                   .filter(function (s, i, a) { return KEY.test(s) && a.indexOf(s) === i; }) };
+      });
+    if (list.length) out.rows[item] = list;
+  });
+  if (!Object.keys(out.rows).length) delete out.rows;
+
   out.notes = text(v.notes, 2000);
 
-  var planned = out.stores || out.notes || out.events.length || out.vdays
+  var planned = out.stores || out.notes || out.events.length || out.vdays || out.rows
     || ['sel', 'skip', 'd', 'done', 'due'].some(function (k) { return Object.keys(out[k]).length; });
   return planned ? out : null;
 }
@@ -752,7 +768,7 @@ function normalizeMarketing_(v) {
    marketing.js's applyOps mirrors this for the screen; marketing_json_test.js holds them together. */
 function applyMarketingDelta_(current, ops) {
   var out = JSON.parse(JSON.stringify(current || {}));
-  var sections = ['stores', 'sel', 'skip', 'd', 'done', 'due', 'events', 'vdays', 'notes'];
+  var sections = ['stores', 'sel', 'skip', 'd', 'done', 'due', 'events', 'vdays', 'rows', 'notes'];
   (Array.isArray(ops) ? ops : []).forEach(function (op) {
     if (!Array.isArray(op) || sections.indexOf(op[0]) < 0) return;
     var section = op[0], key = op[1], value = op[2];
@@ -6382,9 +6398,12 @@ function mktPlanFacts_(p) {
     });
   var items = ids.map(function (id) {
     var m = MKT_MENU_[id], d = (plan.d && plan.d[id]) || {};
+    /* Dates only from an item's list: sign and case text is internal and stays off the vendor plan. */
+    var listDates = ((plan.rows && plan.rows[id]) || []).map(function (r) { return r.date; })
+      .filter(function (x, i, a) { return ISO.test(String(x || '')) && a.indexOf(x) === i; }).sort();
     var daysLine = id === 'vday' && vdays.length
       ? vdays.map(function (v) { return prettyDay_(v.date) + ' ' + v.name.replace('Vendor day at ', '') + (v.time ? ' (' + v.time + ')' : ''); }).join('; ')
-      : '';
+      : listDates.map(function (x) { return prettyDay_(x); }).join('; ');
     return { id: id, title: m.t, need: m.need, spec: m.spec,
              date: id !== 'vday' && m.dated && ISO.test(String(d[m.dated] || '')) ? d[m.dated] : '',
              days: daysLine,

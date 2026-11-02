@@ -181,14 +181,16 @@ const CTX = { today: TODAY, canEdit: true, engineReady: true, moving: '',
 {
   const p = withPlan({ sel: { email: true, signage: true } }, { vendor: 'A<b>' });
   const html = MK.sectionHtml(p, CTX);
-  ok('it shows the compliance note for a picked item', html.indexOf('tiered spend thresholds') > 0);
+  /* Sky, 2026-11-02: the workflows carry the compliance guardrails, so the cards do not repeat them. */
+  ok('the cards carry no compliance warning', html.indexOf('tiered spend thresholds') < 0 && html.indexOf('mk-comp') < 0);
   ok('  …and not for one left off', html.indexOf('Entry is not tied to a purchase') < 0);
   ok('a vendor name cannot inject markup', html.indexOf('A<b>') < 0 && html.indexOf('A&lt;b&gt;') > 0);
   ok('it uses the real store names it was given', html.indexOf('RIVER-RD') > 0);
   /* collectPatch reads every [data-key] in the record's hosts. None here, so the program's Save
      button neither reads nor resends this section. */
   ok('nothing in it can be picked up by the program\'s own Save', html.indexOf('data-key') < 0);
-  ok('the incentive card states the payout', /Flat \$50/.test(html));
+  /* Sky, 2026-11-02: the incentive has nothing to fill in, so it has no Details card. */
+  ok('the incentive gets no Details card', !/<h6>Budtender incentive/.test(html) && !/Flat \$50/.test(html));
   ok('no sales figure is typed here: the only inputs are the item details and dates',
      !/name="(sales|baseline|units)/.test(html) && !/data-mk-field="(sales|baseline|units|revenue)/.test(html));
   const ro = MK.sectionHtml(p, Object.assign({}, CTX, { canEdit: false }));

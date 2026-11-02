@@ -123,6 +123,31 @@ console.log('\n2b. vendor days on the calendar and in the tasks');
   ok('a viewer can neither add nor remove days', !/data-mk-vadd/.test(ro) && !/data-mk-vdel/.test(ro));
 }
 
+console.log('\n2c. post dates, signs, featured cases and the vendor files link');
+{
+  const plan2 = { sel: { social: true, 'case': true, signage: true },
+    rows: { social: [{ date: '2026-10-20' }, { date: '2026-10-14' }, { date: '2026-10-20' }],
+            'case': [{ text: 'Front case', stores: ['center'] }], signage: [{ text: 'Window cling' }, { text: 'Readerboard' }] },
+    d: { files: { url: 'https://drive.google.com/drive/folders/abc' } } };
+  const q = prog({ marketing_json: plan2 });
+  const pub = MK.tasksOf(q, {}).filter(t => t.id === 'social.publish');
+  ok('"Publish posts" is one tick per post date, in date order, duplicates once',
+     pub.map(t => t.key + '=' + t.due).join('|') === 'social.publish@2026-10-14=2026-10-14|social.publish@2026-10-20=2026-10-20');
+  const set = MK.tasksOf(q, {}).filter(t => t.id === 'case.set').map(t => t.store);
+  ok('case tasks go only to stores that have a case', set.join('|') === 'center');
+  const noCase = MK.tasksOf(prog({ marketing_json: { sel: { 'case': true } } }), {}).filter(t => t.id === 'case.set').map(t => t.store);
+  ok('  …and to every store until a case names one', noCase.join('|') === 'bend|center');
+  const sec = MK.sectionHtml(q, cx({ stores: STORES, storeName: s => s, engineReady: true }));
+  ok('post dates are date pickers, one per row, with Add', (sec.match(/data-mk-ritem="social"[^>]*data-mk-rfield="date"/g) || []).length === 3 && /\+ Add a post date/.test(sec));
+  ok('signs are text boxes, one per row, with Add', (sec.match(/data-mk-ritem="signage"[^>]*data-mk-rfield="text"/g) || []).length === 2 && /\+ Add a sign/.test(sec));
+  ok('a case row has store pills, the chosen one on', /class="mk-store-tick on" data-mk-ritem="case" data-mk-row="0" data-mk-rstore="center"/.test(sec)
+     && /data-mk-rstore="bend"/.test(sec));
+  ok('the folder link has an Open button that opens a new tab', /href="https:\/\/drive.google.com\/drive\/folders\/abc" target="_blank" rel="noopener noreferrer">Open folder/.test(sec));
+  const bad = MK.sectionHtml(prog({ marketing_json: { d: { files: { url: 'javascript:alert(1)' } } } }), cx({ stores: STORES, storeName: s => s, engineReady: true }));
+  ok('  …but only for an https link', !/Open folder/.test(bad));
+  ok('the publish ticks are labeled by date', /each date: 0 of 2/.test(sec));
+}
+
 console.log('\n3. the pencil form and detail');
 {
   const periods = [];

@@ -91,12 +91,12 @@
           ['sms.approve', 'DIR', 'Approve text copy and send time', 's', -5],
           ['sms.send', 'DIR', 'Send text blast', 's', 0, { on: 'date' }]] },
     social: { t: 'Social media', s: 'Posts on our accounts', sec: 'mkt',
-      f: [['sel', 'maker', 'Who makes the posts', ['We do', 'Vendor supplies', 'Both']],
-          ['text', 'dates', 'Post dates']],
+      f: [['sel', 'maker', 'Who makes the posts', ['We do', 'Vendor supplies', 'Both']]],
+      list: { kind: 'date', label: 'Post dates', add: '+ Add a post date' },
       c: 'No health claims, nothing that appeals to minors, and each platform’s cannabis rules.',
       k: [['social.media', 'DIR', 'Receive vendor media, handles and tags', 's', -10],
           ['social.draft', 'DIR', 'Draft posts and get vendor approval', 's', -5],
-          ['social.publish', 'DIR', 'Publish posts', 's', 0],
+          ['social.publish', 'DIR', 'Publish posts', 's', 0, { byDate: 1 }],
           ['social.links', 'DIR', 'Send post links to vendor', 'e', 2]] },
     ecom: { t: 'Online menu feature', s: 'Featured placement on the online menu', sec: 'mkt',
       f: [],
@@ -127,13 +127,15 @@
           ['swag.send', 'INV', 'Distribute swag to stores', 's', -5],
           ['swag.report', 'MGR', 'Report swag remaining', 'e', 1, { each: 1 }]] },
     case: { t: 'Featured case', s: 'Case / shelf placement', sec: 'store',
-      f: [['text', 'notes', 'Case notes']],
+      f: [],
+      list: { kind: 'stores', label: 'Cases', add: '+ Add a case', ph: 'Which case, and what goes in it' },
       c: 'Shelf talkers: no health claims, nothing that appeals to minors.',
       k: [['case.space', 'INV', 'Confirm case space for each store', 's', -10],
-          ['case.set', 'MGR', 'Featured placement set', 's', -1, { each: 1 }],
-          ['case.reset', 'MGR', 'Case back to normal', 'e', 1, { each: 1 }]] },
+          ['case.set', 'MGR', 'Featured placement set', 's', -1, { each: 1, rowStores: 1 }],
+          ['case.reset', 'MGR', 'Case back to normal', 'e', 1, { each: 1, rowStores: 1 }]] },
     signage: { t: 'Signage & readerboard', s: 'Clings, flags, readerboard', sec: 'store',
       f: [],
+      list: { kind: 'text', label: 'Signs', add: '+ Add a sign', ph: 'e.g. Window cling, readerboard copy' },
       c: 'Review signs before they go up.',
       k: [['signage.receive', 'INV', 'Receive printed signage', 's', -7],
           ['signage.approve', 'DIR', 'Approve readerboard copy', 's', -5],
@@ -176,7 +178,16 @@
   function planOf(p) {
     var m = (p && p.marketing_json) || {};
     return { stores: m.stores || null, sel: m.sel || {}, skip: m.skip || {}, d: m.d || {},
-             done: m.done || {}, due: m.due || {}, events: m.events || [], vdays: m.vdays || [], notes: m.notes || '' };
+             done: m.done || {}, due: m.due || {}, events: m.events || [], vdays: m.vdays || [],
+             rows: m.rows || {}, notes: m.notes || '' };
+  }
+
+  /* An item's own list (post dates, signs, cases), as [{date?, text?, stores?}]. */
+  function rowsOf(p, item) {
+    var l = planOf(p).rows[item];
+    return Array.isArray(l) ? l.map(function (r) {
+      return { date: r.date || '', text: r.text || '', stores: Array.isArray(r.stores) ? r.stores.slice() : [] };
+    }) : [];
   }
 
   /* The vendor days, as [{store, date, time}]. An empty store means every store on the plan. */
@@ -220,7 +231,7 @@
       function emit(store, key, day, on) {
         var moved = plan.due[key] || plan.due[row[0]] || '';
         out.push({ key: key, id: row[0], item: itemId, own: row[1], owner: OWNERS[row[1]] || row[1],
-                   text: row[2], store: store, each: !!flags.each, due: moved || on,
+                   text: row[2], store: store, each: !!flags.each || !!(flags.byDate && day), due: moved || on,
                    planned: on, moved: !!moved, done: plan.done[key] || null, day: day || '' });
       }
       /* One "held" row per vendor day per store, due on that day. A second day at the same store gets
@@ -237,7 +248,22 @@
         });
         return;
       }
-      (flags.each ? stores : [null]).forEach(function (store) {
+      /* One tick per post date, keyed on the date so removing one never moves another's tick. */
+      var dates = flags.byDate ? rowsOf(p, itemId).map(function (r) { return r.date; })
+        .filter(function (d, i, a) { return ISO.test(d) && a.indexOf(d) === i; }).sort() : [];
+      if (dates.length) {
+        dates.forEach(function (d) { emit(null, row[0] + '@' + d, d, d); });
+        return;
+      }
+      /* Featured case: only the stores that have a case, once any case names a store. */
+      var where = stores;
+      if (flags.rowStores) {
+        var named = [];
+        rowsOf(p, itemId).forEach(function (r) { r.stores.forEach(function (s) { if (named.indexOf(s) < 0) named.push(s); }); });
+        if (named.length) where = stores.filter(function (s) { return named.indexOf(s) >= 0; })
+          .concat(named.filter(function (s) { return stores.indexOf(s) < 0; }));
+      }
+      (flags.each ? where : [null]).forEach(function (store) {
         emit(store, store ? row[0] + '@' + store : row[0], '', planned);
       });
     }
@@ -310,7 +336,7 @@
      plan with every task ticked would pass on the last day of a program. It also means two people
      ticking different tasks cannot overwrite each other. The engine's applyMarketingDelta_ applies
      the same operations to what is stored; a test holds the two together. */
-  var OP_SECTIONS = { stores: 1, sel: 1, skip: 1, d: 1, done: 1, due: 1, events: 1, vdays: 1, notes: 1 };
+  var OP_SECTIONS = { stores: 1, sel: 1, skip: 1, d: 1, done: 1, due: 1, events: 1, vdays: 1, rows: 1, notes: 1 };
   function applyOps(plan, ops) {
     var out = JSON.parse(JSON.stringify(plan || {}));
     (ops || []).forEach(function (op) {
@@ -353,6 +379,23 @@
     if (!l[+i] || ['store', 'date', 'time'].indexOf(field) < 0) return [];
     l[+i][field] = String(value || '');
     return vdaysOps(l);
+  }
+  /* An item's list goes whole: it is short, and [rows, item, list] keeps the other items' lists. */
+  function rowsOp(item, list) { return [['rows', item, list.length ? list : null]]; }
+  function addRowOp(p, item) { return rowsOp(item, rowsOf(p, item).concat([{ date: '', text: '', stores: [] }])); }
+  function removeRowOp(p, item, i) { var l = rowsOf(p, item); l.splice(+i, 1); return rowsOp(item, l); }
+  function setRowOp(p, item, i, field, value) {
+    var l = rowsOf(p, item);
+    if (!l[+i] || ['date', 'text'].indexOf(field) < 0) return [];
+    l[+i][field] = String(value || '');
+    return rowsOp(item, l);
+  }
+  function toggleRowStoreOp(p, item, i, store) {
+    var l = rowsOf(p, item), r = l[+i];
+    if (!r || !store) return [];
+    var at = r.stores.indexOf(store);
+    if (at >= 0) r.stores.splice(at, 1); else r.stores.push(store);
+    return rowsOp(item, l);
   }
   function doneOp(key, on, by, at) { return [['done', key, on ? { by: by, at: at } : null]]; }
   function dueOp(key, day) { return [['due', key, day || null]]; }
@@ -438,12 +481,13 @@
       : '<input type="checkbox" data-mk-task="' + esc(g.key) + '"' + (g.open ? '' : ' checked') + ro + '>';
     var stores = !g.each ? '' : '<div class="mk-task-stores">' + g.rows.map(function (r) {
       return '<button type="button" class="mk-store-tick' + (r.done ? ' on' : '') + '" data-mk-task="' + esc(r.key) + '"'
-        + ' aria-pressed="' + (r.done ? 'true' : 'false') + '"' + ro + '>' + esc(ctx.storeName(r.store))
-        + (r.day ? ' &middot; ' + esc(shortDate(r.day)) : '') + '</button>';
+        + ' aria-pressed="' + (r.done ? 'true' : 'false') + '"' + ro + '>'
+        + (r.store ? esc(ctx.storeName(r.store)) + (r.day ? ' &middot; ' + esc(shortDate(r.day)) : '') : esc(shortDate(r.day)))
+        + '</button>';
     }).join('') + '</div>';
     var sub = [];
     if (item) sub.push(esc(item));
-    if (g.each) sub.push('each store: ' + (g.rows.length - g.open) + ' of ' + g.rows.length);
+    if (g.each) sub.push((g.rows[0].store ? 'each store: ' : 'each date: ') + (g.rows.length - g.open) + ' of ' + g.rows.length);
     if (g.moved && g.open) sub.push('date moved by hand');
     return '<div class="mk-task' + (g.open ? '' : ' done') + '">' + box
       + '<span class="tx">' + esc(g.text) + (sub.length ? '<small>' + sub.join(' · ') + '</small>' : '') + stores + '</span>'
@@ -484,6 +528,40 @@
       + (ctx.canEdit ? '<button type="button" class="gx-btn mk-vadd" data-mk-vadd="1">+ Add a vendor day</button>' : '');
   }
 
+  /* The program's vendor files: one link to a Drive folder of art, posters and info sheets. Kept in
+     d.files.url, so the engine stores it with no change. Internal only: the vendor plan never reads it. */
+  function filesHtml(plan, ctx) {
+    var url = String((plan.d.files || {}).url || ''), ro = ctx.canEdit ? '' : ' disabled';
+    var open = /^https:\/\//i.test(url)
+      ? '<a class="gx-btn" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">Open folder</a>' : '';
+    return '<div class="mk-files"><label class="mk-fld">Vendor files (Google Drive folder link)'
+      + '<input type="url" data-mk-item="files" data-mk-field="url" placeholder="https://drive.google.com/drive/folders/…" value="' + esc(url) + '"' + ro + '></label>'
+      + open + '</div>';
+  }
+
+  /* An item's list: a date per row, a line of text per row, or a line plus the stores it is at. */
+  function listHtml(p, id, ctx, on) {
+    var L = ITEMS[id].list, ro = ctx.canEdit ? '' : ' disabled';
+    var data = function (i) { return ' data-mk-ritem="' + esc(id) + '" data-mk-row="' + i + '"'; };
+    var rows = rowsOf(p, id).map(function (r, i) {
+      var input = L.kind === 'date'
+        ? '<input type="date"' + data(i) + ' data-mk-rfield="date" value="' + esc(r.date) + '" aria-label="' + esc(L.label) + '"' + ro + '>'
+        : '<input type="text"' + data(i) + ' data-mk-rfield="text" placeholder="' + esc(L.ph || '') + '" value="' + esc(r.text) + '" aria-label="' + esc(L.label) + '"' + ro + '>';
+      var pills = L.kind !== 'stores' ? '' : '<div class="mk-task-stores">' + ctx.stores.filter(function (s) {
+          return on.indexOf(s.store_id) >= 0 || r.stores.indexOf(s.store_id) >= 0;
+        }).map(function (s) {
+          var hit = r.stores.indexOf(s.store_id) >= 0;
+          return '<button type="button" class="mk-store-tick' + (hit ? ' on' : '') + '"' + data(i) + ' data-mk-rstore="' + esc(s.store_id) + '"'
+            + ' aria-pressed="' + (hit ? 'true' : 'false') + '"' + ro + '>' + esc(s.name) + '</button>';
+        }).join('') + '</div>';
+      return '<div class="mk-lrow"><div class="mk-lrow-in">' + input
+        + (ctx.canEdit ? '<button type="button" class="mk-link"' + data(i) + ' data-mk-rdel="1" aria-label="Remove">Remove</button>' : '')
+        + '</div>' + pills + '</div>';
+    }).join('');
+    return '<div class="mk-fld">' + esc(L.label) + '</div>' + (rows || '<p class="mk-sub">None yet.</p>')
+      + (ctx.canEdit ? '<button type="button" class="gx-btn mk-vadd" data-mk-radd="' + esc(id) + '">' + esc(L.add) + '</button>' : '');
+  }
+
   /* The whole section for one program. ctx: { today, canEdit, engineReady, stores:[{store_id,name}],
      storeName(id), moving }. */
   function sectionHtml(p, ctx) {
@@ -505,13 +583,14 @@
       return '<button type="button" class="' + (on.indexOf(s.store_id) >= 0 ? 'on' : '') + '" data-mk-store="' + esc(s.store_id) + '"' + ro + '>' + esc(s.name) + '</button>';
     }).join('');
 
-    var cards = Object.keys(ITEMS).filter(function (id) { return isOn(p, id); }).map(function (id) {
+    /* The incentive has no card: it has nothing to fill in, its payout is set in the Calculator. */
+    var cards = Object.keys(ITEMS).filter(function (id) { return isOn(p, id) && !ITEMS[id].lock; }).map(function (id) {
       var it = ITEMS[id];
-      var body = it.lock
-        ? '<p class="mk-sub mk-incentive">' + esc(incentiveLine(p)) + '. Payout, goals and stores come from the Calculator above; sales results are SPIFF’s own measurements.</p>'
-        : it.days ? vdayHtml(p, ctx, on)
-        : it.f.map(function (f) { return fieldHtml(id, f, plan, ctx); }).join('');
-      return '<div class="mk-item"><h6>' + esc(it.t) + '</h6>' + body + '<div class="mk-comp">' + esc(it.c) + '</div></div>';
+      var body = it.days ? vdayHtml(p, ctx, on)
+        : it.f.map(function (f) { return fieldHtml(id, f, plan, ctx); }).join('') + (it.list ? listHtml(p, id, ctx, on) : '');
+      /* No compliance note on the card (Sky, 2026-11-02): the workflows already carry those guardrails.
+         `c` stays on each item as the record of what each one must respect. */
+      return '<div class="mk-item"><h6>' + esc(it.t) + '</h6>' + body + '</div>';
     }).join('');
 
     var groups = groupTasks(tasksOf(p, opts));
@@ -530,7 +609,8 @@
       + '<div class="mk-grid4">' + picker + '</div>'
       + '<h5 class="mk-stores-h">Which stores?</h5><div class="mk-stores">' + chips + '</div></div>'
       + '<div class="mk-card"><h3 class="mk-h">Details</h3>'
-      + '<p class="mk-sub">Only what’s needed for the items picked above. Each one carries its Oregon compliance check.</p>'
+      + '<p class="mk-sub">Only what’s needed for the items picked above.</p>'
+      + filesHtml(plan, ctx)
       + '<div class="mk-items">' + cards + '</div></div>'
       + '<div class="mk-card"><div class="mk-row2"><div><h3 class="mk-h">Tasks</h3>'
       + '<p class="mk-sub mk-tight">Dates count from the window. Move the window and every date moves with it.</p></div>'
@@ -556,6 +636,9 @@
       var p = api.program();
       if (!p) return;
       if (t.dataset.mkPlan) return api.plan(t.dataset.mkPlan, t);
+      if (t.dataset.mkRadd) return api.apply(addRowOp(p, t.dataset.mkRadd));
+      if (t.dataset.mkRdel) return api.apply(removeRowOp(p, t.dataset.mkRitem, t.dataset.mkRow));
+      if (t.dataset.mkRstore) return api.apply(toggleRowStoreOp(p, t.dataset.mkRitem, t.dataset.mkRow, t.dataset.mkRstore));
       if (t.dataset.mkVadd) return api.apply(addVdayOp(p));
       if (t.dataset.mkVdel) return api.apply(removeVdayOp(p, t.dataset.mkVdel));
       if (t.dataset.mkPick) return api.apply(toggleItemOp(p, t.dataset.mkPick));
@@ -567,6 +650,7 @@
     host.addEventListener('change', function (e) {
       var t = e.target, p = api.program();
       if (!p || !t.dataset) return;
+      if (t.dataset.mkRfield) return api.apply(setRowOp(p, t.dataset.mkRitem, t.dataset.mkRow, t.dataset.mkRfield, t.value));
       if (t.dataset.mkVday) return api.apply(setVdayOp(p, t.dataset.mkVday, t.dataset.mkVfield, t.value));
       if (t.dataset.mkTask) return api.tick(t.dataset.mkTask, t.checked);
       if (t.dataset.mkDue) return api.apply(dueOp(t.dataset.mkDue, t.value));
@@ -851,6 +935,7 @@
     incentiveLine: incentiveLine, applyOps: applyOps, toggleItemOp: toggleItemOp,
     toggleStoreOp: toggleStoreOp, detailOp: detailOp, doneOp: doneOp, dueOp: dueOp,
     vdaysOf: vdaysOf, addVdayOp: addVdayOp, removeVdayOp: removeVdayOp, setVdayOp: setVdayOp,
+    rowsOf: rowsOf, addRowOp: addRowOp, removeRowOp: removeRowOp, setRowOp: setRowOp, toggleRowStoreOp: toggleRowStoreOp,
     makeSaver: makeSaver, listLine: listLine, foldNote: foldNote, sectionHtml: sectionHtml, wire: wire
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
