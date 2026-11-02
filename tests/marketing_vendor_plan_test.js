@@ -55,8 +55,9 @@ function engine(o) {
   const api = G.load({
     real: ['marketingOverview_', 'marketingOverviewHtml_', 'mktPlanFacts_', 'mktEsc_', 'mktPickedIds_', 'mktEditor_',
            'mktRecipients_', 'marketingNotify_', 'normalizeMarketing_', 'brandProgramLabel_', 'prettyDay_',
-           'addDaysLocal_', 'slug_', 'today_'],
-    vars: ['EDIT_ROLES', 'LOGO_ONLIGHT', 'MKT_NOTIFY_PROP', 'MKT_NOTIFY_DOMAIN', 'MKT_NOTIFIED_PREFIX', 'MKT_OREGON_RULES_', 'REPORT_FOLDER_ID', 'MKT_MENU_'],
+           'addDaysLocal_', 'slug_', 'today_', 'marketingAssign_'],
+    vars: ['EDIT_ROLES', 'LOGO_ONLIGHT', 'MKT_NOTIFY_PROP', 'MKT_NOTIFY_DOMAIN', 'MKT_NOTIFIED_PREFIX', 'MKT_OREGON_RULES_', 'REPORT_FOLDER_ID', 'MKT_MENU_',
+           'MKT_PEOPLE_', 'MKT_ASSIGNED_PREFIX', 'MKT_APP_URL'],
     stubs: {
       gxAuth_: (t) => (t === 'good' ? { ok: true, user: 'tawny', role: o.role || 'editor' } : { ok: false, error: 'bad token' }),
       getProgram_: (id) => (id === 'wyld-1' ? { ok: true, program: program_ } : { ok: false, error: 'not found: ' + id }),
@@ -187,6 +188,38 @@ console.log('\n6. the buttons');
   MK.wire(host, { program: () => p, plan: (w) => calls.push(w), apply() {}, opts() { return {}; }, moving() {}, tick() {} });
   host.click({ target: { closest: () => ({ disabled: false, dataset: { mkPlan: 'notify' } }) } });
   ok('a click reaches the plan handler', calls[0] === 'notify');
+}
+
+console.log('\n7. telling someone a task is now theirs');
+{
+  /* The signed-in editor here is tawny (see gxAuth_ above). */
+  const assigned = (own) => program({ marketing_json: Object.assign({}, FULL_PLAN, { own }) });
+  const base = { token: 'good', id: 'wyld-1', task: 'email.send', text: 'Send email blast', item: 'Email blast', due: '2026-10-15' };
+  let e = engine({ program: assigned({ 'email.send': 'mike' }) });
+  const r1 = e.api.marketingAssign_(Object.assign({ person: 'mike' }, base));
+  ok('it emails the person the task is stored against', r1.ok && r1.sent && e.mails.length === 1 && e.mails[0].to === 'mike@greencrosscanna.com');
+  ok('  …saying what, which program, when and who', /Send email blast/.test(e.mails[0].subject) && /Wyld/.test(e.mails[0].subject)
+     && /tawny assigned you/.test(e.mails[0].body) && /Oct 15, 2026/.test(e.mails[0].body) && /greencross-spiff/.test(e.mails[0].body));
+  ok('  …with no pay or cost figure in it', ['777', '4242', 'COST-CANARY', 'Zelda'].every(s => (e.mails[0].subject + e.mails[0].body).indexOf(s) < 0));
+  const r2 = e.api.marketingAssign_(Object.assign({ person: 'mike' }, base));
+  ok('a re-fetched URL does not email twice', r2.ok && !r2.sent && e.mails.length === 1);
+  e = engine({ program: assigned({ 'email.send': 'mike' }) });
+  const r3 = e.api.marketingAssign_(Object.assign({}, base, { person: 'sky' }));
+  ok('it refuses when what is saved names someone else', !r3.ok && e.mails.length === 0);
+  const r4 = e.api.marketingAssign_(Object.assign({}, base, { person: 'vendor@brand.com' }));
+  ok('it refuses anyone outside the three, and never takes an address from the request', !r4.ok && e.mails.length === 0);
+  e = engine({ program: assigned({ 'email.send': 'tawny' }) });
+  const r5 = e.api.marketingAssign_(Object.assign({ person: 'tawny' }, base));
+  ok('nobody is emailed about a task they took themselves', r5.ok && !r5.sent && e.mails.length === 0);
+  e = engine({ program: assigned({ 'email.send': 'mike' }), role: 'viewer' });
+  ok('a viewer cannot send it', !e.api.marketingAssign_(Object.assign({ person: 'mike' }, base)).ok && e.mails.length === 0);
+  e = engine({ program: assigned({ 'email.send': 'mike' }), mailFails: true });
+  const r6 = e.api.marketingAssign_(Object.assign({ person: 'mike' }, base));
+  ok('a failed send says so and is not recorded as told', !r6.ok && /Could not send/.test(r6.error)
+     && e.api.marketingAssign_(Object.assign({ person: 'mike' }, base)).ok === false);
+  const kept = e.api.normalizeMarketing_({ own: { 'email.send': 'Mike', 'core.menu': 'bob', __proto__: 'sky' } });
+  ok('the engine keeps an owner only if it is one of the three', JSON.stringify(kept.own) === '{"email.send":"mike"}');
+  ok('the route is never hedged on the screen', !/'marketingAssign'/.test(fs.readFileSync(path.join(__dirname, '..', 'spiff.js'), 'utf8').match(/var ENGINE_HEDGE_READS = \{[\s\S]*?\};/)[0]));
 }
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nmarketing vendor plan: all passed');

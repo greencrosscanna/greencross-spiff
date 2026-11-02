@@ -68,6 +68,8 @@
 .o-INV { background: #1f3b2a; color: #86efac; }
 .o-DIR { background: #1e2f4a; color: #93c5fd; }
 .o-MGR { background: #3a2a12; color: #fcd34d; }
+.o-SKY { background: #33224a; color: #d8b4fe; }
+select.mk-own { border: 0; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; appearance: none; -webkit-appearance: none; padding-right: 8px; }
 .o-VEN { background: #33213f; color: #d8b4fe; }
 .mk-due { font-size: 12px; color: var(--mk-mut); white-space: nowrap; min-width: 92px; display: inline-block; text-align: right; }
 .mk-due.late { color: var(--mk-red); font-weight: 700; }

@@ -26,7 +26,10 @@
     return !!session && PREVIEW_USERS.indexOf(String(session.user || '').toLowerCase()) >= 0;
   }
 
-  var OWNERS = { INV: 'Tawny', DIR: 'Mike', MGR: 'Managers', VEN: 'Vendor' };
+  var OWNERS = { INV: 'Tawny', DIR: 'Mike', SKY: 'Sky', MGR: 'Managers', VEN: 'Vendor' };
+  /* Who a task can be handed to (Sky, 2026-11-02: these three only), and the owner code each one
+     shows as. The engine's MKT_PEOPLE_ holds their addresses and the same three names. */
+  var PEOPLE = { tawny: 'INV', mike: 'DIR', sky: 'SKY' };
 
   var SECTIONS = [
     ['cust', 'Customers', 'What customers experience'],
@@ -179,7 +182,7 @@
     var m = (p && p.marketing_json) || {};
     return { stores: m.stores || null, sel: m.sel || {}, skip: m.skip || {}, d: m.d || {},
              done: m.done || {}, due: m.due || {}, events: m.events || [], vdays: m.vdays || [],
-             rows: m.rows || {}, notes: m.notes || '' };
+             rows: m.rows || {}, own: m.own || {}, notes: m.notes || '' };
   }
 
   /* An item's own list (post dates, signs, cases), as [{date?, text?, stores?}]. */
@@ -228,9 +231,12 @@
       var anchor = row[3] === 's' ? p.start_date : p.end_date;
       var typed = flags.on && itemId && plan.d[itemId] ? plan.d[itemId][flags.on] : '';
       var planned = ISO.test(String(typed || '')) ? typed : addDays(anchor, row[4]);
+      /* A reassignment is per task, for every store and date it fans out to. */
+      var person = PEOPLE[plan.own[row[0]]] ? plan.own[row[0]] : '';
+      var own = person ? PEOPLE[person] : row[1];
       function emit(store, key, day, on) {
         var moved = plan.due[key] || plan.due[row[0]] || '';
-        out.push({ key: key, id: row[0], item: itemId, own: row[1], owner: OWNERS[row[1]] || row[1],
+        out.push({ key: key, id: row[0], item: itemId, own: own, owner: OWNERS[own] || own, defOwn: row[1], assigned: person,
                    text: row[2], store: store, each: !!flags.each || !!(flags.byDate && day), due: moved || on,
                    planned: on, moved: !!moved, done: plan.done[key] || null, day: day || '' });
       }
@@ -281,7 +287,7 @@
     tasks.forEach(function (t) {
       var g = by[t.id];
       if (!g) {
-        g = by[t.id] = { id: t.id, item: t.item, own: t.own, owner: t.owner, text: t.text, each: t.each,
+        g = by[t.id] = { id: t.id, item: t.item, own: t.own, owner: t.owner, defOwn: t.defOwn, assigned: t.assigned, text: t.text, each: t.each,
                          rows: [], open: 0, due: '', moved: false, key: t.key };
         order.push(g);
       }
@@ -336,7 +342,7 @@
      plan with every task ticked would pass on the last day of a program. It also means two people
      ticking different tasks cannot overwrite each other. The engine's applyMarketingDelta_ applies
      the same operations to what is stored; a test holds the two together. */
-  var OP_SECTIONS = { stores: 1, sel: 1, skip: 1, d: 1, done: 1, due: 1, events: 1, vdays: 1, rows: 1, notes: 1 };
+  var OP_SECTIONS = { stores: 1, sel: 1, skip: 1, d: 1, done: 1, due: 1, events: 1, vdays: 1, rows: 1, own: 1, notes: 1 };
   function applyOps(plan, ops) {
     var out = JSON.parse(JSON.stringify(plan || {}));
     (ops || []).forEach(function (op) {
@@ -396,6 +402,22 @@
     var at = r.stores.indexOf(store);
     if (at >= 0) r.stores.splice(at, 1); else r.stores.push(store);
     return rowsOp(item, l);
+  }
+  /* Handing a task to someone. Picking the person who owns it by default clears the override. */
+  function assignOp(p, taskId, person) {
+    var row = null;
+    CORE.concat.apply(CORE, Object.keys(ITEMS).map(function (id) { return ITEMS[id].k; }))
+      .forEach(function (r) { if (r[0] === taskId) row = r; });
+    if (!row || (person && !PEOPLE[person])) return [];
+    return [['own', taskId, person && PEOPLE[person] !== row[1] ? person : null]];
+  }
+  function ownerPicker(g, ctx) {
+    var opts = [['', OWNERS[g.defOwn] || g.defOwn]];
+    Object.keys(PEOPLE).forEach(function (who) { if (PEOPLE[who] !== g.defOwn) opts.push([who, OWNERS[PEOPLE[who]]]); });
+    return '<select class="mk-own o-' + esc(g.own) + '" data-mk-assign="' + esc(g.id) + '" aria-label="Who owns this task">'
+      + opts.map(function (o) {
+          return '<option value="' + o[0] + '"' + (o[0] === g.assigned ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
+        }).join('') + '</select>';
   }
   function doneOp(key, on, by, at) { return [['done', key, on ? { by: by, at: at } : null]]; }
   function dueOp(key, day) { return [['due', key, day || null]]; }
@@ -491,7 +513,7 @@
     if (g.moved && g.open) sub.push('date moved by hand');
     return '<div class="mk-task' + (g.open ? '' : ' done') + '">' + box
       + '<span class="tx">' + esc(g.text) + (sub.length ? '<small>' + sub.join(' · ') + '</small>' : '') + stores + '</span>'
-      + '<span class="mk-own o-' + esc(g.own) + '">' + esc(g.owner) + '</span>' + due + '</div>';
+      + (ctx.canEdit ? ownerPicker(g, ctx) : '<span class="mk-own o-' + esc(g.own) + '">' + esc(g.owner) + '</span>') + due + '</div>';
   }
 
   function fieldHtml(item, f, plan, ctx) {
@@ -650,6 +672,7 @@
     host.addEventListener('change', function (e) {
       var t = e.target, p = api.program();
       if (!p || !t.dataset) return;
+      if (t.dataset.mkAssign) return api.assign ? api.assign(t.dataset.mkAssign, t.value) : api.apply(assignOp(p, t.dataset.mkAssign, t.value));
       if (t.dataset.mkRfield) return api.apply(setRowOp(p, t.dataset.mkRitem, t.dataset.mkRow, t.dataset.mkRfield, t.value));
       if (t.dataset.mkVday) return api.apply(setVdayOp(p, t.dataset.mkVday, t.dataset.mkVfield, t.value));
       if (t.dataset.mkTask) return api.tick(t.dataset.mkTask, t.checked);
@@ -799,9 +822,9 @@
   function tasksAcrossHtml(programs, ctx) {
     var opts = { stores: ctx.stores.map(function (s) { return s.store_id; }) };
     var rows = openTasksAcross(programs, opts), ro = ctx.canEdit ? '' : ' disabled';
-    var owners = ['INV', 'DIR', 'MGR', 'VEN'];
+    var owners = ['INV', 'DIR', 'SKY', 'MGR', 'VEN'];
     var seg = '<span class="mk-seg"><button type="button" data-mk-owner=""' + (ctx.owner ? '' : ' class="is-on"') + '>Everyone</button>'
-      + owners.slice(0, 3).map(function (o) {
+      + owners.slice(0, 4).map(function (o) {
           return '<button type="button" data-mk-owner="' + o + '"' + (ctx.owner === o ? ' class="is-on"' : '') + '>' + esc(OWNERS[o]) + '</button>';
         }).join('') + '</span>';
     var shown = rows.filter(function (r) { return !ctx.owner || r.g.own === ctx.owner; });
@@ -935,6 +958,7 @@
     incentiveLine: incentiveLine, applyOps: applyOps, toggleItemOp: toggleItemOp,
     toggleStoreOp: toggleStoreOp, detailOp: detailOp, doneOp: doneOp, dueOp: dueOp,
     vdaysOf: vdaysOf, addVdayOp: addVdayOp, removeVdayOp: removeVdayOp, setVdayOp: setVdayOp,
+    PEOPLE: PEOPLE, assignOp: assignOp,
     rowsOf: rowsOf, addRowOp: addRowOp, removeRowOp: removeRowOp, setRowOp: setRowOp, toggleRowStoreOp: toggleRowStoreOp,
     makeSaver: makeSaver, listLine: listLine, foldNote: foldNote, sectionHtml: sectionHtml, wire: wire
   };
