@@ -369,5 +369,39 @@ console.log('\n7. several vendor days, each at its own store');
   ok('a six-day edit still rides on GET (' + len + ' characters)', len < 2000);
 }
 
+console.log('\n8. an item\'s own list: post dates, signs, featured cases');
+{
+  let screen = null, engine = null, same = true;
+  const p = () => ({ marketing_json: screen });
+  const step = (opsFn) => {
+    const ops = opsFn(p());
+    screen = JSON.parse(JSON.stringify(N(MK.applyOps(screen, ops))));
+    engine = rowApi.applyMarketingDelta_(engine, ops);
+    if (JSON.stringify(screen) !== JSON.stringify(engine)) same = false;
+  };
+  step(() => [['sel', 'social', true]]);
+  step(q => MK.addRowOp(q, 'social'));
+  step(q => MK.setRowOp(q, 'social', 0, 'date', '2026-11-04'));
+  step(q => MK.addRowOp(q, 'social'));
+  step(q => MK.setRowOp(q, 'social', 1, 'date', '2026-11-07'));
+  step(q => MK.addRowOp(q, 'case'));
+  step(q => MK.setRowOp(q, 'case', 0, 'text', 'Front glass case'));
+  step(q => MK.toggleRowStoreOp(q, 'case', 0, 'river-rd'));
+  step(q => MK.toggleRowStoreOp(q, 'case', 0, 'bend'));
+  step(q => MK.toggleRowStoreOp(q, 'case', 0, 'river-rd'));
+  step(q => MK.addRowOp(q, 'signage'));
+  step(q => MK.setRowOp(q, 'signage', 0, 'text', 'Window cling'));
+  step(q => MK.detailOp(q, 'files', 'url', 'https://drive.google.com/drive/folders/abc'));
+  ok('screen and engine agree at every step', same);
+  ok('two post dates, one sign, one case at one store', engine.rows.social.map(r => r.date).join('|') === '2026-11-04|2026-11-07'
+     && engine.rows.signage[0].text === 'Window cling' && engine.rows['case'][0].stores.join('|') === 'bend');
+  ok('the folder link is kept', engine.d.files.url === 'https://drive.google.com/drive/folders/abc');
+  step(q => MK.removeRowOp(q, 'signage', 0));
+  ok('removing the last sign drops that list and keeps the others', !engine.rows.signage && engine.rows.social.length === 2 && same);
+  const junk = N({ rows: { social: [{ date: 'soon', stores: ['__proto__', 'bend', 'bend'] }, 'x'], __proto__: [{}], 'Bad Key': [{}] } });
+  ok('the engine keeps only real dates, store slugs and safe keys', junk.rows.social.length === 1
+     && junk.rows.social[0].date === '' && junk.rows.social[0].stores.join('|') === 'bend' && Object.keys(junk.rows).join() === 'social');
+}
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nmarketing_json: all passed');
 process.exit(fail ? 1 : 0);
