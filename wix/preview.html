@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gc-deals preview</title>
+<style>body{margin:0}</style>
+<script src="gc-deals.js"></script>
+</head>
+<body>
+<!-- Sample data shaped like the Wix CMS items the page code passes in. Not used by the live site. -->
+<gc-deals id="d"></gc-deals>
+<script>
+var L = 'https://lh3.googleusercontent.com/d/';
+var data = {
+  vendors: [
+    { _id: 'v1', title: 'Grön', aliases: ['Gron', 'GRON'], logoWide: L + '1FrzMut0c4nwBnuvStY40a3IqCZt1dzuk' },
+    { _id: 'v2', title: 'Wyld', logoWide: L + '1KZyl-RB9Es93r2vspyWK5V_dnkp-tuQy' },
+    { _id: 'v3', title: 'Good Tide', logoWide: L + '1cI1cypCeqvF6YM5JTqY8gRVI9GbDVaaT' },
+    { _id: 'v4', title: 'Mule Extracts', logoWide: L + '1awaSUzVHol3U_K8fXV4HlwrLZfOjtUgf' },
+    { _id: 'v5', title: 'Verdant Leaf', logoWide: L + '1wcBqEAGDTuaw6AtpMAWG_30lDccGNGst' },
+    { _id: 'v6', title: 'Freshy', logoWide: L + '1JOeR68vteC1uxVb_a1eg71p2n-BYNYIM' },
+    { _id: 'v7', title: 'Bobsled', logoWide: L + '1QywNS7gAjw8UroeWmW2UI8fThOvFw9yY' },
+    { _id: 'v8', title: 'Hellavated', logoWide: L + '1i0pBSUOnrtsEd_bul6vzRe7MbxshEu9t' }
+  ],
+  featured: [{ title: 'Grön', vendorRef: 'v1', programId: 'gron-202611', headline: 'Grön Pearls week', live: true, sortOrder: 1,
+    image: L + '1k_irje-UojJteorxQkjIGHfKdByQ9LPQ', imageAltText: 'Pearls by Grön', throughLabel: 'Through Nov 8', endDate: '2026-11-08',
+    offerLines: '<p><strong>$4</strong> off Pearls by Grön 10-packs, Tuesday Nov 3, all six stores and online.</p><p><strong>$8</strong> Mellow Moon Mega Pearl, out the door. Limited release, while it lasts.</p><p><strong>$22</strong> Star Spell Pearls, out the door. Limited release, while they last.</p>',
+    finePrint: 'On Nov 3 at Commercial St and River Rd, the better of the two discounts applies. Prices include tax.' }],
+  days: [
+    ['2026-11-06', 'FRI', '11/6', 'Center St', '4 to 6 PM', 960],
+    ['2026-11-03', 'TUE', '11/3', 'Commercial St', '1 to 3:30 PM', 780],
+    ['2026-11-03', 'TUE', '11/3', 'River Rd', '4 to 6:30 PM', 960],
+    ['2026-11-05', 'THU', '11/5', 'Baseline St', '3 to 5:30 PM', 900],
+    ['2026-11-06', 'FRI', '11/6', 'Portland Rd', '1 to 3:30 PM', 780],
+    ['2025-01-01', 'WED', '1/1', 'Old day, must not show', 'x', 0]
+  ].map(function (r) { return { title: 'Grön', vendorRef: 'v1', programId: 'gron-202611', date: r[0], dayLabel: r[1], dateLabel: r[2], store: r[3], time: r[4], sortTime: r[5], deal: '30% OFF', offer: 'all Grön, in store, this store and time only' }; }),
+  week: [
+    ['TUE', 1, 'Grön', '$2', 'OFF all 10-packs & full-size chocolates'],
+    ['WED', 2, 'Wyld', '$4', 'OFF Wyld & Good Tide multi-packs'],
+    ['THU', 3, 'Mule Extracts', '$3', 'OFF Mule Dank Tanks, glass carts & dabs'],
+    ['THU', 3, 'Mule Extracts', '$1', 'OFF all Mule edibles'],
+    ['FRI', 4, 'Freshy', '$3', 'OFF Freshy & Strainz carts + dispos'],
+    ['FRI', 4, 'Bobsled', '$2', 'OFF all Bobsled dabs'],
+    ['SAT', 5, 'Verdant Leaf', '$2', 'OFF Verdant carts, syrup + rosin'],
+    ['SAT', 5, 'Good Tide', '$4', 'OFF all Good Tide'],
+    ['SUN', 6, 'Hellavated', '$3', 'Hellavated joints']
+  ].map(function (r, i) { return { day: r[0], daySort: r[1], rowSort: i, title: r[2], amount: r[3], text: r[4] }; })
+};
+document.getElementById('d').setAttribute('data', JSON.stringify(data));
+</script>
+</body>
+</html>
