@@ -1610,6 +1610,8 @@ body.is-gated .workspace { display: none !important; }
 .sp-paper-credit-v { font-family: var(--sp-display); font-size: 26px; font-weight: 800; color: #1a1f1d; font-variant-numeric: tabular-nums; }
 /* Growth leads, not the program terms — the vendor is being shown what they got. */
 .sp-paper-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 20px 0; }
+.sp-paper-lift { margin: 0 0 4px; font-size: 14px; }
+.sp-paper-lift-s { margin: 0 0 16px; font-size: 12px; color: #5a635f; }
 .sp-paper-s-l { font-size: 9.5px; font-weight: 700; letter-spacing: .9px; text-transform: uppercase; color: #5a635f; }
 .sp-paper-s-v { font-family: var(--sp-display); font-size: 22px; font-weight: 800; margin-top: 3px; font-variant-numeric: tabular-nums; }
 .sp-paper-s-s { font-size: 11px; color: #5a635f; font-variant-numeric: tabular-nums; }

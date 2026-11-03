@@ -101,7 +101,7 @@ const DOC = G.load({
   real: ['reportHtml_', 'emailDraft_', 'giftCardList_', 'giftCardListFor_', 'buildReport_', 'measuredRowsFor_',
          'payoutFactsOf_', 'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_',
          'friendlyName_', 'userKey_', 'scrubSecrets_', 'today_',
-         'brandPaperHtml_', 'brandProgramLabel_', 'prettyDay_', 'brandPdfBlob_',
+         'brandPaperHtml_', 'unitLiftOf_', 'brandProgramLabel_', 'prettyDay_', 'brandPdfBlob_',
          'brandFromAddress_', 'sendBrandEmail_', 'brandSignatureHtml_'],
   vars: ['EDIT_ROLES', 'LOGO_ONLIGHT', 'GX_SECRET_PROP', 'BTS_PER_STORE',
          'BRAND_FROM_PROP', 'BRAND_SENT_PREFIX', 'BRAND_FROM_DEFAULT',
