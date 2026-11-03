@@ -1907,6 +1907,9 @@
     if (pull) pull.hidden = !canEdit();
 
     host.className = 'sp-act-strip' + (open ? ' is-unlocked' : '');
+    /* WHOSE FIGURES THESE ARE. collectPatch saves this strip only for the program it was painted
+       for — see the comment there and clearActuals. */
+    host.dataset.programId = p.program_id || '';
     host.innerHTML =
         actField('Units sold', 'actual_json.units_sold', a.units_sold, open,
                  a.units_sold == null ? '—' : Number(a.units_sold).toLocaleString())
@@ -1931,6 +1934,20 @@
       + '<div class="sp-act-rev' + (open ? '' : ' is-tucked') + '">'
       +   actField('Revenue (units × cost)', 'actual_json.revenue', a.revenue, open, null)
       + '</div>';
+  }
+
+  /* ── A HIDDEN STRIP IS EMPTIED, NOT JUST HIDDEN ────────────────────────────────────────────
+     Same rule as syncRecordMount's: a hidden copy still answers a lookup. Opening a closed program
+     painted its seven figures here; opening a running one next only HID the strip, so its inputs
+     still held the closed program's numbers, and the next save of the running one wrote them in
+     as its own actuals. That is how Grön "All products" (running 2026-10-26 → 11-08) came to carry
+     Kaprikorn "All Products"' measured 1,313 units / $1,250 — down to Kaprikorn's $50 rate and
+     $9.79 cost — and why both showed "Actuals look copied" (Tawny's bug, 2026-10-27). */
+  function clearActuals() {
+    var host = $(REC.act);
+    if (!host) return;
+    host.innerHTML = '';
+    host.dataset.programId = '';
   }
 
   function recField(label, key, value, type, cls) {
@@ -3348,7 +3365,13 @@
   // the rest of the record.
   function collectPatch(p) {
     var patch = Object.create(null), nested = Object.create(null);
+    /* The actuals strip goes out only for the program it was painted for. clearActuals empties it
+       when it is hidden; this is the second lock, because the cost of a miss is one program's
+       settled figures saved onto another and flowing to its vendor report and gift cards. */
+    var strip = $(REC.act);
+    var stripOk = !!strip && strip.dataset.programId === String(p.program_id || '');
     recFields().forEach(function (el) {
+      if (strip && !stripOk && strip.contains(el)) return;
       var key = el.dataset.key, raw = el.value.trim();
       var val = el.type === 'number' ? (raw === '' ? null : Number(raw)) : raw;
       var parts = key.split('.');
@@ -5708,7 +5731,7 @@
       var showAct = !!(v.rec && (v.settled || v.canMeasure
                                  || (v.rec.actual_json && v.rec.actual_json.units_sold != null)));
       actWrap.hidden = !showAct;
-      if (showAct) renderActuals(v.rec);
+      if (showAct) renderActuals(v.rec); else clearActuals();
     }
 
     /* The section shows for a program that HAS been measured, and for one that can be but has
