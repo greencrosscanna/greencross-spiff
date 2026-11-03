@@ -329,7 +329,7 @@ var GATED_WRITES = ['snapshotProgress'];
 var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses',
                       'sweepOrphanProgress', 'publishToCore', 'backfillPayPeriods',
                       'publishKioskTokens', 'seedBrands', 'recordActuals', 'auditPayouts', 'calendarSync',
-                      'publishToWix', 'propsReport', 'setSwitch', 'adoptSite'];
+                      'publishToWix', 'propsReport', 'setSwitch', 'deleteOrphanProp', 'adoptSite'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -464,6 +464,7 @@ function doGet(e) {
          on/off switches set without the editor. Secret-gated; setSwitch is dry unless apply=1. */
       case 'propsReport': out = propsReportWeb_(p);                                 break;
       case 'setSwitch':   out = setSwitchWeb_(p);                                   break;
+      case 'deleteOrphanProp': out = deleteOrphanPropWeb_(p);                       break;
       /* The deals page's weekly lines and brands (THE DEALS PAGE, PART 2). A signed-in read and
          editor-only writes in their own tab; approval is signed by the session. None hedged on the
          client: the writes are writes, and siteImportLogo imports into Wix Media. adoptSite takes over
@@ -9024,6 +9025,11 @@ function wixReportFailure_(lines) {
  *                        reads back, so "saved" means the store really holds it. */
 var PROPS_STORE_LIMIT_ = 500000;
 var PROP_SWITCHES_ = ['WIX_PUBLISH_ON', 'CAL_SYNC_ON', 'CAL_INVITE_VDAYS'];
+/* Keys nothing reads any more, which ?action=deleteOrphanProp may remove (dry unless apply=1).
+   SPIF_DOC_INDEX was the Drive importers' index, cut 2026-08-30. At 14.4 KB it is over the 9 KB
+   per-value cap, and the editor saves every property in one call, which is the likeliest reason
+   editor saves stopped sticking (2026-11-02). A NAMED list: this route never deletes anything else. */
+var PROP_ORPHANS_ = ['SPIF_DOC_INDEX'];
 
 function propsReport_(all) {
   var keys = Object.keys(all || {});
@@ -9068,6 +9074,21 @@ function setSwitchWeb_(p) {
   var after = props.getProperty(name);
   return { ok: after === value, dry: false, name: name, was: before, now: after,
            error: after === value ? undefined : 'written but did not read back as ' + value + ' — the store may be full; see ?action=propsReport' };
+}
+
+function deleteOrphanPropWeb_(p) {
+  var props = PropertiesService.getScriptProperties();
+  var want = props.getProperty(GX_SECRET_PROP);
+  if (!want || String(p.secret || '') !== want) return { ok: false, error: 'Unauthorized' };
+  var name = String(p.name || '');
+  if (PROP_ORPHANS_.indexOf(name) < 0) return { ok: false, error: 'not an orphaned key: ' + name + ' (deletable: ' + PROP_ORPHANS_.join(', ') + ')' };
+  var cur = props.getProperty(name);
+  if (cur == null) return { ok: true, name: name, already_gone: true };
+  if (String(p.apply || '') !== '1') return { ok: true, dry: true, name: name, bytes: name.length + cur.length, note: 'dry run — nothing deleted. Send apply=1 to delete.' };
+  try { props.deleteProperty(name); }
+  catch (e) { return { ok: false, name: name, error: 'the store refused the delete: ' + scrubSecrets_((e && e.message) || e) }; }
+  var gone = props.getProperty(name) == null;
+  return { ok: gone, dry: false, name: name, deleted: gone, error: gone ? undefined : 'still there after the delete' };
 }
 
 /* The last hourly run's outcome, as counts, for ?action=diag. Never throws. */

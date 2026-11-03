@@ -74,8 +74,12 @@ the `programs` tab holds one row per program).
   already keeps them and Tawny expects to find them.
 - **Script properties this engine needs** (Project Settings → Script Properties; never in the repo):
   `CLIENT_VIEW_PASSWORD` (vendor link passphrase) and `GX_DEPLOY_SECRET` (calls GX Core's secret-gated
-  `sales_by_employee` for Progress). `BRAND_EMAIL_FROM` is optional (see the vendor-send rule). The
-  `SPIF_DOC_INDEX` property is orphaned — harmless, deletable from Project Settings whenever.
+  `sales_by_employee` for Progress). `BRAND_EMAIL_FROM` is optional (see the vendor-send rule).
+  **Editor saves can fail silently** (2026-11-02): the editor saves every property in one call, and
+  one value over Apps Script's 9 KB cap (the orphaned 14 KB `SPIF_DOC_INDEX`) made `WIX_PUBLISH_ON`
+  and `CAL_SYNC_ON` never stick. Check the store with `?action=propsReport` (secret; names and sizes
+  only), set the on/off switches with `?action=setSwitch` (secret, dry unless `apply=1`, reads back),
+  and remove a listed orphan with `?action=deleteOrphanProp`. Pinned by `tests/props_store_test.js`.
 - **After any scope change**, open the script editor and run `authorize()` once — the web app returns
   Google's consent HTML instead of JSON until the owner has authorized.
 
