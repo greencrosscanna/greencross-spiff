@@ -141,11 +141,18 @@
       + 'Never BOGO, “buy one”, “free” cannabis or “with purchase”; no “best”, “#1”, “lowest”, health claims or em-dashes. '
       + 'No Green Cross house brands. Only Sky, Mike or Tawny can approve; anyone else\'s change takes the approval off.</div>';
     var brands = (ctx.brands || []).map(function (b) { return '<option value="' + esc(b.display_name) + '">'; }).join('');
+    var waiting = S.weekly.concat(S.vendors).filter(function (s) {
+      return s.key && S.approvers.indexOf(String(s.approved_by || '').toLowerCase()) < 0 && !problemOf(s);
+    }).length;
+    var mayApprove = S.approvers.indexOf(String(ctx.user || '').toLowerCase()) >= 0;
+    var all = ctx.canEdit && mayApprove && waiting
+      ? '<span><button class="gx-btn gx-btn-green" data-st-act="approveall">Approve all ' + waiting + ' waiting</button> '
+        + '<span class="sp-h4-note">Approves every saved line and brand that passes the copy rules. Unsaved edits are not included.</span></span>' : '';
     var week = S.weekly.slice().sort(function (a, b) { return DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || (a.row || 0) - (b.row || 0); });
     return '<div class="st-wrap"><datalist id="stBrands">' + brands + '</datalist>'
       + '<div><h3 class="mk-h" style="margin:0">Deals page</h3>'
       + '<p class="sp-h4-note">What goes on greencrosscanna.com/deals besides the featured cards and vendor days. '
-      + 'An approved line goes up on the next hourly run; until a line is approved, the page keeps showing what it shows now.</p>' + rules + '</div>'
+      + 'An approved line goes up on the next hourly run; until a line is approved, the page keeps showing what it shows now.</p>' + rules + all + '</div>'
       + (S.err ? '<div class="mk-warn">' + esc(S.err) + '</div>' : '') + (S.msg ? '<div class="mk-spec">' + esc(S.msg) + '</div>' : '')
       + '<section class="st-sec"><h4 class="mk-h" style="margin:0">Every week</h4>'
       + (week.length ? week.map(function (s) { return weekLineHtml(s, ctx); }).join('') : '<p class="hint">No weekly lines yet.</p>')
@@ -185,6 +192,17 @@
       if (name === 'addweek') { S.weekly.push({ key: '', kind: 'week', day: 'TUE', row: 1, brand: '', amount: '', text: '' }); return ctx.repaint(); }
       if (name === 'addvendor') { S.vendors.push({ key: '', kind: 'vendor', brand: '' }); return ctx.repaint(); }
       if (name === 'mclose') { S.mediaFor = null; return ctx.repaint(); }
+      if (name === 'approveall') {
+        if (!window.confirm('Approve every waiting line and brand for the deals page? They go up on the next hourly run.')) return;
+        var a = await ctx.call('approveSiteDeals', {});
+        S.loaded = false;
+        S.msg = 'Approved ' + a.approved.length + '.' + (a.skipped.length ? ' Not approved, fix first: '
+          + a.skipped.map(function (x) { return x.key + ' (' + x.problem + ')'; }).join('; ') + '.' : '') + ' They go up on the next hourly run.';
+        var keep = S.msg;
+        await load(ctx);
+        S.msg = keep;
+        return ctx.repaint();
+      }
       if (name === 'save') {
         var it = read(line);
         var r = await ctx.call('saveSiteDeal', { item: JSON.stringify(it) });
