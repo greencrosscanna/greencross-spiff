@@ -166,7 +166,11 @@
           ['swag.report', 'MGR', 'Report swag remaining', 'e', 1, { each: 1 }]] },
     case: { t: 'Featured case', s: 'Case / shelf placement', sec: 'store',
       f: [],
-      list: { kind: 'stores', label: 'Cases', add: '+ Add a case', ph: 'Which case, and what goes in it' },
+      /* Placements are a list (Sky, 2026-11-03): Featured Case, Daily Buzz, or anything typed. Each one
+         gets its own set / back-to-normal tick per store (see tasksOf). A placement with no store ticked
+         runs at every store on the plan. */
+      list: { kind: 'stores', label: 'Placements', add: '+ Add another placement', ph: 'e.g. Featured Case, Daily Buzz, or what goes where',
+              presets: ['Featured Case', 'Daily Buzz'] },
       c: 'Shelf talkers: no health claims, nothing that appeals to minors.',
       k: [['case.space', 'INV', 'Confirm case space for each store', 's', -10],
           ['case.set', 'MGR', 'Featured placement set', 's', -1, { each: 1, rowStores: 1 }],
@@ -286,10 +290,11 @@
       /* A reassignment is per task, for every store and date it fans out to. */
       var person = PEOPLE[plan.own[row[0]]] ? plan.own[row[0]] : '';
       var own = person ? PEOPLE[person] : row[1];
-      function emit(store, key, day, on) {
+      function emit(store, key, day, on, label, place) {
         var moved = plan.due[key] || plan.due[row[0]] || '';
         out.push({ key: key, id: row[0], item: itemId, own: own, owner: OWNERS[own] || own, defOwn: row[1], assigned: person,
-                   text: row[2], store: store, each: !!flags.each || !!(flags.byDate && day), due: moved || on,
+                   text: label ? row[2] + ' – ' + label : row[2], place: label ? place : -1,
+                   store: store, each: !!flags.each || !!(flags.byDate && day), due: moved || on,
                    planned: on, moved: !!moved, done: plan.done[key] || null, day: day || '' });
       }
       /* One "held" row per vendor day per store, due on that day. A second day at the same store gets
@@ -313,13 +318,24 @@
         dates.forEach(function (d) { emit(null, row[0] + '@' + d, d, d); });
         return;
       }
-      /* Featured case: only the stores that have a case, once any case names a store. */
+      /* Featured case: one tick per placement per store. A placement naming stores runs only there;
+         one naming none runs at every store on the plan. Keys count in LIST order per store, the way
+         vendor days do: the first placement at a store keeps the plain `task@store` key (so ticks from
+         before placements were a list still hold), a second gets `.2`. Editing a label never moves one. */
       var where = stores;
       if (flags.rowStores) {
-        var named = [];
-        rowsOf(p, itemId).forEach(function (r) { r.stores.forEach(function (s) { if (named.indexOf(s) < 0) named.push(s); }); });
-        if (named.length) where = stores.filter(function (s) { return named.indexOf(s) >= 0; })
-          .concat(named.filter(function (s) { return stores.indexOf(s) < 0; }));
+        var list = rowsOf(p, itemId), live = [];
+        list.forEach(function (r, i) { if (r.text || r.stores.length) live.push(r); });
+        if (live.length) {
+          var seenP = {};
+          live.forEach(function (r, pi) {
+            (r.stores.length ? r.stores : stores).forEach(function (store) {
+              seenP[store] = (seenP[store] || 0) + 1;
+              emit(store, row[0] + '@' + store + (seenP[store] > 1 ? '.' + seenP[store] : ''), '', planned, r.text, pi);
+            });
+          });
+          return;
+        }
       }
       (flags.each ? where : [null]).forEach(function (store) {
         emit(store, store ? row[0] + '@' + store : row[0], '', planned);
@@ -344,9 +360,11 @@
   function groupTasks(tasks) {
     var by = {}, order = [];
     tasks.forEach(function (t) {
-      var g = by[t.id];
+      /* A placement is its own line ("Featured placement set – Daily Buzz"), so group on it too. */
+      var gk = t.place >= 0 ? t.id + '#' + t.place : t.id;
+      var g = by[gk];
       if (!g) {
-        g = by[t.id] = { id: t.id, item: t.item, own: t.own, owner: t.owner, defOwn: t.defOwn, assigned: t.assigned, text: t.text, each: t.each,
+        g = by[gk] = { id: t.id, item: t.item, own: t.own, owner: t.owner, defOwn: t.defOwn, assigned: t.assigned, text: t.text, each: t.each,
                          rows: [], open: 0, due: '', moved: false, key: t.key };
         order.push(g);
       }
@@ -447,7 +465,7 @@
   }
   /* An item's list goes whole: it is short, and [rows, item, list] keeps the other items' lists. */
   function rowsOp(item, list) { return [['rows', item, list.length ? list : null]]; }
-  function addRowOp(p, item) { return rowsOp(item, rowsOf(p, item).concat([{ date: '', text: '', stores: [] }])); }
+  function addRowOp(p, item, text) { return rowsOp(item, rowsOf(p, item).concat([{ date: '', text: text || '', stores: [] }])); }
   function removeRowOp(p, item, i) { var l = rowsOf(p, item); l.splice(+i, 1); return rowsOp(item, l); }
   function setRowOp(p, item, i, field, value) {
     var l = rowsOf(p, item);
@@ -730,7 +748,10 @@
     }).join('');
     return '<div class="mk-fld">' + esc(L.label) + '</div>' + (rows || '<p class="mk-sub">None yet.</p>')
       + (!ctx.canEdit ? '' : full ? '<p class="mk-sub">That is the most offer lines the card holds (' + COPY_LIMITS.lines + ').</p>'
-        : '<button type="button" class="gx-btn mk-vadd" data-mk-radd="' + esc(id) + '">' + esc(L.add) + '</button>');
+        : (L.presets || []).map(function (name) {
+            return '<button type="button" class="gx-btn mk-vadd" data-mk-radd="' + esc(id) + '" data-mk-rpreset="' + esc(name) + '">+ ' + esc(name) + '</button> ';
+          }).join('')
+          + '<button type="button" class="gx-btn mk-vadd" data-mk-radd="' + esc(id) + '">' + esc(L.add) + '</button>');
   }
 
   /* The whole section for one program. ctx: { today, canEdit, engineReady, stores:[{store_id,name}],
@@ -824,7 +845,7 @@
       var p = api.program();
       if (!p) return;
       if (t.dataset.mkPlan) return api.plan(t.dataset.mkPlan, t);
-      if (t.dataset.mkRadd) return api.apply(addRowOp(p, t.dataset.mkRadd));
+      if (t.dataset.mkRadd) return api.apply(addRowOp(p, t.dataset.mkRadd, t.dataset.mkRpreset));
       if (t.dataset.mkRdel) return api.apply(removeRowOp(p, t.dataset.mkRitem, t.dataset.mkRow));
       if (t.dataset.mkRstore) return api.apply(toggleRowStoreOp(p, t.dataset.mkRitem, t.dataset.mkRow, t.dataset.mkRstore));
       if (t.dataset.mkVadd) return api.apply(addVdayOp(p));
