@@ -29,7 +29,7 @@ let SESSION = { user: 'sky', role: 'admin' };
 const sheet = G.makeSheet(HEADERS, []);
 let stamp = 0;
 const api = G.load({
-  real: ['saveSiteDeal_', 'removeSiteDeal_', 'readSite_', 'rowToSite_', 'siteToRow_', 'siteContent_', 'siteProblem_', 'siteSign_',
+  real: ['saveSiteDeal_', 'removeSiteDeal_', 'approveSiteDeals_', 'readSite_', 'rowToSite_', 'siteToRow_', 'siteContent_', 'siteProblem_', 'siteSign_',
          'siteDealsRead_', 'siteAdoptPlan_', 'siteFoldDay_', 'sitePlan_', 'sitePublish_', 'wixCopyProblem_', 'wixFold_', 'wixMenuSlug_',
          'wixSameItem_', 'parseJson_'],
   vars: ['SITE_HEADERS', 'SITE_DAYS_', 'SITE_MAX_REMOVES_', 'WIX_APPROVERS_', 'WIX_COPY_RULES_', 'WIX_APPROVER_FIELD_', 'SITE_TAB'],
@@ -88,6 +88,27 @@ console.log('\n2. saving a brand');
   ok('a logo that is not in Wix Media cannot be approved', !link.ok && /Wix Media/.test(link.error));
   SESSION = SKY;
   ok('a brand cannot be taken off (cards point at its logo)', !api.removeSiteDeal_({ key: 'bobsled' }).ok);
+}
+
+console.log('\n2b. approve all');
+{
+  const waitA = save({ kind: 'week', day: 'WED', row: 1, brand: 'Wyld', amount: '$4', text: 'OFF Wyld multi-packs' }, KIM).item;
+  const waitB = save({ kind: 'vendor', brand: 'Freshy', logo: 'wix:image://v1/f.png' }, KIM).item;
+  const broken = save({ kind: 'week', day: 'THU', row: 1, brand: 'Mule', amount: '$3', text: 'Free dabs' }, KIM).item;
+  const mikes = save({ kind: 'week', day: 'FRI', row: 1, brand: 'Bobsled', amount: '$2', text: 'OFF all Bobsled dabs', approve: true }, MIKE).item;
+  const row = k => api.rowToSite_(sheet.rows.find(r => r[0] === k));
+  SESSION = KIM;
+  const no = api.approveSiteDeals_({});
+  ok('a manager who is not an approver cannot approve all', !no.ok && row(waitA.key).approved_by === '');
+  SESSION = { user: 'tawny', role: 'manager' };
+  const r = api.approveSiteDeals_({});
+  ok('Tawny approves every waiting line and brand, signed as tawny', r.ok && r.approved.indexOf(waitA.key) >= 0 && r.approved.indexOf(waitB.key) >= 0
+     && row(waitA.key).approved_by === 'tawny' && row(waitB.key).approved_by === 'tawny');
+  ok('  …a line that breaks the copy rules is skipped and named, not approved', r.skipped.some(x => x.key === broken.key && /OLCC/.test(x.problem)) && row(broken.key).approved_by === '');
+  ok('  …a line someone already approved keeps its approver', r.approved.indexOf(mikes.key) < 0 && row(mikes.key).approved_by === 'mike');
+  ok('  …a line taken off is not approved', !r.approved.some(k => row(k).status !== 'live'));
+  ok('  …and it changes no copy', row(waitA.key).amount === '$4' && row(waitA.key).text === 'OFF Wyld multi-packs');
+  ok('a second press approves nothing new', api.approveSiteDeals_({}).approved.length === 0);
 }
 
 console.log('\n3. taking over the hand-made Wix rows');
@@ -235,7 +256,9 @@ console.log('\n5. it is wired, and it is not a pay path');
   ok('nothing that pays, publishes to Core or feeds a kiosk reads the site_deals tab', !reads.length);
   const js = fs.readFileSync(path.join(__dirname, '..', 'spiff.js'), 'utf8');
   const hedged = (js.match(/ENGINE_HEDGE_READS\s*=\s*\[([^\]]*)\]/) || [])[1] || '';
-  ok('no Deals page route is hedged (a hedged write runs twice)', !/siteDeals|saveSiteDeal|removeSiteDeal|siteMedia|siteImportLogo/.test(hedged));
+  ok('no Deals page route is hedged (a hedged write runs twice)', !/siteDeals|saveSiteDeal|removeSiteDeal|approveSiteDeals|siteMedia|siteImportLogo/.test(hedged));
+  ok('the Approve all route is wired and is not a secret-only route (it needs a signed-in approver)',
+     /case 'approveSiteDeals':\s*out = approveSiteDeals_\(p\)/.test(gs) && !/var SECRET_ACTIONS = \[[^\]]*'approveSiteDeals'/.test(gs));
 }
 
 console.log('\n6. the screen judges a line the way the engine does');

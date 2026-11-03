@@ -472,6 +472,7 @@ function doGet(e) {
       case 'siteDeals':       out = siteDealsRead_(p);                              break;
       case 'saveSiteDeal':    out = saveSiteDeal_(p);                               break;
       case 'removeSiteDeal':  out = removeSiteDeal_(p);                             break;
+      case 'approveSiteDeals': out = approveSiteDeals_(p);                          break;
       case 'siteMedia':       out = siteMediaSearch_(p);                            break;
       case 'siteImportLogo':  out = siteImportLogo_(p);                             break;
       case 'adoptSite':       out = adoptSite_(p);                                  break;
@@ -9314,6 +9315,33 @@ function removeSiteDeal_(p) {
     s.status = 'removed'; s.updated_by = who.auth.user; s.updated_at = nowStamp_();
     siteSheet_().getRange(at + 2, 1, 1, SITE_HEADERS.length).setValues([siteToRow_(s)]);
     return { ok: true, key: s.key, removed: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* Approve every live line and brand that is waiting, in one press (Sky, 2026-11-02: sixteen tick-and-
+   saves after the takeover). Approvers only, signed by the session like a single tick. A row whose
+   copy breaks a rule is skipped and named, never approved. Changes no content, so nothing that was
+   approved before is re-signed. */
+function approveSiteDeals_(p) {
+  var who = mktEditor_(p, 'edit the deals page');
+  if (who.fail) return who.fail;
+  var user = String(who.auth.user || '').toLowerCase();
+  if (WIX_APPROVERS_.indexOf(user) < 0) return { ok: false, error: 'Only Sky, Mike or Tawny can approve the deals page.' };
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return { ok: false, error: 'Another save is in progress. Try again in a moment.' };
+  try {
+    var sh = siteSheet_(), rows = readSite_(), approved = [], skipped = [];
+    rows.forEach(function (s, i) {
+      if (s.status !== 'live' || WIX_APPROVERS_.indexOf(String(s.approved_by || '').toLowerCase()) >= 0) return;
+      var problem = siteProblem_(s);
+      if (problem) { skipped.push({ key: s.key, problem: problem }); return; }
+      s.approved_by = user; s.approved_at = nowStamp_(); s.updated_by = user; s.updated_at = s.approved_at;
+      sh.getRange(i + 2, 1, 1, SITE_HEADERS.length).setValues([siteToRow_(s)]);
+      approved.push(s.key);
+    });
+    return { ok: true, approved: approved, skipped: skipped };
   } finally {
     lock.releaseLock();
   }
