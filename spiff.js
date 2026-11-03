@@ -1613,8 +1613,25 @@
     host.hidden = view === 'list';
     if (view === 'calendar') host.innerHTML = notice + MK.calendarHtml(state.programs, pencils, ctx);
     else if (view === 'tasks') host.innerHTML = MK.tasksAcrossHtml((state.programs || []).concat(mkHolidayPrograms()), ctx);
+    else if (view === 'site' && window.SpiffSite) window.SpiffSite.render(host, mkSiteCtx());
     else host.innerHTML = '';
     mkDlgPaint();
+  }
+
+  /* The Deals page view (site.js): the weekly lines and brand logos on greencrosscanna.com/deals.
+     Its own routes, none hedged — every one but the read is a write. */
+  function mkSiteCtx() {
+    return {
+      user: (session() || {}).user || '', canEdit: canEdit(), brands: state.brands || [],
+      repaint: function () { if (mkView.view === 'site') window.SpiffSite.render($('#mkView'), mkSiteCtx()); },
+      call: async function (action, params) {
+        var r = await ENG.jsonp(action, Object.assign({ token: (session() || {}).token }, params));
+        if (r && r.needsAuth) { clearSession(); openSignIn(); throw new Error('You were signed out. Sign in and try again.'); }
+        if (r && r.error === 'Unknown action: ' + action) return { ok: false };
+        if (!r || !r.ok) throw new Error((r && r.error) || 'That did not save');
+        return r;
+      }
+    };
   }
 
   function mkDlgPaint() {

@@ -65,7 +65,7 @@ function makeWix(seed) {
     days: (seed && seed.days || []).map(r => Object.assign({}, r)),
     calls: [], imports: [],
     vendors: () => (w.calls.push('vendors'), VENDORS),
-    read: (c) => (w.calls.push('read:' + c), (c === 'FeaturedDeals' ? w.featured : w.days).map(r => Object.assign({}, r))),
+    read: (c) => (w.calls.push('read:' + c), (c === 'FeaturedDeals' ? w.featured : c === 'Import1' ? [] : w.days).map(r => Object.assign({}, r))),
     /* Like GX Core's gate (v365): every row needs an approver on the list, which is then stripped. */
     upsert: (c, items) => {
       w.calls.push('upsert:' + c);
@@ -115,13 +115,14 @@ const makeApi = (varValues) => G.load({
   real: ['wixFold_', 'wixMenuSlug_', 'wixEsc_', 'wixStoreLabel_', 'wixTimeOf_', 'wixDayLabels_', 'wixThroughLabel_', 'wixOfferHtml_',
          'wixApprover_', 'wixCopyProblem_', 'wixSignDelta_', 'wixDutchieBrand_', 'wixVendorIndex_', 'wixDesired_', 'wixSameItem_', 'wixPlan_',
          'wixImageProblem_', 'wixDriveFileId_', 'wixImageFor_', 'wixShopStores_', 'wixPublish_', 'publishToWixWeb_', 'wixReportFailure_',
-         'runWixPublishHourly_', 'calParseTime_', 'addDaysLocal_', 'normalizeMarketing_', 'mktPickedIds_', 'slug_', 'parseJson_', 'num_'],
-  vars: ['WIX_PUBLISHED_PROP_', 'WIX_SHOP_PROP_', 'WIX_NOSHOP_PREFIX_', 'WIX_IMAGE_PREFIX_', 'WIX_LOOKAHEAD_DAYS_', 'WIX_MAX_REMOVES_',
+         'runWixPublishHourly_', 'calParseTime_', 'addDaysLocal_', 'normalizeMarketing_', 'mktPickedIds_', 'slug_', 'parseJson_', 'num_',
+         'sitePublish_', 'sitePlan_', 'siteProblem_'],
+  vars: ['SITE_DAYS_', 'SITE_MAX_REMOVES_', 'WIX_PUBLISHED_PROP_', 'WIX_SHOP_PROP_', 'WIX_NOSHOP_PREFIX_', 'WIX_IMAGE_PREFIX_', 'WIX_LOOKAHEAD_DAYS_', 'WIX_MAX_REMOVES_',
          'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_APPROVERS_', 'WIX_COPY_RULES_', 'WIX_FAIL_PROP_', 'WIX_FEATURED_SPEC_', 'WIX_SPEC_TEXT_',
          'WIX_DOW_', 'WIX_MON_', 'MKT_MENU_', 'MKT_PEOPLE_', 'MKT_APP_URL', 'GX_SECRET_PROP'],
   varValues: Object.assign({ WIX_APPROVER_FIELD_: G.grabVar('WIX_APPROVER_FIELD_') }, varValues || {}),
   stubs: {
-    listPrograms_: () => PROGRAMS, gxStores_: () => STORES, wixAdapter_: () => WIX,
+    listPrograms_: () => PROGRAMS, gxStores_: () => STORES, wixAdapter_: () => WIX, readSite_: () => [],
     dutchieInventoryViaGXCore_: (id) => { if (invFails[id]) throw new Error('Dutchie 401'); return INVENTORY[id] || []; },
     today_: () => WIX.today, nowStamp_: () => '2026-11-02 09:00:00',
     scrubSecrets_: (m) => String(m), sendMail_: (m) => { mail.push(m); },
