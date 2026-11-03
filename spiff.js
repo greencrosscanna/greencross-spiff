@@ -6637,7 +6637,17 @@
     /* THE EMAIL BODY IS THE REPORT PAGE, rewritten with inline styles (an email client drops the
        stylesheet). Same numbers as the paper above — built from the variables already in hand, not
        re-fetched — so the page the brand prints and the email it reads can never disagree. */
+    /* Lift needs a KNOWN sold figure: the cached measurement if there is one, else recorded actuals
+       that actually hold units_sold. Neither → null → no line (never a drop to zero). */
+    var soldKnown = cache ? cache.units : a.units_sold;
+    var liftO = {
+      lift: unitLift(soldKnown, before),
+      stores: storeIds.map(function (id) {
+        return { name: storeName(id), before: (base.by_store || {})[id], sold: byStore[id].sold };
+      })
+    };
     var emailBody = mail.html || brandEmailHtml(p, {
+      lift: liftO.lift, liftStores: liftO.stores,
       owed: owed, sold: sold, goal: goal, before: before, extra: extra, added: added, net: net,
       hit: hit, totalBts: totalBts,
       stores: storeIds.map(function (id) {
@@ -6688,6 +6698,7 @@
       +         paperStat('Added sell-through', money(added), extra.toLocaleString() + ' extra units', added > 0)
       +         paperStat('Return on SPIFF', owed ? pctWhole(net / owed) : '—', 'net ' + money(net), net > 0)
       +       '</div>'
+      +       liftBlock(liftO, false)
       +       (storeRows
           ? '<table><thead><tr><th>Store</th><th class="num">BTs</th><th class="num">Before</th><th class="num">Goal</th>'
             + '<th class="num">Sold</th><th class="num">Hit</th></tr></thead><tbody>' + storeRows
@@ -6790,6 +6801,7 @@
       +   stat('Added sell-through', money(o.added), o.extra.toLocaleString() + ' extra units')
       +   stat('Return on SPIFF', o.owed ? pctWhole(o.net / o.owed) : '—', 'net ' + money(o.net))
       + '</tr></table>'
+      + liftBlock({ lift: o.lift, stores: o.liftStores }, true)
       + (o.stores.length
           ? '<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 16px"><tr>'
             + th('Store') + th('BTs', 1) + th('Before', 1) + th('Goal', 1) + th('Sold', 1) + th('Hit', 1) + '</tr>'
@@ -6798,6 +6810,35 @@
       + P + 'Please apply ' + esc(money(o.owed)) + ' as a credit against our next order.</p>'
       + P + 'Thanks for supporting the team &mdash;</p>'
       + P + 'Tawny<br>Green Cross Cannabis Emporium</p></div>';
+  }
+
+  /* ACTUAL UNIT LIFT — the browser twin of `unitLiftOf_` in Code.gs (same rules, same words).
+     Null means print NO line: `sold` unknown (null/''/NaN is not zero) or a baseline at or below 0. */
+  function unitLift(sold, before) {
+    if (sold == null || sold === '' || !isFinite(Number(sold))) return null;
+    var s = Number(sold), b = Number(before);
+    if (!(b > 0)) return null;
+    var d = s - b, pct = Math.round((d / b) * 100);
+    var sign = function (n) { return n > 0 ? '+' : (n < 0 ? '−' : ''); };
+    var absU = Math.abs(d).toLocaleString();
+    var verb = d > 0 ? 'up ' + absU : (d < 0 ? 'down ' + absU : 'no change');
+    return { delta: d, pct: pct, short: sign(d) + absU + ' units (' + sign(pct) + Math.abs(pct) + '%)',
+             line: s.toLocaleString() + ' units sold, ' + verb + (d ? ' (' + sign(pct) + Math.abs(pct) + '%)' : '')
+                   + ' from the period before.' };
+  }
+  /* The lift block for the report page. Store names only — no budtender names. */
+  function liftBlock(o, inline) {
+    if (!o.lift) return '';
+    var parts = (o.stores || []).map(function (s) {
+      var l = unitLift(s.sold, s.before);
+      return l ? esc(s.name) + ' ' + esc(l.short) : '';
+    }).filter(Boolean);
+    if (inline) {
+      return '<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;color:#1a1f1d;margin:0 0 4px">' + esc(o.lift.line) + '</p>'
+        + (parts.length ? '<p style="font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#5a635f;margin:0 0 16px">By store: ' + parts.join(' &middot; ') + '</p>' : '');
+    }
+    return '<p class="sp-paper-lift"><b>' + esc(o.lift.line) + '</b></p>'
+      + (parts.length ? '<p class="sp-paper-lift-s">By store: ' + parts.join(' &middot; ') + '</p>' : '');
   }
 
   function paperStat(label, value, sub, good) {

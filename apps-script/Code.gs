@@ -6380,6 +6380,25 @@ function brandProgramLabel_(p) {
     ? (heading || vend) : (vend + ' · ' + heading);
 }
 
+/* ACTUAL UNIT LIFT (Sky, 2026-11-03): units sold during the program against the pre-program
+   baseline, in units whatever the payout model. Returns null — and the caller prints NO line — unless
+   both numbers are usable: `sold` must be a recorded/measured figure (null/''/NaN means "not
+   known", never zero) and `before` must be above zero (a lift against nothing is not a lift). A drop
+   is returned honestly, with a real minus sign. Mirrored by `unitLift` in spiff.js. */
+function unitLiftOf_(sold, before) {
+  if (sold == null || sold === '' || !isFinite(Number(sold))) return null;
+  var s = Number(sold), b = Number(before);
+  if (!(b > 0)) return null;
+  var d = s - b, pct = Math.round((d / b) * 100);
+  var sign = function (n) { return n > 0 ? '+' : (n < 0 ? '−' : ''); };
+  var absU = Math.abs(d).toLocaleString();
+  var verb = d > 0 ? 'up ' + absU : (d < 0 ? 'down ' + absU : 'no change');
+  return { sold: s, before: b, delta: d, pct: pct,
+           short: sign(d) + absU + ' units (' + sign(pct) + Math.abs(pct) + '%)',
+           line: s.toLocaleString() + ' units sold, ' + verb + (d ? ' (' + sign(pct) + Math.abs(pct) + '%)' : '')
+                 + ' from the period before.' };
+}
+
 /* The brand page as inline-styled HTML (email clients and the PDF converter both ignore a
    stylesheet). `opts.greeting` / `opts.closing` wrap it as an email; without them it is the
    document alone, which is what gets attached. */
@@ -6461,6 +6480,19 @@ function brandPaperHtml_(p, measured, opts) {
           + th('Store') + th('BTs', 1) + th('Before', 1) + th('Goal', 1) + th('Sold', 1) + th('Hit', 1) + '</tr>'
           + body + total + '</table>'
         : '');
+
+  /* The lift line: chain total always (when usable), plus per-store only where that store has both a
+     baseline and a measured figure. Store NAMES only — no budtender names reach this page. */
+  var lift = unitLiftOf_(a.units_sold, base.units);
+  var liftParts = lift ? stores.map(function (s) {
+    var l = (s.sold == null) ? null : unitLiftOf_(s.sold, s.before);
+    return l ? esc(s.name) + ' ' + esc(l.short) : '';
+  }).filter(Boolean) : [];
+  var liftHtml = lift
+    ? '<p style="' + FONT + 'font-size:14px;font-weight:700;color:' + INK + ';margin:0 0 ' + (liftParts.length ? '4' : '16') + 'px">' + esc(lift.line) + '</p>'
+      + (liftParts.length ? '<p style="' + FONT + 'font-size:12px;color:' + MUTE + ';margin:0 0 16px">By store: ' + liftParts.join(' · ') + '</p>' : '')
+    : '';
+  paper += liftHtml;
 
   var P = '<p style="' + FONT + 'font-size:14px;line-height:1.55;color:' + INK + ';margin:0 0 12px">';
   var html = opts.greeting === undefined
