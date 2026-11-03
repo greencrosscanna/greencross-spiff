@@ -226,6 +226,8 @@ console.log('\n5. it is wired, and it is not a pay path');
   const gs = G.GS;
   ok('the publisher runs the weekly lines and brands inside wixPublish_, in their own try', /function wixPublish_[\s\S]*?var site = function \(doIt\) \{\s*try \{\s*out\.site = sitePublish_/.test(gs));
   ok('  …both in the dry run and after the card writes', /if \(!apply\) \{ site\(false\);/.test(gs) && /\n  site\(true\);/.test(gs));
+  ok('SPIFF is pinned to a GX Core that writes Weekly Deals and Vendors (v366+)',
+     Number(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'appsscript.json'), 'utf8')).dependencies.libraries[0].version) >= 366);
   ok('adoptSite is a secret-only route', /var SECRET_ACTIONS = \[[^\]]*'adoptSite'/.test(gs));
   /* G.grab throws on a name that is not there, so a renamed payer fails this rather than passing it. */
   const payers = ['spiffProgress_', 'publishToCore_', 'refreshProgressPlan_', 'recordMeasuredActuals_', 'rollProgramStatuses_', 'storeView_', 'giftCardList_'];
