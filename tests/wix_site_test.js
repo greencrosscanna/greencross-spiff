@@ -32,7 +32,7 @@ const api = G.load({
   real: ['saveSiteDeal_', 'removeSiteDeal_', 'approveSiteDeals_', 'readSite_', 'rowToSite_', 'siteToRow_', 'siteWrite_', 'siteContent_', 'siteProblem_', 'siteSign_',
          'siteDealsRead_', 'siteAdoptPlan_', 'siteFoldDay_', 'sitePlan_', 'sitePublish_', 'wixCopyProblem_', 'wixFold_', 'wixMenuSlug_',
          'wixSameItem_', 'parseJson_'],
-  vars: ['SITE_HEADERS', 'SITE_DAYS_', 'SITE_MAX_REMOVES_', 'SITE_TEXT_COLS_', 'WIX_APPROVERS_', 'WIX_COPY_RULES_', 'WIX_APPROVER_FIELD_', 'SITE_TAB'],
+  vars: ['SITE_HEADERS', 'SITE_DAYS_', 'SITE_MAX_REMOVES_', 'SITE_TEXT_COLS_', 'WIX_APPROVERS_', 'WIX_COPY_RULES_', 'WIX_COPY_LIMITS_', 'WIX_APPROVER_FIELD_', 'SITE_TAB'],
   stubs: {
     siteSheet_: () => sheet,
     mktEditor_: () => (['admin', 'manager', 'editor'].indexOf(SESSION.role) >= 0 ? { auth: SESSION } : { fail: { ok: false, error: 'Your role cannot edit the deals page' } }),
@@ -304,11 +304,17 @@ console.log('\n6. the screen judges a line the way the engine does');
   const base = { kind: 'week', day: 'TUE', row: 1, brand: 'Grön', amount: '$2', text: 'OFF all 10-packs' };
   const cases = [{}, { amount: '15%' }, { amount: '$2.50' }, { amount: '2 for $20' }, { amount: '' }, { day: 'XYZ' }, { brand: '' }, { text: '' },
                  { text: 'Free pre-roll' }, { text: 'BOGO' }, { text: 'carts — today' }, { text: 'our best carts' },
+                 { text: 'OFF Mule Dank Tanks, glass carts & dabs' }, { text: 'OFF Mule Dank Tanks, glass carts, dabs & more' },
+                 { brand: 'x'.repeat(30) }, { brand: 'x'.repeat(31) },
                  { kind: 'vendor', brand: 'Bobsled', logo: 'wix:image://v1/a/b.png' }, { kind: 'vendor', brand: 'Bobsled', logo: 'https://x/y.png' }, { kind: 'vendor', brand: '' }];
   const disagree = cases.filter(c => { const s = Object.assign({}, base, c); return !!SITE.problemOf(s) !== !!api.siteProblem_(s); });
   ok('screen and engine agree on all ' + cases.length + ' lines (good and bad)' + (disagree.length ? ': not on ' + JSON.stringify(disagree) : ''), !disagree.length);
   ok('the screen shows a Wix Media logo as its static URL', SITE.wixSrc('wix:image://v1/a56cce_x~mv2.png/gron-logo.png#originWidth=600') === 'https://static.wixstatic.com/media/a56cce_x~mv2.png');
   ok('the screen\'s days are the engine\'s', JSON.stringify(SITE.DAYS) === JSON.stringify(G.grabVar('SITE_DAYS_')));
+  /* Character limits (Sky, 2026-11-03): the longest live weekly line (39) fits, one past 40 does not. */
+  const at40 = Object.assign({}, base, { text: 'x'.repeat(40) }), at41 = Object.assign({}, base, { text: 'x'.repeat(41) });
+  ok('a 40-character weekly line passes on both sides', !SITE.problemOf(at40) && !api.siteProblem_(at40));
+  ok('a 41-character weekly line is refused on both sides, and says how long', /41 characters; the most is 40/.test(SITE.problemOf(at41)) && /41 characters; the most is 40/.test(api.siteProblem_(at41)));
   /* SOURCE-SHAPED (markup and load order cannot run here). */
   const index = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   ok('the Programs view switch has a Deals page button', /data-mk-view="site"/.test(index));

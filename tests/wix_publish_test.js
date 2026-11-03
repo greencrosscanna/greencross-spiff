@@ -113,12 +113,12 @@ let invFails = {};
 const bugs = [];
 const makeApi = (varValues) => G.load({
   real: ['wixFold_', 'wixMenuSlug_', 'wixEsc_', 'wixStoreLabel_', 'wixTimeOf_', 'wixDayLabels_', 'wixThroughLabel_', 'wixOfferHtml_',
-         'wixApprover_', 'wixCopyProblem_', 'wixSignDelta_', 'wixDutchieBrand_', 'wixVendorIndex_', 'wixDesired_', 'wixSameItem_', 'wixPlan_',
+         'wixApprover_', 'wixCopyProblem_', 'wixLengthProblem_', 'wixSignDelta_', 'wixDutchieBrand_', 'wixVendorIndex_', 'wixDesired_', 'wixSameItem_', 'wixPlan_',
          'wixImageProblem_', 'wixDriveFileId_', 'wixImageFor_', 'wixShopStores_', 'wixPublish_', 'publishToWixWeb_', 'wixReportFailure_', 'wixRememberRun_', 'wixDiag_',
          'runWixPublishHourly_', 'calParseTime_', 'addDaysLocal_', 'normalizeMarketing_', 'mktPickedIds_', 'slug_', 'parseJson_', 'num_',
          'sitePublish_', 'sitePlan_', 'siteProblem_'],
   vars: ['SITE_DAYS_', 'SITE_MAX_REMOVES_', 'WIX_PUBLISHED_PROP_', 'WIX_SHOP_PROP_', 'WIX_NOSHOP_PREFIX_', 'WIX_IMAGE_PREFIX_', 'WIX_LOOKAHEAD_DAYS_', 'WIX_MAX_REMOVES_',
-         'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_APPROVERS_', 'WIX_COPY_RULES_', 'WIX_FAIL_PROP_', 'WIX_LAST_RUN_PROP_', 'WIX_FEATURED_SPEC_', 'WIX_SPEC_TEXT_',
+         'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_APPROVERS_', 'WIX_COPY_RULES_', 'WIX_COPY_LIMITS_', 'WIX_LIMIT_NAMES_', 'WIX_FAIL_PROP_', 'WIX_LAST_RUN_PROP_', 'WIX_FEATURED_SPEC_', 'WIX_SPEC_TEXT_',
          'WIX_DOW_', 'WIX_MON_', 'MKT_MENU_', 'MKT_PEOPLE_', 'MKT_APP_URL', 'GX_SECRET_PROP'],
   varValues: Object.assign({ WIX_APPROVER_FIELD_: G.grabVar('WIX_APPROVER_FIELD_') }, varValues || {}),
   stubs: {
@@ -211,6 +211,16 @@ console.log('\n2. what goes out, and what does not');
   ok('  …"sugar-free" and "$4 off" are not caught by the rule on "free" and "off"', api.wixCopyProblem_(['$4 off', 'Freshy carts']) === '');
   const MK0 = require('../marketing.js');
   ok('the screen warns on the same words as the engine', JSON.stringify(MK0.COPY_RULES) === JSON.stringify(G.grabVar('WIX_COPY_RULES_')));
+  /* Character limits (Sky, 2026-11-03): too much copy breaks the card's layout. */
+  ok('the screen and the engine hold the same character limits', JSON.stringify(MK0.COPY_LIMITS) === JSON.stringify(G.grabVar('WIX_COPY_LIMITS_')));
+  const longHead = api.wixDesired_({ programs: [gron({ plan: { d: { web: { headline: 'x'.repeat(41) } } } })], vendors: VENDORS }, '2026-11-02');
+  ok('a headline over 40 characters is not published, and says how long', !longHead.featured.length && /41 characters; the most is 40/.test(longHead.skipped[0].why));
+  const fiveLines = api.wixDesired_({ programs: [gron({ plan: { rows: { web: [1, 2, 3, 4, 5].map(n => ({ text: '$' + n + ' off Pearls' })) } } })], vendors: VENDORS }, '2026-11-02');
+  ok('more than 4 offer lines is not published', !fiveLines.featured.length && /5 offer lines; the most is 4/.test(fiveLines.skipped[0].why));
+  const longLine = api.wixDesired_({ programs: [gron({ plan: { rows: { web: [{ text: '$4 ' + 'x'.repeat(160) }] } } })], vendors: VENDORS }, '2026-11-02');
+  ok('an offer line over 160 characters is not published', !longLine.featured.length && /Offer line 1 is 163 characters/.test(longLine.skipped[0].why));
+  const cases = [{ headline: 'x'.repeat(40) }, { headline: 'x'.repeat(41) }, { deal: '30% OFF' }, { deal: '30% OFF TODAY!' }, { alt: 'x'.repeat(126) }, { fine: 'x'.repeat(200) }];
+  ok('the screen and the engine judge length the same way', cases.every(w => !!MK0.lengthProblem(w, []) === !!api.wixLengthProblem_(w, [])));
   const byMike = api.wixDesired_({ programs: [gron({ plan: { done: { 'web.approve': { by: 'mike', at: 'x' } } } })], vendors: VENDORS }, '2026-11-02');
   ok('every row carries who approved it, as their user_id', byMike.featured[0].approvedBy === 'mike' && byMike.days.every(x => x.approvedBy === 'mike'));
   const blank = makeApi({ WIX_APPROVER_FIELD_: '' }).wixDesired_({ programs: [gron()], vendors: VENDORS }, '2026-11-02');

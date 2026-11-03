@@ -34,6 +34,9 @@
   /* marketing.js holds the copy rules the engine also holds (WIX_COPY_RULES_). Missing it is not a
      pass: the line is treated as unchecked rather than clean. */
   function copyProblem(texts) { var m = MK(); return m && m.copyProblem ? m.copyProblem(texts) : 'copy rules not loaded; reload the page'; }
+  /* How long a weekly line may be before it breaks the page (marketing.js COPY_LIMITS, mirrored by the
+     engine's WIX_COPY_LIMITS_). Missing marketing.js falls back to the same numbers. */
+  function limits() { var m = MK(); return (m && m.COPY_LIMITS) || { week_brand: 30, week_text: 40 }; }
   /* The same checks the engine makes before it lets a line be approved (siteProblem_). */
   function problemOf(s) {
     if (s.kind === 'vendor') {
@@ -45,6 +48,9 @@
     if (!String(s.brand || '').trim()) return 'pick a brand';
     if (!/^(\$\d+(\.\d{2})?|\d{1,2}%)$/.test(String(s.amount || ''))) return 'the amount must be a straight discount, like $2 or 15%';
     if (!String(s.text || '').trim()) return 'say what it is off';
+    var L = limits(), nb = String(s.brand).trim().length, nt = String(s.text).trim().length;
+    if (nb > L.week_brand) return 'the brand is ' + nb + ' characters; the most is ' + L.week_brand;
+    if (nt > L.week_text) return 'what it is off is ' + nt + ' characters; the most is ' + L.week_text;
     var b = copyProblem([s.brand, s.amount, s.text]);
     return b ? 'breaks the OLCC copy rules ("' + b + '")' : '';
   }
@@ -190,9 +196,10 @@
     var st = statusOf(s), p = problemOf(s);
     return '<div class="st-line' + (st === 'bad' ? ' is-bad' : st === 'wait' ? ' is-wait' : '') + '" data-st-key="' + esc(s.key) + '" data-st-uid="' + esc(s._uid) + '" data-st-kind="week">'
       + thumb(s.brand)
-      + '<input class="sp-in st-brand" data-f="brand" list="stBrands" value="' + esc(s.brand) + '" placeholder="Brand" aria-label="Brand"' + ro + '>'
-      + '<input class="sp-in st-amt" data-f="amount" value="' + esc(s.amount) + '" placeholder="$2" aria-label="Amount"' + ro + '>'
-      + '<input class="sp-in st-text" data-f="text" value="' + esc(s.text) + '" placeholder="OFF all 10-packs" aria-label="What it is off"' + ro + '>'
+      + '<input class="sp-in st-brand" data-f="brand" list="stBrands" value="' + esc(s.brand) + '" placeholder="Brand" aria-label="Brand" maxlength="' + limits().week_brand + '"' + ro + '>'
+      + '<input class="sp-in st-amt" data-f="amount" value="' + esc(s.amount) + '" placeholder="$2" aria-label="Amount" maxlength="6"' + ro + '>'
+      + '<input class="sp-in st-text" data-f="text" value="' + esc(s.text) + '" placeholder="OFF all 10-packs" aria-label="What it is off" maxlength="' + limits().week_text + '"'
+      +   ' title="Up to ' + limits().week_text + ' characters"' + ro + '>'
       + '<select class="sp-in st-dsel" data-f="day" aria-label="Day" title="Day"' + ro + '>' + DAYS.map(function (d) {
           return '<option' + (d === s.day ? ' selected' : '') + '>' + d + '</option>'; }).join('') + '</select>'
       + '<input class="sp-in st-row" data-f="row" type="number" min="1" max="9" value="' + esc(s.row || 1) + '" aria-label="Order within the day" title="Order within the day"' + ro + '>'

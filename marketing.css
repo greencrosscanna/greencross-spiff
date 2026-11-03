@@ -145,6 +145,11 @@ select.mk-own { border: 0; font: inherit; font-size: 11px; font-weight: 700; cur
 .mk-lrow { margin: 0 0 10px; }
 .mk-lrow-in { display: flex; gap: 8px; align-items: center; }
 .mk-lrow-in input { flex: 1; min-width: 0; box-sizing: border-box; background: var(--mk-bg); border: 1px solid var(--mk-line); border-radius: 6px; color: var(--mk-txt); padding: 6px 8px; font: inherit; font-size: 13px; }
+/* "12 / 40" under a website copy box with a character limit (marketing.js counterHtml). */
+.mk-count { display: block; margin-top: 2px; text-align: right; font-size: 11px; color: var(--mk-mut); font-variant-numeric: tabular-nums; }
+.mk-lrow-in .mk-count { flex: none; margin: 0; min-width: 56px; }
+.mk-count.near { color: var(--gx-gold, #d4a847); }
+.mk-count.over { color: var(--gx-red, #ef4444); font-weight: 600; }
 .mk-lrow .mk-task-stores { margin-top: 6px; }
 @media (max-width: 520px) { .mk-vday { grid-template-columns: 1fr 1fr; } }
 .mk-vb:focus-visible { outline: 2px solid var(--mk-txt); outline-offset: 1px; }
