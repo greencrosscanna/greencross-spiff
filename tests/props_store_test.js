@@ -65,8 +65,23 @@ console.log('\n2. setting a switch');
   ok('a write the store refuses says so', t.ok === false && /quota/.test(t.error));
 }
 
-console.log('\n3. both are secret-only routes');
-ok('on SECRET_ACTIONS', ['propsReport', 'setSwitch'].every(a => G.grabVar('SECRET_ACTIONS').indexOf(a) >= 0));
+console.log('\n3. deleting the orphaned oversized key');
+{
+  const O = G.makeProps({ GX_DEPLOY_SECRET: 's3cret', SPIF_DOC_INDEX: 'x'.repeat(14400), CLIENT_VIEW_PASSWORD: 'hunter2' });
+  const api3 = G.load({ real: ['deleteOrphanPropWeb_'], vars: ['PROP_ORPHANS_', 'GX_SECRET_PROP'], stubs: { scrubSecrets_: String },
+                        globals: { PropertiesService: O.PropertiesService } });
+  ok('wants the deploy secret', api3.deleteOrphanPropWeb_({ secret: 'no', name: 'SPIF_DOC_INDEX', apply: '1' }).error === 'Unauthorized');
+  ok('deletes nothing that is not on the orphan list', /not an orphaned key/.test(api3.deleteOrphanPropWeb_({ secret: 's3cret', name: 'CLIENT_VIEW_PASSWORD', apply: '1' }).error)
+     && O.props.CLIENT_VIEW_PASSWORD === 'hunter2');
+  const dry = api3.deleteOrphanPropWeb_({ secret: 's3cret', name: 'SPIF_DOC_INDEX' });
+  ok('is dry by default, and says how big it is', dry.dry === true && dry.bytes > 14400 && 'SPIF_DOC_INDEX' in O.props);
+  ok('apply=1 deletes it and checks it is gone', api3.deleteOrphanPropWeb_({ secret: 's3cret', name: 'SPIF_DOC_INDEX', apply: '1' }).deleted === true && !('SPIF_DOC_INDEX' in O.props));
+  ok('  …and a second call says it is already gone', api3.deleteOrphanPropWeb_({ secret: 's3cret', name: 'SPIF_DOC_INDEX', apply: '1' }).already_gone === true);
+  ok('nothing in the engine still reads it', (G.GS.match(/SPIF_DOC_INDEX/g) || []).length === 2);   // the list and its comment
+}
+
+console.log('\n4. all three are secret-only routes');
+ok('on SECRET_ACTIONS', ['propsReport', 'setSwitch', 'deleteOrphanProp'].every(a => G.grabVar('SECRET_ACTIONS').indexOf(a) >= 0));
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nall passed');
 process.exit(fail ? 1 : 0);
