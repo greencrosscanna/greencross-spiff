@@ -208,7 +208,7 @@ ok('no route above reached for the holidays tab', HOLIDAY_TOUCHES === 0);
   const users = ['holidaySheet_(', 'readHolidays_(', 'getHoliday_('];
   const owners = ['holidaySheet_', 'holidayChannels_', 'holidayPlan_', 'rowToHoliday_', 'holidayToRow_', 'readHolidays_',
                   'holidaysRead_', 'findHolidayRow_', 'getHoliday_', 'saveHoliday_', 'cancelHoliday_', 'saveHolidayPlan_',
-                  'marketingAssign_', 'calendarSource_'];   // the calendar sync reads planned sends, writes only to Google Calendar
+                  'marketingAssign_'];
   let rest = G.GS;
   owners.forEach((n) => { rest = rest.replace(G.grab(n), ''); });
   ok('  …and nothing else in the engine calls the holidays tab', users.every((u) => rest.indexOf(u) < 0));

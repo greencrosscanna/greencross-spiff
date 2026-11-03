@@ -3,7 +3,7 @@
  *
  *   RUN:  node tests/calendar_sync_test.js
  *
- * Sky, 2026-11-02: SPIFF programs, penciled holds, vendor days and holiday sends go onto Tawny's
+ * Sky, 2026-11-02: SPIFF programs, penciled holds and vendor days go onto Tawny's
  * shared Google calendar. This RUNS the engine's own sync against an in-memory calendar (the real
  * adapter, with CalendarApp and Utilities.parseDate stood in) and checks the things that matter:
  *   · an edit MOVES the event, it never makes a second one (same key, updated in place)
@@ -68,7 +68,7 @@ const props = {};
 let CAL = makeCalendar();
 const NAMES = {};
 const api = G.load({
-  real: ['calParseTime_', 'calendarDesired_', 'calSame_', 'calendarAdapter_', 'calendarSync_', 'calendarSyncWeb_',
+  real: ['calParseTime_', 'calHandMadeTwin_', 'calendarDesired_', 'calSame_', 'calendarAdapter_', 'calendarSync_', 'calendarSyncWeb_',
          'runCalendarSyncHourly_', 'addDaysLocal_', 'brandProgramLabel_', 'normalizeMarketing_', 'mktPickedIds_', 'slug_'],
   vars: ['MKT_CALENDAR_ID_', 'CAL_TAG_', 'CAL_LOOKBACK_DAYS_', 'CAL_LOOKAHEAD_DAYS_', 'CAL_MAX_REMOVES_', 'CAL_NOTE_',
          'MKT_MENU_', 'MKT_PEOPLE_', 'GX_SECRET_PROP'],
@@ -122,7 +122,7 @@ ok('a program is an all-day event with an exclusive end (Mule 10/26-11/08 ends 1
    by('program:mule-1').allDay && by('program:mule-1').title === 'Mule Extracts Spiff');
 ok('  …a draft says so', by('program:gron-1').title === 'Gron Spiff (draft)');
 ok('a penciled hold is "Spiff reserved - Brand"', by('pencil:pen-1').title === 'Spiff reserved - Kaprikorn');
-ok('a holiday send names its channels', by('holiday:hol-1').title === 'Black Friday send (email + text)');
+ok('a holiday send is NOT put on the company calendar (Sky: it stays internal)', !CAL.live().some((e) => /Black Friday/.test(e.title) || /^holiday:/.test(e.tags.spiff_key)));
 ok('a timed vendor day gets real times, named by store', by('vday:hella-1:0').title === 'Hellavated Vendor Day - Bend'
    && !by('vday:hella-1:0').allDay);
 ok('  …at noon to two Los Angeles time (PST after Nov 1: 20:00Z to 22:00Z)',
@@ -150,9 +150,6 @@ SRC.programs.push(prog('kap-1', 'Kaprikorn', 'draft', '2026-12-07', '2026-12-20'
 r = sync({ apply: true });
 ok('locking a pencil in swaps the hold for the draft (one removed, one made)', r.removed.length === 1 && r.created.length === 1
    && !by('pencil:pen-1') && by('program:kap-1'));
-SRC.holidays[0].status = 'canceled'; SRC.holidays = [];
-r = sync({ apply: true });
-ok('a canceled holiday leaves the calendar', r.removed.length === 1 && !by('holiday:hol-1'));
 
 console.log('\n4. hand-made events are never touched');
 CAL = makeCalendar([
@@ -162,12 +159,26 @@ CAL = makeCalendar([
 SRC = source({ programs: [prog('mule-1', 'Mule Extracts', 'active', '2026-10-26', '2026-11-08')] });
 r = sync({ apply: true });
 const hand = CAL.live().filter((e) => !e.tags.spiff_key);
+ok('SPIFF makes no copy of the program a hand-made event already covers (reported as skipped)',
+   r.skipped_duplicates.length === 1 && r.created.length === 0 && !by('program:mule-1'));
 ok('both hand-made events survive untouched', hand.length === 2 && hand[0].title === 'Mule Extracts Spiff' && hand[1].title === 'Spiff reserved');
-ok('the hand-made duplicate is REPORTED, not removed', r.possible_duplicates.length === 1
-   && r.possible_duplicates[0].hand_made === 'Mule Extracts Spiff');
+ok('  …and names which hand-made event covers it', r.skipped_duplicates[0].hand_made === 'Mule Extracts Spiff');
+CAL = makeCalendar([
+  { title: 'Gron Halloween Gummy Spiff', start: Util.parseDate('2026-10-26 00:00', 'America/Los_Angeles'), end: Util.parseDate('2026-11-09 00:00', 'America/Los_Angeles') },
+]);
+SRC = source({ programs: [prog('gron-1', 'Gron', 'active', '2026-10-26', '2026-11-08', { marketing_json: planWith([{ store: 'bend', date: '2026-11-03', time: '' }]) })] });
+r = sync({ apply: true });
+ok('a hand-made SPIFF span covers the program but NOT its vendor day (different kind): only the day is made',
+   r.skipped_duplicates.length === 1 && r.created.length === 1 && r.created[0].key === 'vday:gron-1:0');
+CAL = makeCalendar([
+  { title: 'Gron Vendor Day - South', start: Util.parseDate('2026-11-03 12:00', 'America/Los_Angeles'), end: Util.parseDate('2026-11-03 14:00', 'America/Los_Angeles'), allDay: false },
+]);
+r = sync({ apply: true });
+ok('a hand-made vendor day for the same brand and date covers SPIFF\'s vendor day (store spelling does not matter)',
+   r.skipped_duplicates.some((x) => /Vendor Day/.test(x.spiff)) && !CAL.live().some((e) => e.tags.spiff_key === 'vday:gron-1:0'));
 SRC = source({ programs: [] });
 r = sync({ apply: true });
-ok('with every program gone, hand-made events still stand', CAL.live().filter((e) => !e.tags.spiff_key).length === 2);
+ok('with every program gone, hand-made events still stand', CAL.live().filter((e) => !e.tags.spiff_key).length === 1);
 
 console.log('\n5. brakes');
 CAL = makeCalendar();

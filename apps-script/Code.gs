@@ -8108,10 +8108,15 @@ function addDaysLocal_(ymd, n) {
  *   program:<id>        the program's window, all day (drafts say "(draft)")
  *   vday:<id>:<n>       a vendor day, n = its place in the plan's list, so editing a date MOVES it
  *   pencil:<id>         "Spiff reserved - Brand", while the hold is penciled
- *   holiday:<id>        a holiday send, all day
+ * HOLIDAY SENDS ARE NOT ON IT (Sky, 2026-11-02): that calendar is company-facing, and a holiday send
+ * is internal marketing. They stay on SPIFF's own Calendar view. Do not add them here.
+ * NO DUPLICATES: SPIFF will not CREATE an event when a hand-made one of the same kind already covers
+ * that brand and those dates (a vendor day matches a hand-made vendor day on the same date, anything
+ * else matches a hand-made non-vendor-day). It is reported as skipped_duplicates instead. Delete the
+ * hand-made one and the next run makes SPIFF's.
  * The key rides on the event as a private tag (CAL_TAG_). Only a tagged event is ever updated or
  * removed; Tawny's hand-made events carry no tag and are never touched. A possible duplicate is
- * REPORTED (possible_duplicates), because only a person decides whether the hand-made one goes.
+ * left alone, and SPIFF skips its own copy of anything one already covers (skipped_duplicates).
  *
  * IT IS NOT A PAY PATH. It reads programs, pencils and holidays and writes only to Google Calendar.
  * It runs LAST in the hourly job, in its own try/catch, behind the CAL_SYNC_ON script property, so a
@@ -8154,8 +8159,8 @@ function calParseTime_(text) {
   return { start: hhmm(s), end: hhmm(e) };
 }
 
-/* WHAT THE CALENDAR SHOULD HOLD, as plain data. `src` = {programs, pencils, holidays, storeNames}
-   (pencils and holidays already limited to penciled / planned). Only events that touch the sync
+/* WHAT THE CALENDAR SHOULD HOLD, as plain data. `src` = {programs, pencils, storeNames}
+   (pencils already limited to penciled). Only events that touch the sync
    window are returned: an event outside it could never be found again next hour, and would be made
    again every hour. */
 function calendarDesired_(src, today) {
@@ -8163,16 +8168,16 @@ function calendarDesired_(src, today) {
   var from = addDaysLocal_(today, -CAL_LOOKBACK_DAYS_), to = addDaysLocal_(today, CAL_LOOKAHEAD_DAYS_);
   var names = src.storeNames || {};
   var out = [];
-  var span = function (key, summary, first, last, desc) {
+  var span = function (key, summary, first, last, desc, brand) {
     if (!ISO.test(String(first || '')) || !ISO.test(String(last || '')) || last < first) return;
     out.push({ key: key, summary: summary, allDay: true, date: first, endDate: addDaysLocal_(last, 1),
-               start: '', end: '', description: desc });
+               start: '', end: '', description: desc, brand: brand, kind: key.split(':')[0] });
   };
   (src.programs || []).forEach(function (p) {
     var vendor = String(p.vendor || '').trim() || 'Unnamed brand';
     var draft = p.status === 'draft' ? ' (draft)' : '';
     span('program:' + p.program_id, vendor + ' Spiff' + draft, p.start_date, p.end_date,
-         CAL_NOTE_ + '\n' + brandProgramLabel_(p) + ' · ' + p.status);
+         CAL_NOTE_ + '\n' + brandProgramLabel_(p) + ' · ' + p.status, vendor);
     var plan = normalizeMarketing_(p.marketing_json) || {};
     var oldDay = (plan.d && plan.d.vday) || {};
     var days = plan.vdays && plan.vdays.length ? plan.vdays
@@ -8185,18 +8190,13 @@ function calendarDesired_(src, today) {
       var title = vendor + ' Vendor Day - ' + where + (!t && v.time ? ' (' + v.time + ')' : '');
       var ev = { key: 'vday:' + p.program_id + ':' + i, summary: title, allDay: !t, date: v.date,
                  endDate: t ? v.date : addDaysLocal_(v.date, 1), start: t ? t.start : '', end: t ? t.end : '',
-                 description: CAL_NOTE_ + '\n' + brandProgramLabel_(p), vday: true };
+                 description: CAL_NOTE_ + '\n' + brandProgramLabel_(p), vday: true, brand: vendor, kind: 'vday' };
       out.push(ev);
     });
   });
   (src.pencils || []).forEach(function (x) {
     span('pencil:' + x.pencil_id, 'Spiff reserved - ' + x.brand, x.start_date, x.end_date,
-         CAL_NOTE_ + (x.note ? '\n' + x.note : ''));
-  });
-  (src.holidays || []).forEach(function (h) {
-    var how = (h.channels || []).map(function (c) { return c === 'sms' ? 'text' : c; }).join(' + ');
-    span('holiday:' + h.holiday_id, h.name + ' send' + (how ? ' (' + how + ')' : ''), h.send_date, h.send_date,
-         CAL_NOTE_ + (h.note ? '\n' + h.note : ''));
+         CAL_NOTE_ + (x.note ? '\n' + x.note : ''), x.brand);
   });
   return out.filter(function (e) { return e.endDate > from && e.date < to; });
 }
@@ -8256,9 +8256,24 @@ function calendarSource_() {
   return {
     programs: listPrograms_(),
     pencils: readPencils_().filter(function (x) { return x.status === 'penciled'; }),
-    holidays: readHolidays_().filter(function (h) { return h.status === 'planned'; }),
     storeNames: names
   };
+}
+
+/* A hand-made event that already says what `ev` would say: same brand in the title, overlapping days,
+   and the same KIND (a vendor day only matches a hand-made "vendor day"; a program or hold only
+   matches one that is not). Sky, 2026-11-02: "don't put duplicates out". Untagged events only. */
+function calHandMadeTwin_(ev, handMade) {
+  var brand = String(ev.brand || '').toLowerCase().trim();
+  if (!brand) return null;
+  var last = function (e) { return e.allDay ? addDaysLocal_(e.endDate, -1) : (e.endDate || e.date); };
+  for (var i = 0; i < handMade.length; i++) {
+    var h = handMade[i], title = String(h.summary || '').toLowerCase();
+    if (title.indexOf(brand) < 0) continue;
+    if (/vendor day/.test(title) !== (ev.kind === 'vday')) continue;
+    if (h.date <= last(ev) && last(h) >= ev.date) return h;
+  }
+  return null;
 }
 
 /* One pass. Dry unless opts.apply. Never throws for one bad event: each write has its own try. */
@@ -8267,7 +8282,7 @@ function calendarSync_(opts) {
   var apply = !!opts.apply;
   var today = opts.today || Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd');
   var out = { ok: true, apply: apply, created: [], updated: [], removed: [], unchanged: 0,
-              refused: '', failed: [], possible_duplicates: [] };
+              refused: '', failed: [], skipped_duplicates: [] };
   var src = opts.source || calendarSource_();
   var desired = calendarDesired_(src, today);
   var cal = opts.cal || calendarAdapter_();
@@ -8287,6 +8302,8 @@ function calendarSync_(opts) {
     var have = mine[ev.key];
     try {
       if (!have) {
+        var twin = calHandMadeTwin_(ev, handMade);
+        if (twin) { out.skipped_duplicates.push({ spiff: ev.summary, hand_made: twin.summary, date: ev.date }); return; }
         if (apply) cal.create(ev, ev.vday && guests ? { guests: guests } : null);
         out.created.push({ key: ev.key, summary: ev.summary, date: ev.date });
       } else if (!calSame_(have, ev)) {
@@ -8308,18 +8325,6 @@ function calendarSync_(opts) {
     });
   }
 
-  /* Hand-made events SPIFF now covers: same brand word in the title, overlapping dates. Reported
-     only. A person decides whether the hand-made one goes. */
-  desired.forEach(function (ev) {
-    var brand = String(ev.summary).split(/\s+(?:Spiff|Vendor Day|spiff)/)[0].toLowerCase();
-    if (!brand || brand.indexOf('spiff reserved') === 0) return;
-    handMade.forEach(function (h) {
-      if (String(h.summary).toLowerCase().indexOf(brand) < 0) return;
-      if (h.date < ev.endDate && h.endDate >= ev.date) {
-        out.possible_duplicates.push({ spiff: ev.summary, hand_made: h.summary, date: h.date });
-      }
-    });
-  });
   return out;
 }
 
