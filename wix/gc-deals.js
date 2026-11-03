@@ -14,14 +14,16 @@
 
   // The six online menus, as linked from the site header's ORDER menu (2026-11-02). Each store has
   // a page per brand at /brands/<brand-slug>. Kept here because the Wix page has no store list.
+  // The third column is the store's GX Core store_id, which is what SPIFF publishes in a Featured
+  // item's `shopStores`: the stores whose Dutchie inventory has the brand in stock today.
   var SHOP = 'https://shop.greencrosscanna.com/stores/';
   var STORES = [
-    ['Commercial St', 'green-cross-cannabis-commercial-st'],
-    ['River Rd', 'green-cross-cannabis-emporium'],
-    ['Portland Rd', 'portland-road-green-cross-cannabis-emporium'],
-    ['Center St', 'green-cross-cannabis-emporium-center-st-ne'],
-    ['Baseline St', 'green-cross-cannabis-emporium-hillsboro'],
-    ['Century Dr', 'green-cross-cannabis-emporium-bend']
+    ['Commercial St', 'green-cross-cannabis-commercial-st', 'commercial'],
+    ['River Rd', 'green-cross-cannabis-emporium', 'river-rd'],
+    ['Portland Rd', 'portland-road-green-cross-cannabis-emporium', 'portland-rd'],
+    ['Center St', 'green-cross-cannabis-emporium-center-st-ne', 'center'],
+    ['Baseline St', 'green-cross-cannabis-emporium-hillsboro', 'hillsboro'],
+    ['Century Dr', 'green-cross-cannabis-emporium-bend', 'bend']
   ];
   var brandSlug = function (s) {
     return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -135,6 +137,12 @@
     '.gcd-wlogo{flex-basis:120px}.gcd-wlogo img{width:120px}',
     '.gcd-btn{white-space:normal}',
     '.gcd-shop-grid{grid-template-columns:repeat(2,1fr)}',
+    '}',
+    // Small phones (320px): the 120px logo left too little room and long words like "chocolates" clipped.
+    '@media (max-width:400px){',
+    '.gcd-wlogo{flex-basis:92px}.gcd-wlogo img{width:92px}',
+    '.gcd-wbody{padding:10px 12px;gap:10px}',
+    '.gcd-wtext{font-size:15px;overflow-wrap:break-word}',
     '}'
   ].join('\n');
 
@@ -153,10 +161,15 @@
   // Shop Now: a button that opens a store chooser; each store goes to that store's menu,
   // already filtered to the brand. The brand's menu slug is the Vendors item's Menu Slug
   // (Bobsled is "bobsled-extracts"), else the vendor name slugged.
-  function shopPicker(name, slug) {
+  // `only` is the item's shopStores. Absent (an item typed by hand) lists all six; a list lists just
+  // those stores; an EMPTY list means no store has the brand in stock, so there is no button at all,
+  // because every link would open a "no products" page.
+  function shopPicker(name, slug, only) {
+    var list = Array.isArray(only) ? STORES.filter(function (s) { return only.indexOf(s[2]) >= 0; }) : STORES;
+    if (!list.length) return '';
     return '<details class="gcd-shop"><summary class="gcd-shop-btn mt">SHOP ' + esc(String(name).toUpperCase()) + ' NOW</summary>' +
       '<div class="gcd-shop-pick"><p class="mt">PICK YOUR STORE</p><div class="gcd-shop-grid">' +
-      STORES.map(function (s) {
+      list.map(function (s) {
         return '<a class="mt" href="' + SHOP + s[1] + '/brands/' + encodeURIComponent(slug) + '" target="_top">' + esc(s[0].toUpperCase()) + '</a>';
       }).join('') + '</div></div></details>';
   }
@@ -207,7 +220,7 @@
           (f.throughLabel ? '<span class="gcd-thru mt">' + esc(String(f.throughLabel).toUpperCase()) + '</span>' : '') + '</div></div>' +
           '<h3 class="mt">' + esc(f.headline) + '</h3>' +
           '<div class="gcd-offers">' + rich(f.offerLines) + '</div>' +
-          shopPicker(v.name, f.shopBrand || v.slug || brandSlug(v.name)) +
+          shopPicker(v.name, f.shopBrand || v.slug || brandSlug(v.name), f.shopStores) +
           (n ? '<a class="gcd-btn mt" href="#gcd-vendordays">SEE ' + n + ' ' + esc(String(v.name).toUpperCase()) + ' VENDOR DAY' + (n > 1 ? 'S' : '') + ' ↓</a>' : '') +
           (f.finePrint ? '<p class="gcd-fine">' + esc(f.finePrint) + '</p>' : '') +
           '</div></article>';

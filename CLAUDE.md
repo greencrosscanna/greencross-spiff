@@ -265,6 +265,27 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   off until `CAL_INVITE_VDAYS=1`, then Mike only, on create. Needs the `calendar` scope: after a deploy
   the owner runs `authorize()` once. Nothing that pays may call it. Pinned by `tests/calendar_sync_test.js`
   and the isolation test's section 5c.
+  **The deals page (greencrosscanna.com/deals) fills itself, one way, through GX Core's Wix connector**
+  (Sky, 2026-11-02; needs GXCore v364+). A program goes on it as a Featured card (`FeaturedDeals`, keyed
+  `programId`) plus one `VendorDays` row per vendor day (keyed `<program>|<street-slug>|<date>`) only when
+  it is active (or a draft starting within 7 days, sent `live=false`), its plan picks the **Deals page**
+  item (`web`: headline, image link, offer lines, vendor-day deal/offer), **Sky, Mike or Tawny has ticked
+  `web.approve`** (`WIX_APPROVERS_`, Sky 2026-11-02) and the copy passes the OLCC word rules
+  (`WIX_COPY_RULES_`, mirrored as `COPY_RULES` in marketing.js). The engine signs every marketing tick
+  with the SESSION user (`wixSignDelta_`), refuses that tick from anyone else, and un-ticks it when anyone
+  else changes the `web` copy. Each row will name its approver once GX Core's gate names the field
+  (`WIX_APPROVER_FIELD_`, blank until then: an unknown field refuses the batch). Only rows SPIFF put
+  there (`WIX_PUBLISHED` property) are ever updated or removed; a hand-made Wix row is left alone and
+  SPIFF makes no copy of it (`skipped_duplicates`) — except that ANY Featured card past its end date (LA
+  day) is deleted, since GX Core clears none. Past days are pruned on the LA day. A failed hourly run is
+  filed as an `app=spiff` bug, once a day per distinct failure (`wixReportFailure_`). Shop Now: once
+  per LA day each store's Dutchie inventory says which stores stock the program's brand; those store ids
+  ride as `shopStores` and `wix/gc-deals.js` lists only them (none: no button, Tawny emailed once).
+  Vendors is hand-owned (connector read-only), so a Menu Slug that disagrees with Dutchie is reported
+  (`menu_slug_fixes`), not written. The Featured image is checked against the spec (1200×1200 square,
+  1080–2400, JPG/PNG, ≤2 MB) before import. Runs LAST in the hourly job, own try/catch, behind
+  `WIX_PUBLISH_ON=1`; `?action=publishToWix` (secret, dry unless `apply=1`, `shop=1` re-reads inventory).
+  Nothing that pays may call it. Pinned by `tests/wix_publish_test.js`.
 
 ### Money: payout, cost, vendor send
 

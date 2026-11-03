@@ -170,6 +170,7 @@ console.log('\n5. the hourly run reports skipped and failed stores, and keeps th
         refreshSpiffProgress_: () => sweptResult,
         publishSpiffToCore_: () => ({ ok: true, published: [] }),
         runCalendarSyncHourly_: () => ({ skipped: true }),
+        runWixPublishHourly_: () => ({ skipped: true }),
       },
       globals: { console: { warn: (m) => warns.push(String(m)), log: () => {} } },
     });

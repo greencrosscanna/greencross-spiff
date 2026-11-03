@@ -137,6 +137,11 @@ select.mk-own { border: 0; font: inherit; font-size: 11px; font-weight: 700; cur
 .mk-files { display: flex; gap: 10px; align-items: end; margin: 0 0 14px; }
 .mk-files .mk-fld { flex: 1; margin: 0; }
 .mk-files .gx-btn { white-space: nowrap; text-decoration: none; }
+/* The deals-page card: the Featured image spec beside the image link, and a preview that checks its shape. */
+.mk-spec { font-size: 12.5px; line-height: 1.45; border: 1px solid var(--mk-gold); border-radius: 8px; padding: 8px 12px; margin: 8px 0; }
+.mk-imgcheck { display: flex; gap: 12px; align-items: center; margin: 8px 0; }
+.mk-imgcheck img { border-radius: 6px; background: #fff; flex: none; }
+.mk-imgcheck .mk-warn { margin: 0; }
 .mk-lrow { margin: 0 0 10px; }
 .mk-lrow-in { display: flex; gap: 8px; align-items: center; }
 .mk-lrow-in input { flex: 1; min-width: 0; box-sizing: border-box; background: var(--mk-bg); border: 1px solid var(--mk-line); border-radius: 6px; color: var(--mk-txt); padding: 6px 8px; font: inherit; font-size: 13px; }
