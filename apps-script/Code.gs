@@ -329,7 +329,8 @@ var GATED_WRITES = ['snapshotProgress'];
 var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses',
                       'sweepOrphanProgress', 'publishToCore', 'backfillPayPeriods',
                       'publishKioskTokens', 'seedBrands', 'recordActuals', 'auditPayouts', 'calendarSync',
-                      'publishToWix', 'propsReport', 'setSwitch', 'deleteOrphanProp', 'adoptSite'];
+                      'publishToWix', 'propsReport', 'setSwitch', 'deleteOrphanProp', 'adoptSite',
+                      'giftCardEmail'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -455,6 +456,7 @@ function doGet(e) {
       /* Record a closed program's actuals from its close-out measurement. Secret-gated and DRY BY
          DEFAULT; `apply=1` writes. The hourly trigger does this on its own — see RECORDING ACTUALS. */
       case 'recordActuals': out = recordActualsWeb_(p);                             break;
+      case 'giftCardEmail': out = giftCardEmailWeb_(p);                             break;
       /* Fill the shared Marketing Calendar. Secret-gated and DRY BY DEFAULT; `apply=1` writes. */
       case 'calendarSync': out = calendarSyncWeb_(p);                               break;
       /* Fill greencrosscanna.com/deals through GX Core's Wix connector. Secret-gated and DRY BY
@@ -3771,6 +3773,13 @@ function refreshSpiffProgressTrigger() {
                      + rec.needs_person.map(function (x) { return x.program_id + ' — ' + x.why; }).join('; '));
       }
     } catch (e) { console.warn('[spiff] recording actuals failed: ' + ((e && e.message) || e)); }
+    /* Gift-card order email to Mike: by noon the first Monday after close, once per program. Its own
+       try/catch so a mail failure cannot cost the refresh and the publish below. */
+    try {
+      var gm = sendGiftCardEmails_({ apply: true });
+      if (gm.sent.length) console.log('[spiff] gift-card email sent for ' + gm.sent.map(function (x) { return x.program_id; }).join(', '));
+      if (gm.failed.length) console.warn('[spiff] gift-card email FAILED: ' + gm.failed.map(function (x) { return x.program_id + ' — ' + x.error; }).join('; '));
+    } catch (e) { console.warn('[spiff] gift-card email failed: ' + ((e && e.message) || e)); }
     /* ONCE A DAY, and AFTER the recorder: a program measured and recorded this hour should be
        reconciled against the figure that was just written, not against the blank it had an hour
        ago. Reads the rows already on the sheet — no Dutchie calls, no Core calls unless it has
@@ -7049,7 +7058,12 @@ function marketingAssign_(p) {
 function giftCardList_(p) {
   var res = getProgram_(p.id);
   if (!res.ok) return res;
-  var prog = res.program;
+  return giftCardListFor_(res.program);
+}
+
+/* The list itself, for a program already in hand — so the email to Mike and the Reports panel
+   are the same calculation, not two. */
+function giftCardListFor_(prog) {
   var f = payoutFactsOf_(prog);
 
   /* Through measuredRowsFor_ — the same source selection the vendor PDF uses, so a buy list and
@@ -7089,6 +7103,122 @@ function giftCardList_(p) {
   };
 }
 
+
+/* ═════════ THE GIFT-CARD ORDER EMAIL TO MIKE ═════════════════════════════════════════════════════
+ * Sky, 2026-11-03: when a program closes, Mike gets the buy list so he does not have to be told by
+ * hand. Sky's timing: NOT the moment it closes — by noon (LA) on the first Monday after the end
+ * date, "that way any last minute fixes can be made".
+ *
+ *  - SAME NUMBERS AS REPORTS: the lines and totals come from giftCardListFor_, the builder behind
+ *    the Reports panel's buy list. There is no second calculation here.
+ *  - ONCE PER PROGRAM: the `giftmail:<program_id>` script property, set only after a send succeeds
+ *    (the `mktassigned:` pattern). The hourly job and the route both honor it; only force=1 resends.
+ *  - ONLY ONCE ACTUALS ARE RECORDED, and never on zero units. The recorder never records a partial
+ *    or zero measurement, so a program stuck there stays quiet until a person fixes it.
+ *  - GIFTMAIL_FROM: programs that ended before this day are never mailed, so turning this on does
+ *    not email Mike about every program closed in the past.
+ *  - Internal mail, sent as the script account. Mike's address is the fixed MKT_PEOPLE_ entry, never
+ *    taken from a request. This is not the vendor path (sendBrandEmail_ is untouched).
+ *  - Nothing that pays reads or writes anything here but the one property. */
+var GIFTMAIL_PREFIX = 'giftmail:';
+var GIFTMAIL_FROM = '2026-11-01';
+
+/* First Monday strictly after the end date, as YYYY-MM-DD. Pure text/UTC math, no timezone drift. */
+function giftMailDueDay_(endYmd) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(endYmd || ''));
+  if (!m) return '';
+  var d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  do { d.setUTCDate(d.getUTCDate() + 1); } while (d.getUTCDay() !== 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/* Has noon LA on the due Monday arrived? `now` is injectable for tests. */
+function giftMailIsDue_(endYmd, now) {
+  var due = giftMailDueDay_(endYmd);
+  if (!due) return false;
+  var stamp = Utilities.formatDate(now || new Date(), 'America/Los_Angeles', 'yyyy-MM-dd HH');
+  var day = stamp.slice(0, 10), hour = Number(stamp.slice(11, 13));
+  return day > due || (day === due && hour >= 12);
+}
+
+function giftMailText_(prog, list) {
+  var byStore = {}, order = [];
+  list.lines.forEach(function (x) {
+    var s = x.store || 'unknown';
+    if (!byStore[s]) { byStore[s] = []; order.push(s); }
+    byStore[s].push(x);
+  });
+  order.sort();
+  var names = {};
+  try { (gxStores_() || []).forEach(function (x) { names[slug_(x.store_id)] = x.display_name || x.store_id; }); }
+  catch (e) { names = {}; }
+  var pretty = function (s) {
+    return names[slug_(s)] || String(s).split('-').map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+  };
+  var out = [
+    'Gift cards to order for: ' + brandProgramLabel_(prog), '',
+    'Cards to order : ' + list.count,
+    'Total to load  : ' + moneyStr_(list.total), ''
+  ];
+  order.forEach(function (s) {
+    var sub = byStore[s].reduce(function (n, x) { return n + x.amount; }, 0);
+    out.push(pretty(s) + ' — ' + byStore[s].length + ' card' + (byStore[s].length === 1 ? '' : 's') + ', ' + moneyStr_(sub));
+    byStore[s].forEach(function (x) { out.push('   ' + x.name + '  ' + moneyStr_(x.amount)); });
+    out.push('');
+  });
+  if (list.warning) out.push('CHECK BEFORE BUYING: ' + list.warning, '');
+  out.push('Source: ' + list.source, 'Open SPIFF: ' + MKT_APP_URL);
+  return out.join('\n');
+}
+
+function sendGiftCardEmails_(opts) {
+  opts = opts || {};
+  var apply = !!opts.apply, force = !!opts.force, only = String(opts.program || '').trim();
+  var out = { ok: true, dry: !apply, sent: [], would_send: [], waiting: [], skipped: [], failed: [] };
+  var sh = dataSheet_();
+  if (sh.getLastRow() < 2) return out;
+  var props = PropertiesService.getScriptProperties();
+  var vals = sh.getRange(2, 1, sh.getLastRow() - 1, PROGRAM_HEADERS.length).getValues();
+  for (var i = 0; i < vals.length; i++) {
+    var prog = rowToProgram_(vals[i]);
+    var id = String(prog.program_id);
+    if (only && id !== only) continue;
+    if (String(prog.status || '').trim().toLowerCase() !== 'closed') continue;
+    if (String(prog.end_date || '') < GIFTMAIL_FROM && !force) continue;
+    if (props.getProperty(GIFTMAIL_PREFIX + id) && !force) { out.skipped.push({ program_id: id, why: 'already sent' }); continue; }
+    var a = prog.actual_json || {};
+    if (a.units_sold == null || a.units_sold === '' || !(Number(a.units_sold) > 0)) {
+      out.skipped.push({ program_id: id, why: 'actuals not recorded yet' }); continue;
+    }
+    if (!force && !giftMailIsDue_(prog.end_date, opts.now)) {
+      out.waiting.push({ program_id: id, send_after: giftMailDueDay_(prog.end_date) + ' 12:00 PT' }); continue;
+    }
+    try {
+      var list = giftCardListFor_(prog);
+      if (!list.count) { out.skipped.push({ program_id: id, why: 'nobody earned a card' }); continue; }
+      var item = { program_id: id, cards: list.count, total: list.total, to: MKT_PEOPLE_.mike };
+      if (!apply) { item.body = giftMailText_(prog, list); out.would_send.push(item); continue; }
+      var lock = LockService.getScriptLock();
+      if (!lock.tryLock(15000)) { out.failed.push({ program_id: id, error: 'busy' }); continue; }
+      try {
+        if (props.getProperty(GIFTMAIL_PREFIX + id) && !force) { out.skipped.push({ program_id: id, why: 'already sent' }); continue; }
+        sendMail_({ to: MKT_PEOPLE_.mike, subject: 'Gift cards to order — ' + brandProgramLabel_(prog) + ' (' + list.count + ' cards, ' + moneyStr_(list.total) + ')',
+                    body: giftMailText_(prog, list), name: 'Green Cross SPIFF' });
+        props.setProperty(GIFTMAIL_PREFIX + id, nowStamp_());
+        out.sent.push(item);
+      } finally { lock.releaseLock(); }
+    } catch (e) {
+      out.failed.push({ program_id: id, error: scrubSecrets_(e && e.message || e) });
+    }
+  }
+  return out;
+}
+
+function giftCardEmailWeb_(p) {
+  var want = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  if (!want || String(p.secret || '') !== want) return { ok: false, error: 'Unauthorized' };
+  return sendGiftCardEmails_({ apply: String(p.apply || '') === '1', force: String(p.force || '') === '1', program: p.program });
+}
 
 /* Is the GXCore library reachable, and what does it actually see from here? Libraries run
    in the CALLER's context, so this distinguishes "we can't read GX Core" from "the tab is
