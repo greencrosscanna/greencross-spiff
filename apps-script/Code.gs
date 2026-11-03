@@ -328,7 +328,7 @@ var GATED_WRITES = ['snapshotProgress'];
    all three; see guard_. */
 var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses',
                       'sweepOrphanProgress', 'publishToCore', 'backfillPayPeriods',
-                      'publishKioskTokens', 'seedBrands', 'recordActuals', 'auditPayouts'];
+                      'publishKioskTokens', 'seedBrands', 'recordActuals', 'auditPayouts', 'calendarSync'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -454,6 +454,8 @@ function doGet(e) {
       /* Record a closed program's actuals from its close-out measurement. Secret-gated and DRY BY
          DEFAULT; `apply=1` writes. The hourly trigger does this on its own — see RECORDING ACTUALS. */
       case 'recordActuals': out = recordActualsWeb_(p);                             break;
+      /* Fill the shared Marketing Calendar. Secret-gated and DRY BY DEFAULT; `apply=1` writes. */
+      case 'calendarSync': out = calendarSyncWeb_(p);                               break;
       /* ONE STORE PER CALL. A full sweep is ~9s per store and /exec is killed at 60s — asking for
          all of them timed out with nothing written and no error to read, which is the worst of both.
          Called WITHOUT a store this returns the PLAN (every program × store pair) so a caller can
@@ -3794,6 +3796,10 @@ function refreshSpiffProgressTrigger() {
                      + (pub.error || JSON.stringify(pub.failed || [])));
       }
     } catch (e) { console.warn('[spiff] publish to Core threw: ' + ((e && e.message) || e)); }
+    /* THE CALENDAR IS LAST and its own try/catch: it writes only to Google Calendar, and nothing
+       above may wait on it or fail because of it. */
+    try { runCalendarSyncHourly_(); }
+    catch (e) { console.warn('[spiff] calendar sync FAILED: ' + ((e && e.message) || e)); }
   } finally {
     releaseSweepLease_(lease);
   }
@@ -7609,6 +7615,10 @@ function authorize() {
   try { report.sendAs = GmailApp.getAliases(); report.brandFrom = brandFromAddress_();
         report.brandFromUsable = report.sendAs.indexOf(report.brandFrom) >= 0; }
   catch (e) { report.sendAs = 'ERR ' + e.message; }
+  /* TOUCHES CALENDAR ON PURPOSE, for the same reason as Gmail above: this is what makes Google ask
+     for the calendar permission the Marketing Calendar sync needs. A read only. */
+  try { report.calendar = CalendarApp.getCalendarById(MKT_CALENDAR_ID_).getName(); }
+  catch (e) { report.calendar = 'ERR ' + e.message; }
   Logger.log('Authorized. ' + JSON.stringify(report));
   return report;
 }
@@ -8090,4 +8100,249 @@ function addDaysLocal_(ymd, n) {
   var p = String(ymd).split('-');
   var d = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]) + n));
   return Utilities.formatDate(d, 'UTC', 'yyyy-MM-dd');
+}
+
+/* ═════════════════ THE MARKETING CALENDAR ══════════════════════════════════════════════════════
+ * Sky, 2026-11-02: SPIFF fills Tawny's shared Google "Marketing Calendar" so the team has ONE
+ * calendar. ONE WAY: SPIFF writes, nothing is read back into SPIFF. Four kinds of event, each keyed:
+ *   program:<id>        the program's window, all day (drafts say "(draft)")
+ *   vday:<id>:<n>       a vendor day, n = its place in the plan's list, so editing a date MOVES it
+ *   pencil:<id>         "Spiff reserved - Brand", while the hold is penciled
+ *   holiday:<id>        a holiday send, all day
+ * The key rides on the event as a private tag (CAL_TAG_). Only a tagged event is ever updated or
+ * removed; Tawny's hand-made events carry no tag and are never touched. A possible duplicate is
+ * REPORTED (possible_duplicates), because only a person decides whether the hand-made one goes.
+ *
+ * IT IS NOT A PAY PATH. It reads programs, pencils and holidays and writes only to Google Calendar.
+ * It runs LAST in the hourly job, in its own try/catch, behind the CAL_SYNC_ON script property, so a
+ * Calendar outage, a missing permission or a bug costs the calendar and nothing else. Nothing that
+ * pays, publishes or feeds a kiosk may call it (pinned by tests/calendar_sync_test.js and the
+ * isolation test). Vendor-day invites are OFF until CAL_INVITE_VDAYS = 1, and then go to Mike only,
+ * once, when the event is created. */
+var MKT_CALENDAR_ID_ = 'c_0ab9afb8ed309776b6293321191b4e8311b262eb9971bf436336d64d27792470@group.calendar.google.com';
+var CAL_TAG_ = 'spiff_key';
+var CAL_LOOKBACK_DAYS_ = 30;
+var CAL_LOOKAHEAD_DAYS_ = 420;
+var CAL_MAX_REMOVES_ = 10;
+var CAL_NOTE_ = 'Managed by SPIFF. Edit it there; changes made here are overwritten on the next hourly sync.';
+
+/* "12-2", "3:00 PM - 6:00 PM", "11am to 1pm", "12–2pm", "4pm" -> {start:'HH:mm', end:'HH:mm'}, else
+   null (the event goes all day and the text rides in its title). One time alone runs two hours. */
+function calParseTime_(text) {
+  var t = String(text == null ? '' : text).toLowerCase().replace(/[–—]/g, '-').trim();
+  var one = '(\\d{1,2})(?::(\\d{2}))?\\s*([ap])?\\.?m?\\.?';
+  var m = t.match(new RegExp('^' + one + '\\s*(?:-|to)\\s*' + one + '$'));
+  var single = !m && t.match(new RegExp('^' + one + '$'));
+  if (!m && !single) return null;
+  var a = m ? { h: +m[1], mi: m[2], ap: m[3] } : { h: +single[1], mi: single[2], ap: single[3] };
+  var b = m ? { h: +m[4], mi: m[5], ap: m[6] } : null;
+  var fix = function (x, other) {
+    var ap = x.ap || (other && other.ap) || '';
+    if (x.h > 12 || (x.mi && +x.mi > 59) || x.h < 0) return null;
+    var h = x.h;
+    if (!ap) ap = (h >= 9 && h <= 11) ? 'a' : 'p';        // 9-11 morning; 12 and 1-8 afternoon
+    if (ap === 'p' && h < 12) h += 12;
+    if (ap === 'a' && h === 12) h = 0;
+    return h * 60 + (x.mi ? +x.mi : 0);
+  };
+  var s = fix(a, b), e;
+  if (s == null) return null;
+  if (b) { e = fix(b, a); if (e == null) return null; if (e <= s && !a.ap && !b.ap) return null; }
+  else e = s + 120;
+  if (e <= s || e >= 24 * 60) return null;
+  var hhmm = function (n) { return String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0'); };
+  return { start: hhmm(s), end: hhmm(e) };
+}
+
+/* WHAT THE CALENDAR SHOULD HOLD, as plain data. `src` = {programs, pencils, holidays, storeNames}
+   (pencils and holidays already limited to penciled / planned). Only events that touch the sync
+   window are returned: an event outside it could never be found again next hour, and would be made
+   again every hour. */
+function calendarDesired_(src, today) {
+  var ISO = /^\d{4}-\d{2}-\d{2}$/;
+  var from = addDaysLocal_(today, -CAL_LOOKBACK_DAYS_), to = addDaysLocal_(today, CAL_LOOKAHEAD_DAYS_);
+  var names = src.storeNames || {};
+  var out = [];
+  var span = function (key, summary, first, last, desc) {
+    if (!ISO.test(String(first || '')) || !ISO.test(String(last || '')) || last < first) return;
+    out.push({ key: key, summary: summary, allDay: true, date: first, endDate: addDaysLocal_(last, 1),
+               start: '', end: '', description: desc });
+  };
+  (src.programs || []).forEach(function (p) {
+    var vendor = String(p.vendor || '').trim() || 'Unnamed brand';
+    var draft = p.status === 'draft' ? ' (draft)' : '';
+    span('program:' + p.program_id, vendor + ' Spiff' + draft, p.start_date, p.end_date,
+         CAL_NOTE_ + '\n' + brandProgramLabel_(p) + ' · ' + p.status);
+    var plan = normalizeMarketing_(p.marketing_json) || {};
+    var oldDay = (plan.d && plan.d.vday) || {};
+    var days = plan.vdays && plan.vdays.length ? plan.vdays
+             : (oldDay.date ? [{ store: '', date: oldDay.date, time: oldDay.time || '' }] : []);
+    if (mktPickedIds_(plan).indexOf('vday') < 0) return;
+    days.forEach(function (v, i) {
+      if (!ISO.test(String(v.date || ''))) return;
+      var where = v.store ? (names[slug_(v.store)] || v.store) : 'All stores';
+      var t = calParseTime_(v.time);
+      var title = vendor + ' Vendor Day - ' + where + (!t && v.time ? ' (' + v.time + ')' : '');
+      var ev = { key: 'vday:' + p.program_id + ':' + i, summary: title, allDay: !t, date: v.date,
+                 endDate: t ? v.date : addDaysLocal_(v.date, 1), start: t ? t.start : '', end: t ? t.end : '',
+                 description: CAL_NOTE_ + '\n' + brandProgramLabel_(p), vday: true };
+      out.push(ev);
+    });
+  });
+  (src.pencils || []).forEach(function (x) {
+    span('pencil:' + x.pencil_id, 'Spiff reserved - ' + x.brand, x.start_date, x.end_date,
+         CAL_NOTE_ + (x.note ? '\n' + x.note : ''));
+  });
+  (src.holidays || []).forEach(function (h) {
+    var how = (h.channels || []).map(function (c) { return c === 'sms' ? 'text' : c; }).join(' + ');
+    span('holiday:' + h.holiday_id, h.name + ' send' + (how ? ' (' + how + ')' : ''), h.send_date, h.send_date,
+         CAL_NOTE_ + (h.note ? '\n' + h.note : ''));
+  });
+  return out.filter(function (e) { return e.endDate > from && e.date < to; });
+}
+
+function calSame_(a, b) {
+  return a.summary === b.summary && !!a.allDay === !!b.allDay && a.date === b.date
+      && (a.allDay ? a.endDate === b.endDate : (a.start === b.start && a.end === b.end))
+      && String(a.description || '') === String(b.description || '');
+}
+
+/* The real Calendar, behind five small calls so the sync logic can be run against a stand-in. Dates
+   go in and out as text; a Date is built in the script's zone (Los Angeles) only at this edge. */
+function calendarAdapter_() {
+  var cal = CalendarApp.getCalendarById(MKT_CALENDAR_ID_);
+  if (!cal) throw new Error('Marketing Calendar not reachable by this account');
+  var TZ = 'America/Los_Angeles';
+  var at = function (ymd, hhmm) { return Utilities.parseDate(ymd + ' ' + (hhmm || '00:00'), TZ, 'yyyy-MM-dd HH:mm'); };
+  var day = function (d) { return Utilities.formatDate(d, TZ, 'yyyy-MM-dd'); };
+  var clock = function (d) { return Utilities.formatDate(d, TZ, 'yyyy-MM-dd HH:mm').slice(11, 16); };
+  return {
+    list: function (from, to) {
+      return cal.getEvents(at(from), at(to)).map(function (e) {
+        var all = e.isAllDayEvent();
+        return { ref: e, id: e.getId(), key: e.getTag(CAL_TAG_) || '', summary: e.getTitle(), allDay: all,
+                 date: day(all ? e.getAllDayStartDate() : e.getStartTime()),
+                 endDate: all ? day(e.getAllDayEndDate()) : day(e.getEndTime()),
+                 start: all ? '' : clock(e.getStartTime()), end: all ? '' : clock(e.getEndTime()),
+                 description: e.getDescription() || '' };
+      });
+    },
+    create: function (ev, opts) {
+      var o = { description: ev.description };
+      var made;
+      if (ev.allDay) made = cal.createAllDayEvent(ev.summary, at(ev.date), at(ev.endDate), o);
+      else {
+        if (opts && opts.guests) { o.guests = opts.guests; o.sendInvites = true; }
+        made = cal.createEvent(ev.summary, at(ev.date, ev.start), at(ev.date, ev.end), o);
+      }
+      made.setTag(CAL_TAG_, ev.key);
+      return made.getId();
+    },
+    update: function (existing, ev) {
+      var e = existing.ref;
+      e.setTitle(ev.summary);
+      e.setDescription(ev.description);
+      if (ev.allDay) e.setAllDayDates(at(ev.date), at(ev.endDate));
+      else e.setTime(at(ev.date, ev.start), at(ev.date, ev.end));
+    },
+    remove: function (existing) { existing.ref.deleteEvent(); }
+  };
+}
+
+function calendarSource_() {
+  var names = Object.create(null);
+  try { (gxStores_() || []).forEach(function (x) { names[slug_(x.store_id)] = x.display_name || x.store_id; }); }
+  catch (e) { /* a slug is a poor label, not a blank one */ }
+  return {
+    programs: listPrograms_(),
+    pencils: readPencils_().filter(function (x) { return x.status === 'penciled'; }),
+    holidays: readHolidays_().filter(function (h) { return h.status === 'planned'; }),
+    storeNames: names
+  };
+}
+
+/* One pass. Dry unless opts.apply. Never throws for one bad event: each write has its own try. */
+function calendarSync_(opts) {
+  opts = opts || {};
+  var apply = !!opts.apply;
+  var today = opts.today || Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd');
+  var out = { ok: true, apply: apply, created: [], updated: [], removed: [], unchanged: 0,
+              refused: '', failed: [], possible_duplicates: [] };
+  var src = opts.source || calendarSource_();
+  var desired = calendarDesired_(src, today);
+  var cal = opts.cal || calendarAdapter_();
+  var existing = cal.list(addDaysLocal_(today, -CAL_LOOKBACK_DAYS_), addDaysLocal_(today, CAL_LOOKAHEAD_DAYS_));
+  var mine = Object.create(null), stale = [], handMade = [];
+  existing.forEach(function (e) {
+    if (!e.key) handMade.push(e);
+    else if (mine[e.key]) stale.push(e);          // a second copy of one key: the extra is ours to drop
+    else mine[e.key] = e;
+  });
+  var want = Object.create(null);
+  desired.forEach(function (ev) { want[ev.key] = ev; });
+  Object.keys(mine).forEach(function (k) { if (!want[k]) stale.push(mine[k]); });
+
+  var guests = String(opts.invite || '') === '1' ? MKT_PEOPLE_.mike : '';
+  desired.forEach(function (ev) {
+    var have = mine[ev.key];
+    try {
+      if (!have) {
+        if (apply) cal.create(ev, ev.vday && guests ? { guests: guests } : null);
+        out.created.push({ key: ev.key, summary: ev.summary, date: ev.date });
+      } else if (!calSame_(have, ev)) {
+        if (apply) cal.update(have, ev);
+        out.updated.push({ key: ev.key, summary: ev.summary, date: ev.date });
+      } else out.unchanged++;
+    } catch (e) { out.failed.push({ key: ev.key, error: String((e && e.message) || e) }); }
+  });
+
+  /* Removals are the one thing here that can lose a person's view of the plan, so they have brakes:
+     an empty programs tab makes every event look orphaned (same trap as the progress cache), and a
+     big sweep in one hour is more likely a bug than an editing session. */
+  if (stale.length) {
+    if (!(src.programs || []).length) out.refused = 'programs tab read empty; would have removed ' + stale.length;
+    else if (stale.length > CAL_MAX_REMOVES_) out.refused = 'would remove ' + stale.length + ' (limit ' + CAL_MAX_REMOVES_ + ')';
+    else stale.forEach(function (e) {
+      try { if (apply) cal.remove(e); out.removed.push({ key: e.key, summary: e.summary, date: e.date }); }
+      catch (err) { out.failed.push({ key: e.key, error: String((err && err.message) || err) }); }
+    });
+  }
+
+  /* Hand-made events SPIFF now covers: same brand word in the title, overlapping dates. Reported
+     only. A person decides whether the hand-made one goes. */
+  desired.forEach(function (ev) {
+    var brand = String(ev.summary).split(/\s+(?:Spiff|Vendor Day|spiff)/)[0].toLowerCase();
+    if (!brand || brand.indexOf('spiff reserved') === 0) return;
+    handMade.forEach(function (h) {
+      if (String(h.summary).toLowerCase().indexOf(brand) < 0) return;
+      if (h.date < ev.endDate && h.endDate >= ev.date) {
+        out.possible_duplicates.push({ spiff: ev.summary, hand_made: h.summary, date: h.date });
+      }
+    });
+  });
+  return out;
+}
+
+function calendarSyncWeb_(p) {
+  var want = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  if (!want || String(p.secret || '') !== want) return { ok: false, error: 'Unauthorized' };
+  try {
+    return calendarSync_({ apply: String(p.apply || '') === '1',
+                           invite: PropertiesService.getScriptProperties().getProperty('CAL_INVITE_VDAYS') });
+  } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+}
+
+/* The hourly step. OFF until Sky sets CAL_SYNC_ON = 1 (after authorize() and a dry run he has
+   looked at). Says what it did either way, so a calendar that stopped updating leaves a line. */
+function runCalendarSyncHourly_() {
+  var props = PropertiesService.getScriptProperties();
+  if (String(props.getProperty('CAL_SYNC_ON') || '') !== '1') return { skipped: true };
+  var r = calendarSync_({ apply: true, invite: props.getProperty('CAL_INVITE_VDAYS') });
+  var line = 'created ' + r.created.length + ', updated ' + r.updated.length + ', removed ' + r.removed.length
+           + ', unchanged ' + r.unchanged;
+  if (r.failed.length) console.warn('[spiff] calendar sync: ' + r.failed.length + ' event(s) FAILED — ' + line + ' — '
+    + r.failed.map(function (f) { return f.key + ' (' + f.error + ')'; }).join('; '));
+  else console.log('[spiff] calendar sync: ' + line);
+  if (r.refused) console.warn('[spiff] calendar sync REFUSED removals: ' + r.refused);
+  return r;
 }
