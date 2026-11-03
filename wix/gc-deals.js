@@ -135,6 +135,12 @@
     '.gcd-wlogo{flex-basis:120px}.gcd-wlogo img{width:120px}',
     '.gcd-btn{white-space:normal}',
     '.gcd-shop-grid{grid-template-columns:repeat(2,1fr)}',
+    '}',
+    // Small phones (320px): the 120px logo left too little room and long words like "chocolates" clipped.
+    '@media (max-width:400px){',
+    '.gcd-wlogo{flex-basis:92px}.gcd-wlogo img{width:92px}',
+    '.gcd-wbody{padding:10px 12px;gap:10px}',
+    '.gcd-wtext{font-size:15px;overflow-wrap:break-word}',
     '}'
   ].join('\n');
 
