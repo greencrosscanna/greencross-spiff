@@ -38,7 +38,7 @@
   };
 
   var CSS = [
-    '.gcd{background:#F3F2F0 url(' + BASE + 'grit.png) repeat;background-size:1800px 110px;color:#14181D;font-family:"Work Sans",Arial,sans-serif;font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}',
+    '.gcd{background:#F3F2F0 url(' + BASE + 'grit.png?v=2) repeat;background-size:1600px 1600px;color:#14181D;font-family:"Work Sans",Arial,sans-serif;font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}',
     '.gcd *{box-sizing:border-box}',
     '.gcd h1,.gcd h2,.gcd h3,.gcd p{margin:0}',
     '.gcd .mt{font-family:Montserrat,Arial,sans-serif}',
@@ -233,13 +233,29 @@
 
   class GcDeals extends HTMLElement {
     static get observedAttributes() { return ['data']; }
-    connectedCallback() { ensureHead(); this.render(); }
+    connectedCallback() {
+      ensureHead();
+      this.render();
+      var self = this;
+      window.addEventListener('resize', function () { self.clearHeader(); });
+    }
     attributeChangedCallback() { this.render(); }
     render() {
       var raw = this.getAttribute('data');
       if (!raw) { this.innerHTML = ''; return; }
-      try { this.innerHTML = build(JSON.parse(raw)); }
+      try { this.innerHTML = build(JSON.parse(raw)); this.clearHeader(); }
       catch (e) { this.innerHTML = ''; console.error('[gc-deals]', e); }
+    }
+    // The Wix site header floats over the top of the page, so the lime band would start under it.
+    // Push the band's text down by however much of the header covers this element.
+    clearHeader() {
+      var wrap = this.querySelector('.gcd-hero .gcd-wrap');
+      var head = document.getElementById('SITE_HEADER') || document.querySelector('header');
+      if (!wrap || !head) return;
+      // Page positions, not screen ones: the header is sticky, so on a scrolled page its screen
+      // position says nothing about where it sat over this element at the top.
+      var cover = head.offsetHeight - (this.getBoundingClientRect().top + window.scrollY);
+      wrap.style.paddingTop = (40 + Math.max(0, Math.min(cover, 200))) + 'px';
     }
   }
   customElements.define('gc-deals', GcDeals);
