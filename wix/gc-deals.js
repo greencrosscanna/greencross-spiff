@@ -219,7 +219,7 @@
       '<img src="' + BASE + 'gc-icon.png" alt="">' +
       '<div class="gcd-every-body"><h3 class="mt">EVERY DAY</h3>' +
       '<p><strong>15% OFF</strong> for veterans with a valid veteran ID.</p>' +
-      '<p><strong>5% BACK</strong> in points with Green Cross Plus. 1 point for every $1, and 20 points is $1 off.</p>' +
+      '<p><strong>5% BACK</strong> with Green Cross Plus.<br>1 point for every $1. 20 points is $1 off.</p>' +
       '</div></div></div></section>';
 
     h += '<section><div class="gcd-wrap gcd-foot"><div><h3 class="mt">THE FINE PRINT</h3>' +
