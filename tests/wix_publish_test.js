@@ -66,9 +66,12 @@ function makeWix(seed) {
     calls: [], imports: [],
     vendors: () => (w.calls.push('vendors'), VENDORS),
     read: (c) => (w.calls.push('read:' + c), (c === 'FeaturedDeals' ? w.featured : w.days).map(r => Object.assign({}, r))),
+    /* Like GX Core's gate (v365): every row needs an approver on the list, which is then stripped. */
     upsert: (c, items) => {
       w.calls.push('upsert:' + c);
       const list = c === 'FeaturedDeals' ? w.featured : w.days, key = c === 'FeaturedDeals' ? 'programId' : 'dayKey';
+      if (items.some(it => ['sky', 'mike', 'tawny'].indexOf(it.approvedBy) < 0)) return { ok: false, refused: true, error: 'not approved for the public page' };
+      items = items.map(it => { const x = Object.assign({}, it); delete x.approvedBy; return x; });
       return { ok: true, results: items.map(it => {
         const hit = list.find(r => r[key] === it[key]);
         if (hit) { Object.assign(hit, it); return { key: it[key], op: 'updated' }; }
@@ -173,14 +176,20 @@ console.log('\n2. what goes out, and what does not');
   ok('the card lists its days the way the hand-made card does', /<p><strong>Tue Nov 3<\/strong> · Commercial St · 1 to 3:30 PM<\/p>/.test(f.vendorDays));
 
   /* The connector's allowlist, read from the hub so the two cannot drift. */
+  /* The hub's MERGED main when git can give it (its folder may sit on another branch), else its file. */
   let hub = '';
   for (let dir = __dirname, i = 0; i < 8 && !hub; i++, dir = path.dirname(dir)) {
-    const f2 = path.join(dir, 'greencross-command-center', 'gx_wix.gs');
-    if (fs.existsSync(f2)) hub = fs.readFileSync(f2, 'utf8');
+    const repo = path.join(dir, 'greencross-command-center'), f2 = path.join(repo, 'gx_wix.gs');
+    if (!fs.existsSync(f2)) continue;
+    try { hub = require('child_process').execFileSync('git', ['-C', repo, 'show', 'origin/main:gx_wix.gs'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); }
+    catch (e) { hub = fs.readFileSync(f2, 'utf8'); }
   }
   if (hub) {
     const allow = new Function(hub.match(/var GX_WIX_COLLECTIONS_ = (\{[\s\S]*?\n\});/)[0].replace('var GX_WIX_COLLECTIONS_ =', 'return') )();
-    const extra = (items, coll) => [].concat.apply([], items.map(it => Object.keys(it))).filter(k => allow[coll].fields.indexOf(k) < 0);
+    /* The approver field is the gate's own: checked, then stripped before the allowlist applies. */
+    const gateField = (hub.match(/var GX_WIX_APPROVER_FIELD_ = '([^']+)'/) || [])[1];
+    ok('SPIFF sends the approver under the field name the gate reads (' + gateField + ')', !gateField || gateField === G.grabVar('WIX_APPROVER_FIELD_'));
+    const extra = (items, coll) => [].concat.apply([], items.map(it => Object.keys(it))).filter(k => k !== gateField && allow[coll].fields.indexOf(k) < 0);
     ok('every Featured field is on the connector\'s allowlist', !extra(d.featured, 'FeaturedDeals').length);
     ok('every VendorDays field is on it too', !extra(d.days, 'VendorDays').length);
   } else console.log('  · (hub not checked out beside this repo; allowlist check skipped)');
@@ -201,9 +210,10 @@ console.log('\n2. what goes out, and what does not');
   ok('  …"sugar-free" and "$4 off" are not caught by the rule on "free" and "off"', api.wixCopyProblem_(['$4 off', 'Freshy carts']) === '');
   const MK0 = require('../marketing.js');
   ok('the screen warns on the same words as the engine', JSON.stringify(MK0.COPY_RULES) === JSON.stringify(G.grabVar('WIX_COPY_RULES_')));
-  const withField = makeApi({ WIX_APPROVER_FIELD_: 'approvedBy' }).wixDesired_({ programs: [gron({ plan: { done: { 'web.approve': { by: 'mike', at: 'x' } } } })], vendors: VENDORS }, '2026-11-02');
-  ok('once Core names the approver field, every row carries who approved it', withField.featured[0].approvedBy === 'mike' && withField.days.every(x => x.approvedBy === 'mike'));
-  ok('  …and until then no such field is sent (it would refuse the batch)', !Object.keys(f).some(k => /approv/i.test(k)));
+  const byMike = api.wixDesired_({ programs: [gron({ plan: { done: { 'web.approve': { by: 'mike', at: 'x' } } } })], vendors: VENDORS }, '2026-11-02');
+  ok('every row carries who approved it, as their user_id', byMike.featured[0].approvedBy === 'mike' && byMike.days.every(x => x.approvedBy === 'mike'));
+  const blank = makeApi({ WIX_APPROVER_FIELD_: '' }).wixDesired_({ programs: [gron()], vendors: VENDORS }, '2026-11-02');
+  ok('  …and a blank field name sends none (the pre-v365 shape)', !Object.keys(blank.featured[0]).some(k => /approv/i.test(k)));
   const noHead = api.wixDesired_({ programs: [gron({ plan: { d: { web: { deal: '30% OFF' } } } })], vendors: VENDORS }, '2026-11-02');
   ok('no headline: not sent, and says why', !noHead.featured.length && noHead.skipped[0].why === 'no headline yet');
   const noItem = api.wixDesired_({ programs: [gron({ plan: { sel: { vday: true } } })], vendors: VENDORS }, '2026-11-02');
@@ -407,6 +417,17 @@ console.log('\n7. the switch, the route, the hourly job');
   const pay = ['publishSpiffToCore_', 'spiffProgress_', 'refreshSpiffProgress_', 'recordMeasuredActuals_', 'computePayouts_', 'sendBrandEmail_', 'giftCardList_'];
   ok('nothing that pays calls it', pay.every(n => !/wixPublish_|runWixPublishHourly_/.test(G.grab(n))));
   ok('it is a secret-only route', G.grabVar('SECRET_ACTIONS').indexOf('publishToWix') >= 0);
+  /* The real adapter, against a recording GXCore: every write names SPIFF, as the v365 gate requires. */
+  const seen = [];
+  const rec = (name) => function () { seen.push({ name, opts: arguments[arguments.length - 1] || {} }); return { ok: true, vendors: [], items: [] }; };
+  const real = G.load({ real: ['wixAdapter_'], vars: ['GX_SECRET_PROP', 'WIX_PUBLISHER_APP_'], stubs: { scrubSecrets_: String, driveApi_: () => ({}) },
+    globals: { PropertiesService: P.PropertiesService,
+               GXCore: { wixUpsert: rec('upsert'), wixDelete: rec('delete'), wixPrunePastVendorDays: rec('prune'), wixImportImage: rec('import'),
+                         wixVendors: rec('vendors'), wixRead: rec('read'), wixMediaStatus: rec('status') } } }).wixAdapter_();
+  real.upsert('VendorDays', []); real.remove('VendorDays', []); real.prune(); real.importImage('https://x', 'a.png', 'image/png');
+  ok('every write call says app=spiff', seen.length === 4 && seen.every(s => s.opts.app === 'spiff' && s.opts.apply === true));
+  ok('SPIFF is pinned to a GX Core with the approval gate (v365+)',
+     Number(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'appsscript.json'), 'utf8')).dependencies.libraries[0].version) >= 365);
 }
 
 console.log('\n8. the page block lists only the stores in shopStores');
