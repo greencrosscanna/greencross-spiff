@@ -8413,9 +8413,11 @@ var WIX_APPROVE_TASK_ = 'web.approve';
 /* Who may switch a program onto the page (Sky, 2026-11-02: "Sky, Mike and Tawny only", not every
    editor). Sign-in names as GX Core holds them. GX Core's approval gate checks the same three. */
 var WIX_APPROVERS_ = ['sky', 'mike', 'tawny'];
-/* The field each row carries naming its approver, for GX Core's gate. Blank until core-admin settles
-   the name and adds it to the connector's allowlist: an unknown field refuses the whole batch. */
-var WIX_APPROVER_FIELD_ = '';
+/* The field each row carries naming its approver (a GX Core user_id), for GX Core's approval gate
+   (GXCore v365+). Core checks it against kv wixApprovers and STRIPS it, so Wix never holds it, which
+   is why wixSameItem_ leaves it out of the comparison. Every write also says app 'spiff'. */
+var WIX_APPROVER_FIELD_ = 'approvedBy';
+var WIX_PUBLISHER_APP_ = 'spiff';
 /* OLCC copy rules (handoff deals-page.md): straight discounts only, no superlatives, no em-dashes.
    Copy that trips one is not published, and the screen warns while it is typed. marketing.js holds
    the same list (COPY_RULES); tests/wix_publish_test.js holds the two together. */
@@ -8675,6 +8677,7 @@ function wixDesired_(src, today) {
    not compared: the connector merges, so they are left alone. */
 function wixSameItem_(row, item) {
   return Object.keys(item).every(function (f) {
+    if (f === WIX_APPROVER_FIELD_) return true;      // checked and stripped by GX Core, never stored
     var a = row[f], b = item[f];
     if (a && typeof a === 'object' && a.$date) a = String(a.$date).slice(0, 10);
     return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
@@ -8752,10 +8755,10 @@ function wixAdapter_() {
   return {
     vendors: function () { return must(GXCore.wixVendors(secret), 'wix_vendors').vendors || []; },
     read: function (coll) { return must(GXCore.wixRead(secret, coll, { limit: 1000 }), 'wix_read ' + coll).items || []; },
-    upsert: function (coll, items) { return GXCore.wixUpsert(secret, coll, items, { apply: true, by: 'spiff' }); },
-    remove: function (coll, keys) { return GXCore.wixDelete(secret, coll, keys, { apply: true, by: 'spiff' }); },
-    prune: function () { return GXCore.wixPrunePastVendorDays(secret, { apply: true, by: 'spiff' }); },
-    importImage: function (url, name, mime) { return GXCore.wixImportImage(secret, url, { display_name: name, mime_type: mime, apply: true }); },
+    upsert: function (coll, items) { return GXCore.wixUpsert(secret, coll, items, { apply: true, app: WIX_PUBLISHER_APP_, by: 'spiff' }); },
+    remove: function (coll, keys) { return GXCore.wixDelete(secret, coll, keys, { apply: true, app: WIX_PUBLISHER_APP_, by: 'spiff' }); },
+    prune: function () { return GXCore.wixPrunePastVendorDays(secret, { apply: true, app: WIX_PUBLISHER_APP_, by: 'spiff' }); },
+    importImage: function (url, name, mime) { return GXCore.wixImportImage(secret, url, { display_name: name, mime_type: mime, apply: true, app: WIX_PUBLISHER_APP_, by: 'spiff' }); },
     mediaStatus: function (fileId) { return GXCore.wixMediaStatus(secret, fileId); },
     driveMeta: function (id) {
       return driveApi_('get', encodeURIComponent(id) + '?supportsAllDrives=true&fields=' + encodeURIComponent('name,mimeType,size,imageMediaMetadata(width,height)'));

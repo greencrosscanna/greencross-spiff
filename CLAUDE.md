@@ -266,15 +266,16 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   the owner runs `authorize()` once. Nothing that pays may call it. Pinned by `tests/calendar_sync_test.js`
   and the isolation test's section 5c.
   **The deals page (greencrosscanna.com/deals) fills itself, one way, through GX Core's Wix connector**
-  (Sky, 2026-11-02; needs GXCore v364+). A program goes on it as a Featured card (`FeaturedDeals`, keyed
+  (Sky, 2026-11-02; needs GXCore v365+). A program goes on it as a Featured card (`FeaturedDeals`, keyed
   `programId`) plus one `VendorDays` row per vendor day (keyed `<program>|<street-slug>|<date>`) only when
   it is active (or a draft starting within 7 days, sent `live=false`), its plan picks the **Deals page**
   item (`web`: headline, image link, offer lines, vendor-day deal/offer), **Sky, Mike or Tawny has ticked
   `web.approve`** (`WIX_APPROVERS_`, Sky 2026-11-02) and the copy passes the OLCC word rules
   (`WIX_COPY_RULES_`, mirrored as `COPY_RULES` in marketing.js). The engine signs every marketing tick
   with the SESSION user (`wixSignDelta_`), refuses that tick from anyone else, and un-ticks it when anyone
-  else changes the `web` copy. Each row will name its approver once GX Core's gate names the field
-  (`WIX_APPROVER_FIELD_`, blank until then: an unknown field refuses the batch). Only rows SPIFF put
+  else changes the `web` copy. GX Core's approval gate (v365+) refuses any Wix write without
+  `app: 'spiff'` and any row whose `approvedBy` (the signer's user_id, `WIX_APPROVER_FIELD_`) is not on
+  kv `wixApprovers`; Core strips the field, so `wixSameItem_` leaves it out of the comparison. Only rows SPIFF put
   there (`WIX_PUBLISHED` property) are ever updated or removed; a hand-made Wix row is left alone and
   SPIFF makes no copy of it (`skipped_duplicates`) — except that ANY Featured card past its end date (LA
   day) is deleted, since GX Core clears none. Past days are pruned on the LA day. A failed hourly run is
