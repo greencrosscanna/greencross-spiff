@@ -151,8 +151,8 @@
   }
 
   // Shop Now: a button that opens a store chooser; each store goes to that store's menu,
-  // already filtered to the brand. A FeaturedDeals item can set shopBrand when the menu's
-  // brand slug differs from the vendor name.
+  // already filtered to the brand. The brand's menu slug is the Vendors item's Menu Slug
+  // (Bobsled is "bobsled-extracts"), else the vendor name slugged.
   function shopPicker(name, slug) {
     return '<details class="gcd-shop"><summary class="gcd-shop-btn mt">SHOP ' + esc(String(name).toUpperCase()) + ' NOW</summary>' +
       '<div class="gcd-shop-pick"><p class="mt">PICK YOUR STORE</p><div class="gcd-shop-grid">' +
@@ -165,7 +165,8 @@
     var vendors = data.vendors || [];
     var byKey = {};
     vendors.forEach(function (v) {
-      var rec = { name: v.title, logo: img(v.logoWide || v.logo), color: v.brandColor || COLORS[fold(v.title)] || '#14181D' };
+      var rec = { name: v.title, logo: img(v.logoWide || v.logo), color: v.brandColor || COLORS[fold(v.title)] || '#14181D',
+        slug: v.menuSlug || brandSlug(v.title) };
       if (v._id) byKey['id:' + v._id] = rec;
       byKey[fold(v.title)] = rec;
       (v.aliases || []).forEach(function (a) { byKey[fold(a)] = rec; });
@@ -206,7 +207,7 @@
           (f.throughLabel ? '<span class="gcd-thru mt">' + esc(String(f.throughLabel).toUpperCase()) + '</span>' : '') + '</div></div>' +
           '<h3 class="mt">' + esc(f.headline) + '</h3>' +
           '<div class="gcd-offers">' + rich(f.offerLines) + '</div>' +
-          shopPicker(v.name, f.shopBrand || brandSlug(v.name)) +
+          shopPicker(v.name, f.shopBrand || v.slug || brandSlug(v.name)) +
           (n ? '<a class="gcd-btn mt" href="#gcd-vendordays">SEE ' + n + ' ' + esc(String(v.name).toUpperCase()) + ' VENDOR DAY' + (n > 1 ? 'S' : '') + ' ↓</a>' : '') +
           (f.finePrint ? '<p class="gcd-fine">' + esc(f.finePrint) + '</p>' : '') +
           '</div></article>';
