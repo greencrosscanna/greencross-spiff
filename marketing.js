@@ -694,6 +694,40 @@
           : 'Goes on greencrosscanna.com/deals once Sky, Mike or Tawny ticks “Approve the deals page copy” below.') + '</p>';
   }
 
+  /* WHAT ONE TEXT BLAST COSTS (Sky, 2026-11-03), shown under the Text blast card's cost model picker
+     so Tawny can quote it to the vendor: opted-in phones × Dutchie's rate, a pass-through at Dutchie's
+     cost added to the vendor's credit. The three numbers are settings (the engine's
+     SMS_PRICING_PROPS_, edited in Settings), never constants here, because the list size changes every
+     month. A missing number says so instead of pricing at $0. */
+  function money(n) {
+    return '$' + Math.round(n).toLocaleString('en-US');
+  }
+  function rate(n) {
+    var s = String(Math.round(n * 10000) / 10000);
+    var dot = s.indexOf('.');
+    if (dot >= 0 && s.length - dot - 1 < 2) s += '0';
+    return '$' + (s.charAt(0) === '.' ? '0' + s : s);
+  }
+  function smsCostLine(pr) {
+    pr = pr || {};
+    if (!(pr.count > 0) || !(pr.rate_text > 0)) return '';
+    var line = '≈' + Math.round(pr.count).toLocaleString('en-US') + ' phones × ' + rate(pr.rate_text)
+      + ' = about ' + money(pr.count * pr.rate_text) + ' per text';
+    if (pr.rate_image > 0) line += ', about ' + money(pr.count * pr.rate_image) + ' with an image (' + rate(pr.rate_image) + ')';
+    return line;
+  }
+  function smsCostHtml(pr) {
+    var line = smsCostLine(pr);
+    if (!line) {
+      return '<div class="mk-spec"><b>Cost per send:</b> not set yet. '
+        + (pr === undefined ? 'Loading the text pricing&hellip;' : 'An editor sets the opted-in list size and Dutchie’s rates in Settings.') + '</div>';
+    }
+    return '<div class="mk-spec"><b>Cost per send:</b> ' + esc(line) + '.'
+      + (pr.as_of ? ' <small>List size as of ' + esc(pr.as_of) + '.</small>' : '')
+      + '<br>A pass-through at Dutchie’s cost, added to the vendor’s credit.'
+      + ' A text over 160 characters may bill as more than one message.</div>';
+  }
+
   /* The vendor day card: one row per day, each with its store, date and time. */
   function vdayHtml(p, ctx, on) {
     var ro = ctx.canEdit ? '' : ' disabled';
@@ -779,7 +813,10 @@
     var cards = Object.keys(ITEMS).filter(function (id) { return isOn(p, id) && !ITEMS[id].lock; }).map(function (id) {
       var it = ITEMS[id];
       var body = it.days ? vdayHtml(p, ctx, on)
-        : it.f.map(function (f) { return fieldHtml(id, f, plan, ctx); }).join('') + (it.list ? listHtml(p, id, ctx, on) : '')
+        : it.f.map(function (f) {
+            /* The per-send cost sits right under the cost model picker it informs. */
+            return fieldHtml(id, f, plan, ctx) + (id === 'sms' && f[1] === 'cost' ? smsCostHtml(ctx.smsPricing) : '');
+          }).join('') + (it.list ? listHtml(p, id, ctx, on) : '')
           + (it.web ? webSpecHtml(p, plan) : '');
       /* No compliance note on the card (Sky, 2026-11-02): the workflows already carry those guardrails.
          `c` stays on each item as the record of what each one must respect. */
@@ -1269,7 +1306,8 @@
     rowsOf: rowsOf, addRowOp: addRowOp, removeRowOp: removeRowOp, setRowOp: setRowOp, toggleRowStoreOp: toggleRowStoreOp,
     makeSaver: makeSaver, listLine: listLine, foldNote: foldNote, sectionHtml: sectionHtml, wire: wire,
     FEATURED_SPEC: FEATURED_SPEC, imageShapeProblem: imageShapeProblem, driveFileId: driveFileId,
-    COPY_RULES: COPY_RULES, copyProblem: copyProblem, COPY_LIMITS: COPY_LIMITS, lengthProblem: lengthProblem
+    COPY_RULES: COPY_RULES, copyProblem: copyProblem, COPY_LIMITS: COPY_LIMITS, lengthProblem: lengthProblem,
+    smsCostLine: smsCostLine, smsCostHtml: smsCostHtml
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SpiffMarketing = api;

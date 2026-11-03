@@ -398,6 +398,10 @@ function doGet(e) {
       case 'saveHoliday':     out = saveHoliday_(p);                                break;
       case 'cancelHoliday':   out = cancelHoliday_(p);                              break;
       case 'saveHolidayPlan': out = saveHolidayPlan_(p);                            break;
+      /* What one text blast costs: list size and Dutchie's two rates, set in Settings. See TEXT
+         BLAST PRICING. Read by the Text blast card only; nothing that pays anybody reads it. */
+      case 'smsPricing':      out = smsPricingRead_(p);                             break;
+      case 'saveSmsPricing':  out = saveSmsPricing_(p);                             break;
       /* One-time correction of the pay-period column on rows that predate the derivation.
          Secret-gated, dry by default — see backfillPayPeriods_. */
       case 'backfillPayPeriods': out = backfillPayPeriods_(p);                      break;
@@ -6736,6 +6740,59 @@ function marketingOverviewHtml_(p, opts) {
 
   return '<div style="' + FONT + 'max-width:640px;color:' + INK + '">' + head + body
     + P('<span style="color:' + MUTE + ';font-size:11px">Prepared ' + esc(today_()) + '.</span>') + '</div>';
+}
+
+/* ── TEXT BLAST PRICING ──────────────────────────────────────────────────────────────────────────
+ * What one SMS send costs the vendor (Sky, 2026-11-03): opted-in phones × Dutchie's per-message rate,
+ * a pass-through at Dutchie's cost added to the vendor's credit. Three numbers and the day the count
+ * was taken, as SETTINGS rather than constants, because the count moves every month (Dutchie's "SMS
+ * opted in" segment, logged in claude/status/sms-optout-log.md). Script properties: four short values,
+ * nowhere near the 9 KB per-value cap, and no tab for a table of one row.
+ *
+ * Unset reads as null, never 0: "nobody has entered the list size" is a different fact from "the list
+ * is empty", and a card that said "$0 per text" would be quoted to a vendor. Nothing that pays,
+ * publishes or feeds a kiosk reads these. */
+var SMS_PRICING_PROPS_ = { count: 'SMS_LIST_COUNT', rate_text: 'SMS_RATE_TEXT', rate_image: 'SMS_RATE_IMAGE', as_of: 'SMS_LIST_AS_OF' };
+
+function smsPricingRead_() {
+  var props = PropertiesService.getScriptProperties();
+  function num(k) {
+    var v = props.getProperty(SMS_PRICING_PROPS_[k]);
+    var n = v == null || v === '' ? NaN : Number(v);
+    return isFinite(n) && n > 0 ? n : null;
+  }
+  return { ok: true, pricing: { count: num('count'), rate_text: num('rate_text'), rate_image: num('rate_image'),
+           as_of: String(props.getProperty(SMS_PRICING_PROPS_.as_of) || '') } };
+}
+
+/* Editors only. Every field is sent every time; a blank clears that setting. The list size is whole
+   phones and the rates are dollars per message, bounded so a typo (3 for 0.03) is refused rather than
+   quoted to a vendor as $15,000 a text. */
+function saveSmsPricing_(p) {
+  var who = mktEditor_(p, 'change text blast pricing');
+  if (who.fail) return who.fail;
+  function parse(v, isCount) {
+    var s = String(v == null ? '' : v).replace(/[$,\s]/g, '');
+    if (!s) return { blank: true };
+    var n = Number(s);
+    if (!isFinite(n) || n <= 0) return { bad: true };
+    if (isCount ? (n !== Math.floor(n) || n > 1000000) : n > 1) return { bad: true };
+    return { n: n };
+  }
+  var count = parse(p.count, true), rt = parse(p.rate_text), ri = parse(p.rate_image);
+  if (count.bad) return { ok: false, error: 'The list size must be a whole number of phones.' };
+  if (rt.bad || ri.bad) return { ok: false, error: 'A rate is dollars per message, e.g. 0.03.' };
+  var asOf = String(p.as_of || '').trim();
+  if (asOf && !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) return { ok: false, error: 'The count date must be YYYY-MM-DD.' };
+  var props = PropertiesService.getScriptProperties();
+  function put(key, parsed) {
+    if (parsed.blank) props.deleteProperty(key); else props.setProperty(key, String(parsed.n));
+  }
+  put(SMS_PRICING_PROPS_.count, count);
+  put(SMS_PRICING_PROPS_.rate_text, rt);
+  put(SMS_PRICING_PROPS_.rate_image, ri);
+  if (asOf) props.setProperty(SMS_PRICING_PROPS_.as_of, asOf); else props.deleteProperty(SMS_PRICING_PROPS_.as_of);
+  return smsPricingRead_();
 }
 
 function mktEditor_(p, verb) {

@@ -121,6 +121,8 @@
     renderBrandDirectory();
     if (!state.brands && !state.brandsLoading) loadBrandReps();
     loadKioskLinks();
+    renderSmsPricingForm();
+    loadSmsPricing(true);
   }
   function closeSettings() {
     var back = $('#settingsBack');
@@ -1354,8 +1356,72 @@
          with "unchanged" while dropping it. */
       engineReady: Object.prototype.hasOwnProperty.call(p, 'marketing_json'),
       stores: state.stores.map(function (s) { return { store_id: s.store_id, name: s.display_name || s.store_id }; }),
-      storeName: storeName
+      storeName: storeName,
+      /* undefined while loading, {} when the engine has none, else the three numbers. */
+      smsPricing: state.smsPricing
     });
+    loadSmsPricing();
+  }
+
+  /* TEXT BLAST PRICING — list size and Dutchie's two rates, for the Text blast card's per-send cost.
+     Loaded once, on the first paint of a marketing plan, not at boot: only the preview users see the
+     card. Settings writes back through saveSmsPricing and repaints. */
+  var smsPricingLoading = false;
+  async function loadSmsPricing(force) {
+    if ((state.smsPricing !== undefined && !force) || smsPricingLoading || !session()) return;
+    smsPricingLoading = true;
+    try {
+      var r = await ENG.jsonp('smsPricing', { token: (session() || {}).token }, { timeoutMs: 25000, retries: 1 });
+      state.smsPricing = r && r.ok ? (r.pricing || {}) : {};
+    } catch (e) {
+      state.smsPricing = {};
+    } finally {
+      smsPricingLoading = false;
+    }
+    if (state.record && mkOn() && $('#calcMarketingBody')) mkPaint(state.record);
+    renderSmsPricingForm();
+  }
+
+  function renderSmsPricingForm(msg) {
+    var host = $('#smsPricingBody');
+    if (!host) return;
+    var pr = state.smsPricing;
+    if (pr === undefined) { host.innerHTML = '<p class="hint">Loading text pricing&hellip;</p>'; return; }
+    var ro = canEdit() ? '' : ' disabled';
+    function v(x) { return x == null ? '' : esc(String(x)); }
+    var line = MK.smsCostLine(pr);
+    host.innerHTML = '<p class="hint">What one text blast costs a vendor: opted-in phones × Dutchie’s rate. '
+      + 'Update the list size monthly from Dutchie’s “SMS opted in” segment.</p>'
+      + '<div class="sp-sms-grid">'
+      + '<label class="mk-fld">Opted-in phones<input type="text" inputmode="numeric" id="smsCount" placeholder="e.g. 5136" value="' + v(pr.count) + '"' + ro + '></label>'
+      + '<label class="mk-fld">Count taken on<input type="date" id="smsAsOf" value="' + v(pr.as_of) + '"' + ro + '></label>'
+      + '<label class="mk-fld">Rate per text ($)<input type="text" inputmode="decimal" id="smsRateText" placeholder="e.g. 0.03" value="' + v(pr.rate_text) + '"' + ro + '></label>'
+      + '<label class="mk-fld">Rate with an image ($)<input type="text" inputmode="decimal" id="smsRateImage" placeholder="e.g. 0.05" value="' + v(pr.rate_image) + '"' + ro + '></label>'
+      + '</div>'
+      + (canEdit() ? '<button type="button" class="gx-btn gx-btn-green" id="smsSave">Save text pricing</button>' : '')
+      + ' <span class="hint" id="smsMsg" role="status">' + esc(msg || (line ? line + '.' : 'Not set yet.')) + '</span>';
+    var b = $('#smsSave');
+    if (b) b.addEventListener('click', saveSmsPricing);
+  }
+
+  async function saveSmsPricing() {
+    var b = $('#smsSave'), m = $('#smsMsg');
+    if (b) b.disabled = true;
+    if (m) m.textContent = 'Saving…';
+    try {
+      var r = await ENG.jsonp('saveSmsPricing', {
+        token: (session() || {}).token,
+        count: ($('#smsCount') || {}).value || '', as_of: ($('#smsAsOf') || {}).value || '',
+        rate_text: ($('#smsRateText') || {}).value || '', rate_image: ($('#smsRateImage') || {}).value || ''
+      }, { timeoutMs: 25000, retries: 0 });
+      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
+      state.smsPricing = r.pricing || {};
+      renderSmsPricingForm('Saved.');
+      if (state.record && mkOn() && $('#calcMarketingBody')) mkPaint(state.record);
+    } catch (err) {
+      if (b) b.disabled = false;
+      if (m) m.textContent = 'Could not save: ' + String(err.message || err);
+    }
   }
 
   function syncMarketing(p) {

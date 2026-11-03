@@ -1744,6 +1744,10 @@ div.sp-mail-body { background: #fff; color: #1a1f1d; overflow: auto; resize: non
 .sp-brep.is-gone > span:first-child { margin-right: auto; }
 @media (max-width: 560px) { .sp-brep .sp-flds { grid-template-columns: 1fr; } }
 
+/* ── Text blast pricing (Settings) ──────────────────────────────────────────────────────────── */
+.sp-sms-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin: 6px 0 10px; }
+@media (max-width: 560px) { .sp-sms-grid { grid-template-columns: 1fr; } }
+
 /* ── Brand directory (Settings) ─────────────────────────────────────────────────────────────── */
 .modal-body h4.sp-set-h:first-child { margin-top: 0; }
 .sp-bdir-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 10px; }
