@@ -107,6 +107,7 @@ function makeSheet(headers, rows) {
     getMaxRows() { return Math.max(this.rows.length, 1); },
     getMaxColumns() { return Math.max((this.rows[0] || []).length, 1); },
     insertColumnsAfter() { return this; },
+    insertRowsAfter() { return this; },
     getDataRange() { const s = this; return { getValues: () => s.rows.map(r => r.slice()) }; },
     appendRow(row) { this.rows.push(row.slice()); return this; },
     deleteRow(n) { this.rows.splice(n - 1, 1); return this; },
@@ -132,6 +133,8 @@ function makeSheet(headers, rows) {
           while (out.length < nc) out.push('');
           return out;
         }); },
+        /* A cell shows what it holds; a test that needs a number format overrides s.shown(v, col). */
+        getDisplayValues() { return this.getValues().map(x => x.map((v, j) => (s.shown ? s.shown(v, c + j) : String(v)))); },
         setNumberFormat() { return this; },
         setFontWeight() { return this; },
       };

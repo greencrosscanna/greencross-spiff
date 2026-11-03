@@ -29,10 +29,10 @@ let SESSION = { user: 'sky', role: 'admin' };
 const sheet = G.makeSheet(HEADERS, []);
 let stamp = 0;
 const api = G.load({
-  real: ['saveSiteDeal_', 'removeSiteDeal_', 'approveSiteDeals_', 'readSite_', 'rowToSite_', 'siteToRow_', 'siteContent_', 'siteProblem_', 'siteSign_',
+  real: ['saveSiteDeal_', 'removeSiteDeal_', 'approveSiteDeals_', 'readSite_', 'rowToSite_', 'siteToRow_', 'siteWrite_', 'siteContent_', 'siteProblem_', 'siteSign_',
          'siteDealsRead_', 'siteAdoptPlan_', 'siteFoldDay_', 'sitePlan_', 'sitePublish_', 'wixCopyProblem_', 'wixFold_', 'wixMenuSlug_',
          'wixSameItem_', 'parseJson_'],
-  vars: ['SITE_HEADERS', 'SITE_DAYS_', 'SITE_MAX_REMOVES_', 'WIX_APPROVERS_', 'WIX_COPY_RULES_', 'WIX_APPROVER_FIELD_', 'SITE_TAB'],
+  vars: ['SITE_HEADERS', 'SITE_DAYS_', 'SITE_MAX_REMOVES_', 'SITE_TEXT_COLS_', 'WIX_APPROVERS_', 'WIX_COPY_RULES_', 'WIX_APPROVER_FIELD_', 'SITE_TAB'],
   stubs: {
     siteSheet_: () => sheet,
     mktEditor_: () => (['admin', 'manager', 'editor'].indexOf(SESSION.role) >= 0 ? { auth: SESSION } : { fail: { ok: false, error: 'Your role cannot edit the deals page' } }),
@@ -75,6 +75,34 @@ console.log('\n1. saving a weekly line, and who can approve it');
   ok('a weekly line can be taken off', api.removeSiteDeal_({ key }).removed === true);
   ok('  …and the read leaves it out', !api.siteDealsRead_().weekly.some(x => x.key === key));
   ok('  …but the row is kept in the tab', sheet.rows.some(r => r[0] === key && r[10] === 'removed'));
+}
+
+console.log('\n1b. an amount the sheet turned into a number (2026-11-03)');
+{
+  /* The takeover appended "$2" and the sheet stored the number 2 in a "$" format; Approve all then
+     refused all eight weekly lines. The cell is read as the sheet shows it and written back as text. */
+  const A = HEADERS.indexOf('amount') + 1;
+  sheet.shown = (v, col) => (col === A && typeof v === 'number' ? (v < 1 ? Math.round(v * 100) + '%' : '$' + v) : String(v));
+  const blank = HEADERS.map(() => '');
+  const put = (key, amount) => { const r = blank.slice(); Object.assign(r, { 0: key, 1: 'week', 2: 'SAT', 3: 9, 4: 'Good Tide', 5: amount, 6: 'OFF all Good Tide', 10: 'live' }); sheet.rows.push(r); };
+  put('sat-9', 4); put('sat-8', 0.15);
+  const byKey = k => api.readSite_().find(s => s.key === k);
+  ok('a stored 4 reads as "$4"', byKey('sat-9').amount === '$4');
+  ok('a stored 0.15 reads as "15%"', byKey('sat-8').amount === '15%');
+  ok('  …so neither is a copy problem', api.siteProblem_(byKey('sat-9')) === '' && api.siteProblem_(byKey('sat-8')) === '');
+  const appended = sheet.appendRow; sheet.appendRow = () => { throw new Error('appendRow used'); };
+  SESSION = SKY;
+  const r = api.approveSiteDeals_({});
+  ok('Approve all approves them', r.ok && r.approved.indexOf('sat-9') >= 0 && r.approved.indexOf('sat-8') >= 0);
+  const cell = k => sheet.rows.find(x => x[0] === k)[A - 1];
+  ok('  …and writes the amount back as text', cell('sat-9') === '$4' && cell('sat-8') === '15%');
+  const n = save({ kind: 'week', day: 'MON', row: 1, brand: 'Wyld', amount: '$2', text: 'OFF Wyld' }, SKY);
+  ok('a new line is written without appendRow', n.ok && n.created && cell(n.item.key) === '$2');
+  sheet.appendRow = appended;
+  ok('nothing in the deals tab appends a row (appendRow ignores the text format)',
+     !/appendRow/.test(G.grab('saveSiteDeal_') + G.grab('adoptSite_') + G.grab('approveSiteDeals_') + G.grab('removeSiteDeal_')));
+  sheet.rows = sheet.rows.filter(x => ['sat-9', 'sat-8', n.item.key].indexOf(x[0]) < 0);
+  delete sheet.shown;
 }
 
 console.log('\n2. saving a brand');

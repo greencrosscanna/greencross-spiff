@@ -9181,6 +9181,8 @@ var SITE_HEADERS = ['key', 'kind', 'day', 'row', 'brand', 'amount', 'text', 'log
 /* The page's week starts on Tuesday: daySort is the position here, as on the hand-made rows (TUE = 1). */
 var SITE_DAYS_ = ['TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN', 'MON'];
 var SITE_MAX_REMOVES_ = 10;
+/* amount, approved_at, updated_at (1-based columns). */
+var SITE_TEXT_COLS_ = [6, 13, 16];
 var SITE_LOGO_SPEC_ = { bytes: 512000, types: ['image/png', 'image/jpeg', 'image/svg+xml'] };
 
 function siteSheet_() {
@@ -9192,9 +9194,20 @@ function siteSheet_() {
     sh.setFrozenRows(1);
     /* "$2" and "15%" are text; so are the stamps. Pinned before the first row is written. */
     var rows = Math.max(sh.getMaxRows() - 1, 1);
-    [6, 13, 16].forEach(function (c) { sh.getRange(2, c, rows, 1).setNumberFormat('@'); });
+    SITE_TEXT_COLS_.forEach(function (c) { sh.getRange(2, c, rows, 1).setNumberFormat('@'); });
   }
   return sh;
+}
+
+/* Write one entry (at = its index in readSite_, or -1 for a new row). appendRow parses what it is
+   given like typing and ignores the column's text format: the takeover's "$2" was stored as the
+   number 2 in a currency format (2026-11-03), and Approve all then refused every weekly line. So the
+   row is re-pinned to text first, every time, and never appended. */
+function siteWrite_(sh, at, s) {
+  var rowNo = at >= 0 ? at + 2 : sh.getLastRow() + 1;
+  if (rowNo > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), 1);
+  SITE_TEXT_COLS_.forEach(function (c) { sh.getRange(rowNo, c).setNumberFormat('@'); });
+  sh.getRange(rowNo, 1, 1, SITE_HEADERS.length).setValues([siteToRow_(s)]);
 }
 
 function rowToSite_(r) {
@@ -9208,8 +9221,12 @@ function siteToRow_(s) { return SITE_HEADERS.map(function (h) { return s[h] == n
 function readSite_() {
   var sh = siteSheet_(), last = sh.getLastRow();
   if (last < 2) return [];
-  return sh.getRange(2, 1, last - 1, SITE_HEADERS.length).getValues()
-    .filter(function (r) { return r[0]; }).map(rowToSite_);
+  var range = sh.getRange(2, 1, last - 1, SITE_HEADERS.length), vals = range.getValues();
+  /* An amount the sheet turned into a number (see siteWrite_) is read as the sheet shows it: 2 in a
+     "$" format reads "$2", 0.15 in a percent format "15%". The next write stores it as text again. */
+  var shown = range.getDisplayValues(), a = SITE_HEADERS.indexOf('amount');
+  vals.forEach(function (r, i) { if (typeof r[a] === 'number') r[a] = shown[i][a]; });
+  return vals.filter(function (r) { return r[0]; }).map(rowToSite_);
 }
 
 /* What a person typed, as one comparable value: a change to any of it un-approves the line. */
@@ -9292,8 +9309,7 @@ function saveSiteDeal_(p) {
     if (sign.error) return { ok: false, error: sign.error };
     s.approved_by = sign.by; s.approved_at = sign.at;
     s.updated_by = who.auth.user; s.updated_at = nowStamp_();
-    if (at >= 0) sh.getRange(at + 2, 1, 1, SITE_HEADERS.length).setValues([siteToRow_(s)]);
-    else sh.appendRow(siteToRow_(s));
+    siteWrite_(sh, at, s);
     return { ok: true, item: s, created: at < 0, problem: siteProblem_(s) };
   } finally {
     lock.releaseLock();
@@ -9313,7 +9329,7 @@ function removeSiteDeal_(p) {
     var s = rows[at];
     if (s.kind !== 'week') return { ok: false, error: 'A brand stays: every card on the page points at its logo.' };
     s.status = 'removed'; s.updated_by = who.auth.user; s.updated_at = nowStamp_();
-    siteSheet_().getRange(at + 2, 1, 1, SITE_HEADERS.length).setValues([siteToRow_(s)]);
+    siteWrite_(siteSheet_(), at, s);
     return { ok: true, key: s.key, removed: true };
   } finally {
     lock.releaseLock();
@@ -9338,7 +9354,7 @@ function approveSiteDeals_(p) {
       var problem = siteProblem_(s);
       if (problem) { skipped.push({ key: s.key, problem: problem }); return; }
       s.approved_by = user; s.approved_at = nowStamp_(); s.updated_by = user; s.updated_at = s.approved_at;
-      sh.getRange(i + 2, 1, 1, SITE_HEADERS.length).setValues([siteToRow_(s)]);
+      siteWrite_(sh, i, s);
       approved.push(s.key);
     });
     return { ok: true, approved: approved, skipped: skipped };
@@ -9445,7 +9461,7 @@ function adoptSite_(p) {
         var r = GXCore.wixAdopt(secret, c[0], c[1].map(function (x) { return x.wix; }), { apply: true, app: WIX_PUBLISHER_APP_, by: 'spiff' });
         if (!r || r.ok === false) throw new Error('GX Core refused to adopt ' + c[0] + ': ' + scrubSecrets_((r && r.error) || JSON.stringify((r && r.results) || [])));
         var sh = siteSheet_();
-        c[1].forEach(function (x) { x.entry.updated_by = 'spiff'; x.entry.updated_at = nowStamp_(); sh.appendRow(siteToRow_(x.entry)); });
+        c[1].forEach(function (x) { x.entry.updated_by = 'spiff'; x.entry.updated_at = nowStamp_(); siteWrite_(sh, -1, x.entry); });
       });
     } finally { lock.releaseLock(); }
     return out;
