@@ -8443,6 +8443,14 @@ var WIX_PUBLISHER_APP_ = 'spiff';
    the same list (COPY_RULES); tests/wix_publish_test.js holds the two together. */
 var WIX_COPY_RULES_ = [['bogo', '\\bbogo\\b'], ['free', '\\bfree\\b'], ['with purchase', '\\bwith (?:any |a |your )?purchase'],
   ['buy one', '\\bbuy one\\b'], ['best', '\\bbest\\b'], ['#1', '#\\s*1\\b|\\bnumber one\\b'], ['lowest', '\\blowest\\b'], ['em-dash', '—']];
+/* How much copy each website box holds before it breaks the page's layout (Sky, 2026-11-03). Copy
+   over a limit is not published or approved; marketing.js holds the same numbers (COPY_LIMITS) and
+   stops the typing there. The weekly line's 40 is from Sky: "OFF Freshy & Strainz carts + dispos"
+   (35) had to be reworded to fit, and the longest live line is 39. */
+var WIX_COPY_LIMITS_ = { headline: 40, alt: 125, note: 120, deal: 12, offer: 60, fine: 200, line: 160, lines: 4,
+  week_brand: 30, week_text: 40 };
+var WIX_LIMIT_NAMES_ = { headline: 'The headline', alt: 'The image description', note: 'The vendor days note', deal: 'The vendor day deal',
+  offer: 'The vendor day offer details', fine: 'The fine print' };
 var WIX_FAIL_PROP_ = 'WIX_FAIL_FILED';
 var WIX_LAST_RUN_PROP_ = 'WIX_LAST_RUN';
 var WIX_FEATURED_SPEC_ = { min: 1080, max: 2400, bytes: 2097152, types: ['image/jpeg', 'image/png'] };
@@ -8528,6 +8536,24 @@ function wixCopyProblem_(texts) {
   var all = (texts || []).map(function (t) { return String(t == null ? '' : t); }).join('\n');
   for (var i = 0; i < WIX_COPY_RULES_.length; i++) {
     if (new RegExp(WIX_COPY_RULES_[i][1], 'i').test(all)) return WIX_COPY_RULES_[i][0];
+  }
+  return '';
+}
+
+/* '' when the deals page card's copy fits the layout, else what is too long. Mirrors marketing.js
+   lengthProblem; tests/wix_publish_test.js runs both on the same copy. */
+function wixLengthProblem_(web, lines) {
+  web = web || {};
+  var L = WIX_COPY_LIMITS_, keys = Object.keys(WIX_LIMIT_NAMES_);
+  for (var i = 0; i < keys.length; i++) {
+    var n = String(web[keys[i]] == null ? '' : web[keys[i]]).trim().length;
+    if (n > L[keys[i]]) return WIX_LIMIT_NAMES_[keys[i]] + ' is ' + n + ' characters; the most is ' + L[keys[i]] + '.';
+  }
+  var ls = (lines || []).filter(function (t) { return String(t == null ? '' : t).trim(); });
+  if (ls.length > L.lines) return 'There are ' + ls.length + ' offer lines; the most is ' + L.lines + '.';
+  for (var j = 0; j < ls.length; j++) {
+    var m = String(ls[j]).trim().length;
+    if (m > L.line) return 'Offer line ' + (j + 1) + ' is ' + m + ' characters; the most is ' + L.line + '.';
   }
   return '';
 }
@@ -8619,6 +8645,8 @@ function wixDesired_(src, today) {
     var broken = wixCopyProblem_([web.headline, web.note, web.deal, web.offer, web.fine, web.alt]
       .concat(((plan.rows && plan.rows[WIX_ITEM_]) || []).map(function (r) { return r.text; })));
     if (broken) { out.skipped.push({ program_id: p.program_id, why: 'the copy breaks the OLCC copy rules ("' + broken + '"); fix it on the program' }); return; }
+    var long = wixLengthProblem_(web, ((plan.rows && plan.rows[WIX_ITEM_]) || []).map(function (r) { return r.text; }));
+    if (long) { out.skipped.push({ program_id: p.program_id, why: long + ' Too much copy breaks the layout; shorten it on the program' }); return; }
     picked.push({ p: p, plan: plan, web: web, approver: approver });
   });
   /* Soonest-ending first, which is the card order on the page. */
@@ -9248,6 +9276,9 @@ function siteProblem_(s) {
   if (!String(s.brand || '').trim()) return 'pick a brand';
   if (!/^(\$\d+(\.\d{2})?|\d{1,2}%)$/.test(String(s.amount || ''))) return 'the amount must be a straight discount, like $2 or 15%';
   if (!String(s.text || '').trim()) return 'say what it is off';
+  var nb = String(s.brand).trim().length, nt = String(s.text).trim().length;
+  if (nb > WIX_COPY_LIMITS_.week_brand) return 'the brand is ' + nb + ' characters; the most is ' + WIX_COPY_LIMITS_.week_brand;
+  if (nt > WIX_COPY_LIMITS_.week_text) return 'what it is off is ' + nt + ' characters; the most is ' + WIX_COPY_LIMITS_.week_text;
   var broken = wixCopyProblem_([s.brand, s.amount, s.text]);
   return broken ? 'the copy breaks the OLCC copy rules ("' + broken + '")' : '';
 }

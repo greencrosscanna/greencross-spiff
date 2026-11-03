@@ -585,9 +585,10 @@
             return '<option value="' + esc(o) + '"' + (o === val ? ' selected' : '') + '>' + esc(o) + '</option>';
           }).join('') + '</select></label>';
     }
+    var max = item === 'web' && f[0] === 'text' ? COPY_LIMITS[f[1]] : 0;
     return '<label class="mk-fld">' + esc(f[2]) + '<input type="' + (f[0] === 'date' ? 'date' : f[0] === 'url' ? 'url' : 'text') + '"' + data
-      + (f[4] ? ' placeholder="' + esc(f[4]) + '"' : '')
-      + ' value="' + esc(val == null ? '' : val) + '"' + ro + '></label>';
+      + (f[4] ? ' placeholder="' + esc(f[4]) + '"' : '') + (max ? ' maxlength="' + max + '"' : '')
+      + ' value="' + esc(val == null ? '' : val) + '"' + ro + '>' + (max ? counterHtml(val, max) : '') + '</label>';
   }
 
   /* The Featured image spec (mockups/deals-wix-handover.md; Sky: "make sure this is noted wherever the
@@ -619,13 +620,53 @@
     for (var i = 0; i < COPY_RULES.length; i++) if (new RegExp(COPY_RULES[i][1], 'i').test(all)) return COPY_RULES[i][0];
     return '';
   }
+  /* How much copy each website box holds before it breaks the page's layout (Sky, 2026-11-03), sized
+     against the deals page at phone width. The engine's WIX_COPY_LIMITS_ holds the same numbers and
+     does not publish copy over them; tests/wix_publish_test.js holds the two together. The week_*
+     pair is the Deals page screen's weekly lines (site.js reads them from here). */
+  var COPY_LIMITS = { headline: 40, alt: 125, note: 120, deal: 12, offer: 60, fine: 200, line: 160, lines: 4,
+    week_brand: 30, week_text: 40 };
+  var LIMIT_NAMES = { headline: 'The headline', alt: 'The image description', note: 'The vendor days note', deal: 'The vendor day deal',
+    offer: 'The vendor day offer details', fine: 'The fine print' };
+  /* '' when the deals page copy fits, else what is too long. */
+  function lengthProblem(w, lines) {
+    w = w || {};
+    var keys = Object.keys(LIMIT_NAMES);
+    for (var i = 0; i < keys.length; i++) {
+      var n = String(w[keys[i]] == null ? '' : w[keys[i]]).trim().length;
+      if (n > COPY_LIMITS[keys[i]]) return LIMIT_NAMES[keys[i]] + ' is ' + n + ' characters; the most is ' + COPY_LIMITS[keys[i]] + '.';
+    }
+    var ls = (lines || []).filter(function (t) { return String(t == null ? '' : t).trim(); });
+    if (ls.length > COPY_LIMITS.lines) return 'There are ' + ls.length + ' offer lines; the most is ' + COPY_LIMITS.lines + '.';
+    for (var j = 0; j < ls.length; j++) {
+      var m = String(ls[j]).trim().length;
+      if (m > COPY_LIMITS.line) return 'Offer line ' + (j + 1) + ' is ' + m + ' characters; the most is ' + COPY_LIMITS.line + '.';
+    }
+    return '';
+  }
+  /* "12 / 40" under a box with a limit, kept current as it is typed (one listener for the page). */
+  function counterHtml(val, max) {
+    var n = String(val == null ? '' : val).length;
+    return '<span class="mk-count' + (n > max ? ' over' : n >= max * 0.9 ? ' near' : '') + '" data-mk-count="' + max + '" aria-live="polite">' + n + ' / ' + max + '</span>';
+  }
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('input', function (e) {
+      var el = e.target, c = el && el.nextElementSibling;
+      if (!c || !c.hasAttribute || !c.hasAttribute('data-mk-count')) return;
+      var max = +c.getAttribute('data-mk-count'), n = String(el.value || '').length;
+      c.textContent = n + ' / ' + max;
+      c.className = 'mk-count' + (n > max ? ' over' : n >= max * 0.9 ? ' near' : '');
+    });
+  }
   function webSpecHtml(p, plan) {
     var id = driveFileId((plan.d.web || {}).image);
     var approved = planOf(p).done['web.approve'];
     var w = plan.d.web || {};
     var broken = copyProblem([w.headline, w.note, w.deal, w.offer, w.fine, w.alt].concat(rowsOf(p, 'web').map(function (r) { return r.text; })));
+    var long = lengthProblem(w, rowsOf(p, 'web').map(function (r) { return r.text; }));
     return '<div class="mk-spec"><b>Copy rules:</b> ' + esc(COPY_RULES_TEXT) + '</div>'
       + (broken ? '<div class="mk-warn">The copy uses “' + esc(broken) + '”, which the rules do not allow. It will not go on the website until that is changed.</div>' : '')
+      + (long ? '<div class="mk-warn">' + esc(long) + ' Too much copy breaks the layout, so it will not go on the website until it is shortened.</div>' : '')
       + '<div class="mk-spec"><b>Featured image spec:</b> ' + esc(FEATURED_SPEC.text) + '</div>'
       + (id ? '<div class="mk-imgcheck"><img data-mk-imgcheck="1" src="https://lh3.googleusercontent.com/d/' + esc(id)
             + '" alt="Featured image preview" width="120" height="120" style="object-fit:contain">'
@@ -669,11 +710,13 @@
   /* An item's list: a date per row, a line of text per row, or a line plus the stores it is at. */
   function listHtml(p, id, ctx, on) {
     var L = ITEMS[id].list, ro = ctx.canEdit ? '' : ' disabled';
+    var max = id === 'web' ? COPY_LIMITS.line : 0, full = id === 'web' && rowsOf(p, id).length >= COPY_LIMITS.lines;
     var data = function (i) { return ' data-mk-ritem="' + esc(id) + '" data-mk-row="' + i + '"'; };
     var rows = rowsOf(p, id).map(function (r, i) {
       var input = L.kind === 'date'
         ? '<input type="date"' + data(i) + ' data-mk-rfield="date" value="' + esc(r.date) + '" aria-label="' + esc(L.label) + '"' + ro + '>'
-        : '<input type="text"' + data(i) + ' data-mk-rfield="text" placeholder="' + esc(L.ph || '') + '" value="' + esc(r.text) + '" aria-label="' + esc(L.label) + '"' + ro + '>';
+        : '<input type="text"' + data(i) + ' data-mk-rfield="text" placeholder="' + esc(L.ph || '') + '" value="' + esc(r.text) + '" aria-label="' + esc(L.label) + '"'
+          + (max ? ' maxlength="' + max + '"' : '') + ro + '>' + (max ? counterHtml(r.text, max) : '');
       var pills = L.kind !== 'stores' ? '' : '<div class="mk-task-stores">' + ctx.stores.filter(function (s) {
           return on.indexOf(s.store_id) >= 0 || r.stores.indexOf(s.store_id) >= 0;
         }).map(function (s) {
@@ -686,7 +729,8 @@
         + '</div>' + pills + '</div>';
     }).join('');
     return '<div class="mk-fld">' + esc(L.label) + '</div>' + (rows || '<p class="mk-sub">None yet.</p>')
-      + (ctx.canEdit ? '<button type="button" class="gx-btn mk-vadd" data-mk-radd="' + esc(id) + '">' + esc(L.add) + '</button>' : '');
+      + (!ctx.canEdit ? '' : full ? '<p class="mk-sub">That is the most offer lines the card holds (' + COPY_LIMITS.lines + ').</p>'
+        : '<button type="button" class="gx-btn mk-vadd" data-mk-radd="' + esc(id) + '">' + esc(L.add) + '</button>');
   }
 
   /* The whole section for one program. ctx: { today, canEdit, engineReady, stores:[{store_id,name}],
@@ -1204,7 +1248,7 @@
     rowsOf: rowsOf, addRowOp: addRowOp, removeRowOp: removeRowOp, setRowOp: setRowOp, toggleRowStoreOp: toggleRowStoreOp,
     makeSaver: makeSaver, listLine: listLine, foldNote: foldNote, sectionHtml: sectionHtml, wire: wire,
     FEATURED_SPEC: FEATURED_SPEC, imageShapeProblem: imageShapeProblem, driveFileId: driveFileId,
-    COPY_RULES: COPY_RULES, copyProblem: copyProblem
+    COPY_RULES: COPY_RULES, copyProblem: copyProblem, COPY_LIMITS: COPY_LIMITS, lengthProblem: lengthProblem
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SpiffMarketing = api;
