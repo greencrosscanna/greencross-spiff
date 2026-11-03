@@ -245,6 +245,13 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   `marketingAssign` takes `kind=holiday`. Nothing that pays, publishes or feeds a kiosk may read the
   tab; no holiday route on `ENGINE_HEDGE_READS`. Nothing is seeded. Pinned by
   `tests/marketing_holidays_test.js` and the isolation test's section 5b.
+  **The Text blast card prices one send** (Sky, 2026-11-03): opted-in phones × Dutchie's per-text
+  and with-image rates, a pass-through at Dutchie's cost added to the vendor's credit, with the
+  160-character note. The three numbers are **settings, never constants** (script properties
+  `SMS_LIST_COUNT`, `SMS_RATE_TEXT`, `SMS_RATE_IMAGE`, `SMS_LIST_AS_OF`; edited in Settings by an
+  editor via `saveSmsPricing`), because the count changes monthly (Dutchie's "SMS opted in"
+  segment). Unset reads as null and the card says "not set yet", never $0. Pinned by
+  `tests/sms_pricing_test.js`.
   **The vendor plan's artwork sizes are generic on purpose** (Sky, 2026-11-02, `MKT_SIZES_`): TV
   1920×1080 / 3840×2160 horizontal or vertical as image or MP4, standard social sizes, 8.5×11 print.
   **Saving the plan files it in the program's vendor files folder** (`d.files.url`) when that is a
