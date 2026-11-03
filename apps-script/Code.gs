@@ -329,7 +329,7 @@ var GATED_WRITES = ['snapshotProgress'];
 var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses',
                       'sweepOrphanProgress', 'publishToCore', 'backfillPayPeriods',
                       'publishKioskTokens', 'seedBrands', 'recordActuals', 'auditPayouts', 'calendarSync',
-                      'publishToWix', 'propsReport', 'setSwitch', 'deleteOrphanProp'];
+                      'publishToWix', 'propsReport', 'setSwitch', 'deleteOrphanProp', 'adoptSite'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -465,6 +465,16 @@ function doGet(e) {
       case 'propsReport': out = propsReportWeb_(p);                                 break;
       case 'setSwitch':   out = setSwitchWeb_(p);                                   break;
       case 'deleteOrphanProp': out = deleteOrphanPropWeb_(p);                       break;
+      /* The deals page's weekly lines and brands (THE DEALS PAGE, PART 2). A signed-in read and
+         editor-only writes in their own tab; approval is signed by the session. None hedged on the
+         client: the writes are writes, and siteImportLogo imports into Wix Media. adoptSite takes over
+         the hand-made Wix rows once: secret-gated, dry unless apply=1. */
+      case 'siteDeals':       out = siteDealsRead_(p);                              break;
+      case 'saveSiteDeal':    out = saveSiteDeal_(p);                               break;
+      case 'removeSiteDeal':  out = removeSiteDeal_(p);                             break;
+      case 'siteMedia':       out = siteMediaSearch_(p);                            break;
+      case 'siteImportLogo':  out = siteImportLogo_(p);                             break;
+      case 'adoptSite':       out = adoptSite_(p);                                  break;
       /* ONE STORE PER CALL. A full sweep is ~9s per store and /exec is killed at 60s — asking for
          all of them timed out with nothing written and no error to read, which is the worst of both.
          Called WITHOUT a store this returns the PLAN (every program × store pair) so a caller can
@@ -8404,8 +8414,8 @@ function runCalendarSyncHourly_() {
  * day SPIFF asks each store's live inventory which stores stock that brand. Those store ids go on the
  * card as `shopStores`; the block lists only them, and hides the button when there are none, in which
  * case Tawny gets one email. A store whose inventory could not be read keeps yesterday's answer: a
- * refused source is not a zero. The Vendors collection is hand-owned (the connector cannot write it),
- * so a Menu Slug that disagrees with Dutchie is REPORTED in menu_slug_fixes for a person to change.
+ * refused source is not a zero. A Menu Slug that disagrees with Dutchie is REPORTED in menu_slug_fixes
+ * for a person to change on the Deals page screen (PART 2, below), which owns the Vendors rows.
  *
  * IT IS NOT A PAY PATH. It reads programs and inventory and writes only to the public website. It runs
  * LAST in the hourly job in its own try/catch, behind script property WIX_PUBLISH_ON=1. Nothing that
@@ -8770,6 +8780,8 @@ function wixAdapter_() {
     prune: function () { return GXCore.wixPrunePastVendorDays(secret, { apply: true, app: WIX_PUBLISHER_APP_, by: 'spiff' }); },
     importImage: function (url, name, mime) { return GXCore.wixImportImage(secret, url, { display_name: name, mime_type: mime, apply: true, app: WIX_PUBLISHER_APP_, by: 'spiff' }); },
     mediaStatus: function (fileId) { return GXCore.wixMediaStatus(secret, fileId); },
+    /* Other spellings for the Vendors rows; the screen's cached list, never a reason to stop. */
+    brands: function () { var r = brandsRead_(); return r && r.ok ? r.brands || [] : []; },
     driveMeta: function (id) {
       return driveApi_('get', encodeURIComponent(id) + '?supportsAllDrives=true&fields=' + encodeURIComponent('name,mimeType,size,imageMediaMetadata(width,height)'));
     }
@@ -8915,7 +8927,15 @@ function wixPublish_(opts) {
     return /^\d{4}-\d{2}-\d{2}$/.test(x) && x < today;
   }).length;
   out.pruned_past_days = past;
-  if (!apply) { out.note = 'dry run — nothing written. Send apply=1 to write.'; return out; }
+  /* The weekly lines and brands (PART 2 below). Its own try: a problem there never stops the cards. */
+  var site = function (doIt) {
+    try {
+      out.site = sitePublish_(w, vendors, doIt, opts.siteEntries);
+      out.failed = out.failed.concat(out.site.failed);
+      if (out.site.refused) out.refused = (out.refused ? out.refused + '; ' : '') + out.site.refused;
+    } catch (e) { out.failed.push({ collection: 'Import1/Vendors', error: String((e && e.message) || e) }); }
+  };
+  if (!apply) { site(false); out.note = 'dry run — nothing written. Send apply=1 to write.'; return out; }
 
   /* Writes. A key counts as published once Wix has it; a refused removal stays published. */
   var keepF = plan.keep_featured.slice(), keepD = plan.keep_days.slice();
@@ -8945,6 +8965,7 @@ function wixPublish_(opts) {
     try { var pr = w.prune(); if (!pr || pr.ok === false) throw new Error(scrubSecrets_((pr && pr.error) || 'no answer')); }
     catch (e) { out.failed.push({ collection: 'VendorDays', error: 'prune: ' + String((e && e.message) || e) }); }
   }
+  site(true);
   try {
     props.setProperty(WIX_PUBLISHED_PROP_, JSON.stringify({
       featured: keepF.filter(function (k, i, a) { return a.indexOf(k) === i; }),
@@ -9121,5 +9142,347 @@ function runWixPublishHourly_() {
   if (r.refused) console.warn('[spiff] deals page REFUSED removals: ' + r.refused);
   if (r.menu_slug_fixes.length) console.warn('[spiff] deals page: Vendors Menu Slug disagrees with Dutchie for '
     + r.menu_slug_fixes.map(function (f) { return f.vendor + ' (' + f.menu_slug_now + ' → ' + f.should_be + ')'; }).join(', '));
+  if (r.site && (r.site.send_week.length || r.site.send_vendors.length || r.site.remove_week.length))
+    console.log('[spiff] deals page: weekly ' + r.site.send_week.length + ' sent, ' + r.site.remove_week.length
+      + ' removed; vendors ' + r.site.send_vendors.length + ' sent');
   return r;
+}
+
+/* ═════════════ THE DEALS PAGE, PART 2: WEEKLY DEALS AND VENDORS (Sky, 2026-11-02) ════════════════
+ * Goal: nobody edits /deals in Wix. Featured cards and vendor days already come from programs (above).
+ * This is the rest: the Tue–Sat schedule (Wix collection Import1, "Weekly Deals", keyed weekKey) and
+ * the brand tiles (Vendors, keyed vendorKey), edited on SPIFF's Deals page screen and published by the
+ * same hourly step, through the same GX Core gate (GXCore v366+: app=spiff, approvedBy on the list).
+ *
+ * WHERE IT LIVES. The `site_deals` tab, one row per weekly line (kind=week) or brand (kind=vendor).
+ * NOT `programs`: a weekly line has no window, pays nobody and must never reach a kiosk. Nothing that
+ * pays, publishes to Core or feeds a kiosk reads this tab (tests/marketing_pay_isolation_test.js).
+ * Rows are never deleted: a weekly line taken off the page is status=removed. A brand is never
+ * removed at all, because every Featured card and vendor day points at its Vendors row by _id.
+ *
+ * APPROVAL, as for a program's page copy: only Sky, Mike or Tawny (WIX_APPROVERS_) can approve, signed
+ * by the session, never by what the browser says. Anyone else changing a line un-approves it; an
+ * approver changing it re-signs it. A line whose copy breaks an OLCC rule cannot be approved, and is
+ * not published if it somehow is.
+ *
+ * TAKING OVER THE HAND-MADE ROWS. ?action=adoptSite (secret, dry unless apply=1) lists every Wix row
+ * with no key and the key it would get, then GX Core's wix_adopt stamps that key onto the SAME row (so
+ * its _id, and every logo link, survive) and the row is copied in here UN-approved. An un-approved
+ * row is never written or removed: Wix keeps showing it exactly as it is until someone ticks it here,
+ * from which point SPIFF owns it. A Wix row with no key is never touched, and GX Core refuses to insert
+ * a second one beside it.
+ *
+ * Publishing runs inside wixPublish_, so it shares its switch (WIX_PUBLISH_ON), its dry run
+ * (?action=publishToWix shows `site`), its failure report and its place last in the hourly job. */
+var SITE_TAB = 'site_deals';
+var SITE_HEADERS = ['key', 'kind', 'day', 'row', 'brand', 'amount', 'text', 'logo', 'logo_wide', 'menu_slug', 'status',
+                    'approved_by', 'approved_at', 'wix_id', 'updated_by', 'updated_at'];
+/* The page's week starts on Tuesday: daySort is the position here, as on the hand-made rows (TUE = 1). */
+var SITE_DAYS_ = ['TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN', 'MON'];
+var SITE_MAX_REMOVES_ = 10;
+var SITE_LOGO_SPEC_ = { bytes: 512000, types: ['image/png', 'image/jpeg', 'image/svg+xml'] };
+
+function siteSheet_() {
+  var book = dataSheet_().getParent();
+  var sh = book.getSheetByName(SITE_TAB);
+  if (!sh) {
+    sh = book.insertSheet(SITE_TAB);
+    sh.getRange(1, 1, 1, SITE_HEADERS.length).setValues([SITE_HEADERS]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    /* "$2" and "15%" are text; so are the stamps. Pinned before the first row is written. */
+    var rows = Math.max(sh.getMaxRows() - 1, 1);
+    [6, 13, 16].forEach(function (c) { sh.getRange(2, c, rows, 1).setNumberFormat('@'); });
+  }
+  return sh;
+}
+
+function rowToSite_(r) {
+  var o = {};
+  SITE_HEADERS.forEach(function (h, i) { o[h] = r[i] == null ? '' : String(r[i]); });
+  o.row = Number(o.row) || 0;
+  return o;
+}
+function siteToRow_(s) { return SITE_HEADERS.map(function (h) { return s[h] == null ? '' : s[h]; }); }
+
+function readSite_() {
+  var sh = siteSheet_(), last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, SITE_HEADERS.length).getValues()
+    .filter(function (r) { return r[0]; }).map(rowToSite_);
+}
+
+/* What a person typed, as one comparable value: a change to any of it un-approves the line. */
+function siteContent_(s) {
+  return JSON.stringify(s.kind === 'vendor'
+    ? [s.brand, s.logo, s.logo_wide, s.menu_slug]
+    : [s.day, Number(s.row) || 0, s.brand, s.amount, s.text]);
+}
+
+/* Why this line cannot go on the page, or ''. */
+function siteProblem_(s) {
+  if (s.kind === 'vendor') {
+    if (!String(s.brand || '').trim()) return 'the brand needs a name';
+    var bad = [s.logo, s.logo_wide].filter(function (u) { return u && !/^wix:image:\/\//.test(u); });
+    if (bad.length) return 'a logo must be picked from or imported into Wix Media';
+    return wixCopyProblem_([s.brand]) ? 'the brand name breaks the copy rules ("' + wixCopyProblem_([s.brand]) + '")' : '';
+  }
+  if (SITE_DAYS_.indexOf(s.day) < 0) return 'pick a day';
+  if (!String(s.brand || '').trim()) return 'pick a brand';
+  if (!/^(\$\d+(\.\d{2})?|\d{1,2}%)$/.test(String(s.amount || ''))) return 'the amount must be a straight discount, like $2 or 15%';
+  if (!String(s.text || '').trim()) return 'say what it is off';
+  var broken = wixCopyProblem_([s.brand, s.amount, s.text]);
+  return broken ? 'the copy breaks the OLCC copy rules ("' + broken + '")' : '';
+}
+
+/* The approval after a save. `approve` is the tick as the screen shows it. Returns {by, at} or {error}. */
+function siteSign_(before, after, user, approve) {
+  var who = String(user || '').toLowerCase();
+  var approver = WIX_APPROVERS_.indexOf(who) >= 0;
+  var changed = !before || siteContent_(before) !== siteContent_(after);
+  var had = before && WIX_APPROVERS_.indexOf(String(before.approved_by || '').toLowerCase()) >= 0
+    ? { by: before.approved_by, at: before.approved_at } : { by: '', at: '' };
+  if (!approver) return changed ? { by: '', at: '' } : had;
+  if (!approve) return { by: '', at: '' };
+  var problem = siteProblem_(after);
+  if (problem) return { error: 'Not approved: ' + problem + '.' };
+  return changed || !had.by ? { by: who, at: nowStamp_() } : had;
+}
+
+/* Signed-in read, from the sheet each time (the tab is tiny, and a removed line must not reappear
+   from a cache). */
+function siteDealsRead_() {
+  var rows = readSite_();
+  return { ok: true, weekly: rows.filter(function (s) { return s.kind === 'week' && s.status !== 'removed'; }),
+           vendors: rows.filter(function (s) { return s.kind === 'vendor'; }),
+           days: SITE_DAYS_, approvers: WIX_APPROVERS_ };
+}
+
+/* Create or change one line or brand. p.item = {key?, kind, day, row, brand, amount, text, logo,
+   logo_wide, menu_slug, approve}. Under the script lock, against what is stored NOW. */
+function saveSiteDeal_(p) {
+  var who = mktEditor_(p, 'edit the deals page');
+  if (who.fail) return who.fail;
+  var it = parseJson_(p.item, null);
+  if (!it || (it.kind !== 'week' && it.kind !== 'vendor')) return { ok: false, error: 'Nothing to save.' };
+  var t = function (x, n) { return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, n); };
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return { ok: false, error: 'Another save is in progress. Try again in a moment.' };
+  try {
+    var sh = siteSheet_(), rows = readSite_();
+    var key = t(it.key, 60);
+    if (!key && it.kind === 'vendor') key = wixMenuSlug_(it.brand);
+    var at = -1;
+    rows.forEach(function (s, i) { if (s.key === key && key) at = i; });
+    var before = at >= 0 ? rows[at] : null;
+    if (before && before.kind !== it.kind) return { ok: false, error: 'That key belongs to a ' + before.kind + ' row.' };
+    if (!before && it.key) return { ok: false, error: 'That line is not there any more. Reload.' };
+    if (!key && it.kind === 'vendor') return { ok: false, error: 'Name the brand.' };
+    if (!key) key = 'wk-' + Date.now().toString(36) + '-' + Math.floor(Math.random() * 1296).toString(36);
+    var s = Object.assign({}, before || { key: key, kind: it.kind, status: 'live', wix_id: '' });
+    if (it.kind === 'week') {
+      s.day = t(it.day, 3).toUpperCase(); s.row = Math.max(1, Math.min(9, Number(it.row) || 1));
+      s.brand = t(it.brand, 60); s.amount = t(it.amount, 8); s.text = t(it.text, 120);
+    } else {
+      s.brand = t(it.brand, 60) || (before && before.brand) || '';
+      ['logo', 'logo_wide'].forEach(function (f) { if (it[f] != null) s[f] = t(it[f], 400); });
+      if (it.menu_slug != null) s.menu_slug = wixMenuSlug_(it.menu_slug);
+    }
+    var sign = siteSign_(before, s, who.auth.user, !!it.approve);
+    if (sign.error) return { ok: false, error: sign.error };
+    s.approved_by = sign.by; s.approved_at = sign.at;
+    s.updated_by = who.auth.user; s.updated_at = nowStamp_();
+    if (at >= 0) sh.getRange(at + 2, 1, 1, SITE_HEADERS.length).setValues([siteToRow_(s)]);
+    else sh.appendRow(siteToRow_(s));
+    return { ok: true, item: s, created: at < 0, problem: siteProblem_(s) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* Take a weekly line off the page: status=removed, and the next hourly run deletes it from Wix. */
+function removeSiteDeal_(p) {
+  var who = mktEditor_(p, 'edit the deals page');
+  if (who.fail) return who.fail;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return { ok: false, error: 'Another save is in progress. Try again in a moment.' };
+  try {
+    var rows = readSite_(), at = -1;
+    rows.forEach(function (s, i) { if (s.key === String(p.key || '')) at = i; });
+    if (at < 0) return { ok: false, error: 'That line is not there any more.' };
+    var s = rows[at];
+    if (s.kind !== 'week') return { ok: false, error: 'A brand stays: every card on the page points at its logo.' };
+    s.status = 'removed'; s.updated_by = who.auth.user; s.updated_at = nowStamp_();
+    siteSheet_().getRange(at + 2, 1, 1, SITE_HEADERS.length).setValues([siteToRow_(s)]);
+    return { ok: true, key: s.key, removed: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* Logos already in Wix Media, by name, for the picker. A read: editor session, nothing written. */
+function siteMediaSearch_(p) {
+  var who = mktEditor_(p, 'edit the deals page');
+  if (who.fail) return who.fail;
+  var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  try { return GXCore.wixMediaSearch(secret, String(p.q || '').slice(0, 60), { limit: 40 }); }
+  catch (e) { return { ok: false, error: 'GX Core unavailable: ' + scrubSecrets_((e && e.message) || e) }; }
+}
+
+/* A logo from Drive (the brand's own folder under Marketing ▸ Vendors) into Wix Media. Checked against
+   the logo spec first; the answer is a wix:image value for the screen to save on the brand. An image
+   in Wix Media shows nowhere until an approved brand points at it. */
+function siteImportLogo_(p) {
+  var who = mktEditor_(p, 'edit the deals page');
+  if (who.fail) return who.fail;
+  var id = wixDriveFileId_(p.url);
+  if (!id) return { ok: false, error: 'Paste a Google Drive file link.' };
+  var meta;
+  try { meta = driveApi_('get', encodeURIComponent(id) + '?supportsAllDrives=true&fields=' + encodeURIComponent('name,mimeType,size')); }
+  catch (e) { return { ok: false, error: 'Drive could not read that file: ' + String((e && e.message) || e).slice(0, 120) }; }
+  if (SITE_LOGO_SPEC_.types.indexOf(String(meta.mimeType || '')) < 0) return { ok: false, error: 'A logo must be a PNG, JPG or SVG.' };
+  if (Number(meta.size) > SITE_LOGO_SPEC_.bytes) return { ok: false, error: 'That file is over 500 KB.' };
+  var name = wixMenuSlug_(p.brand || 'brand') + (String(p.which) === 'logo_wide' ? '-logo-wide' : '-logo')
+           + (meta.mimeType === 'image/jpeg' ? '.jpg' : meta.mimeType === 'image/svg+xml' ? '.svg' : '.png');
+  var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  try {
+    var r = GXCore.wixImportImage(secret, 'https://lh3.googleusercontent.com/d/' + id,
+      { display_name: name, mime_type: meta.mimeType, apply: true, app: WIX_PUBLISHER_APP_, by: who.auth.user });
+    if (r && r.wix_image) return { ok: true, wix_image: r.wix_image, name: name };
+    if (r && r.file_id) return { ok: true, pending: true, file_id: r.file_id, note: 'Wix is still processing it. Search for ' + name + ' in a minute.' };
+    return { ok: false, error: 'Wix could not import it: ' + scrubSecrets_((r && r.error) || 'no answer') + '. Is the file shared "anyone with the link"?' };
+  } catch (e) { return { ok: false, error: 'GX Core unavailable: ' + scrubSecrets_((e && e.message) || e) }; }
+}
+
+function siteFoldDay_(d) { var x = String(d == null ? '' : d).trim().toUpperCase().slice(0, 3); return SITE_DAYS_.indexOf(x) >= 0 ? x : ''; }
+
+/* THE ADOPTION PLAN. Pure: the Wix rows and what this tab already holds in, the keys and the rows to
+   copy in out. Weekly: <day>-<row> ("tue-1"), as the page orders them. Vendors: the brand's slug in
+   GX Core's registry (matched by name or other spelling), else the Wix title slugged. */
+function siteAdoptPlan_(week, vendors, brands, entries) {
+  var have = Object.create(null), haveWix = Object.create(null);
+  (entries || []).forEach(function (s) { have[s.key] = 1; if (s.wix_id) haveWix[s.wix_id] = 1; });
+  var out = { week: [], vendors: [], problems: [] };
+  var used = Object.create(null);
+  Object.keys(have).forEach(function (k) { used[k] = 1; });
+  (week || []).filter(function (r) { return !String(r.weekKey || '').trim(); })
+    .sort(function (a, b) { return (a.daySort || 0) - (b.daySort || 0) || (a.rowSort || 0) - (b.rowSort || 0); })
+    .forEach(function (r) {
+      if (haveWix[r._id]) return;
+      var day = siteFoldDay_(r.day);
+      if (!day) { out.problems.push({ wix_id: r._id, problem: 'Weekly Deals row "' + (r.title || '') + '" has no readable day (' + r.day + '); fix or delete it in Wix' }); return; }
+      var n = Number(r.rowSort) || 1, key = day.toLowerCase() + '-' + n;
+      while (used[key]) key = day.toLowerCase() + '-' + (++n);
+      used[key] = 1;
+      out.week.push({ wix: { _id: r._id, weekKey: key },
+        entry: { key: key, kind: 'week', day: day, row: Number(r.rowSort) || 1, brand: String(r.title || ''),
+                 amount: String(r.amount || ''), text: String(r.text || ''), status: 'live', wix_id: r._id } });
+    });
+  var reg = Object.create(null);
+  (brands || []).forEach(function (b) {
+    [b.display_name].concat(Array.isArray(b.aliases) ? b.aliases : []).forEach(function (n) { var f = wixFold_(n); if (f && !reg[f]) reg[f] = b; });
+  });
+  (vendors || []).filter(function (v) { return !String(v.vendorKey || '').trim(); }).forEach(function (v) {
+    if (haveWix[v._id]) return;
+    var b = reg[wixFold_(v.title)] || [].concat(v.aliases || []).map(function (a) { return reg[wixFold_(a)]; }).filter(Boolean)[0];
+    var key = wixMenuSlug_(b ? b.display_name : v.title);
+    if (!key) { out.problems.push({ wix_id: v._id, problem: 'Vendors row with no title; fix or delete it in Wix' }); return; }
+    if (used[key]) { out.problems.push({ wix_id: v._id, problem: 'Vendors "' + v.title + '" would take key ' + key + ', which is already in use; two Vendors rows for one brand? Delete the extra one in Wix' }); return; }
+    used[key] = 1;
+    if (!b) out.problems.push({ wix_id: v._id, problem: '"' + v.title + '" is not in GX Core\'s brand list; adopted under ' + key + ', add the brand in Settings so its other spellings come along' });
+    out.vendors.push({ wix: { _id: v._id, vendorKey: key },
+      entry: { key: key, kind: 'vendor', brand: String(v.title || ''), logo: String(v.logo || ''), logo_wide: String(v.logoWide || ''),
+               menu_slug: String(v.menuSlug || ''), status: 'live', wix_id: v._id } });
+  });
+  return out;
+}
+
+function adoptSite_(p) {
+  var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  if (!secret || String(p.secret || '') !== secret) return { ok: false, error: 'Unauthorized' };
+  var apply = String(p.apply || '') === '1';
+  try {
+    var must = function (r, what) { if (!r || r.ok === false) throw new Error(what + ' failed: ' + scrubSecrets_((r && r.error) || 'no answer')); return r; };
+    var week = must(GXCore.wixRead(secret, 'Import1', { limit: 1000 }), 'wix_read Import1').items || [];
+    var vendors = must(GXCore.wixVendors(secret), 'wix_vendors').vendors || [];
+    var brands = GXCore.getBrands({ all: true }) || [];
+    var plan = siteAdoptPlan_(week, vendors, brands, readSite_());
+    var out = { ok: true, apply: apply, week: plan.week.map(function (x) { return x.entry; }),
+                vendors: plan.vendors.map(function (x) { return x.entry; }), problems: plan.problems };
+    if (!apply) { out.note = 'dry run — nothing adopted. Every row comes in un-approved; Wix keeps showing it as it is until it is ticked in SPIFF. Send apply=1 to adopt.'; return out; }
+    var lock = LockService.getScriptLock();
+    if (!lock.tryLock(15000)) return { ok: false, error: 'Another save is in progress.' };
+    try {
+      [['Import1', plan.week], ['Vendors', plan.vendors]].forEach(function (c) {
+        if (!c[1].length) return;
+        var r = GXCore.wixAdopt(secret, c[0], c[1].map(function (x) { return x.wix; }), { apply: true, app: WIX_PUBLISHER_APP_, by: 'spiff' });
+        if (!r || r.ok === false) throw new Error('GX Core refused to adopt ' + c[0] + ': ' + scrubSecrets_((r && r.error) || JSON.stringify((r && r.results) || [])));
+        var sh = siteSheet_();
+        c[1].forEach(function (x) { x.entry.updated_by = 'spiff'; x.entry.updated_at = nowStamp_(); sh.appendRow(siteToRow_(x.entry)); });
+      });
+    } finally { lock.releaseLock(); }
+    return out;
+  } catch (e) { return { ok: false, error: scrubSecrets_((e && e.message) || e) }; }
+}
+
+/* WHAT TO SEND for the weekly lines and brands, given what Wix holds. Pure. */
+function sitePlan_(entries, week, vendors, brands) {
+  var out = { send_week: [], remove_week: [], send_vendors: [], waiting: [], problems: [], unchanged: 0, hand_made: 0, refused: '' };
+  var byKey = function (rows, f) { var m = Object.create(null); (rows || []).forEach(function (r) { var k = String(r[f] || ''); if (k) m[k] = r; else out.hand_made++; }); return m; };
+  var wk = byKey(week, 'weekKey'), vk = byKey(vendors, 'vendorKey');
+  var reg = Object.create(null);
+  (brands || []).forEach(function (b) { var f = wixFold_(b.display_name); if (f && !reg[f]) reg[f] = b; });
+  (entries || []).forEach(function (s) {
+    var label = s.kind === 'vendor' ? s.brand : s.day + ' ' + s.brand + ' ' + s.amount;
+    if (s.kind === 'week' && s.status === 'removed') { if (wk[s.key]) out.remove_week.push(s.key); return; }
+    if (s.status !== 'live') return;
+    var by = String(s.approved_by || '').toLowerCase();
+    if (WIX_APPROVERS_.indexOf(by) < 0) { out.waiting.push({ key: s.key, what: label }); return; }
+    var problem = siteProblem_(s);
+    if (problem) { out.problems.push({ key: s.key, what: label, problem: problem }); return; }
+    var item;
+    if (s.kind === 'week') {
+      item = { weekKey: s.key, title: s.brand, day: s.day, daySort: SITE_DAYS_.indexOf(s.day) + 1, rowSort: Number(s.row) || 1,
+               amount: s.amount, text: s.text };
+      if (wk[s.key] && wixSameItem_(wk[s.key], item)) { out.unchanged++; return; }
+      item[WIX_APPROVER_FIELD_] = by; out.send_week.push(item);
+    } else {
+      item = { vendorKey: s.key, title: s.brand };
+      var b = reg[wixFold_(s.brand)];
+      if (b && Array.isArray(b.aliases) && b.aliases.length) item.aliases = b.aliases.slice();
+      if (s.logo) item.logo = s.logo;
+      if (s.logo_wide) item.logoWide = s.logo_wide;
+      if (s.menu_slug) item.menuSlug = s.menu_slug;
+      if (vk[s.key] && wixSameItem_(vk[s.key], item)) { out.unchanged++; return; }
+      item[WIX_APPROVER_FIELD_] = by; out.send_vendors.push(item);
+    }
+  });
+  if (out.remove_week.length > SITE_MAX_REMOVES_) { out.refused = 'would take ' + out.remove_week.length + ' weekly lines off (limit ' + SITE_MAX_REMOVES_ + ')'; out.remove_week = []; }
+  return out;
+}
+
+/* One pass for the weekly lines and brands. `vendors` is the Vendors read wixPublish_ already made. */
+function sitePublish_(w, vendors, apply, entries) {
+  var week = w.read('Import1');
+  var brands = [];
+  try { brands = w.brands ? w.brands() : []; } catch (e) { brands = []; }
+  var plan = sitePlan_(entries || readSite_(), week, vendors, brands);
+  plan.failed = [];
+  if (!apply) return plan;
+  var send = function (coll, items) {
+    if (!items.length) return;
+    try {
+      var r = w.upsert(coll, items);
+      if (!r || (r.ok === false && !r.results)) throw new Error(scrubSecrets_((r && r.error) || 'no answer'));
+      (r.results || []).forEach(function (x) {
+        if (['inserted', 'updated', 'unchanged'].indexOf(x.op) < 0) plan.failed.push({ collection: coll, key: x.key, error: x.error || x.op });
+      });
+    } catch (e) { plan.failed.push({ collection: coll, error: String((e && e.message) || e) }); }
+  };
+  send('Vendors', plan.send_vendors);
+  send('Import1', plan.send_week);
+  if (plan.remove_week.length) {
+    try { var r = w.remove('Import1', plan.remove_week); if (!r || r.ok === false) throw new Error(scrubSecrets_((r && (r.error || JSON.stringify(r.errors || []))) || 'no answer')); }
+    catch (e) { plan.failed.push({ collection: 'Import1', error: 'remove: ' + String((e && e.message) || e) }); }
+  }
+  return plan;
 }

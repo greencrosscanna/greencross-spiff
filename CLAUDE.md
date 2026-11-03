@@ -292,6 +292,19 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   `WIX_PUBLISH_ON=1`; `?action=publishToWix` (secret, dry unless `apply=1`, `shop=1` re-reads inventory).
   Nothing that pays may call it. Pinned by `tests/wix_publish_test.js`.
 
+- **The deals page's weekly lines and brand logos are edited here, not in Wix** (Sky, 2026-11-02;
+  Code.gs "THE DEALS PAGE, PART 2"). The Programs tab's **Deals page** view (`site.js`, behind the
+  marketing switch) edits the Tue–Sat schedule (Wix `Import1`, keyed `weekKey`) and the brands
+  (`Vendors`, keyed `vendorKey`), stored in their **own `site_deals` tab, never in `programs`**;
+  nothing that pays, publishes to Core or feeds a kiosk reads it. Published by `wixPublish_`'s hourly
+  step through GX Core's gate (needs **GXCore v366+**). Approval = a session-signed tick by Sky, Mike
+  or Tawny; anyone else's change un-approves; OLCC copy cannot be approved. **An un-approved row is
+  never written or removed**, so the hand-made rows SPIFF adopted keep showing as they are until
+  someone ticks them. `?action=adoptSite` (secret, dry unless `apply=1`) takes the hand-made Wix rows
+  over ONCE by stamping the key onto the same row (same `_id`, so every card's logo link survives).
+  A weekly line comes off as `status=removed`; **a brand is never removed** (cards point at it by
+  `_id`). Pinned by `tests/wix_site_test.js`.
+
 ### Money: payout, cost, vendor send
 
 - **Payout model.** Most programs are **flat**: a fixed dollar bounty to each budtender who hits their
