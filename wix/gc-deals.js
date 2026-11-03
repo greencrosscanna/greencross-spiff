@@ -12,6 +12,22 @@
   var COLORS = { gron: '#7CD4CA', wyld: '#1E271B', goodtide: '#1E271B', muleextracts: '#E1E2E0',
     verdantleaf: '#E1E2E0', freshy: '#1A1919', bobsled: '#4197C6', hellavated: '#3A1A4A' };
 
+  // The six online menus, as linked from the site header's ORDER menu (2026-11-02). Each store has
+  // a page per brand at /brands/<brand-slug>. Kept here because the Wix page has no store list.
+  var SHOP = 'https://shop.greencrosscanna.com/stores/';
+  var STORES = [
+    ['Commercial St', 'green-cross-cannabis-commercial-st'],
+    ['River Rd', 'green-cross-cannabis-emporium'],
+    ['Portland Rd', 'portland-road-green-cross-cannabis-emporium'],
+    ['Center St', 'green-cross-cannabis-emporium-center-st-ne'],
+    ['Baseline St', 'green-cross-cannabis-emporium-hillsboro'],
+    ['Century Dr', 'green-cross-cannabis-emporium-bend']
+  ];
+  var brandSlug = function (s) {
+    return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  };
+
   var fold = function (s) {
     return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
   };
@@ -46,7 +62,7 @@
     '.gcd-hero{background:' + LIME + '}',
     '.gcd-hero .gcd-wrap{padding-top:40px;padding-bottom:44px}',
     '.gcd-tag{display:inline-block;padding:6px 12px;background:#14181D;color:#fff;border-radius:6px;font-weight:800;font-size:13px;letter-spacing:1.5px}',
-    '.gcd-h1{margin-top:14px!important;font-weight:900;font-size:84px;line-height:.92;letter-spacing:-2px}',
+    '.gcd-h1{font-weight:900;font-size:84px;line-height:.92;letter-spacing:-2px}',
     '.gcd-sec{padding-top:40px}',
     '.gcd-h2{margin:0 0 20px!important;padding:14px 18px 12px;background:#14181D;color:#fff;border-radius:8px;font-weight:900;font-size:40px;line-height:1;letter-spacing:-1px}',
     '.gcd-feat{background:#14181D;color:#fff;border-radius:10px;overflow:hidden;display:flex;flex-wrap:wrap;margin-bottom:24px}',
@@ -61,6 +77,18 @@
     '.gcd-offers strong,.gcd-offers b{font-family:Montserrat,Arial,sans-serif;font-weight:900;font-size:26px;color:' + LIME + ';margin-right:10px}',
     '.gcd-btn{display:flex;align-items:center;justify-content:center;min-height:56px;padding:0 16px;border-radius:6px;background:#fff;color:#14181D;font-weight:800;font-size:14px;letter-spacing:1px;text-decoration:none;text-align:center}',
     '.gcd-fine{font-size:13px;color:#AEB4BB}',
+    '.gcd-shop{margin-top:6px}',
+    '.gcd-shop-btn{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:center;min-height:56px;padding:0 16px;border-radius:6px;background:' + LIME + ';color:#14181D;font-weight:900;font-size:15px;letter-spacing:1px;text-align:center}',
+    '.gcd-shop-btn::-webkit-details-marker{display:none}',
+    '.gcd-shop-btn::after{content:"\\25BE";margin-left:10px;font-size:13px}',
+    '.gcd-shop[open] .gcd-shop-btn{border-radius:6px 6px 0 0}',
+    '.gcd-shop[open] .gcd-shop-btn::after{content:"\\25B4"}',
+    '.gcd-shop-pick{background:#fff;border-radius:0 0 6px 6px;padding:14px}',
+    '.gcd-shop-pick p{margin:0 0 10px!important;color:#3C434B;font-weight:800;font-size:12px;letter-spacing:1.5px}',
+    '.gcd-shop-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}',
+    '.gcd-shop-grid a{display:flex;align-items:center;justify-content:center;min-height:46px;padding:0 8px;border:2px solid #14181D;border-radius:6px;color:#14181D;font-weight:800;font-size:13px;letter-spacing:.5px;text-decoration:none;text-align:center}',
+    '.gcd-shop-grid a:hover{background:' + LIME + ';border-color:' + LIME + '}',
+    '.gcd-feat .gcd-btn{background:transparent;color:#fff;border:2px solid #fff;margin-top:0}',
     '.gcd-days{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}',
     '.gcd-day{background:#fff;border:1px solid #E2E2DF;border-radius:8px;overflow:hidden;display:flex;flex-wrap:wrap;align-items:stretch}',
     '.gcd-date{flex:0 0 64px;background:' + LIME + ';display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 0;line-height:1}',
@@ -106,6 +134,7 @@
     '.gcd-wday h3{flex-basis:100%;font-size:40px}',
     '.gcd-wlogo{flex-basis:120px}.gcd-wlogo img{width:120px}',
     '.gcd-btn{white-space:normal}',
+    '.gcd-shop-grid{grid-template-columns:repeat(2,1fr)}',
     '}'
   ].join('\n');
 
@@ -119,6 +148,17 @@
     s.id = 'gcd-style';
     s.textContent = CSS;
     document.head.appendChild(s);
+  }
+
+  // Shop Now: a button that opens a store chooser; each store goes to that store's menu,
+  // already filtered to the brand. A FeaturedDeals item can set shopBrand when the menu's
+  // brand slug differs from the vendor name.
+  function shopPicker(name, slug) {
+    return '<details class="gcd-shop"><summary class="gcd-shop-btn mt">SHOP ' + esc(String(name).toUpperCase()) + ' NOW</summary>' +
+      '<div class="gcd-shop-pick"><p class="mt">PICK YOUR STORE</p><div class="gcd-shop-grid">' +
+      STORES.map(function (s) {
+        return '<a class="mt" href="' + SHOP + s[1] + '/brands/' + encodeURIComponent(slug) + '" target="_top">' + esc(s[0].toUpperCase()) + '</a>';
+      }).join('') + '</div></div></details>';
   }
 
   function build(data) {
@@ -151,8 +191,7 @@
       .sort(function (a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
 
     var h = '<div class="gcd">';
-    h += '<section class="gcd-hero"><div class="gcd-wrap"><span class="gcd-tag mt">ALL SIX STORES</span>' +
-      '<h1 class="gcd-h1 mt">WEEKLY<br>DEALS</h1></div></section>';
+    h += '<section class="gcd-hero"><div class="gcd-wrap"><h1 class="gcd-h1 mt">WEEKLY<br>DEALS</h1></div></section>';
 
     if (featured.length) {
       h += '<section class="gcd-sec"><div class="gcd-wrap">';
@@ -167,6 +206,7 @@
           (f.throughLabel ? '<span class="gcd-thru mt">' + esc(String(f.throughLabel).toUpperCase()) + '</span>' : '') + '</div></div>' +
           '<h3 class="mt">' + esc(f.headline) + '</h3>' +
           '<div class="gcd-offers">' + rich(f.offerLines) + '</div>' +
+          shopPicker(v.name, f.shopBrand || brandSlug(v.name)) +
           (n ? '<a class="gcd-btn mt" href="#gcd-vendordays">SEE ' + n + ' ' + esc(String(v.name).toUpperCase()) + ' VENDOR DAY' + (n > 1 ? 'S' : '') + ' ↓</a>' : '') +
           (f.finePrint ? '<p class="gcd-fine">' + esc(f.finePrint) + '</p>' : '') +
           '</div></article>';
