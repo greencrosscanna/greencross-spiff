@@ -7141,6 +7141,67 @@ function giftMailIsDue_(endYmd, now) {
   return day > due || (day === due && hour >= 12);
 }
 
+/* Copied on every gift-card email (Sky, 2026-11-03): Tawny, Shawn and Sky. Fixed here, never taken
+   from a request. */
+var GIFTMAIL_CC = 'tawny@greencrosscanna.com,shawn@greencrosscanna.com,sky@greencrosscanna.com';
+
+/* The same list as giftMailText_, in the Ops Board look (black band, green accent, square blocks).
+   Inline styles only: email clients ignore stylesheets. Everyone is listed, because this is an
+   order sheet. */
+function giftMailHtml_(prog, list) {
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var names = {};
+  try { (gxStores_() || []).forEach(function (x) { names[slug_(x.store_id)] = x.display_name || x.store_id; }); }
+  catch (e) { names = {}; }
+  var pretty = function (s) {
+    return names[slug_(s)] || String(s).split('-').map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+  };
+  var byStore = {}, order = [];
+  list.lines.forEach(function (x) {
+    var s = x.store || 'unknown';
+    if (!byStore[s]) { byStore[s] = []; order.push(s); }
+    byStore[s].push(x);
+  });
+  order.sort();
+  var DISPLAY = "font-family:'Archivo Black','Arial Black',Arial,sans-serif;";
+  var LINE = 'border-bottom:1px solid #d5d9d2;';
+  var rows = order.map(function (s) {
+    var sub = byStore[s].reduce(function (n, x) { return n + x.amount; }, 0);
+    var h = '<tr><td colspan="2" style="padding:18px 0 6px;font-weight:700;">' + esc(pretty(s))
+      + ' <span style="color:#5b636b;font-weight:500;font-size:12px;">· ' + byStore[s].length + ' card'
+      + (byStore[s].length === 1 ? '' : 's') + ' · ' + esc(moneyStr_(sub)) + '</span></td></tr>';
+    byStore[s].forEach(function (x) {
+      h += '<tr><td style="padding:6px 0;' + LINE + '">' + esc(x.name) + '</td>'
+        + '<td align="right" style="padding:6px 0;' + LINE + '">' + esc(moneyStr_(x.amount)) + '</td></tr>';
+    });
+    return h;
+  }).join('');
+  var closed = prog.end_date ? 'Program closed ' + esc(prettyDay_(prog.end_date)) + '. ' : '';
+  return '<!doctype html><html><head><meta charset="utf-8"></head>'
+    + '<body style="margin:0;padding:0;background:#eef0ec;font-family:\'Work Sans\',Helvetica,Arial,sans-serif;color:#090d11;">'
+    + '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef0ec;"><tr><td align="center" style="padding:24px 12px;">'
+    + '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;">'
+    + '<tr><td style="background:#090d11;padding:18px 24px;"><span style="' + DISPLAY + 'font-size:20px;letter-spacing:1px;color:#ffffff;">'
+    + '<span style="color:#95c93d;">GREEN</span>CROSS</span>'
+    + '<span style="font-size:11px;font-weight:600;letter-spacing:1.6px;text-transform:uppercase;color:#ffffff;margin-left:12px;">SPIFF</span></td></tr>'
+    + '<tr><td style="background:#090d11;padding:6px 24px 24px;"><div style="' + DISPLAY + 'font-size:28px;line-height:1.05;color:#ffffff;">Gift cards to order: <span style="color:#95c93d;">'
+    + esc(brandProgramLabel_(prog)) + '</span></div>'
+    + '<div style="font-size:14px;color:#ffffff;padding-top:10px;">' + closed + 'Results are final. Order these for the budtenders who hit their number.</div></td></tr>'
+    + '<tr><td style="background:#ffffff;padding:0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
+    + '<td width="50%" style="padding:20px 24px;' + LINE + 'border-right:1px solid #d5d9d2;"><div style="' + DISPLAY + 'font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5b636b;">Cards to order</div>'
+    + '<div style="' + DISPLAY + 'font-size:36px;line-height:1.1;padding-top:4px;">' + list.count + '</div></td>'
+    + '<td width="50%" style="padding:20px 24px;' + LINE + 'background:#95c93d;"><div style="' + DISPLAY + 'font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#090d11;">Total to load</div>'
+    + '<div style="' + DISPLAY + 'font-size:36px;line-height:1.1;padding-top:4px;color:#090d11;">' + esc(moneyStr_(list.total)) + '</div></td></tr></table></td></tr>'
+    + (list.warning ? '<tr><td style="background:#fdf1d8;border-left:6px solid #8a5a00;padding:12px 18px;font-size:13px;"><b>Check before buying:</b> ' + esc(list.warning) + '</td></tr>' : '')
+    + '<tr><td style="background:#ffffff;padding:20px 24px 4px;"><div style="' + DISPLAY + 'font-size:16px;letter-spacing:1.2px;text-transform:uppercase;border-bottom:2px solid #090d11;padding-bottom:6px;">By store</div></td></tr>'
+    + '<tr><td style="background:#ffffff;padding:0 24px 8px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;">' + rows + '</table></td></tr>'
+    + '<tr><td style="background:#ffffff;padding:16px 24px 28px;"><a href="' + MKT_APP_URL + '" style="display:inline-block;background:#090d11;color:#ffffff;text-decoration:none;'
+    + DISPLAY + 'font-size:12px;letter-spacing:1.2px;text-transform:uppercase;padding:12px 18px;">Open in SPIFF</a></td></tr>'
+    + '<tr><td style="padding:14px 24px;font-size:12px;color:#5b636b;">Sent automatically by SPIFF the first Monday after a program closes. Amounts come from the same list as Reports &rarr; Buy the gift cards. Source: ' + esc(list.source) + '.</td></tr>'
+    + '</table></td></tr></table></body></html>';
+}
+
 function giftMailText_(prog, list) {
   var byStore = {}, order = [];
   list.lines.forEach(function (x) {
@@ -7196,14 +7257,15 @@ function sendGiftCardEmails_(opts) {
     try {
       var list = giftCardListFor_(prog);
       if (!list.count) { out.skipped.push({ program_id: id, why: 'nobody earned a card' }); continue; }
-      var item = { program_id: id, cards: list.count, total: list.total, to: MKT_PEOPLE_.mike };
+      var item = { program_id: id, cards: list.count, total: list.total, to: MKT_PEOPLE_.mike, cc: GIFTMAIL_CC };
       if (!apply) { item.body = giftMailText_(prog, list); out.would_send.push(item); continue; }
       var lock = LockService.getScriptLock();
       if (!lock.tryLock(15000)) { out.failed.push({ program_id: id, error: 'busy' }); continue; }
       try {
         if (props.getProperty(GIFTMAIL_PREFIX + id) && !force) { out.skipped.push({ program_id: id, why: 'already sent' }); continue; }
         sendMail_({ to: MKT_PEOPLE_.mike, subject: 'Gift cards to order — ' + brandProgramLabel_(prog) + ' (' + list.count + ' cards, ' + moneyStr_(list.total) + ')',
-                    body: giftMailText_(prog, list), name: 'Green Cross SPIFF' });
+                    body: giftMailText_(prog, list), htmlBody: giftMailHtml_(prog, list),
+                    cc: GIFTMAIL_CC, name: 'Green Cross SPIFF' });
         props.setProperty(GIFTMAIL_PREFIX + id, nowStamp_());
         out.sent.push(item);
       } finally { lock.releaseLock(); }
