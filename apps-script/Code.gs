@@ -329,7 +329,7 @@ var GATED_WRITES = ['snapshotProgress'];
 var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses',
                       'sweepOrphanProgress', 'publishToCore', 'backfillPayPeriods',
                       'publishKioskTokens', 'seedBrands', 'recordActuals', 'auditPayouts', 'calendarSync',
-                      'publishToWix'];
+                      'publishToWix', 'propsReport', 'setSwitch'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -460,6 +460,10 @@ function doGet(e) {
       /* Fill greencrosscanna.com/deals through GX Core's Wix connector. Secret-gated and DRY BY
          DEFAULT; `apply=1` writes, `shop=1` re-reads which stores stock each brand. See THE DEALS PAGE. */
       case 'publishToWix': out = publishToWixWeb_(p);                               break;
+      /* The script property store: how full, the biggest keys (names and sizes only), and the
+         on/off switches set without the editor. Secret-gated; setSwitch is dry unless apply=1. */
+      case 'propsReport': out = propsReportWeb_(p);                                 break;
+      case 'setSwitch':   out = setSwitchWeb_(p);                                   break;
       /* ONE STORE PER CALL. A full sweep is ~9s per store and /exec is killed at 60s — asking for
          all of them timed out with nothing written and no error to read, which is the worst of both.
          Called WITHOUT a store this returns the PLAN (every program × store pair) so a caller can
@@ -8986,6 +8990,63 @@ function wixReportFailure_(lines) {
     props.setProperty(WIX_FAIL_PROP_, JSON.stringify({ day: day, fp: fp }));
     return res;
   } catch (e) { console.warn('[spiff] could not file the deals page failure: ' + ((e && e.message) || e)); return null; }
+}
+
+/* ── THE SCRIPT PROPERTY STORE: how full it is, and the on/off switches (Sky, 2026-11-02) ──────────
+ * Sky set WIX_PUBLISH_ON=1 in the editor twice and it did not stick. GX Core had the same symptom the
+ * same day: its property store was full, and an editor save over a full store fails without a word.
+ * Apps Script caps the store (about 500 KB in all, 9 KB a value), and every write in this file is
+ * wrapped so a full store fails quietly too. Two secret-gated routes:
+ *   ?action=propsReport  key count, total bytes, the biggest keys and the totals per key prefix.
+ *                        Names and sizes only, never a value (some are secrets).
+ *   ?action=setSwitch    name=<one of PROP_SWITCHES_> value=1|0, dry unless apply=1. Writes, then
+ *                        reads back, so "saved" means the store really holds it. */
+var PROPS_STORE_LIMIT_ = 500000;
+var PROP_SWITCHES_ = ['WIX_PUBLISH_ON', 'CAL_SYNC_ON', 'CAL_INVITE_VDAYS'];
+
+function propsReport_(all) {
+  var keys = Object.keys(all || {});
+  var size = function (k) { return String(k).length + String(all[k] == null ? '' : all[k]).length; };
+  var total = keys.reduce(function (n, k) { return n + size(k); }, 0);
+  var byPrefix = Object.create(null);
+  keys.forEach(function (k) {
+    var m = String(k).match(/^([^:]+:|[A-Za-z]+_)/), p = m ? m[1] : k;
+    var b = byPrefix[p] || (byPrefix[p] = { prefix: p, keys: 0, bytes: 0 });
+    b.keys++; b.bytes += size(k);
+  });
+  return {
+    ok: true, keys: keys.length, bytes: total, limit_bytes: PROPS_STORE_LIMIT_,
+    percent_full: Math.round(total / PROPS_STORE_LIMIT_ * 1000) / 10,
+    biggest: keys.map(function (k) { return { key: k, bytes: size(k) }; })
+      .sort(function (a, b) { return b.bytes - a.bytes; }).slice(0, 15),
+    by_prefix: Object.keys(byPrefix).map(function (p) { return byPrefix[p]; })
+      .sort(function (a, b) { return b.bytes - a.bytes; }).slice(0, 15),
+    switches: PROP_SWITCHES_.reduce(function (o, k) { o[k] = all[k] == null ? null : String(all[k]); return o; }, {})
+  };
+}
+
+function propsReportWeb_(p) {
+  var props = PropertiesService.getScriptProperties();
+  var want = props.getProperty(GX_SECRET_PROP);
+  if (!want || String(p.secret || '') !== want) return { ok: false, error: 'Unauthorized' };
+  return propsReport_(props.getProperties());
+}
+
+function setSwitchWeb_(p) {
+  var props = PropertiesService.getScriptProperties();
+  var want = props.getProperty(GX_SECRET_PROP);
+  if (!want || String(p.secret || '') !== want) return { ok: false, error: 'Unauthorized' };
+  var name = String(p.name || '');
+  if (PROP_SWITCHES_.indexOf(name) < 0) return { ok: false, error: 'not a switch: ' + name + ' (switches: ' + PROP_SWITCHES_.join(', ') + ')' };
+  var value = String(p.value == null ? '' : p.value).trim();
+  if (value !== '1' && value !== '0') return { ok: false, error: 'value must be 1 (on) or 0 (off)' };
+  var before = props.getProperty(name);
+  if (String(p.apply || '') !== '1') return { ok: true, dry: true, name: name, now: before, would_set: value, note: 'dry run — nothing written. Send apply=1 to write.' };
+  try { props.setProperty(name, value); }
+  catch (e) { return { ok: false, name: name, error: 'the store refused the write: ' + scrubSecrets_((e && e.message) || e) }; }
+  var after = props.getProperty(name);
+  return { ok: after === value, dry: false, name: name, was: before, now: after,
+           error: after === value ? undefined : 'written but did not read back as ' + value + ' — the store may be full; see ?action=propsReport' };
 }
 
 /* The last hourly run's outcome, as counts, for ?action=diag. Never throws. */
