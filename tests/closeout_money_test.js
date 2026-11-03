@@ -98,7 +98,7 @@ const PROPS = G.makeProps({ GX_DEPLOY_SECRET: 'SEKRET' });
 const SENT = [];
 let GMAIL_FAIL = '', LOCK_OK = true;
 const DOC = G.load({
-  real: ['reportHtml_', 'emailDraft_', 'giftCardList_', 'buildReport_', 'measuredRowsFor_',
+  real: ['reportHtml_', 'emailDraft_', 'giftCardList_', 'giftCardListFor_', 'buildReport_', 'measuredRowsFor_',
          'payoutFactsOf_', 'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_',
          'friendlyName_', 'userKey_', 'scrubSecrets_', 'today_',
          'brandPaperHtml_', 'brandProgramLabel_', 'prettyDay_', 'brandPdfBlob_',
