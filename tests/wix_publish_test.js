@@ -114,10 +114,10 @@ const bugs = [];
 const makeApi = (varValues) => G.load({
   real: ['wixFold_', 'wixMenuSlug_', 'wixEsc_', 'wixStoreLabel_', 'wixTimeOf_', 'wixDayLabels_', 'wixThroughLabel_', 'wixOfferHtml_',
          'wixApprover_', 'wixCopyProblem_', 'wixSignDelta_', 'wixDutchieBrand_', 'wixVendorIndex_', 'wixDesired_', 'wixSameItem_', 'wixPlan_',
-         'wixImageProblem_', 'wixDriveFileId_', 'wixImageFor_', 'wixShopStores_', 'wixPublish_', 'publishToWixWeb_', 'wixReportFailure_',
+         'wixImageProblem_', 'wixDriveFileId_', 'wixImageFor_', 'wixShopStores_', 'wixPublish_', 'publishToWixWeb_', 'wixReportFailure_', 'wixRememberRun_', 'wixDiag_',
          'runWixPublishHourly_', 'calParseTime_', 'addDaysLocal_', 'normalizeMarketing_', 'mktPickedIds_', 'slug_', 'parseJson_', 'num_'],
   vars: ['WIX_PUBLISHED_PROP_', 'WIX_SHOP_PROP_', 'WIX_NOSHOP_PREFIX_', 'WIX_IMAGE_PREFIX_', 'WIX_LOOKAHEAD_DAYS_', 'WIX_MAX_REMOVES_',
-         'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_APPROVERS_', 'WIX_COPY_RULES_', 'WIX_FAIL_PROP_', 'WIX_FEATURED_SPEC_', 'WIX_SPEC_TEXT_',
+         'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_APPROVERS_', 'WIX_COPY_RULES_', 'WIX_FAIL_PROP_', 'WIX_LAST_RUN_PROP_', 'WIX_FEATURED_SPEC_', 'WIX_SPEC_TEXT_',
          'WIX_DOW_', 'WIX_MON_', 'MKT_MENU_', 'MKT_PEOPLE_', 'MKT_APP_URL', 'GX_SECRET_PROP'],
   varValues: Object.assign({ WIX_APPROVER_FIELD_: G.grabVar('WIX_APPROVER_FIELD_') }, varValues || {}),
   stubs: {
@@ -389,9 +389,16 @@ console.log('\n7. the switch, the route, the hourly job');
   WIX = makeWix();
   const orig = WIX.vendors;
   WIX.vendors = () => (calls.push('v'), orig());
+  delete P.props.WIX_LAST_RUN;
   ok('the hourly step is OFF until WIX_PUBLISH_ON=1', api.runWixPublishHourly_().skipped === true && !calls.length);
+  ok('  …and diag says so, with no run', /^off/.test(api.wixDiag_().publishing) && api.wixDiag_().lastRun === 'none');
   P.props.WIX_PUBLISH_ON = '1';
+  ok('diag says on before the first run, and that one is coming', api.wixDiag_().publishing === 'on' && /next hourly run/.test(api.wixDiag_().lastRun));
   ok('  …and runs once it is set', api.runWixPublishHourly_().apply === true && calls.length === 1);
+  const last = api.wixDiag_().lastRun;
+  ok('diag then shows the last run: when, and what it sent', last.ok === true && last.at === '2026-11-02 09:00:00' && last.sent_cards === 1 && last.sent_days === 5);
+  ok('  …as counts only: no program id or error text on an anonymous route', !/all-products|gron|Error/i.test(JSON.stringify(api.wixDiag_())));
+  ok('the diag route reports it', /d\.dealsPage = wixDiag_\(\)/.test(G.grab('diag_')));
   /* A failure reaches Sky: filed on SPIFF's bug board, once a day per distinct failure. */
   bugs.length = 0;
   WIX = makeWix();
@@ -405,6 +412,7 @@ console.log('\n7. the switch, the route, the hourly job');
   let threw = false;
   try { api.runWixPublishHourly_(); } catch (e) { threw = true; }
   ok('a run that stops is filed too, and still throws to the hourly job\'s own catch', threw && bugs.length === 2 && /run stopped/.test(bugs[1].desc));
+  ok('  …and diag shows the stopped run', api.wixDiag_().lastRun.ok === false && api.wixDiag_().lastRun.stopped === true);
   delete P.props.WIX_PUBLISH_ON;
   WIX = makeWix();
   ok('the route wants the deploy secret', api.publishToWixWeb_({ secret: 'nope' }).error === 'Unauthorized');

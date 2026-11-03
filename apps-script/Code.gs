@@ -7129,6 +7129,10 @@ function diag_() {
                       + 'their Dutchie filter matches nothing. Fix the filter to re-arm them.';
     }
   } catch (e) { d.snapshotBacklog = 'ERR ' + ((e && e.message) || e); }
+  /* THE DEALS PAGE: is the switch on, and what did its last hourly run do (Sky, 2026-11-02)? The
+     switch is a Script Property only the editor shows, so "is it on" had no answer outside it.
+     Counts and a time only, no program ids or error text: this route is ANYONE_ANONYMOUS. */
+  try { d.dealsPage = wixDiag_(); } catch (e) { d.dealsPage = 'ERR ' + ((e && e.message) || e); }
   return d;
 }
 
@@ -8424,6 +8428,7 @@ var WIX_PUBLISHER_APP_ = 'spiff';
 var WIX_COPY_RULES_ = [['bogo', '\\bbogo\\b'], ['free', '\\bfree\\b'], ['with purchase', '\\bwith (?:any |a |your )?purchase'],
   ['buy one', '\\bbuy one\\b'], ['best', '\\bbest\\b'], ['#1', '#\\s*1\\b|\\bnumber one\\b'], ['lowest', '\\blowest\\b'], ['em-dash', '—']];
 var WIX_FAIL_PROP_ = 'WIX_FAIL_FILED';
+var WIX_LAST_RUN_PROP_ = 'WIX_LAST_RUN';
 var WIX_FEATURED_SPEC_ = { min: 1080, max: 2400, bytes: 2097152, types: ['image/jpeg', 'image/png'] };
 var WIX_SPEC_TEXT_ = '1200 × 1200 px square (1080 to 2400 accepted), JPG or PNG, 2 MB max';
 var WIX_DOW_ = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
@@ -8983,6 +8988,20 @@ function wixReportFailure_(lines) {
   } catch (e) { console.warn('[spiff] could not file the deals page failure: ' + ((e && e.message) || e)); return null; }
 }
 
+/* The last hourly run's outcome, as counts, for ?action=diag. Never throws. */
+function wixRememberRun_(summary) {
+  try { PropertiesService.getScriptProperties().setProperty(WIX_LAST_RUN_PROP_, JSON.stringify(summary)); } catch (e) {}
+}
+
+/* What diag says about the deals page: the switch, and the last run (counts and a time only). */
+function wixDiag_() {
+  var props = PropertiesService.getScriptProperties();
+  var on = String(props.getProperty('WIX_PUBLISH_ON') || '') === '1';
+  var last = parseJson_(props.getProperty(WIX_LAST_RUN_PROP_), null);
+  return { publishing: on ? 'on' : 'off (WIX_PUBLISH_ON is not 1)',
+           lastRun: last || (on ? 'none yet: the next hourly run will record one' : 'none') };
+}
+
 function publishToWixWeb_(p) {
   var want = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
   if (!want || String(p.secret || '') !== want) return { ok: false, error: 'Unauthorized' };
@@ -9000,9 +9019,15 @@ function runWixPublishHourly_() {
   try { r = wixPublish_({ apply: true, readShop: true }); }
   catch (e) {
     var msg = scrubSecrets_((e && e.message) || e);
+    wixRememberRun_({ at: nowStamp_(), ok: false, stopped: true });
     wixReportFailure_(['the run stopped: ' + msg]);
     throw e;
   }
+  wixRememberRun_({ at: nowStamp_(), ok: !r.failed.length && !r.refused, stopped: false,
+    sent_cards: r.send.featured.length, sent_days: r.send.days.length,
+    removed: r.remove.featured.length + r.remove.days.length, unchanged: r.unchanged,
+    pruned_past_days: r.pruned_past_days, failed: r.failed.length, removals_refused: !!r.refused,
+    waiting_for_approval: r.skipped.length, problems: r.problems.length });
   wixReportFailure_(r.failed.map(function (f) { return (f.collection ? f.collection + ' ' : '') + (f.key ? f.key + ': ' : '') + f.error; })
     .concat(r.refused ? ['removals refused: ' + r.refused] : []));
   var line = 'sent ' + r.send.featured.length + ' card(s) and ' + r.send.days.length + ' day(s), removed '
