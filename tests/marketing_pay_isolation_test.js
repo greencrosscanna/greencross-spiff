@@ -175,7 +175,8 @@ ok('no route above reached for the pencils tab', PENCIL_TOUCHES === 0);
   /* Only the pencil routes themselves may use the tab's accessors. */
   const users = ['pencilSheet_(', 'readPencils_('];
   const owners = ['pencilSheet_', 'rowToPencil_', 'readPencils_', 'pencilsRead_', 'findPencilRow_', 'closePencil_',
-                  'savePencil_', 'releasePencil_', 'lockPencil_'];
+                  'savePencil_', 'releasePencil_', 'lockPencil_',
+                  'calendarSource_'];   // the calendar sync reads penciled holds and writes only to Google Calendar
   let rest = G.GS;
   owners.forEach((n) => { rest = rest.replace(G.grab(n), ''); });
   ok('  …and nothing else in the engine calls the pencils tab', users.every((u) => rest.indexOf(u) < 0));
@@ -207,7 +208,7 @@ ok('no route above reached for the holidays tab', HOLIDAY_TOUCHES === 0);
   const users = ['holidaySheet_(', 'readHolidays_(', 'getHoliday_('];
   const owners = ['holidaySheet_', 'holidayChannels_', 'holidayPlan_', 'rowToHoliday_', 'holidayToRow_', 'readHolidays_',
                   'holidaysRead_', 'findHolidayRow_', 'getHoliday_', 'saveHoliday_', 'cancelHoliday_', 'saveHolidayPlan_',
-                  'marketingAssign_'];
+                  'marketingAssign_', 'calendarSource_'];   // the calendar sync reads planned sends, writes only to Google Calendar
   let rest = G.GS;
   owners.forEach((n) => { rest = rest.replace(G.grab(n), ''); });
   ok('  …and nothing else in the engine calls the holidays tab', users.every((u) => rest.indexOf(u) < 0));
@@ -221,6 +222,22 @@ ok('no route above reached for the holidays tab', HOLIDAY_TOUCHES === 0);
   const js = require('fs').readFileSync(require('path').join(__dirname, '..', 'spiff.js'), 'utf8');
   const hedge = (js.match(/var ENGINE_HEDGE_READS = \{([\s\S]*?)\};/) || [])[1] || '';
   ok('no holiday route is hedged on the client', !/holiday/i.test(hedge));
+}
+
+console.log('\n5c. the Marketing Calendar sync');
+{
+  const NAMES = ['spiffProgress_', 'publishSpiffToCore_', 'publishToCore_', 'refreshSpiffProgress_', 'refreshProgressPlan_',
+                 'rollProgramStatuses_', 'listPrograms_', 'listProgramsCached_', 'rowToProgram_', 'programToRow_',
+                 'storeView_', 'lastProgramsByStore_', 'recordMeasuredActuals_', 'recordActualsWeb_', 'bootAll_',
+                 'byEmployee_', 'progEarned_', 'programRunsAt_', 'sweepOrphanProgress_', 'auditClosedPayouts_', 'clientView_',
+                 'payoutFactsOf_', 'sendBrandEmail_', 'buildReport_', 'giftCardList_'];
+  const named = [];
+  NAMES.forEach((n) => { try { named.push([n, G.grab(n)]); } catch (e) { /* not in the engine, nothing to leak */ } });
+  const leaks = named.filter(([n, src]) => /calendar/i.test(src)).map(([n]) => n);
+  ok('no pay, publication, kiosk or boot function mentions the calendar: ' + (leaks.join(', ') || 'none'), leaks.length === 0);
+  const trig = G.grab('refreshSpiffProgressTrigger');
+  ok('the hourly job reaches it only through its own try/catch step', (trig.match(/calendar/gi) || []).length >= 1
+     && /try \{ runCalendarSyncHourly_\(\); \}\s*catch/.test(trig));
 }
 
 console.log('\n6. the vendor plan and the team email (phase 3)');

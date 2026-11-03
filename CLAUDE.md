@@ -252,6 +252,17 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   create. `?action=vendorFolders` (secret, dry unless `apply=1`) does every vendor from programs and
   Core's brand list and links programs that are not closed; it never overwrites a link already set.
   A plan holding only the link is not "planned" (`hasPlan`). Pinned by `tests/vendor_folders_test.js`.
+  **The shared Marketing Calendar is filled from here, one way** (Sky, 2026-11-02): programs, penciled
+  holds ("Spiff reserved - Brand"), vendor days and holiday sends, written by `calendarSync_` to the
+  Google calendar in `MKT_CALENDAR_ID_`. Nothing is read back. Each event carries a private tag
+  (`spiff_key`: `program:<id>`, `vday:<id>:<n>`, `pencil:<id>`, `holiday:<id>`), so an edit moves the
+  same event; only tagged events are ever updated or removed, and Tawny's hand-made ones are only
+  REPORTED as `possible_duplicates`. Removals have brakes (empty programs tab, more than 10 an hour).
+  It runs LAST in the hourly job in its own try/catch, behind script property `CAL_SYNC_ON=1`
+  (off until Sky has seen a dry run: `?action=calendarSync`, secret, `apply=1` writes). Invites are
+  off until `CAL_INVITE_VDAYS=1`, then Mike only, on create. Needs the `calendar` scope: after a deploy
+  the owner runs `authorize()` once. Nothing that pays may call it. Pinned by `tests/calendar_sync_test.js`
+  and the isolation test's section 5c.
 
 ### Money: payout, cost, vendor send
 

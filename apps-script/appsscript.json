@@ -22,6 +22,7 @@
     "https://www.googleapis.com/auth/script.send_mail",
     "https://mail.google.com/",
     "https://www.googleapis.com/auth/script.scriptapp",
-    "https://www.googleapis.com/auth/drive"
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/calendar"
   ]
 }
