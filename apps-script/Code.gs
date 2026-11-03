@@ -328,7 +328,8 @@ var GATED_WRITES = ['snapshotProgress'];
    all three; see guard_. */
 var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses',
                       'sweepOrphanProgress', 'publishToCore', 'backfillPayPeriods',
-                      'publishKioskTokens', 'seedBrands', 'recordActuals', 'auditPayouts', 'calendarSync'];
+                      'publishKioskTokens', 'seedBrands', 'recordActuals', 'auditPayouts', 'calendarSync',
+                      'publishToWix'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -456,6 +457,9 @@ function doGet(e) {
       case 'recordActuals': out = recordActualsWeb_(p);                             break;
       /* Fill the shared Marketing Calendar. Secret-gated and DRY BY DEFAULT; `apply=1` writes. */
       case 'calendarSync': out = calendarSyncWeb_(p);                               break;
+      /* Fill greencrosscanna.com/deals through GX Core's Wix connector. Secret-gated and DRY BY
+         DEFAULT; `apply=1` writes, `shop=1` re-reads which stores stock each brand. See THE DEALS PAGE. */
+      case 'publishToWix': out = publishToWixWeb_(p);                               break;
       /* ONE STORE PER CALL. A full sweep is ~9s per store and /exec is killed at 60s — asking for
          all of them timed out with nothing written and no error to read, which is the worst of both.
          Called WITHOUT a store this returns the PLAN (every program × store pair) so a caller can
@@ -1252,7 +1256,12 @@ function editProgram_(p) {
 
   var merged = current.program, changed = [];
   var hasDelta = Object.prototype.hasOwnProperty.call(patch, 'marketing_delta');
-  if (hasDelta) patch.marketing_json = applyMarketingDelta_(merged.marketing_json, patch.marketing_delta);
+  if (hasDelta) {
+    /* Ticks are signed by the SESSION, not by whatever name the browser sent, because one tick
+       (Sky's deals-page approval) publishes to the public website. See wixSignDelta_. */
+    patch.marketing_json = applyMarketingDelta_(merged.marketing_json,
+      wixSignDelta_(patch.marketing_delta, auth.user, merged.marketing_json));
+  }
   EDITABLE_FIELDS.forEach(function (f) {
     // patch is JSON.parse'd from the request: a key literally named "hasOwnProperty" would
     // shadow the method and turn this into a TypeError. Call it off the prototype instead.
@@ -3800,6 +3809,10 @@ function refreshSpiffProgressTrigger() {
        above may wait on it or fail because of it. */
     try { runCalendarSyncHourly_(); }
     catch (e) { console.warn('[spiff] calendar sync FAILED: ' + ((e && e.message) || e)); }
+    /* THE DEALS PAGE AFTER IT, same terms: it writes only to the public website, through GX Core,
+       and nothing that pays may wait on it or fail because of it. */
+    try { runWixPublishHourly_(); }
+    catch (e) { console.warn('[spiff] deals page publish FAILED: ' + ((e && e.message) || e)); }
   } finally {
     releaseSweepLease_(lease);
   }
@@ -6569,6 +6582,7 @@ var MKT_MENU_ = {
   sms:      { t: 'Text blast', need: 'Text copy, for our review and approval.', spec: 'Plain text only. Include the offer and any opt-out wording.', dated: 'date', datedLabel: 'Text goes out' },
   social:   { t: 'Social media', need: 'Your handles, tags and any media you want used.', spec: '1080×1080 square, 1080×1350 portrait or 1080×1920 stories/reels, as JPG/PNG or MP4, plus your preferred tags.', datedLabel: '' },
   ecom:     { t: 'Online menu feature', need: 'Product images and descriptions for the featured spot.', spec: 'Clean product images on a plain background.' },
+  web:      { t: 'Deals page (website)', need: 'One featured image and the offer, for our deals page at greencrosscanna.com/deals.', spec: 'Featured image: 1200×1200 px square (1080 to 2400 accepted), JPG or PNG, 2 MB max, with text, prices and logos inside the center 1080×1080.' },
   vday:     { t: 'Vendor day', need: 'Your rep’s name, and the games or discounts you plan to run.', spec: '', dated: 'date', datedLabel: 'Vendor day' },
   raffle:   { t: 'Customer raffle', need: 'The prize. It cannot be cannabis.', spec: '', dated: 'date', datedLabel: 'Raffle drawing' },
   swag:     { t: 'Customer swag', need: 'Giveaway items, counted and shipped to us.', spec: '' },
@@ -8349,5 +8363,653 @@ function runCalendarSyncHourly_() {
     + r.failed.map(function (f) { return f.key + ' (' + f.error + ')'; }).join('; '));
   else console.log('[spiff] calendar sync: ' + line);
   if (r.refused) console.warn('[spiff] calendar sync REFUSED removals: ' + r.refused);
+  return r;
+}
+
+/* ═════════════════ THE DEALS PAGE (greencrosscanna.com/deals) ══════════════════════════════════════
+ * Sky, 2026-11-02: deals publish themselves. A program planned for the website becomes one Featured
+ * card (Wix collection FeaturedDeals, keyed on programId) and one row per vendor day (VendorDays, keyed
+ * on dayKey). GX Core holds the Wix key and does the writing (its connector, GXCore v364+); SPIFF only
+ * builds the payload. Field map and design: mockups/deals-wix-handover.md.
+ *
+ * WHAT GOES OUT. A program is on the page only when ALL of these hold:
+ *   · it is active, or a draft starting within WIX_LOOKAHEAD_DAYS_ (sent with live=false, so the
+ *     page does not show it until it is running)
+ *   · its marketing plan picks the Deals page item (`web`) and has a headline
+ *   · SKY has ticked "Approve the deals page copy" (WIX_APPROVE_TASK_). The engine signs every tick with
+ *     the session's user (wixSignDelta_), refuses that tick from anyone else, and un-ticks it when
+ *     anyone else changes the copy afterwards. Sky approves all customer copy; this is how.
+ * Its vendor days go out only when the plan also picks Vendor day. Only customer copy crosses: brand,
+ * typed copy, dates, store, time, image. The connector refuses any other field anyway.
+ *
+ * WHAT COMES OFF. Only rows SPIFF put there itself (their keys are kept in WIX_PUBLISHED_PROP_). A
+ * program that closes, is deleted, loses its approval or drops the item comes off on the next run; a
+ * vendor day whose LA date has passed is pruned. Rows typed by hand in Wix are never touched, and SPIFF
+ * makes no copy of anything a hand-made row already covers (same brand and overlapping dates for a
+ * card; same brand, date and store for a day), reported as skipped_duplicates. Delete the hand-made
+ * one and the next run puts SPIFF's up. Removals have the calendar's brakes.
+ *
+ * SHOP NOW. The card's button opens each store's online menu at /brands/<slug>, and a wrong slug shows
+ * "no products" rather than an error. So the slug comes from the brand name DUTCHIE uses for the
+ * program's products, slugged the menu's way ("Bobsled Extracts" → bobsled-extracts), and once per LA
+ * day SPIFF asks each store's live inventory which stores stock that brand. Those store ids go on the
+ * card as `shopStores`; the block lists only them, and hides the button when there are none, in which
+ * case Tawny gets one email. A store whose inventory could not be read keeps yesterday's answer: a
+ * refused source is not a zero. The Vendors collection is hand-owned (the connector cannot write it),
+ * so a Menu Slug that disagrees with Dutchie is REPORTED in menu_slug_fixes for a person to change.
+ *
+ * IT IS NOT A PAY PATH. It reads programs and inventory and writes only to the public website. It runs
+ * LAST in the hourly job in its own try/catch, behind script property WIX_PUBLISH_ON=1. Nothing that
+ * pays may call it. ?action=publishToWix (secret, dry unless apply=1) shows exactly what it would send.
+ * Pinned by tests/wix_publish_test.js. */
+var WIX_PUBLISHED_PROP_ = 'WIX_PUBLISHED';
+var WIX_SHOP_PROP_ = 'WIX_SHOP_STORES';
+var WIX_NOSHOP_PREFIX_ = 'wixnoshop:';
+var WIX_IMAGE_PREFIX_ = 'wiximg:';
+var WIX_LOOKAHEAD_DAYS_ = 7;
+var WIX_MAX_REMOVES_ = 40;
+var WIX_ITEM_ = 'web';
+var WIX_APPROVE_TASK_ = 'web.approve';
+/* Who may switch a program onto the page (Sky, 2026-11-02: "Sky, Mike and Tawny only", not every
+   editor). Sign-in names as GX Core holds them. GX Core's approval gate checks the same three. */
+var WIX_APPROVERS_ = ['sky', 'mike', 'tawny'];
+/* The field each row carries naming its approver, for GX Core's gate. Blank until core-admin settles
+   the name and adds it to the connector's allowlist: an unknown field refuses the whole batch. */
+var WIX_APPROVER_FIELD_ = '';
+/* OLCC copy rules (handoff deals-page.md): straight discounts only, no superlatives, no em-dashes.
+   Copy that trips one is not published, and the screen warns while it is typed. marketing.js holds
+   the same list (COPY_RULES); tests/wix_publish_test.js holds the two together. */
+var WIX_COPY_RULES_ = [['bogo', '\\bbogo\\b'], ['free', '\\bfree\\b'], ['with purchase', '\\bwith (?:any |a |your )?purchase'],
+  ['buy one', '\\bbuy one\\b'], ['best', '\\bbest\\b'], ['#1', '#\\s*1\\b|\\bnumber one\\b'], ['lowest', '\\blowest\\b'], ['em-dash', '—']];
+var WIX_FAIL_PROP_ = 'WIX_FAIL_FILED';
+var WIX_FEATURED_SPEC_ = { min: 1080, max: 2400, bytes: 2097152, types: ['image/jpeg', 'image/png'] };
+var WIX_SPEC_TEXT_ = '1200 × 1200 px square (1080 to 2400 accepted), JPG or PNG, 2 MB max';
+var WIX_DOW_ = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+var WIX_MON_ = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/* Accents off, then letters and digits only: "Grön", "Gron" and "GRON" are one brand. */
+function wixFold_(s) {
+  return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/* The online menu's brand slug: "Bobsled Extracts" -> bobsled-extracts, "Grön" -> gron. */
+function wixMenuSlug_(s) {
+  return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+function wixEsc_(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
+}
+
+/* The website names a store by its street ("Commercial St", "Baseline St"), not by GX Core's short
+   display name, so the label comes from the store's own address in GX Core: "1695 Center St NE" ->
+   "Center St". Read live, never typed here. No address: the display name. */
+function wixStoreLabel_(store) {
+  var street = String((store && store.address) || '').split(',')[0].trim()
+    .replace(/^\d+[A-Za-z]?\s+/, '').split(/\s+/)
+    .filter(function (w) { return w && !/^(N|S|E|W|NE|NW|SE|SW)$/.test(w); }).join(' ');
+  return street || String((store && (store.display_name || store.store_id)) || '');
+}
+
+/* "1-3:30" -> {label: "1 to 3:30 PM", minute: 780}. Text calParseTime_ cannot read goes out as typed,
+   sorted first. A single time stays a single time ("4 PM"), not the calendar's two-hour block. */
+function wixTimeOf_(text) {
+  var raw = String(text == null ? '' : text).trim();
+  var t = calParseTime_(raw);
+  if (!t) return { label: raw, minute: 0 };
+  var mins = function (hhmm) { var a = hhmm.split(':'); return +a[0] * 60 + +a[1]; };
+  var s = mins(t.start), e = mins(t.end);
+  var part = function (n) { var h = Math.floor(n / 60) % 12 || 12, m = n % 60; return h + (m ? ':' + (m < 10 ? '0' : '') + m : ''); };
+  var ap = function (n) { return n < 720 ? 'AM' : 'PM'; };
+  if (!/-|–|—|\bto\b/i.test(raw)) return { label: part(s) + ' ' + ap(s), minute: s };
+  return { label: part(s) + (ap(s) === ap(e) ? '' : ' ' + ap(s)) + ' to ' + part(e) + ' ' + ap(e), minute: s };
+}
+
+/* 2026-11-03 -> {dayLabel: "TUE", dateLabel: "11/3", long: "Tue Nov 3"}. The date is the LA day as
+   typed; built in UTC so no clock can move it. */
+function wixDayLabels_(ymd) {
+  var a = String(ymd).split('-'), d = new Date(Date.UTC(+a[0], +a[1] - 1, +a[2]));
+  var dow = WIX_DOW_[d.getUTCDay()];
+  return { dayLabel: dow, dateLabel: (+a[1]) + '/' + (+a[2]),
+           long: dow.charAt(0) + dow.slice(1).toLowerCase() + ' ' + WIX_MON_[+a[1] - 1] + ' ' + (+a[2]) };
+}
+
+function wixThroughLabel_(ymd) {
+  var a = String(ymd).split('-');
+  return 'Through ' + WIX_MON_[+a[1] - 1] + ' ' + (+a[2]);
+}
+
+/* One offer per line. A line that starts with a price ("$4 off…", "30% off…") gets the price in bold,
+   which is how the card shows it big and lime. Everything else is escaped text. */
+function wixOfferHtml_(lines) {
+  return (lines || []).map(function (l) {
+    var t = String(l == null ? '' : l).replace(/\s+/g, ' ').trim();
+    if (!t) return '';
+    var m = t.match(/^(\$\d+(?:\.\d{2})?|\d+%(?:\s+off)?)\s+(.+)$/i);
+    return '<p>' + (m ? '<strong>' + wixEsc_(m[1]) + '</strong> ' + wixEsc_(m[2]) : wixEsc_(t)) + '</p>';
+  }).join('');
+}
+
+/* Who approved the page copy, as stored ('' = nobody who may). The engine signs ticks with the
+   session's user (wixSignDelta_), so this is a signed-in approver, not a name a browser typed. */
+function wixApprover_(plan) {
+  var d = plan && plan.done && plan.done[WIX_APPROVE_TASK_];
+  var by = d ? String(d.by || '').toLowerCase() : '';
+  return WIX_APPROVERS_.indexOf(by) >= 0 ? by : '';
+}
+
+/* The first OLCC copy rule this text breaks, or ''. */
+function wixCopyProblem_(texts) {
+  var all = (texts || []).map(function (t) { return String(t == null ? '' : t); }).join('\n');
+  for (var i = 0; i < WIX_COPY_RULES_.length; i++) {
+    if (new RegExp(WIX_COPY_RULES_[i][1], 'i').test(all)) return WIX_COPY_RULES_[i][0];
+  }
+  return '';
+}
+
+/* ── SIGNING A MARKETING DELTA WITH THE SESSION ──────────────────────────────────────────────────
+ * A tick used to carry whatever `by` the browser sent. Harmless while ticks were only a to-do list;
+ * not once one of them publishes to the public website. So, on the way in:
+ *   · every tick's `by` is the signed-in user (the browser's value is ignored)
+ *   · the deals-page approval can only be ticked by an approver, WIX_APPROVERS_ (anyone may un-tick it)
+ *   · a change to the deals-page copy by anyone else un-ticks the approval, so what goes live is
+ *     always what an approver approved; an approver changing approved copy re-signs it as their own.
+ *     Vendor-day dates and times are not copy and do not touch it. */
+function wixSignDelta_(ops, user, current) {
+  var who = String(user || '').toLowerCase();
+  var approver = WIX_APPROVERS_.indexOf(who) >= 0;
+  var cur = current && typeof current === 'object' ? current : {};
+  var copyChanged = false;
+  var out = (Array.isArray(ops) ? ops : []).filter(function (op) {
+    return Array.isArray(op) && !(op[0] === 'done' && op[1] === WIX_APPROVE_TASK_ && op[2] && !approver);
+  }).map(function (op) {
+    if (op[0] === 'done' && op[2] && typeof op[2] === 'object') {
+      return ['done', op[1], { by: who, at: String(op[2].at || '') || nowStamp_() }];
+    }
+    if ((op[0] === 'd' || op[0] === 'rows') && op[1] === WIX_ITEM_) {
+      var before = ((cur[op[0]] || {})[WIX_ITEM_]);
+      if (JSON.stringify(before == null ? null : before) !== JSON.stringify(op[2] == null ? null : op[2])) copyChanged = true;
+    }
+    return op;
+  });
+  var ticked = cur.done && cur.done[WIX_APPROVE_TASK_];
+  var setsIt = out.some(function (op) { return op[0] === 'done' && op[1] === WIX_APPROVE_TASK_; });
+  if (copyChanged && ticked && !setsIt) {
+    out.push(approver ? ['done', WIX_APPROVE_TASK_, { by: who, at: nowStamp_() }] : ['done', WIX_APPROVE_TASK_, null]);
+  }
+  return out;
+}
+
+/* The Dutchie spelling of a program's brand, out of the brand names the stores actually stock. Same
+   rule as the payout (substring of match_json.brand, else the vendor), with accents folded, and
+   narrowed to the exact name when there is one. Two candidates and no exact one is ambiguous: no slug
+   is guessed. */
+function wixDutchieBrand_(prog, names) {
+  var want = wixFold_((prog.match_json && prog.match_json.brand) || prog.vendor);
+  if (!want) return { name: '', candidates: [] };
+  var hits = (names || []).filter(function (n, i, a) { return wixFold_(n).indexOf(want) >= 0 && a.indexOf(n) === i; });
+  var exact = hits.filter(function (n) { return wixFold_(n) === want; });
+  if (exact.length === 1) return { name: exact[0], candidates: hits };
+  if (hits.length === 1) return { name: hits[0], candidates: hits };
+  return { name: '', candidates: hits };
+}
+
+/* Vendors by folded title and alias. */
+function wixVendorIndex_(vendors) {
+  var idx = Object.create(null);
+  (vendors || []).forEach(function (v) {
+    [v.title].concat(Array.isArray(v.aliases) ? v.aliases : []).forEach(function (n) {
+      var k = wixFold_(n);
+      if (k && !idx[k]) idx[k] = v;
+    });
+  });
+  return idx;
+}
+
+/* WHAT THE PAGE SHOULD HOLD, as plain data. src = {programs, vendors, storeLabels:{id:label},
+   shop: {stores:{id:[brand]}} | null, sendShopBrand}. Returns the items, plus why each planned program
+   is NOT going out, and anything a person should fix. `images` maps programId -> the typed image link,
+   which wixPublish_ resolves (it needs Drive and Wix, this does not). */
+function wixDesired_(src, today) {
+  var ISO = /^\d{4}-\d{2}-\d{2}$/;
+  var out = { featured: [], days: [], images: {}, skipped: [], problems: [], shop: [] };
+  var horizon = addDaysLocal_(today, WIX_LOOKAHEAD_DAYS_);
+  var idx = wixVendorIndex_(src.vendors);
+  var labels = src.storeLabels || {};
+  var shop = src.shop && src.shop.stores ? src.shop : null;
+  var brandNames = [];
+  if (shop) Object.keys(shop.stores).forEach(function (s) { brandNames = brandNames.concat(shop.stores[s] || []); });
+  var text = function (x, max) { return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, max || 500); };
+
+  var picked = [];
+  (src.programs || []).forEach(function (p) {
+    if (!ISO.test(String(p.start_date || '')) || !ISO.test(String(p.end_date || '')) || p.end_date < today) return;
+    if (!(p.status === 'active' || (p.status === 'draft' && p.start_date <= horizon))) return;
+    var plan = normalizeMarketing_(p.marketing_json) || {};
+    if (mktPickedIds_(plan).indexOf(WIX_ITEM_) < 0) return;          // not planned for the website
+    var web = (plan.d && plan.d[WIX_ITEM_]) || {};
+    if (!text(web.headline)) { out.skipped.push({ program_id: p.program_id, why: 'no headline yet' }); return; }
+    var approver = wixApprover_(plan);
+    if (!approver) { out.skipped.push({ program_id: p.program_id, why: 'waiting for Sky, Mike or Tawny to approve the deals page copy' }); return; }
+    var broken = wixCopyProblem_([web.headline, web.note, web.deal, web.offer, web.fine, web.alt]
+      .concat(((plan.rows && plan.rows[WIX_ITEM_]) || []).map(function (r) { return r.text; })));
+    if (broken) { out.skipped.push({ program_id: p.program_id, why: 'the copy breaks the OLCC copy rules ("' + broken + '"); fix it on the program' }); return; }
+    picked.push({ p: p, plan: plan, web: web, approver: approver });
+  });
+  /* Soonest-ending first, which is the card order on the page. */
+  picked.sort(function (a, b) {
+    return a.p.end_date < b.p.end_date ? -1 : a.p.end_date > b.p.end_date ? 1 : (a.p.program_id < b.p.program_id ? -1 : 1);
+  });
+
+  picked.forEach(function (x, i) {
+    var p = x.p, plan = x.plan, web = x.web, id = p.program_id;
+    var vendor = text(p.vendor, 120) || text((p.match_json || {}).brand, 120);
+    var v = idx[wixFold_(vendor)] || idx[wixFold_((p.match_json || {}).brand)] || null;
+    if (!v) out.problems.push({ program_id: id, problem: 'no Vendors item in Wix matches "' + vendor + '", so the page shows the name on a black tile. Add the brand to Vendors.' });
+
+    var days = [];
+    if (mktPickedIds_(plan).indexOf('vday') >= 0) {
+      var oldDay = (plan.d && plan.d.vday) || {};
+      days = (plan.vdays && plan.vdays.length ? plan.vdays : (oldDay.date ? [{ store: '', date: oldDay.date, time: oldDay.time || '' }] : []))
+        .filter(function (d) { return ISO.test(String(d.date || '')) && d.date >= today; })
+        .map(function (d) {
+          var label = d.store ? (labels[slug_(d.store)] || d.store) : '';
+          return { store: label, storeKey: label ? wixMenuSlug_(label) : 'all', date: d.date, time: wixTimeOf_(d.time) };
+        })
+        .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : a.time.minute - b.time.minute; });
+    }
+
+    var item = {
+      programId: id, title: vendor, headline: text(web.headline, 200),
+      offerLines: wixOfferHtml_(((plan.rows && plan.rows[WIX_ITEM_]) || []).map(function (r) { return r.text; })),
+      vendorDaysNote: text(web.note), finePrint: text(web.fine),
+      imageAltText: text(web.alt) || text(web.headline, 200),
+      throughLabel: wixThroughLabel_(p.end_date), startDate: p.start_date, endDate: p.end_date,
+      sortOrder: i + 1, live: p.status === 'active' && p.start_date <= today,
+      vendorDays: days.map(function (d) {
+        return '<p><strong>' + wixEsc_(wixDayLabels_(d.date).long) + '</strong> · ' + wixEsc_(d.store || 'All stores')
+          + (d.time.label ? ' · ' + wixEsc_(d.time.label) : '') + '</p>';
+      }).join(''),
+      vendorDaysData: days.map(function (d) { return { store: d.store, date: d.date, time: d.time.label }; })
+    };
+    if (v) item.vendorRef = v._id;
+    if (WIX_APPROVER_FIELD_) item[WIX_APPROVER_FIELD_] = x.approver;
+    if (text(web.image)) out.images[id] = text(web.image);
+
+    /* Shop Now. Without a day's inventory read, shopStores is left as it is on the card. */
+    var b = wixDutchieBrand_(p, brandNames);
+    var slug = wixMenuSlug_(b.name || vendor);
+    if (shop) {
+      if (!b.name && b.candidates.length) {
+        out.problems.push({ program_id: id, problem: 'Dutchie has several brands that match "' + vendor + '": ' + b.candidates.join(', ') + '. Narrow the program\'s brand filter.' });
+      } else {
+        var stores = Object.keys(shop.stores).filter(function (s) { return b.name && (shop.stores[s] || []).indexOf(b.name) >= 0; }).sort();
+        item.shopStores = stores;
+        var have = v ? (v.menuSlug || wixMenuSlug_(v.title)) : '';
+        out.shop.push({ program_id: id, vendor: vendor, dutchie_brand: b.name, slug: slug, stores: stores,
+                        vendors_menu_slug: v ? (v.menuSlug || '') : '', fix: !!(v && b.name && have !== slug) });
+      }
+    }
+    if (src.sendShopBrand && b.name) item.shopBrand = slug;
+    out.featured.push(item);
+
+    var seen = Object.create(null);
+    days.forEach(function (d) {
+      var base = id + '|' + d.storeKey + '|' + d.date;
+      seen[base] = (seen[base] || 0) + 1;
+      var L = wixDayLabels_(d.date);
+      var row = { dayKey: base + (seen[base] > 1 ? '|' + seen[base] : ''), programId: id, title: vendor,
+                  date: d.date, dayLabel: L.dayLabel, dateLabel: L.dateLabel, store: d.store,
+                  time: d.time.label, sortTime: d.time.minute, deal: text(web.deal, 40), offer: text(web.offer, 200) };
+      if (v) row.vendorRef = v._id;
+      if (WIX_APPROVER_FIELD_) row[WIX_APPROVER_FIELD_] = x.approver;
+      out.days.push(row);
+    });
+  });
+  return out;
+}
+
+/* Does a Wix row already hold every field of this item, as sent? Fields the item does not carry are
+   not compared: the connector merges, so they are left alone. */
+function wixSameItem_(row, item) {
+  return Object.keys(item).every(function (f) {
+    var a = row[f], b = item[f];
+    if (a && typeof a === 'object' && a.$date) a = String(a.$date).slice(0, 10);
+    return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
+  });
+}
+
+/* WHAT TO SEND, given what Wix holds now. Pure: desired + rows + published keys in, the plan out. */
+function wixPlan_(desired, rows, published, programCount, today) {
+  var out = { featured: [], days: [], remove_featured: [], remove_days: [], unchanged: 0,
+              skipped_duplicates: [], refused: '', keep_featured: [], keep_days: [] };
+  var fold = wixFold_;
+  var overlap = function (a, b) { return String(a.startDate || '') <= String(b.endDate || '') && String(b.startDate || '') <= String(a.endDate || ''); };
+  var dayOf = function (r) { var d = r.date; if (d && typeof d === 'object' && d.$date) d = d.$date; return String(d || '').slice(0, 10); };
+  var side = function (want, have, keyField, mine, twinOf, sendTo, removeTo, keepTo) {
+    var byKey = Object.create(null), handMade = [];
+    (have || []).forEach(function (r) {
+      var k = String(r[keyField] == null ? '' : r[keyField]);
+      (byKey[k] = byKey[k] || []).push(r);
+      if (mine.indexOf(k) < 0) handMade.push(r);
+    });
+    var wanted = Object.create(null);
+    want.forEach(function (item) {
+      var k = item[keyField], rowsNow = byKey[k] || [];
+      wanted[k] = true;
+      if (rowsNow.length === 1 && wixSameItem_(rowsNow[0], item)) { out.unchanged++; keepTo.push(k); return; }
+      if (!rowsNow.length) {
+        var twin = handMade.filter(function (h) { return twinOf(h, item); })[0];
+        if (twin) { out.skipped_duplicates.push({ key: k, hand_made: twin[keyField] || twin._id || '' }); return; }
+      }
+      sendTo.push(item);
+    });
+    mine.forEach(function (k) { if (!wanted[k] && byKey[k]) removeTo.push(k); });
+  };
+  side(desired.featured, rows.featured, 'programId', (published && published.featured) || [],
+       function (h, it) { return fold(h.title) === fold(it.title) && overlap(h, it); },
+       out.featured, out.remove_featured, out.keep_featured);
+  side(desired.days, rows.days, 'dayKey', (published && published.days) || [],
+       function (h, it) { return fold(h.title) === fold(it.title) && dayOf(h) === it.date && fold(h.store) === fold(it.store); },
+       out.days, out.remove_days, out.keep_days);
+  /* EXPIRED CARDS COME OFF WHOEVER MADE THEM. GX Core does not clear Featured Deals and nothing else
+     runs on a schedule, so a card whose end date (LA day) has passed is deleted here, a hand-made one
+     included: "item deleted after end" is the page's rule, not SPIFF's. The page hides them anyway. */
+  out.expired_featured = [];
+  if (today) (rows.featured || []).forEach(function (r) {
+    var end = r.endDate; if (end && typeof end === 'object' && end.$date) end = end.$date;
+    end = String(end || '').slice(0, 10);
+    var k = String(r.programId == null ? '' : r.programId);
+    if (k && /^\d{4}-\d{2}-\d{2}$/.test(end) && end < today && out.remove_featured.indexOf(k) < 0) {
+      out.remove_featured.push(k); out.expired_featured.push(k);
+    }
+  });
+  /* Brakes, as on the calendar: an empty programs tab makes everything look gone, and a big sweep in
+     one run is likelier a bug than an editing session. Refused removals stay published. */
+  var n = out.remove_featured.length + out.remove_days.length;
+  if (n && !programCount) out.refused = 'programs tab read empty; would have removed ' + n;
+  else if (n > WIX_MAX_REMOVES_) out.refused = 'would remove ' + n + ' (limit ' + WIX_MAX_REMOVES_ + ')';
+  if (out.refused) {
+    out.keep_featured = out.keep_featured.concat(out.remove_featured.filter(function (k) { return out.expired_featured.indexOf(k) < 0; }));
+    out.expired_featured = [];
+    out.keep_days = out.keep_days.concat(out.remove_days);
+    out.remove_featured = []; out.remove_days = [];
+  }
+  return out;
+}
+
+/* GX Core's Wix connector, behind small calls so the publisher can run against a stand-in. Each read
+   that comes back not-ok THROWS: a failed read must never look like an empty collection. */
+function wixAdapter_() {
+  var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  if (!secret) throw new Error('GX_DEPLOY_SECRET is not set on this script — cannot reach GX Core');
+  var must = function (r, what) {
+    if (!r || r.ok === false) throw new Error(what + ' failed: ' + scrubSecrets_((r && r.error) || 'no answer'));
+    return r;
+  };
+  return {
+    vendors: function () { return must(GXCore.wixVendors(secret), 'wix_vendors').vendors || []; },
+    read: function (coll) { return must(GXCore.wixRead(secret, coll, { limit: 1000 }), 'wix_read ' + coll).items || []; },
+    upsert: function (coll, items) { return GXCore.wixUpsert(secret, coll, items, { apply: true, by: 'spiff' }); },
+    remove: function (coll, keys) { return GXCore.wixDelete(secret, coll, keys, { apply: true, by: 'spiff' }); },
+    prune: function () { return GXCore.wixPrunePastVendorDays(secret, { apply: true, by: 'spiff' }); },
+    importImage: function (url, name, mime) { return GXCore.wixImportImage(secret, url, { display_name: name, mime_type: mime, apply: true }); },
+    mediaStatus: function (fileId) { return GXCore.wixMediaStatus(secret, fileId); },
+    driveMeta: function (id) {
+      return driveApi_('get', encodeURIComponent(id) + '?supportsAllDrives=true&fields=' + encodeURIComponent('name,mimeType,size,imageMediaMetadata(width,height)'));
+    }
+  };
+}
+
+/* The Featured image spec (mockups/deals-wix-handover.md): '' when it passes, else what is wrong. */
+function wixImageProblem_(meta) {
+  var S = WIX_FEATURED_SPEC_;
+  var mime = String((meta && meta.mimeType) || ''), bytes = Number(meta && meta.size) || 0;
+  var im = (meta && meta.imageMediaMetadata) || {}, w = Number(im.width) || 0, h = Number(im.height) || 0;
+  if (S.types.indexOf(mime) < 0) return 'is not a JPG or PNG (' + (mime || 'unknown type') + ')';
+  if (bytes > S.bytes) return 'is ' + (Math.round(bytes / 104857.6) / 10) + ' MB; the limit is 2 MB';
+  if (!w || !h) return 'has no readable size yet (Drive may still be processing it)';
+  if (w !== h) return 'is ' + w + ' × ' + h + ', and it must be square';
+  if (w < S.min || w > S.max) return 'is ' + w + ' × ' + h + '; a side must be 1080 to 2400 px';
+  return '';
+}
+
+function wixDriveFileId_(url) {
+  var m = String(url || '').match(/\/d\/([-\w]{20,})/) || String(url || '').match(/[?&]id=([-\w]{20,})/);
+  return m ? m[1] : '';
+}
+
+/* A typed image link -> the wix:image:// value the card's Image field stores. A wix:image value is
+   used as it is. A Drive file is checked against the spec FIRST, imported once (on apply), and the
+   answer remembered by file id, so an unchanged image is never imported twice. */
+function wixImageFor_(url, apply, w, props) {
+  var u = String(url || '').trim();
+  if (/^wix:image:\/\//.test(u)) return { uri: u };
+  var id = wixDriveFileId_(u);
+  if (!id) return { problem: 'the featured image link is not a Google Drive file link' };
+  var known = props.getProperty(WIX_IMAGE_PREFIX_ + id) || '';
+  if (/^wix:image:\/\//.test(known)) return { uri: known };
+  if (/^pending:/.test(known)) {
+    if (!apply) return { pending: 'still processing in Wix Media' };
+    var st = w.mediaStatus(known.slice(8));
+    if (st && st.wix_image) { props.setProperty(WIX_IMAGE_PREFIX_ + id, st.wix_image); return { uri: st.wix_image }; }
+    if (st && st.status === 'PENDING') return { pending: 'still processing in Wix Media' };
+    props.deleteProperty(WIX_IMAGE_PREFIX_ + id);
+    return { problem: 'Wix could not process the featured image' };
+  }
+  var meta;
+  try { meta = w.driveMeta(id); }
+  catch (e) { return { problem: 'the featured image could not be read from Drive (' + String((e && e.message) || e).slice(0, 120) + ')' }; }
+  var bad = wixImageProblem_(meta);
+  if (bad) return { problem: 'the featured image ' + bad + '. It must be ' + WIX_SPEC_TEXT_ + '.' };
+  if (!apply) return { pending: 'would import ' + (meta.name || id) + ' into Wix Media' };
+  var r = w.importImage('https://lh3.googleusercontent.com/d/' + id, meta.name || (id + '.png'), meta.mimeType);
+  if (r && r.wix_image) { props.setProperty(WIX_IMAGE_PREFIX_ + id, r.wix_image); return { uri: r.wix_image }; }
+  if (r && r.ok !== false && r.file_id) { props.setProperty(WIX_IMAGE_PREFIX_ + id, 'pending:' + r.file_id); return { pending: 'importing into Wix Media' }; }
+  return { problem: 'Wix could not import the featured image: ' + scrubSecrets_((r && r.error) || 'no answer') + '. Is the file shared "anyone with the link"?' };
+}
+
+/* WHICH STORES STOCK WHICH BRAND, read from each store's live inventory once per LA day (and again
+   when a new brand needs asking about). Only brands that match a program's brand are kept, so the
+   answer fits in a script property. A store that cannot be read keeps yesterday's answer; every store
+   failing keeps yesterday's whole answer. Without `read`, only the stored answer is used. */
+function wixShopStores_(opts) {
+  var props = PropertiesService.getScriptProperties();
+  var prev = parseJson_(props.getProperty(WIX_SHOP_PROP_), null) || {};
+  var wanted = (opts.wanted || []).filter(function (x, i, a) { return x && a.indexOf(x) === i; }).sort();
+  var have = prev.wanted || [];
+  var fresh = prev.day === opts.today && wanted.every(function (x) { return have.indexOf(x) >= 0; });
+  if (fresh || !opts.read) return prev.stores ? prev : null;
+  var next = { day: opts.today, at: nowStamp_(), wanted: wanted, stores: {}, failed: [] };
+  var match = function (b) { var f = wixFold_(b); return wanted.some(function (x) { return f.indexOf(x) >= 0; }); };
+  (opts.stores || []).forEach(function (s) {
+    var id = slug_(s.store_id || '');
+    if (!id) return;
+    try {
+      var set = Object.create(null);
+      (opts.inventory(id) || []).forEach(function (pr) {
+        var b = String(pr.brandName || pr.brand || '').trim();
+        if (b && num_(pr.quantityAvailable) > 0 && !/^sample\b/i.test(String(pr.productName || pr.name || '')) && match(b)) set[b] = 1;
+      });
+      next.stores[id] = Object.keys(set).sort();
+    } catch (e) {
+      next.failed.push(id);
+      if (prev.stores && prev.stores[id]) next.stores[id] = prev.stores[id];
+    }
+  });
+  if (next.failed.length && next.failed.length === (opts.stores || []).length) return prev.stores ? prev : null;
+  try { props.setProperty(WIX_SHOP_PROP_, JSON.stringify(next)); } catch (e) { /* too big to keep: re-read next run */ }
+  return next;
+}
+
+/* One pass. Dry unless opts.apply. Never throws for one bad write: each has its own try. */
+function wixPublish_(opts) {
+  opts = opts || {};
+  var apply = !!opts.apply;
+  var today = opts.today || today_();
+  var props = PropertiesService.getScriptProperties();
+  var w = opts.wix || wixAdapter_();
+  var programs = opts.programs || listPrograms_();
+  var stores = opts.stores || gxStores_() || [];
+  var out = { ok: true, apply: apply, today: today, send: { featured: [], days: [] }, remove: { featured: [], days: [] },
+              unchanged: 0, skipped: [], skipped_duplicates: [], problems: [], shop: [], menu_slug_fixes: [],
+              pruned_past_days: 0, expired_featured: [], refused: '', failed: [], notified: [] };
+
+  var labels = Object.create(null);
+  stores.forEach(function (s) { labels[slug_(s.store_id || '')] = wixStoreLabel_(s); });
+
+  var wanted = programs.filter(function (p) { return p.status === 'active' || p.status === 'draft'; })
+    .map(function (p) { return wixFold_((p.match_json && p.match_json.brand) || p.vendor); });
+  var shop = null;
+  try {
+    shop = wixShopStores_({ today: today, wanted: wanted, read: !!opts.readShop, stores: stores,
+                            inventory: opts.inventory || dutchieInventoryViaGXCore_ });
+  } catch (e) { out.problems.push({ problem: 'could not read which stores stock each brand: ' + scrubSecrets_((e && e.message) || e) }); }
+  if (!shop) out.problems.push({ problem: 'no inventory read yet today, so Shop Now keeps its current store list (run with shop=1 to read it)' });
+  else if (shop.failed && shop.failed.length) out.problems.push({ problem: 'inventory could not be read at ' + shop.failed.join(', ') + '; those stores keep yesterday\'s answer' });
+
+  var vendors = w.vendors();
+  var d = wixDesired_({ programs: programs, vendors: vendors, storeLabels: labels, shop: shop,
+                        sendShopBrand: String(props.getProperty('WIX_SEND_SHOP_BRAND') || '') === '1' }, today);
+  out.skipped = d.skipped; out.problems = out.problems.concat(d.problems); out.shop = d.shop;
+  out.menu_slug_fixes = d.shop.filter(function (s) { return s.fix; }).map(function (s) {
+    return { vendor: s.vendor, menu_slug_now: s.vendors_menu_slug || '(blank)', should_be: s.slug };
+  });
+
+  d.featured.forEach(function (item) {
+    var url = d.images[item.programId];
+    if (!url) return;
+    var r;
+    try { r = wixImageFor_(url, apply, w, props); }
+    catch (e) { r = { problem: 'featured image: ' + scrubSecrets_((e && e.message) || e) }; }
+    if (r.uri) item.image = r.uri;
+    else if (r.problem) out.problems.push({ program_id: item.programId, problem: r.problem });
+    else if (r.pending) out.problems.push({ program_id: item.programId, problem: 'featured image ' + r.pending });
+  });
+
+  var rows = { featured: w.read('FeaturedDeals'), days: w.read('VendorDays') };
+  var published = parseJson_(props.getProperty(WIX_PUBLISHED_PROP_), null) || { featured: [], days: [] };
+  var plan = wixPlan_(d, rows, published, programs.length, today);
+  out.expired_featured = plan.expired_featured;
+  out.send.featured = plan.featured; out.send.days = plan.days;
+  out.remove.featured = plan.remove_featured; out.remove.days = plan.remove_days;
+  out.unchanged = plan.unchanged; out.skipped_duplicates = plan.skipped_duplicates; out.refused = plan.refused;
+  var past = rows.days.filter(function (r) {
+    var x = r.date; if (x && typeof x === 'object' && x.$date) x = x.$date;
+    x = String(x || '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(x) && x < today;
+  }).length;
+  out.pruned_past_days = past;
+  if (!apply) { out.note = 'dry run — nothing written. Send apply=1 to write.'; return out; }
+
+  /* Writes. A key counts as published once Wix has it; a refused removal stays published. */
+  var keepF = plan.keep_featured.slice(), keepD = plan.keep_days.slice();
+  var send = function (coll, items, keyField, keep) {
+    if (!items.length) return;
+    try {
+      var r = w.upsert(coll, items);
+      if (!r || (r.ok === false && !r.results)) throw new Error(scrubSecrets_((r && r.error) || 'no answer'));
+      (r.results || []).forEach(function (x) {
+        if (x.op === 'inserted' || x.op === 'updated' || x.op === 'unchanged') keep.push(x.key);
+        else out.failed.push({ collection: coll, key: x.key, error: x.error || x.op });
+      });
+    } catch (e) { out.failed.push({ collection: coll, error: String((e && e.message) || e) }); }
+  };
+  send('FeaturedDeals', plan.featured, 'programId', keepF);
+  send('VendorDays', plan.days, 'dayKey', keepD);
+  var drop = function (coll, keys, keep) {
+    if (!keys.length) return;
+    try {
+      var r = w.remove(coll, keys);
+      if (!r || r.ok === false) { keys.forEach(function (k) { keep.push(k); }); throw new Error(scrubSecrets_((r && (r.error || JSON.stringify(r.errors || []))) || 'no answer')); }
+    } catch (e) { out.failed.push({ collection: coll, error: String((e && e.message) || e) }); }
+  };
+  drop('FeaturedDeals', plan.remove_featured, keepF);
+  drop('VendorDays', plan.remove_days, keepD);
+  if (past) {
+    try { var pr = w.prune(); if (!pr || pr.ok === false) throw new Error(scrubSecrets_((pr && pr.error) || 'no answer')); }
+    catch (e) { out.failed.push({ collection: 'VendorDays', error: 'prune: ' + String((e && e.message) || e) }); }
+  }
+  try {
+    props.setProperty(WIX_PUBLISHED_PROP_, JSON.stringify({
+      featured: keepF.filter(function (k, i, a) { return a.indexOf(k) === i; }),
+      days: keepD.filter(function (k, i, a) { return a.indexOf(k) === i; }) }));
+  } catch (e) { out.failed.push({ error: 'could not remember what was published: ' + String((e && e.message) || e) }); }
+
+  /* No store stocks the brand: the card hides Shop Now, and Tawny hears about it once, until a store
+     has it again. */
+  d.shop.forEach(function (s) {
+    var k = WIX_NOSHOP_PREFIX_ + s.program_id;
+    if (s.stores.length) { if (props.getProperty(k)) props.deleteProperty(k); return; }
+    if (props.getProperty(k)) return;
+    try {
+      sendMail_({ to: MKT_PEOPLE_.tawny, subject: 'Deals page: no store has ' + s.vendor + ' in stock',
+        body: 'The ' + s.vendor + ' card on greencrosscanna.com/deals has no store to send customers to: '
+            + 'none of our stores shows ' + (s.dutchie_brand || s.vendor) + ' in stock in Dutchie today, so the card\'s '
+            + 'Shop Now button is hidden. It comes back on its own once a store has the brand in stock.\n\n'
+            + 'If the brand is on the shelf, check its name in Dutchie and the brand on the SPIFF program.\n\n'
+            + 'Sent once by SPIFF (' + MKT_APP_URL + ').' });
+      props.setProperty(k, today);
+      out.notified.push(s.program_id);
+    } catch (e) { out.failed.push({ error: 'could not email Tawny about ' + s.vendor + ': ' + String((e && e.message) || e) }); }
+  });
+  out.ok = !out.failed.length;
+  return out;
+}
+
+/* A FAILURE REACHES SKY, not only GX Core's health board (handoff item 2): it is filed as a bug on
+   SPIFF's own board (app=spiff), which Sky reads. Once per LA day per distinct set of failures, so a
+   failure that repeats every hour is one report, and a new one is a new report. Never throws. */
+function wixReportFailure_(lines) {
+  if (!lines || !lines.length) return null;
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var day = today_(), fp = lines.slice().sort().join('|').replace(/\d{4}-\d{2}-\d{2}/g, '').slice(0, 300);
+    var prev = parseJson_(props.getProperty(WIX_FAIL_PROP_), null) || {};
+    if (prev.day === day && prev.fp === fp) return null;
+    var res = GXCore.gxIngestBug('spiff', 'spiff-engine', {
+      title: 'Deals page publish failed: ' + String(lines[0]).slice(0, 90),
+      desc: 'The hourly SPIFF → greencrosscanna.com/deals publish hit a problem. What is already on the page '
+          + 'stays as it was; the next hour tries again.\n\n' + lines.map(function (l) { return '• ' + l; }).join('\n')
+          + '\n\nSee ?action=publishToWix (dry) for the full picture.',
+      priority: 'high', tab: 'spiff' });
+    props.setProperty(WIX_FAIL_PROP_, JSON.stringify({ day: day, fp: fp }));
+    return res;
+  } catch (e) { console.warn('[spiff] could not file the deals page failure: ' + ((e && e.message) || e)); return null; }
+}
+
+function publishToWixWeb_(p) {
+  var want = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  if (!want || String(p.secret || '') !== want) return { ok: false, error: 'Unauthorized' };
+  var apply = String(p.apply || '') === '1';
+  try { return wixPublish_({ apply: apply, readShop: apply || String(p.shop || '') === '1' }); }
+  catch (e) { return { ok: false, error: scrubSecrets_((e && e.message) || e) }; }
+}
+
+/* The hourly step. OFF until Sky sets WIX_PUBLISH_ON = 1 (after a dry run he has looked at). Says what
+   it did either way, so a page that stopped updating leaves a line. */
+function runWixPublishHourly_() {
+  var props = PropertiesService.getScriptProperties();
+  if (String(props.getProperty('WIX_PUBLISH_ON') || '') !== '1') return { skipped: true };
+  var r;
+  try { r = wixPublish_({ apply: true, readShop: true }); }
+  catch (e) {
+    var msg = scrubSecrets_((e && e.message) || e);
+    wixReportFailure_(['the run stopped: ' + msg]);
+    throw e;
+  }
+  wixReportFailure_(r.failed.map(function (f) { return (f.collection ? f.collection + ' ' : '') + (f.key ? f.key + ': ' : '') + f.error; })
+    .concat(r.refused ? ['removals refused: ' + r.refused] : []));
+  var line = 'sent ' + r.send.featured.length + ' card(s) and ' + r.send.days.length + ' day(s), removed '
+           + (r.remove.featured.length + r.remove.days.length) + ', unchanged ' + r.unchanged
+           + (r.pruned_past_days ? ', pruned ' + r.pruned_past_days + ' past day(s)' : '');
+  if (r.failed.length) console.warn('[spiff] deals page: ' + r.failed.length + ' write(s) FAILED — ' + line + ' — '
+    + r.failed.map(function (f) { return (f.key || f.collection || '') + ' (' + f.error + ')'; }).join('; '));
+  else console.log('[spiff] deals page: ' + line);
+  if (r.refused) console.warn('[spiff] deals page REFUSED removals: ' + r.refused);
+  if (r.menu_slug_fixes.length) console.warn('[spiff] deals page: Vendors Menu Slug disagrees with Dutchie for '
+    + r.menu_slug_fixes.map(function (f) { return f.vendor + ' (' + f.menu_slug_now + ' → ' + f.should_be + ')'; }).join(', '));
   return r;
 }

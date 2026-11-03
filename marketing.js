@@ -124,6 +124,23 @@
       c: 'Review the placement and any offer shown with it.',
       k: [['ecom.set', 'INV', 'Set featured placement on the online menu', 's', -1],
           ['ecom.remove', 'INV', 'Remove featured placement', 'e', 1]] },
+    /* The website's deals page (Sky, 2026-11-02). Everything typed here is PUBLIC customer copy. The
+       engine publishes it to greencrosscanna.com/deals on its own, as a Featured card plus one row per
+       vendor day, but only once Sky, Mike or Tawny has ticked web.approve (Sky, 2026-11-02), and
+       anyone else changing the copy afterwards un-ticks it (wixSignDelta_). The deal and offer fields fill each vendor-day row. f[4] is a
+       placeholder. The image must meet the Featured image spec, shown beside it (FEATURED_SPEC). */
+    web: { t: 'Deals page (website)', s: 'Featured card and vendor days on greencrosscanna.com/deals', sec: 'mkt', web: 1,
+      f: [['text', 'headline', 'Headline', null, 'e.g. Grön Pearls week'],
+          ['url', 'image', 'Featured image (Google Drive file link)', null, 'https://drive.google.com/file/d/…'],
+          ['text', 'alt', 'Image description', null, 'What the image shows, for screen readers'],
+          ['text', 'note', 'Vendor days note', null, 'e.g. 30% off all Grön, in store, at the listed store and time only.'],
+          ['text', 'deal', 'Vendor day deal', null, 'e.g. 30% OFF'],
+          ['text', 'offer', 'Vendor day offer details', null, 'e.g. all Grön, in store, this store and time only'],
+          ['text', 'fine', 'Fine print (optional)']],
+      list: { kind: 'text', label: 'Offer lines (start each with its price)', add: '+ Add an offer line', ph: 'e.g. $4 off Pearls 10-packs, Tuesday Nov 3' },
+      c: 'Public ad copy. Same Oregon offer rules as email; no health claims, nothing that appeals to minors.',
+      k: [['web.copy', 'INV', 'Write the deals page copy, offer lines and image', 's', -5],
+          ['web.approve', 'SKY', 'Approve the deals page copy (it publishes to the website on approval)', 's', -3]] },
     /* Several days, each at one store (or every store), are kept in the plan's own `vdays` list rather
        than in `d`. A plan saved before that holds one day as d.vday {date, time}; vdaysOf reads it. */
     vday: { t: 'Vendor day', s: 'Rep in store, best 4–7 PM', sec: 'cust', days: 1,
@@ -568,8 +585,54 @@
             return '<option value="' + esc(o) + '"' + (o === val ? ' selected' : '') + '>' + esc(o) + '</option>';
           }).join('') + '</select></label>';
     }
-    return '<label class="mk-fld">' + esc(f[2]) + '<input type="' + (f[0] === 'date' ? 'date' : 'text') + '"' + data
+    return '<label class="mk-fld">' + esc(f[2]) + '<input type="' + (f[0] === 'date' ? 'date' : f[0] === 'url' ? 'url' : 'text') + '"' + data
+      + (f[4] ? ' placeholder="' + esc(f[4]) + '"' : '')
       + ' value="' + esc(val == null ? '' : val) + '"' + ro + '></label>';
+  }
+
+  /* The Featured image spec (mockups/deals-wix-handover.md; Sky: "make sure this is noted wherever the
+     image gets uploaded"). The engine checks type, size and shape before it imports anything and
+     refuses a file that breaks it (wixImageProblem_); the screen checks the shape as soon as the
+     picture loads, so a wrong file is caught while it is being typed in. */
+  var FEATURED_SPEC = { min: 1080, max: 2400,
+    text: '1200 × 1200 px, square (1080 to 2400 accepted). JPG for photos, PNG for flat art or text. 2 MB max. '
+        + 'Keep text, prices and logos inside the center 1080 × 1080. The card shows the whole image, uncropped.' };
+  function driveFileId(url) {
+    var m = String(url || '').match(/\/d\/([-\w]{20,})/) || String(url || '').match(/[?&]id=([-\w]{20,})/);
+    return m ? m[1] : '';
+  }
+  /* '' when the picture's shape passes, else what is wrong with it. Type and file size are the engine's. */
+  function imageShapeProblem(w, h) {
+    if (!w || !h) return '';
+    if (w !== h) return 'This image is ' + w + ' × ' + h + '. It must be square.';
+    if (w < FEATURED_SPEC.min || w > FEATURED_SPEC.max) return 'This image is ' + w + ' × ' + h + '. A side must be 1080 to 2400 px.';
+    return '';
+  }
+  /* The OLCC copy rules (handoff deals-page.md). The engine's WIX_COPY_RULES_ holds the same list and
+     refuses to publish copy that trips one; tests/wix_publish_test.js holds the two together. */
+  var COPY_RULES = [['bogo', '\\bbogo\\b'], ['free', '\\bfree\\b'], ['with purchase', '\\bwith (?:any |a |your )?purchase'],
+    ['buy one', '\\bbuy one\\b'], ['best', '\\bbest\\b'], ['#1', '#\\s*1\\b|\\bnumber one\\b'], ['lowest', '\\blowest\\b'], ['em-dash', '—']];
+  var COPY_RULES_TEXT = 'Straight discounts only: “$X off [brand] on [day]”. Never BOGO, “buy one”, “free” cannabis or '
+    + '“with purchase”. No “best”, “#1” or “lowest”, no health claims, nothing that appeals to under-21s, no em-dashes.';
+  function copyProblem(texts) {
+    var all = (texts || []).map(function (t) { return String(t == null ? '' : t); }).join('\n');
+    for (var i = 0; i < COPY_RULES.length; i++) if (new RegExp(COPY_RULES[i][1], 'i').test(all)) return COPY_RULES[i][0];
+    return '';
+  }
+  function webSpecHtml(p, plan) {
+    var id = driveFileId((plan.d.web || {}).image);
+    var approved = planOf(p).done['web.approve'];
+    var w = plan.d.web || {};
+    var broken = copyProblem([w.headline, w.note, w.deal, w.offer, w.fine, w.alt].concat(rowsOf(p, 'web').map(function (r) { return r.text; })));
+    return '<div class="mk-spec"><b>Copy rules:</b> ' + esc(COPY_RULES_TEXT) + '</div>'
+      + (broken ? '<div class="mk-warn">The copy uses “' + esc(broken) + '”, which the rules do not allow. It will not go on the website until that is changed.</div>' : '')
+      + '<div class="mk-spec"><b>Featured image spec:</b> ' + esc(FEATURED_SPEC.text) + '</div>'
+      + (id ? '<div class="mk-imgcheck"><img data-mk-imgcheck="1" src="https://lh3.googleusercontent.com/d/' + esc(id)
+            + '" alt="Featured image preview" width="120" height="120" style="object-fit:contain">'
+            + '<span data-mk-imgnote role="status"></span></div>' : '')
+      + '<p class="mk-sub">' + (approved
+          ? 'Approved by ' + esc(approved.by || '') + '. Live on greencrosscanna.com/deals within the hour while the program runs. A change by anyone but Sky, Mike or Tawny takes the approval away.'
+          : 'Goes on greencrosscanna.com/deals once Sky, Mike or Tawny ticks “Approve the deals page copy” below.') + '</p>';
   }
 
   /* The vendor day card: one row per day, each with its store, date and time. */
@@ -651,7 +714,8 @@
     var cards = Object.keys(ITEMS).filter(function (id) { return isOn(p, id) && !ITEMS[id].lock; }).map(function (id) {
       var it = ITEMS[id];
       var body = it.days ? vdayHtml(p, ctx, on)
-        : it.f.map(function (f) { return fieldHtml(id, f, plan, ctx); }).join('') + (it.list ? listHtml(p, id, ctx, on) : '');
+        : it.f.map(function (f) { return fieldHtml(id, f, plan, ctx); }).join('') + (it.list ? listHtml(p, id, ctx, on) : '')
+          + (it.web ? webSpecHtml(p, plan) : '');
       /* No compliance note on the card (Sky, 2026-11-02): the workflows already carry those guardrails.
          `c` stays on each item as the record of what each one must respect. */
       return '<div class="mk-item"><h6>' + esc(it.t) + '</h6>' + body + '</div>';
@@ -694,6 +758,22 @@
   function wire(host, api) {
     if (host.__mkWired) return;
     host.__mkWired = true;
+    /* The featured image preview reports its own shape against the spec. `load` does not bubble, so
+       this listens in the capture phase. */
+    host.addEventListener('load', function (e) {
+      var img = e.target;
+      if (!img || !img.dataset || !img.dataset.mkImgcheck) return;
+      var note = img.parentNode && img.parentNode.querySelector('[data-mk-imgnote]');
+      var bad = imageShapeProblem(img.naturalWidth, img.naturalHeight);
+      if (note) note.textContent = bad || (img.naturalWidth + ' × ' + img.naturalHeight + ': the shape is right.');
+      if (note) note.className = bad ? 'mk-warn' : 'mk-sub';
+    }, true);
+    host.addEventListener('error', function (e) {
+      var img = e.target;
+      if (!img || !img.dataset || !img.dataset.mkImgcheck) return;
+      var note = img.parentNode && img.parentNode.querySelector('[data-mk-imgnote]');
+      if (note) { note.textContent = 'This image cannot be opened. Share the file “anyone with the link”, or check the link.'; note.className = 'mk-warn'; }
+    }, true);
     host.addEventListener('click', function (e) {
       var t = e.target.closest ? e.target.closest('button') : null;
       if (!t || t.disabled || !host.contains(t)) return;
@@ -1122,7 +1202,9 @@
     vdaysOf: vdaysOf, addVdayOp: addVdayOp, removeVdayOp: removeVdayOp, setVdayOp: setVdayOp,
     PEOPLE: PEOPLE, assignOp: assignOp,
     rowsOf: rowsOf, addRowOp: addRowOp, removeRowOp: removeRowOp, setRowOp: setRowOp, toggleRowStoreOp: toggleRowStoreOp,
-    makeSaver: makeSaver, listLine: listLine, foldNote: foldNote, sectionHtml: sectionHtml, wire: wire
+    makeSaver: makeSaver, listLine: listLine, foldNote: foldNote, sectionHtml: sectionHtml, wire: wire,
+    FEATURED_SPEC: FEATURED_SPEC, imageShapeProblem: imageShapeProblem, driveFileId: driveFileId,
+    COPY_RULES: COPY_RULES, copyProblem: copyProblem
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SpiffMarketing = api;

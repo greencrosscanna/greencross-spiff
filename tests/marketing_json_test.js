@@ -220,8 +220,9 @@ function editor(opts) {
     real: ['editProgram_', 'saveProgram_', 'getProgram_', 'listPrograms_', 'rowToProgram_', 'programToRow_',
            'measurementInvalidatedBy_', 'brandMatchCheck_', 'dropProgressRows_', 'invalidatePrograms_',
            'applyMarketingDelta_', 'normalizeMarketing_', 'parseJson_', 'textDate_', 'nowStamp_', 'slug_',
-           'normalizePitch_', 'periodStartFor_', 'stripDerivedActuals_', 'scrubSecrets_'],
-    vars: ['PROGRAM_HEADERS', 'PROGRESS_HEADERS', 'EDIT_ROLES', 'MEASURED_BY', 'DERIVED_ACTUALS', 'PROGRAMS_CACHE_KEY', 'PITCH_MAX_LEN'],
+           'normalizePitch_', 'periodStartFor_', 'stripDerivedActuals_', 'scrubSecrets_', 'wixSignDelta_'],
+    vars: ['PROGRAM_HEADERS', 'PROGRESS_HEADERS', 'EDIT_ROLES', 'MEASURED_BY', 'DERIVED_ACTUALS', 'PROGRAMS_CACHE_KEY', 'PITCH_MAX_LEN',
+           'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_APPROVERS_'],
     varValues: { EDITABLE_FIELDS: EDITABLE, PITCH_MAX_TIPS: 5 },
     stubs: {
       dataSheet_: () => programs, progressSheet_: () => progress,
@@ -261,8 +262,10 @@ console.log('\n4. saving through the edit route');
   e.send(TICK('core.menu', 'tawny'), { confirm_brand: '1' });
   e.send(TICK('core.plan', 'sky'), { confirm_brand: '1' });
   const done = e.saved().marketing_json.done;
-  ok('two people ticking different tasks do not undo each other',
-     done['core.menu'].by === 'tawny' && done['core.plan'].by === 'sky');
+  ok('two ticks on different tasks do not undo each other', !!done['core.menu'] && !!done['core.plan']);
+  /* Signed by the session since the deals-page approval (one tick now publishes to the website):
+     the browser said "tawny", the signed-in user is sky. See wixSignDelta_. */
+  ok('  …and each is signed by the SESSION, not by the name the browser sent', done['core.menu'].by === 'sky');
   e.send([['done', 'core.menu', null]], { confirm_brand: '1' });
   ok('unticking removes just that one', !e.saved().marketing_json.done['core.menu'] && e.saved().marketing_json.done['core.plan']);
 }
