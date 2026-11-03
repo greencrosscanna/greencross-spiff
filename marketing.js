@@ -724,8 +724,7 @@
     }
     return '<div class="mk-spec"><b>Cost per send:</b> ' + esc(line) + '.'
       + (pr.as_of ? ' <small>List size as of ' + esc(pr.as_of) + '.</small>' : '')
-      + '<br>A pass-through at Dutchie’s cost, added to the vendor’s credit.'
-      + ' A text over 160 characters may bill as more than one message.</div>';
+      + '<br>A pass-through at Dutchie’s cost, added to the vendor’s credit.</div>';
   }
 
   /* The vendor day card: one row per day, each with its store, date and time. */

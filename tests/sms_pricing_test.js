@@ -5,7 +5,7 @@
  *
  * Sky, 2026-11-03: the Text blast card shows, beside its cost model picker, opted-in phones × Dutchie's
  * rate ("≈5,136 phones × $0.03 = about $154 per text, about $257 with an image ($0.05)"), labeled a
- * pass-through at Dutchie's cost added to the vendor's credit, with the 160-character note. The list
+ * pass-through at Dutchie's cost added to the vendor's credit (the 160-character note was taken off the same day). The list
  * size and both rates are SETTINGS (script properties, edited in Settings), because the count changes
  * every month.
  *
@@ -37,7 +37,7 @@ ok('a third-decimal rate keeps its digits', MK.smsCostLine({ count: 1000, rate_t
 const html = MK.smsCostHtml(PR);
 ok('labeled a pass-through at Dutchie\'s cost, added to the vendor\'s credit',
    /pass-through at Dutchie’s cost, added to the vendor’s credit/.test(html));
-ok('carries the 160-character note', /over 160 characters may bill as more than one message/.test(html));
+ok('no 160-character note (Sky removed it, 2026-11-03)', !/160 characters/.test(html));
 ok('says when the count was taken', html.indexOf('2026-11-01') > 0);
 ok('unset pricing points at Settings', /not set yet/.test(MK.smsCostHtml({})) && /Settings/.test(MK.smsCostHtml({})));
 ok('still loading says so', /Loading/.test(MK.smsCostHtml(undefined)));

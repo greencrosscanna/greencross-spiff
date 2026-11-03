@@ -246,8 +246,8 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   tab; no holiday route on `ENGINE_HEDGE_READS`. Nothing is seeded. Pinned by
   `tests/marketing_holidays_test.js` and the isolation test's section 5b.
   **The Text blast card prices one send** (Sky, 2026-11-03): opted-in phones × Dutchie's per-text
-  and with-image rates, a pass-through at Dutchie's cost added to the vendor's credit, with the
-  160-character note. The three numbers are **settings, never constants** (script properties
+  and with-image rates, a pass-through at Dutchie's cost added to the vendor's credit (no
+  160-character note: Sky took it off the same day). The three numbers are **settings, never constants** (script properties
   `SMS_LIST_COUNT`, `SMS_RATE_TEXT`, `SMS_RATE_IMAGE`, `SMS_LIST_AS_OF`; edited in Settings by an
   editor via `saveSmsPricing`), because the count changes monthly (Dutchie's "SMS opted in"
   segment). Unset reads as null and the card says "not set yet", never $0. Pinned by
