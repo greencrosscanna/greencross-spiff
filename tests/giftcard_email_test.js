@@ -42,12 +42,12 @@ function setup(programs, extraProps) {
   const mail = [];
   let mailFails = false;
   const api = G.load({
-    real: ['sendGiftCardEmails_', 'giftMailDueDay_', 'giftMailIsDue_', 'giftMailText_', 'giftCardListFor_', 'rowToProgram_',
+    real: ['sendGiftCardEmails_', 'giftMailDueDay_', 'giftMailIsDue_', 'giftMailText_', 'giftMailHtml_', 'prettyDay_', 'giftCardListFor_', 'rowToProgram_',
            'measuredRowsFor_', 'payoutFactsOf_', 'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_',
            'friendlyName_', 'userKey_', 'scrubSecrets_', 'brandProgramLabel_', 'sendMail_',
            'textDate_', 'parseJson_', 'normalizePitch_', 'normalizeMarketing_'],
     vars: ['PROGRAM_HEADERS', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN', 'GX_SECRET_PROP', 'GIFTMAIL_PREFIX',
-           'GIFTMAIL_FROM', 'MKT_PEOPLE_', 'MKT_APP_URL'],
+           'GIFTMAIL_FROM', 'GIFTMAIL_CC', 'MKT_PEOPLE_', 'MKT_APP_URL'],
     stubs: {
       dataSheet_: () => sheet, spiffProgress_: () => ({ ok: false }), nowStamp_: () => '2026-11-02 12:00:00',
       displayNameMap_: () => ({ byId: {}, byName: {} }),
@@ -110,6 +110,14 @@ const AFTER_NOON  = new Date('2026-11-02T20:30:00Z');   // Mon 12:30 PST
   ok('  …by store, with real store names', /Bend — 2 cards, \$50\.00/.test(body) && /River Rd — 1 card, \$25\.00/.test(body));
   ok('  …names who earned, not who only sold', /Cy C/.test(body) && !/Di D/.test(body));
   ok('  …the subject carries the total', /3 cards, \$75\.00/.test(s.mail[0].subject));
+  ok('  …copies Tawny, Shawn and Sky',
+     ['tawny', 'shawn', 'sky'].every(n => s.mail[0].cc.indexOf(n + '@greencrosscanna.com') >= 0));
+  const html = s.mail[0].htmlBody;
+  ok('  …goes out as a styled HTML email too (Ops Board look, plain text kept as fallback)',
+     /GREEN<\/span>CROSS/.test(html) && /#95c93d/.test(html) && !!s.mail[0].body);
+  ok('  …the HTML shows the same totals and names', />3<\/div>/.test(html) && /\$75\.00/.test(html)
+     && /Cy C/.test(html) && /Bend/.test(html) && /River Rd/.test(html) && !/Di D/.test(html));
+  ok('  …and escapes names', !/<script/.test(html));
 }
 
 /* ── no actuals, no send ── */
