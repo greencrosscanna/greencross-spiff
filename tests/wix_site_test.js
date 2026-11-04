@@ -31,7 +31,7 @@ let stamp = 0;
 const api = G.load({
   real: ['saveSiteDeal_', 'removeSiteDeal_', 'approveSiteDeals_', 'readSite_', 'rowToSite_', 'siteToRow_', 'siteWrite_', 'siteContent_', 'siteProblem_', 'siteSign_',
          'siteDealsRead_', 'siteAdoptPlan_', 'siteFoldDay_', 'sitePlan_', 'sitePublish_', 'wixCopyProblem_', 'wixFold_', 'wixMenuSlug_',
-         'wixSameItem_', 'parseJson_'],
+         'wixSameItem_', 'wixCanon_', 'parseJson_'],
   vars: ['SITE_HEADERS', 'SITE_DAYS_', 'SITE_MAX_REMOVES_', 'SITE_TEXT_COLS_', 'WIX_APPROVERS_', 'WIX_COPY_RULES_', 'WIX_COPY_LIMITS_', 'WIX_APPROVER_FIELD_', 'SITE_TAB'],
   stubs: {
     siteSheet_: () => sheet,

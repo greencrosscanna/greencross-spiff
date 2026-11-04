@@ -9286,8 +9286,21 @@ function wixSameItem_(row, item) {
     if (f === WIX_APPROVER_FIELD_) return true;      // checked and stripped by GX Core, never stored
     var a = row[f], b = item[f];
     if (a && typeof a === 'object' && a.$date) a = String(a.$date).slice(0, 10);
-    return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
+    return wixCanon_(a) === wixCanon_(b);
   });
+}
+
+/* JSON with every object's keys sorted. Wix hands objects back with their keys in ITS order
+   (alphabetical: vendorDaysData comes back {date, store, time} though SPIFF sends {store, date, time}),
+   so a plain JSON.stringify called the same card different every hour and rewrote it (2026-11-03,
+   the Grön card). Key order carries no meaning; array order does, and is kept. */
+function wixCanon_(v) {
+  if (v === undefined) v = null;
+  if (Array.isArray(v)) return '[' + v.map(wixCanon_).join(',') + ']';
+  if (v && typeof v === 'object') {
+    return '{' + Object.keys(v).sort().map(function (k) { return JSON.stringify(k) + ':' + wixCanon_(v[k]); }).join(',') + '}';
+  }
+  return JSON.stringify(v);
 }
 
 /* WHAT TO SEND, given what Wix holds now. Pure: desired + rows + published keys in, the plan out. */

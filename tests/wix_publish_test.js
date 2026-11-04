@@ -113,7 +113,7 @@ let invFails = {};
 const bugs = [];
 const makeApi = (varValues) => G.load({
   real: ['wixFold_', 'wixMenuSlug_', 'wixEsc_', 'wixStoreLabel_', 'wixTimeOf_', 'wixDayLabels_', 'wixThroughLabel_', 'wixOfferHtml_',
-         'wixApprover_', 'wixCopyProblem_', 'wixLengthProblem_', 'wixSignDelta_', 'wixDutchieBrand_', 'wixVendorIndex_', 'wixDesired_', 'wixSameItem_', 'wixPlan_',
+         'wixApprover_', 'wixCopyProblem_', 'wixLengthProblem_', 'wixSignDelta_', 'wixDutchieBrand_', 'wixVendorIndex_', 'wixDesired_', 'wixSameItem_', 'wixCanon_', 'wixPlan_',
          'wixImageProblem_', 'wixDriveFileId_', 'wixImageFor_', 'wixShopStores_', 'wixPublish_', 'publishToWixWeb_', 'wixReportFailure_', 'wixRememberRun_', 'wixDiag_',
          'runWixPublishHourly_', 'calParseTime_', 'addDaysLocal_', 'normalizeMarketing_', 'mktPickedIds_', 'slug_', 'parseJson_', 'num_',
          'sitePublish_', 'sitePlan_', 'siteProblem_'],
@@ -533,6 +533,38 @@ console.log('\n9. Grön comes down on its own; Freshy goes up only once it is fi
   r = run({ apply: true, today: '2026-11-10' });
   const card = WIX.featured.find(x => x.programId === 'freshy-202611');
   ok('approved after Nov 9, the next run posts the Freshy card, live', card && card.headline === 'Freshy week' && card.live === true);
+}
+
+console.log('\nAn unchanged card is left alone, though Wix hands its fields back in a different order');
+{
+  /* 2026-11-03, the live Grön card: Wix returns every object's keys alphabetically, so vendorDaysData
+     came back {date, store, time} after SPIFF sent {store, date, time}, and a plain JSON.stringify
+     called the card changed on every hourly run and rewrote it. */
+  const deep = (v) => Array.isArray(v) ? v.map(deep) : v && typeof v === 'object'
+    ? Object.keys(v).sort().reduce((o, k) => (o[k] = deep(v[k]), o), {}) : v;
+  const IMG = 'wix:image://v1/1d2b4b_7c574ca1480a478b9af507bca8c9d34a~mv2.png/Gron_Pearls_Week_1200.png#originWidth=1200&originHeight=1200';
+  WIX = makeWix();
+  WIX.today = '2026-11-03';
+  PROGRAMS = [gron({ plan: { d: { web: { headline: 'Grön Pearls week', note: '30% off all Grön, in store, at the listed store and time only.',
+    deal: '30% OFF', offer: 'all Grön, in store, this store and time only', alt: 'Pearls by Grön', image: IMG } } } })];
+  let r = run({ apply: true, today: '2026-11-03' });
+  ok('first run posts the card and its days', WIX.featured.length === 1 && WIX.days.length > 0 && !r.failed.length);
+  ok('  …with the Wix image as is, never imported', WIX.featured[0].image === IMG && WIX.imports.length === 0);
+  ok('  …and vendorDaysData went out store-first, the order Wix does not keep',
+     Object.keys(WIX.featured[0].vendorDaysData[0]).join() === 'store,date,time');
+  WIX.featured = WIX.featured.map(deep);
+  WIX.days = WIX.days.map(deep);
+  ok('  (the stand-in now holds the rows as Wix returns them, keys alphabetical)',
+     Object.keys(WIX.featured[0].vendorDaysData[0]).join() === 'date,store,time');
+  WIX.calls = [];
+  r = run({ apply: true, today: '2026-11-03' });
+  ok('the next hourly run sends nothing: the card and every day are unchanged',
+     !r.send.featured.length && !r.send.days.length && WIX.calls.indexOf('upsert:FeaturedDeals') < 0 && WIX.calls.indexOf('upsert:VendorDays') < 0);
+  ok('  …and imports no image', WIX.imports.length === 0);
+  const changed = JSON.parse(JSON.stringify(WIX.featured[0]));
+  changed.vendorDaysData = changed.vendorDaysData.slice().reverse();
+  ok('a real change is still a change: the days in another order differ', !api.wixSameItem_(changed, { vendorDaysData: WIX.featured[0].vendorDaysData }));
+  ok('  …and a changed value inside a day differs', !api.wixSameItem_(WIX.featured[0], { vendorDaysData: [{ store: 'Commercial St', date: '2026-11-03', time: '2 to 3:30 PM' }] }));
 }
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nall passed');
