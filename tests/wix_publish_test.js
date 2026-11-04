@@ -491,5 +491,49 @@ console.log('\n9. the program screen: where the copy is typed, and the spec besi
      MK.imageShapeProblem(1200, 1200) === '' && /square/.test(MK.imageShapeProblem(1200, 900)) && /1080 to 2400/.test(MK.imageShapeProblem(900, 900)));
 }
 
+console.log('\n9. Grön comes down on its own; Freshy goes up only once it is filled in and approved');
+{
+  /* The five hand-made Grön vendor days as Wix holds them, none of them SPIFF's (nothing "published"). */
+  const days = [['commercial-st', 'Commercial St', '2026-11-03'], ['river-rd', 'River Rd', '2026-11-03'], ['baseline-st', 'Baseline St', '2026-11-05'],
+                ['portland-rd', 'Portland Rd', '2026-11-06'], ['center-st', 'Center St', '2026-11-06']]
+    .map(([k, s, d]) => ({ dayKey: 'gron-202611|' + k + '|' + d, programId: 'gron-202611', title: 'Grön', date: d, store: s }));
+  const freshy = (plan, o) => Object.assign({ program_id: 'freshy-202611', vendor: 'Freshy', program_name: 'Freshy', status: 'draft',
+    start_date: '2026-11-09', end_date: '2026-11-22', match_json: { brand: 'Freshy' }, payout_json: { model: 'flat', amount: 25 },
+    marketing_json: { v: 1, sel: { web: true }, d: plan && plan.d || {}, rows: plan && plan.rows || {}, done: plan && plan.done || {} } }, o || {});
+  const gronClosed = gron({ status: 'closed' });
+  P.props.WIX_PUBLISHED = '';
+  WIX = makeWix({ featured: [Object.assign({}, HAND_CARD)], days: days.map(d => Object.assign({}, d)) });
+
+  // Sunday Nov 8: Freshy is a draft with nothing filled in. Grön's last day: nothing comes off yet.
+  PROGRAMS = [gronClosed, freshy()];
+  WIX.today = '2026-11-08';
+  let r = run({ apply: true, today: '2026-11-08' });
+  ok('Nov 8: the empty Freshy draft posts nothing', !WIX.featured.some(x => x.programId === 'freshy-202611') && !WIX.days.some(x => x.programId === 'freshy-202611'));
+  ok('  …and says why', r.skipped.some(s => s.program_id === 'freshy-202611' && /no headline/.test(s.why)));
+  ok('  …Grön\'s card is still up on its last day', WIX.featured.some(x => x.programId === 'gron-202611'));
+
+  // Monday Nov 9, still empty: Grön\'s card and every Grön day come off, hand-made, with no one touching Wix.
+  WIX.today = '2026-11-09';
+  const dry = run({ apply: false, today: '2026-11-09' });
+  ok('Nov 9 dry run: it plans to take the Grön card down', dry.remove.featured.indexOf('gron-202611') >= 0 && dry.expired_featured.indexOf('gron-202611') >= 0);
+  ok('  …nothing refused', !dry.refused);
+  r = run({ apply: true, today: '2026-11-09' });
+  ok('Nov 9: the card and all five Grön days are really gone', !WIX.featured.some(x => x.programId === 'gron-202611') && WIX.days.length === 0 && WIX.calls.indexOf('prune') >= 0);
+  ok('  …and the still-empty Freshy posted nothing', WIX.featured.length === 0 && !r.failed.length);
+
+  // Filled in but NOT approved: still nothing.
+  const web = { headline: 'Freshy week', note: '20% off Freshy, in store.', deal: '20% OFF', offer: 'all Freshy', alt: 'Freshy' };
+  PROGRAMS = [gronClosed, freshy({ d: { web }, rows: { web: [{ text: '$3 off Freshy carts' }] } }, { status: 'active' })];
+  WIX.today = '2026-11-10';
+  r = run({ apply: true, today: '2026-11-10' });
+  ok('Nov 10: filled in but not approved posts nothing', WIX.featured.length === 0 && r.skipped.some(s => /approve/.test(s.why)));
+
+  // Approved after the start date, program already active: the next hourly run posts it.
+  PROGRAMS = [gronClosed, freshy({ d: { web }, rows: { web: [{ text: '$3 off Freshy carts' }] }, done: { 'web.approve': APPROVED } }, { status: 'active' })];
+  r = run({ apply: true, today: '2026-11-10' });
+  const card = WIX.featured.find(x => x.programId === 'freshy-202611');
+  ok('approved after Nov 9, the next run posts the Freshy card, live', card && card.headline === 'Freshy week' && card.live === true);
+}
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nall passed');
 process.exit(fail ? 1 : 0);
