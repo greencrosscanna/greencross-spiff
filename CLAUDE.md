@@ -252,6 +252,12 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   editor via `saveSmsPricing`), because the count changes monthly (Dutchie's "SMS opted in"
   segment). Unset reads as null and the card says "not set yet", never $0. Pinned by
   `tests/sms_pricing_test.js`.
+  **The Staff swag card counts staff sizes from Crew, through Core** (Sky, 2026-11-04: "6 M, 10 L").
+  `?action=swagSizes` (signed-in only) reads `GXCore.publishedCrewSwagSizes(secret)` — COUNTS per
+  store, never names — and passes on only store ids, size names and whole numbers. Until that GXCore
+  function exists in the pinned library (asked of core-admin and crew 2026-11-04) the card says "not
+  connected to Crew yet". Crew has no hat size; hats show only if Crew ever sends them. No vendor page
+  reads it. Pinned by `tests/swag_sizes_test.js`.
   **The vendor plan's artwork sizes are generic on purpose** (Sky, 2026-11-02, `MKT_SIZES_`): TV
   1920×1080 / 3840×2160 horizontal or vertical as image or MP4, standard social sizes, 8.5×11 print.
   **Saving the plan files it in the program's vendor files folder** (`d.files.url`) when that is a

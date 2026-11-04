@@ -1358,9 +1358,29 @@
       stores: state.stores.map(function (s) { return { store_id: s.store_id, name: s.display_name || s.store_id }; }),
       storeName: storeName,
       /* undefined while loading, {} when the engine has none, else the three numbers. */
-      smsPricing: state.smsPricing
+      smsPricing: state.smsPricing,
+      /* undefined while loading, else the engine's { connected, sizes } (counts only, from Crew via Core). */
+      swagSizes: state.swagSizes
     });
     loadSmsPricing();
+    if (MK.isOn(p, 'shirts')) loadSwagSizes();
+  }
+
+  /* STAFF SWAG SIZES — shirt / hat counts per store for the Staff swag card. Loaded only when a plan
+     with that item is painted; a failed read shows as "not connected" rather than a wrong count. */
+  var swagSizesLoading = false;
+  async function loadSwagSizes() {
+    if (state.swagSizes !== undefined || swagSizesLoading || !session()) return;
+    swagSizesLoading = true;
+    try {
+      var r = await ENG.jsonp('swagSizes', { token: (session() || {}).token }, { timeoutMs: 25000, retries: 1 });
+      state.swagSizes = r && r.ok ? { connected: !!r.connected, sizes: r.sizes || null } : { connected: false };
+    } catch (e) {
+      state.swagSizes = { connected: false };
+    } finally {
+      swagSizesLoading = false;
+    }
+    if (state.record && mkOn() && $('#calcMarketingBody')) mkPaint(state.record);
   }
 
   /* TEXT BLAST PRICING — list size and Dutchie's two rates, for the Text blast card's per-send cost.

@@ -402,6 +402,9 @@ function doGet(e) {
          BLAST PRICING. Read by the Text blast card only; nothing that pays anybody reads it. */
       case 'smsPricing':      out = smsPricingRead_(p);                             break;
       case 'saveSmsPricing':  out = saveSmsPricing_(p);                             break;
+      /* Staff shirt / hat size counts per store, from GX Crew by way of GX Core. Signed-in only;
+         read by the Staff swag card. See STAFF SWAG SIZES. */
+      case 'swagSizes':       out = swagSizes_(p);                                  break;
       /* One-time correction of the pay-period column on rows that predate the derivation.
          Secret-gated, dry by default — see backfillPayPeriods_. */
       case 'backfillPayPeriods': out = backfillPayPeriods_(p);                      break;
@@ -7101,6 +7104,70 @@ function saveSmsPricing_(p) {
   put(SMS_PRICING_PROPS_.rate_image, ri);
   if (asOf) props.setProperty(SMS_PRICING_PROPS_.as_of, asOf); else props.deleteProperty(SMS_PRICING_PROPS_.as_of);
   return smsPricingRead_();
+}
+
+/* ── STAFF SWAG SIZES ────────────────────────────────────────────────────────────────────────────
+ * The Staff swag card says how many of each shirt size to order (Sky's to-do, 2026-11-04: "6 M,
+ * 10 L"). GX Crew owns shirt_size; it publishes COUNTS per store to GX Core and SPIFF reads Core,
+ * never Crew (cross-app data goes through Core). Requested from core-admin and crew 2026-11-04 as
+ * GXCore.publishedCrewSwagSizes(secret) -> { ok, payload, published_at, age_minutes }.
+ *
+ * Until that function exists in the pinned GXCore the route answers `connected: false` and the card
+ * says so; nothing throws. Sizes are staff data: a signed-in session is required, the answer is
+ * rebuilt from a list of what may pass (store ids, size names, whole counts), so a name or id that
+ * reached the payload by mistake is never relayed, and no vendor-facing page calls this. Nothing
+ * that pays, publishes or feeds a kiosk reads it. Cached 15 minutes. */
+var SWAG_SIZES_CACHE_KEY_ = 'swagSizes:v1';
+
+function swagCounts_(c) {
+  var out = {};
+  if (!c || typeof c !== 'object') return out;
+  Object.keys(c).forEach(function (k) {
+    var key = String(k).trim().toUpperCase();
+    var n = Number(c[k]);
+    if (/^[0-9]?X{0,3}[SML]$|^ONE SIZE$/.test(key) && isFinite(n) && n > 0) out[key] = Math.floor(n);
+  });
+  return out;
+}
+function swagWhole_(v) { var n = Number(v); return isFinite(n) && n > 0 ? Math.floor(n) : 0; }
+function swagGroup_(g) {
+  g = g || {};
+  return { shirt: swagCounts_(g.shirt), hat: swagCounts_(g.hat), not_set: swagWhole_(g.not_set), active: swagWhole_(g.active) };
+}
+function swagSizesClean_(env) {
+  var pl = env && env.payload;
+  if (typeof pl === 'string') { try { pl = JSON.parse(pl); } catch (e) { pl = null; } }
+  if (!pl || typeof pl !== 'object') return null;
+  var by = {};
+  Object.keys(pl.by_store || {}).forEach(function (s) {
+    if (/^[a-z0-9-]{1,40}$/.test(s)) by[s] = swagGroup_(pl.by_store[s]);
+  });
+  var sizes = (Array.isArray(pl.sizes) ? pl.sizes : []).map(function (x) { return String(x).trim().toUpperCase(); })
+    .filter(function (x) { return /^[0-9]?X{0,3}[SML]$/.test(x); });
+  var age = Number(env.age_minutes);
+  return { sizes: sizes, by_store: by, total: swagGroup_(pl.total),
+           as_of: /^\d{4}-\d{2}-\d{2}$/.test(String(pl.as_of || '')) ? String(pl.as_of) : '',
+           age_minutes: isFinite(age) ? Math.round(age) : null };
+}
+
+function swagSizes_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
+  var cache = CacheService.getScriptCache();
+  var hit = cache.get(SWAG_SIZES_CACHE_KEY_);
+  if (hit && !p.force) { try { return JSON.parse(hit); } catch (e) { /* rebuild */ } }
+  var out;
+  if (typeof GXCore === 'undefined' || !GXCore || typeof GXCore.publishedCrewSwagSizes !== 'function') {
+    out = { ok: true, connected: false, sizes: null };
+  } else {
+    var secret = PropertiesService.getScriptProperties().getProperty('GX_DEPLOY_SECRET');
+    var env;
+    try { env = GXCore.publishedCrewSwagSizes(secret); } catch (e) { env = { ok: false, error: String(e && e.message || e) }; }
+    if (!env || env.ok === false) return { ok: false, error: 'Could not read staff sizes from GX Core: ' + ((env && env.error) || 'no answer') };
+    out = { ok: true, connected: true, sizes: swagSizesClean_(env) };
+  }
+  try { cache.put(SWAG_SIZES_CACHE_KEY_, JSON.stringify(out), 900); } catch (e) { /* too big to cache is fine */ }
+  return out;
 }
 
 function mktEditor_(p, verb) {
