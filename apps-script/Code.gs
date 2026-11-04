@@ -6050,7 +6050,11 @@ function measuredRowsFor_(prog) {
        agreed to. */
     var perBt = (prog.target_json || {}).per_bt || {};
     (snap.stores || []).forEach(function (st) {
-      byStore[st.store_id] = Number(st.units) || 0;
+      /* ABSENT IS NOT ZERO (Sky, 2026-11-03): a store snapshot with no usable units figure, or a 0 with
+         no budtender rows behind it, was never measured. Writing 0 made the vendor email say every
+         store was down 100% while the chain total was up. Leave the store out of byStore instead. */
+      var stUnits = (st.units == null || st.units === '') ? NaN : Number(st.units);
+      if (isFinite(stUnits) && (stUnits !== 0 || (st.rows || []).length)) byStore[st.store_id] = stUnits;
       var goal = Number(perBt[st.store_id]) || 0;
       (st.rows || []).forEach(function (e) {
         var legal = String(e.name || '').trim();
@@ -6432,7 +6436,8 @@ function brandPaperHtml_(p, measured, opts) {
     var hit = mine.filter(function (r) { return r.hit || (f.per_unit && (Number(r.earned) || 0) > 0); }).length;
     return { name: names[key] || s, before: Number((base.by_store || {})[s]) || 0,
              goal: Number((t.by_store || {})[s]) || 0,
-             sold: measured && measured.by_store ? (Number(measured.by_store[key]) || 0) : null,
+             sold: (measured && measured.by_store && measured.by_store[key] != null && measured.by_store[key] !== '' && isFinite(Number(measured.by_store[key])))
+                     ? Number(measured.by_store[key]) : null,
              hit: mine.length ? hit : null };
   });
   var totalBts = stores.length * BTS_PER_STORE;

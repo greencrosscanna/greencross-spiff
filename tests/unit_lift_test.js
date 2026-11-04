@@ -15,9 +15,10 @@ const ok = (l, c) => c ? console.log('  ✓ ' + l) : (fail++, console.log('  ✗
 
 const D = G.load({
   real: ['unitLiftOf_', 'brandPaperHtml_', 'brandProgramLabel_', 'prettyDay_', 'payoutFactsOf_',
-         'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_'],
+         'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_', 'measuredRowsFor_'],
   vars: ['LOGO_ONLIGHT', 'BTS_PER_STORE'],
-  stubs: { gxStores_: () => [{ store_id: 'river-rd', display_name: 'River Rd' },
+  stubs: { displayNameMap_: () => ({}), friendlyName_: (m, id, n) => n,
+           gxStores_: () => [{ store_id: 'river-rd', display_name: 'River Rd' },
                              { store_id: 'commercial', display_name: 'Commercial St' }] },
   globals: { console: { warn() {}, log() {} } },
 });
@@ -69,6 +70,27 @@ html = D.brandPaperHtml_(prog({ actual_json: {} }), measured);
 ok('no recorded actuals: no lift line', !/from the period before/.test(html));
 html = D.brandPaperHtml_(prog({ baseline_json: { units: 316 } }), { by_store: { 'river-rd': 240 }, rows: [] });
 ok('no by-store baseline: chain total only', html.includes('up 96') && !/By store:/.test(html));
+
+
+/* ── Kaprikorn shape: by-store baselines, NO by-store actuals (found live 2026-11-03: email said every
+      store sold 0, down 100%, while the chain was up). Absent is not zero. ── */
+const kap = prog({ actual_json: { units_sold: 726, bts_hit: 3, spiff_amount: 25 },
+  baseline_json: { units: 316, by_store: { 'river-rd': 150, commercial: 166 } } });
+html = D.brandPaperHtml_(kap, { by_store: {}, rows: [] });
+ok('Kaprikorn: headline lift stays (+410)', html.includes('726 units sold, up 410'));
+ok('  …no per-store line at all', !/By store:/.test(html) && !/−100%/.test(html));
+let mrows = D.measuredRowsFor_(prog({ progress_json: { at: '2026-10-19', stores: [
+  { store_id: 'river-rd', rows: [] }, { store_id: 'commercial', units: 0, rows: [] } ] } }));
+ok('snapshot stores without units are left out of by_store', Object.keys(mrows.by_store).length === 0);
+mrows = D.measuredRowsFor_(prog({ progress_json: { at: '2026-10-19', stores: [
+  { store_id: 'commercial', units: 0, rows: [{ name: 'A', units: 0, hit: false }] } ] } }));
+ok('a measured zero (with people behind it) IS kept', mrows.by_store.commercial === 0);
+
+/* mixed: one store with actuals, one without → one row */
+html = D.brandPaperHtml_(kap, { by_store: { 'river-rd': 240 }, rows: [] });
+ok('mixed: exactly one per-store row', /By store: River Rd \+90 units \(\+60%\)</.test(html) && !/Commercial St [+−]/.test(html));
+html = D.brandPaperHtml_(prog({ baseline_json: { units: 316, by_store: { 'river-rd': 150 } } }), { by_store: { 'river-rd': 240, commercial: 172 }, rows: [] });
+ok('a store with no baseline gets no row', /By store: River Rd \+90/.test(html) && !/Commercial St [+−]/.test(html));
 
 /* ── the staff screen's twin (spiff.js `unitLift`) must agree with the engine, case for case ── */
 const fs = require('fs');
