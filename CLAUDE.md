@@ -279,7 +279,7 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   **The deals page (greencrosscanna.com/deals) fills itself, one way, through GX Core's Wix connector**
   (Sky, 2026-11-02; needs GXCore v365+). A program goes on it as a Featured card (`FeaturedDeals`, keyed
   `programId`) plus one `VendorDays` row per vendor day (keyed `<program>|<street-slug>|<date>`) only when
-  it is active (or a draft starting within 7 days, sent `live=false`), its plan picks the **Deals page**
+  it is active (or a draft starting within 60 days, Sky 2026-11-04, sent `live=false`), its plan picks the **Deals page**
   item (`web`: headline, image link, offer lines, vendor-day deal/offer), **Sky, Mike or Tawny has ticked
   `web.approve`** (`WIX_APPROVERS_`, Sky 2026-11-02) and the copy passes the OLCC word rules
   (`WIX_COPY_RULES_`, mirrored as `COPY_RULES` in marketing.js). The engine signs every marketing tick

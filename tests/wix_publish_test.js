@@ -232,10 +232,10 @@ console.log('\n2. what goes out, and what does not');
   const noVday = api.wixDesired_({ programs: [gron({ plan: { sel: { web: true } } })], vendors: VENDORS }, '2026-11-02');
   ok('days go out only when Vendor day is picked too', noVday.featured.length === 1 && !noVday.days.length);
   ok('closed programs never go out', !api.wixDesired_({ programs: [gron({ status: 'closed' })], vendors: VENDORS }, '2026-11-02').featured.length);
-  const soon = api.wixDesired_({ programs: [gron({ status: 'draft', start_date: '2026-11-09', end_date: '2026-11-22' })], vendors: VENDORS }, '2026-11-02');
-  ok('a draft starting within 7 days is staged with live=false', soon.featured.length === 1 && soon.featured[0].live === false);
+  const soon = api.wixDesired_({ programs: [gron({ status: 'draft', start_date: '2027-01-01', end_date: '2027-01-14' })], vendors: VENDORS }, '2026-11-02');
+  ok('a draft starting within 60 days is staged with live=false', soon.featured.length === 1 && soon.featured[0].live === false);
   ok('  …one starting later is not sent yet',
-     !api.wixDesired_({ programs: [gron({ status: 'draft', start_date: '2026-11-10', end_date: '2026-11-22' })], vendors: VENDORS }, '2026-11-02').featured.length);
+     !api.wixDesired_({ programs: [gron({ status: 'draft', start_date: '2027-01-02', end_date: '2027-01-14' })], vendors: VENDORS }, '2026-11-02').featured.length);
   const unknown = api.wixDesired_({ programs: [gron({ vendor: 'Newbrand', match_json: { brand: 'Newbrand' } })], vendors: VENDORS }, '2026-11-02');
   ok('a brand missing from Vendors still goes out, with no vendorRef, and a problem says so',
      unknown.featured.length === 1 && !('vendorRef' in unknown.featured[0]) && /no Vendors item/.test(unknown.problems[0].problem));
