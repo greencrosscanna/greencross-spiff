@@ -1652,8 +1652,13 @@ div.sp-mail-body { background: #fff; color: #1a1f1d; overflow: auto; resize: non
    collapses and the paper starts at the top of page one on a white background. */
 @media print {
   html, body { background: #fff !important; }
-  body *:not(#printArea):not(#printArea *):not(:has(#printArea)) { display: none !important; }
+  body:not([data-printing]) *:not(#printArea):not(#printArea *):not(:has(#printArea)) { display: none !important; }
   #printArea { display: block !important; margin: 0 !important; box-shadow: none !important; }
+  /* The store sheets print instead of the brand page when asked to: same white-page rule, one
+     page per store (the engine's HTML carries the page breaks). */
+  body[data-printing="stores"] *:not(#printStores):not(#printStores *):not(:has(#printStores)) { display: none !important; }
+  body[data-printing="stores"] #printStores { display: block !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; }
+  body[data-printing="stores"] #printArea { display: none !important; }
 }
 @media (max-width: 1000px) {
   .sp-rep-hero { grid-template-columns: 1fr; }
