@@ -411,6 +411,10 @@ function doGet(e) {
       case 'emailDraft':  out = emailDraft_(p);                                     break;
       /* Store-by-store breakdown + printable mid-week sheet. Read only; builds, never sends. */
       case 'storeReport': out = storeReport_(p);                                    break;
+      /* EMAILS STAFF (store managers + Tawny). Editor session only, dry unless send=1, refuses a
+         repeat in the same week without resend=1. Never hedged on the client: a second copy is a
+         second email. See EMAILING THE STORE SHEETS. */
+      case 'sendStoreReports': out = sendStoreReports_(p);                          break;
       /* SENDS AN EMAIL. Editor session only, and never hedged client-side — a second copy would be
          a second email. See sendBrandEmail_. */
       case 'sendBrandEmail': out = sendBrandEmail_(p);                              break;
@@ -6227,6 +6231,105 @@ function storeReportHtml_(prog, sections, info) {
   }).join('') + '</div>';
 }
 
+/* ── EMAILING THE STORE SHEETS (Sky, 2026-11-03: recipients "both", delivery "email") ──────────────
+ * Each store's manager(s) get THEIR store's sheet; Tawny gets one email with every store. A person
+ * decides: storeReportPlan_ only works out who, sendStoreReports_ runs only from an editor's click
+ * (dry unless send=1), never from a trigger, and refuses a repeat for the same ISO week unless
+ * resend=1 (writes ride on GET and a URL gets re-fetched).
+ *
+ * ADDRESSES COME LIVE FROM GX CORE, never from here: GXCore.getEmployeeContacts joins
+ * employees.user_id to users.email and says `contactable:false` when there is no address. A manager
+ * with no address is NAMED in `missing` so the screen can say so; their store is not silently dropped
+ * and no address is ever guessed. Tawny's address is the fixed one in MKT_PEOPLE_. */
+function weekStartOf_(ymd) {
+  var m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return '';
+  var t = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  var back = (new Date(t).getUTCDay() + 6) % 7;           // Monday = 0
+  var d = new Date(t - back * 86400000);
+  return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2);
+}
+
+function storeReportPlan_(prog, sections) {
+  var contacts = [], err = '';
+  try { contacts = GXCore.getEmployeeContacts({ role: 'manager' }) || []; }
+  catch (e) { err = 'Could not read the managers from GX Core: ' + scrubSecrets_(e && e.message || e); }
+  var units = [], missing = [];
+  sections.forEach(function (sec) {
+    var mine = contacts.filter(function (c) { return slug_(c.home_store) === slug_(sec.store_id); });
+    var withMail = mine.filter(function (c) { return c.contactable && /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(c.email || '').trim()); });
+    if (withMail.length) {
+      units.push({ key: 'store:' + slug_(sec.store_id), kind: 'store', store_id: sec.store_id, store_name: sec.name,
+                   to: withMail.map(function (c) { return String(c.email).trim().toLowerCase(); }),
+                   names: withMail.map(function (c) { return c.preferred_name || c.full_name; }) });
+    }
+    mine.filter(function (c) { return withMail.indexOf(c) < 0; }).forEach(function (c) {
+      missing.push({ store_id: sec.store_id, store_name: sec.name, name: c.preferred_name || c.full_name, reason: 'no email on file' });
+    });
+    if (!mine.length) missing.push({ store_id: sec.store_id, store_name: sec.name, name: '', reason: 'no manager listed for this store' });
+  });
+  units.push({ key: 'all', kind: 'all', store_name: 'All stores', to: [MKT_PEOPLE_.tawny], names: ['Tawny'] });
+  return { units: units, missing: missing, week: weekStartOf_(today_()), error: err };
+}
+
+function storeReportSubject_(prog, unit, info) {
+  var di = info && info.days;
+  return 'SPIFF check-in — ' + unit.store_name + ' — ' + brandProgramLabel_(prog)
+    + (di && !di.before && !di.over ? ' (day ' + di.day + ' of ' + di.total + ')' : '');
+}
+
+function sendStoreReports_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) return { ok: false, error: 'Your role cannot send reports' };
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var prog = res.program;
+  var measured = measuredRowsFor_(prog);
+  var sections = storeSectionsOf_(prog, measured);
+  var info = { as_of: measured.as_of, days: programDayInfo_(prog, today_()) };
+  var plan = storeReportPlan_(prog, sections);
+  if (plan.error) return { ok: false, error: plan.error };
+
+  var props = PropertiesService.getScriptProperties();
+  var key = 'storesent:' + prog.program_id + ':' + plan.week;
+  var sent = {};
+  try { sent = JSON.parse(props.getProperty(key) || '{}') || {}; } catch (e) { sent = {}; }
+  var resend = String(p.resend) === '1';
+  var todo = plan.units.filter(function (u) { return resend || !sent[u.key]; });
+  var already = plan.units.filter(function (u) { return !resend && sent[u.key]; }).map(function (u) { return u.store_name; });
+
+  if (String(p.send) !== '1') {                         // DRY: say who, send nothing
+    return { ok: true, dry: true, week: plan.week, would_send: todo.map(function (u) { return { store: u.store_name, to: u.to }; }),
+             already: already, missing: plan.missing };
+  }
+  if (!todo.length) return { ok: false, already: true, error: 'This week\'s store sheets were already sent (' + already.join(', ') + '). Send again only if you mean to.' };
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return { ok: false, error: 'Another send is in progress. Try again in a moment.' };
+  var done = [], failed = [];
+  try {
+    todo.forEach(function (u) {
+      var secs = u.kind === 'all' ? sections : sections.filter(function (s) { return slug_(s.store_id) === slug_(u.store_id); });
+      var html = storeReportHtml_(prog, secs, info);
+      var text = 'SPIFF check-in for ' + u.store_name + ' — ' + brandProgramLabel_(prog) + '. Open this email in a mail app that shows HTML to see the sheet.';
+      try {
+        sendMail_({ to: u.to.join(','), subject: storeReportSubject_(prog, u, info), body: text, htmlBody: html,
+                    replyTo: MKT_PEOPLE_.tawny, name: 'Green Cross SPIFF' });
+        sent[u.key] = nowStamp_();
+        done.push({ store: u.store_name, to: u.to });
+      } catch (e) {
+        failed.push({ store: u.store_name, error: scrubSecrets_(e && e.message || e) });
+      }
+    });
+    props.setProperty(key, JSON.stringify(sent));      // what DID go out stays recorded even if another failed
+  } finally {
+    lock.releaseLock();
+  }
+  return { ok: failed.length === 0, sent: done, failed: failed, missing: plan.missing, by: auth.user, week: plan.week,
+           error: failed.length ? 'Some did not send: ' + failed.map(function (f) { return f.store; }).join(', ') : undefined };
+}
+
 /* `?action=storeReport&id=` -- the breakdown as data plus the printable HTML. READ ONLY, builds
    and returns, never sends. Any signed-in role may read it (the editor-only gate is on sending, and
    nothing here sends); names are on it, so it needs a real session or the deploy secret. */
@@ -6245,7 +6348,12 @@ function storeReport_(p) {
   var info = { as_of: measured.as_of, days: programDayInfo_(prog, today_()) };
   return { ok: true, program_id: prog.program_id, label: brandProgramLabel_(prog), status: prog.status,
            per_unit: payoutFactsOf_(prog).per_unit, as_of: measured.as_of, source: measured.source,
-           days: info.days, stores: sections, html: storeReportHtml_(prog, sections, info) };
+           days: info.days, stores: sections, html: storeReportHtml_(prog, sections, info),
+           /* Who WOULD get it, so the screen can show recipients (and the stores with no manager
+              address) before anybody clicks. Names and addresses of staff: same gate as the names. */
+           plan: (function () { var pl = storeReportPlan_(prog, sections);
+             return { week: pl.week, error: pl.error, missing: pl.missing,
+                      units: pl.units.map(function (u) { return { key: u.key, store: u.store_name, to: u.to, names: u.names }; }) }; })() };
 }
 
 /* ── WHAT THE VENDOR IS OWED, IN ONE PLACE ────────────────────────────────────────────────────

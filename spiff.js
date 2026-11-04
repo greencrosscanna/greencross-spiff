@@ -6458,6 +6458,7 @@
       if (b.dataset.act === 'cards')  copyCards(b);
       if (b.dataset.act === 'printcards') window.print();
       if (b.dataset.act === 'printstores') printStoreSheets();
+      if (b.dataset.act === 'emailstores') sendStoreSheets(b);
     });
   }
 
@@ -6809,9 +6810,55 @@
       +   '<div class="sp-paper" id="printStores">' + r.html + '</div>'
       +   '<div class="sp-step-actions">'
       +     (hasRows ? '<button class="gx-btn gx-btn-green" data-act="printstores">Print store sheets (one page per store)</button>' : '')
+      +     (hasRows && r.plan && !r.plan.error ? '<button class="gx-btn" data-act="emailstores" data-id="' + esc(p.program_id) + '">Email the store sheets…</button>' : '')
       +   '</div>'
-      +   '<p class="sp-step-hint">For store staff only &mdash; it names budtenders, so it is not what a brand gets. Nothing is sent from here.</p>'
+      +   storePlanHtml(r.plan)
+      +   '<p class="sp-step-hint">For store staff only &mdash; it names budtenders, so it is not what a brand gets. Nothing is sent until a person clicks Email and confirms.</p>'
       + '</div></div>';
+  }
+
+  /* WHO WOULD GET IT, shown before anybody clicks: each store's manager(s) get their store's sheet,
+     Tawny gets all of them. Addresses come live from GX Core. A store with no manager address is
+     named here in red, never skipped quietly. */
+  function storePlanHtml(plan) {
+    if (!plan) return '';
+    if (plan.error) return '<div class="sp-notice is-bad"><span class="sp-notice-l">Cannot email yet</span>' + esc(plan.error) + '</div>';
+    var rows = (plan.units || []).map(function (u) {
+      return '<div class="sp-hint">' + esc(u.store) + ' &rarr; ' + esc((u.names || []).join(', ')) + ' (' + esc((u.to || []).join(', ')) + ')</div>';
+    }).join('');
+    var miss = (plan.missing || []).map(function (m) {
+      return '<li>' + esc(m.store_name) + (m.name ? ' &mdash; ' + esc(m.name) : '') + ': ' + esc(m.reason) + '</li>';
+    }).join('');
+    return '<div class="sp-step-hint"><b>Would email:</b>' + rows + '</div>'
+      + (miss ? '<div class="sp-notice is-bad"><span class="sp-notice-l">No address, will not get one</span><ul style="margin:4px 0 0 16px">' + miss + '</ul>'
+          + 'Add the manager&rsquo;s email in GX Core, then reload this page.</div>' : '');
+  }
+
+  /* SENDS EMAIL TO STAFF. A person decides: dry call first to get the recipients, a confirmation that
+     names them, then the real send. The engine refuses a repeat in the same week; no retries here. */
+  async function sendStoreSheets(btn) {
+    if (!canEdit()) { $('#btnAuth').click(); return; }
+    var id = btn.dataset.id, label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Checking…';
+    try {
+      var dry = await ENG.jsonp('sendStoreReports', { token: (session() || {}).token, id: id }, { timeoutMs: 45000, retries: 0 });
+      if (!dry || !dry.ok) { btn.textContent = 'Not sent — ' + ((dry && dry.error) || 'failed'); return; }
+      var who = (dry.would_send || []).map(function (u) { return u.store + ': ' + u.to.join(', '); });
+      if (!who.length) { btn.textContent = 'Already sent this week'; if (!window.confirm('This week\'s sheets already went out. Send them again?')) return; }
+      else if (!window.confirm('Email these store sheets?\n\n' + who.join('\n')
+        + (dry.already && dry.already.length ? '\n\n(Already sent this week, skipped: ' + dry.already.join(', ') + ')' : '')
+        + (dry.missing && dry.missing.length ? '\n\nNo address for: ' + dry.missing.map(function (m) { return m.store_name + (m.name ? ' (' + m.name + ')' : ''); }).join(', ') : ''))) return;
+      btn.textContent = 'Sending…';
+      var r = await ENG.jsonp('sendStoreReports', { token: (session() || {}).token, id: id, send: '1', resend: who.length ? '' : '1' },
+        { timeoutMs: 60000, retries: 0 });
+      btn.textContent = (r && r.sent && r.sent.length) ? 'Sent to ' + r.sent.length + ' address group' + (r.sent.length === 1 ? '' : 's')
+                        : 'Not sent — ' + ((r && r.error) || 'failed');
+      if (r && r.error && r.sent && r.sent.length) btn.textContent += ' — ' + r.error;
+    } catch (err) {
+      btn.textContent = 'Not confirmed — check the Sent folder before trying again';
+      console.error('[spiff] store sheet email failed:', err);
+    }
+    setTimeout(function () { btn.disabled = false; btn.textContent = label; }, 8000);
   }
 
   /* The brand email, laid out like the report page. Table layout and inline styles only: Gmail and

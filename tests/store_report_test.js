@@ -18,6 +18,13 @@ const ok = (l, c) => c ? console.log('  ✓ ' + l) : (fail++, console.log('  ✗
 const PROPS = G.makeProps({ GX_DEPLOY_SECRET: 'SEKRET' });
 let AUTH = { ok: true, user: 'tawny', role: 'viewer' };
 let LIVE_CALLS = 0;
+let CONTACTS_FAIL = false;
+const MAIL = [];
+const CONTACTS = [
+  { full_name: 'Riv Manager', preferred_name: 'Riv', home_store: 'river-rd', role_title: 'Store Manager', email: 'riv@greencrosscanna.com', contactable: true },
+  { full_name: 'Riv Assistant', home_store: 'river-rd', role_title: 'Assistant Manager', email: 'riv2@greencrosscanna.com', contactable: true },
+  { full_name: 'Com Manager', home_store: 'commercial', role_title: 'Store Manager', email: '', contactable: false },
+];
 
 const CLOSED = {
   program_id: 'acme-202610', vendor: 'Acme', program_name: 'Acme Fall', status: 'closed',
@@ -50,17 +57,21 @@ const D = G.load({
   real: ['storeSectionsOf_', 'storeBlockHtml_', 'storeReportHtml_', 'storeReport_', 'programDayInfo_',
          'reportHtml_', 'brandPaperHtml_', 'brandProgramLabel_', 'prettyDay_', 'unitLiftOf_',
          'measuredRowsFor_', 'payoutFactsOf_', 'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_',
-         'friendlyName_', 'today_'],
-  vars: ['LOGO_ONLIGHT', 'BTS_PER_STORE', 'GX_SECRET_PROP'],
+         'friendlyName_', 'today_', 'storeReportPlan_', 'sendStoreReports_', 'weekStartOf_', 'storeReportSubject_',
+         'scrubSecrets_', 'nowStamp_'],
+  vars: ['LOGO_ONLIGHT', 'BTS_PER_STORE', 'GX_SECRET_PROP', 'MKT_PEOPLE_', 'EDIT_ROLES'],
   stubs: {
     getProgram_: (id) => BY_ID[id] ? { ok: true, program: BY_ID[id] } : { ok: false, error: 'not found: ' + id },
     gxStores_: () => [{ store_id: 'river-rd', display_name: 'River Rd' }, { store_id: 'commercial', display_name: 'Commercial St' }],
     displayNameMap_: () => ({ byId: { e1: 'Amy', e2: 'Bob', e3: 'Zed', e4: 'Cal' }, byName: {} }),
     spiffProgress_: () => { LIVE_CALLS++; return LIVE; },
     gxAuth_: () => AUTH,
+    sendMail_: (m) => { MAIL.push(m); },
   },
   globals: { PropertiesService: PROPS.PropertiesService, console: { warn() {}, log() {} },
-             Utilities: Object.assign({}, G.Utilities) },
+             Utilities: Object.assign({}, G.Utilities),
+             GXCore: { getEmployeeContacts: () => { if (CONTACTS_FAIL) throw new Error('core down'); return CONTACTS; } },
+             LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) } },
 });
 
 /* ── closed program: one block per store, each person under their own store ── */
@@ -130,6 +141,37 @@ ok('before the start: "before"', D.programDayInfo_(RUNNING, '2026-11-01').before
 ok('last day: 0 days left, not over', (x => x.left === 0 && !x.over && x.day === 14)(D.programDayInfo_(RUNNING, '2026-11-15')));
 ok('after the end: over', D.programDayInfo_(RUNNING, '2026-11-16').over === true);
 ok('no window: null', D.programDayInfo_({ start_date: '', end_date: '' }, '2026-11-04') === null);
+
+/* ── EMAIL: who gets what ── */
+AUTH = { ok: true, user: 'tawny', role: 'editor' };
+r = D.storeReport_({ token: 't', id: RUNNING.program_id });
+const units = r.plan.units;
+ok('River Rd\'s sheet goes to BOTH its managers, from GX Core\'s live contacts', units[0].to.join() === 'riv@greencrosscanna.com,riv2@greencrosscanna.com');
+ok('Tawny gets one email for all stores', units[units.length - 1].key === 'all' && units[units.length - 1].to[0] === 'tawny@greencrosscanna.com');
+ok('a store whose manager has no address is NAMED, not skipped quietly',
+   r.plan.missing.some(m => m.store_name === 'Commercial St' && /no email/.test(m.reason)) && !units.some(u => u.store_id === 'commercial'));
+ok('the week is the Monday of today (a Monday)', /^\d{4}-\d\d-\d\d$/.test(r.plan.week) && new Date(r.plan.week + 'T00:00:00Z').getUTCDay() === 1);
+ok('weekStartOf_: Wednesday 2026-11-04 → Monday 2026-11-02; Sunday 2026-11-08 → 2026-11-02',
+   D.weekStartOf_('2026-11-04') === '2026-11-02' && D.weekStartOf_('2026-11-08') === '2026-11-02' && D.weekStartOf_('2026-11-09') === '2026-11-09');
+
+let d = D.sendStoreReports_({ token: 't', id: RUNNING.program_id });
+ok('no send=1: dry — lists recipients, sends NOTHING', d.ok && d.dry && d.would_send.length === 2 && MAIL.length === 0);
+AUTH = { ok: true, user: 'gx-dev', role: 'viewer' };
+ok('a viewer cannot send', D.sendStoreReports_({ token: 't', id: RUNNING.program_id, send: '1' }).ok === false && MAIL.length === 0);
+AUTH = { ok: true, user: 'tawny', role: 'editor' };
+d = D.sendStoreReports_({ token: 't', id: RUNNING.program_id, send: '1' });
+ok('send=1 by an editor: one mail per recipient group (River Rd managers, Tawny)', d.ok && MAIL.length === 2 && d.sent.length === 2);
+ok('  …the manager mail holds only that store\'s people', /Amy/.test(MAIL[0].htmlBody) && !/Cal M|CAL COMM|Cal\b/.test(MAIL[0].htmlBody));
+ok('  …Tawny\'s holds every store', /River Rd/.test(MAIL[1].htmlBody) && /Commercial St/.test(MAIL[1].htmlBody));
+ok('  …subject names the store and program', /SPIFF check-in — River Rd — Acme Fall/.test(MAIL[0].subject));
+d = D.sendStoreReports_({ token: 't', id: RUNNING.program_id, send: '1' });
+ok('the same week twice is refused, no mail', d.ok === false && d.already === true && MAIL.length === 2);
+d = D.sendStoreReports_({ token: 't', id: RUNNING.program_id, send: '1', resend: '1' });
+ok('resend=1 sends again, on purpose', d.ok && MAIL.length === 4);
+CONTACTS_FAIL = true;
+d = D.sendStoreReports_({ token: 't', id: RUNNING.program_id, send: '1', resend: '1' });
+ok('GX Core unreachable: refuses loudly, sends nothing', d.ok === false && /Could not read the managers/.test(d.error) && MAIL.length === 4);
+CONTACTS_FAIL = false;
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\nall passed');
 process.exit(fail ? 1 : 0);
