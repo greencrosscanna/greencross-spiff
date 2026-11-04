@@ -6256,7 +6256,12 @@ function storeReportPlan_(prog, sections) {
   catch (e) { err = 'Could not read the managers from GX Core: ' + scrubSecrets_(e && e.message || e); }
   var units = [], missing = [];
   sections.forEach(function (sec) {
-    var mine = contacts.filter(function (c) { return slug_(c.home_store) === slug_(sec.store_id); });
+    /* MANAGERS ONLY (Sky, 2026-11-03): an Assistant Manager does not get the sheet unless Tawny asks
+       for it. GX Core's "manager" match is a substring, so assistants arrive in the list and are
+       filtered out here, by title. */
+    var mine = contacts.filter(function (c) {
+      return slug_(c.home_store) === slug_(sec.store_id) && !/assistant|asst/i.test(String(c.role_title || ''));
+    });
     var withMail = mine.filter(function (c) { return c.contactable && /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(c.email || '').trim()); });
     if (withMail.length) {
       units.push({ key: 'store:' + slug_(sec.store_id), kind: 'store', store_id: sec.store_id, store_name: sec.name,

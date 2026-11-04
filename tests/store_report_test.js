@@ -146,7 +146,7 @@ ok('no window: null', D.programDayInfo_({ start_date: '', end_date: '' }, '2026-
 AUTH = { ok: true, user: 'tawny', role: 'editor' };
 r = D.storeReport_({ token: 't', id: RUNNING.program_id });
 const units = r.plan.units;
-ok('River Rd\'s sheet goes to BOTH its managers, from GX Core\'s live contacts', units[0].to.join() === 'riv@greencrosscanna.com,riv2@greencrosscanna.com');
+ok('River Rd\'s sheet goes to its Store Manager only; the Assistant Manager does not get it', units[0].to.join() === 'riv@greencrosscanna.com');
 ok('Tawny gets one email for all stores', units[units.length - 1].key === 'all' && units[units.length - 1].to[0] === 'tawny@greencrosscanna.com');
 ok('a store whose manager has no address is NAMED, not skipped quietly',
    r.plan.missing.some(m => m.store_name === 'Commercial St' && /no email/.test(m.reason)) && !units.some(u => u.store_id === 'commercial'));
