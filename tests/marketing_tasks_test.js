@@ -87,8 +87,8 @@ console.log('\n3. per-store tasks fan out, and each store is its own key');
   ok('one row per program store', rows.map(r => r.key).join() === 'signage.up@bend,signage.up@center');
   ok('a task the office does once stays one row', MK.tasksOf(p, OPTS).filter(t => t.id === 'signage.approve').length === 1);
   const chosen = withPlan({ sel: { signage: true }, stores: ['river-rd'] });
-  ok('stores picked for marketing win over the program\'s',
-     MK.tasksOf(chosen, OPTS).filter(t => t.id === 'signage.up').map(r => r.store).join() === 'river-rd');
+  ok('a leftover item-level store pick is ignored: the program\'s own stores run the task (v2.000)',
+     MK.tasksOf(chosen, OPTS).filter(t => t.id === 'signage.up').map(r => r.store).join() === 'bend,center');
   const none = withPlan({ sel: { signage: true } }, { stores_json: [] });
   ok('with no stores on the program, every store', MK.tasksOf(none, OPTS).filter(t => t.id === 'signage.up').length === 6);
 
@@ -100,10 +100,7 @@ console.log('\n3. per-store tasks fan out, and each store is its own key');
   ok('every store done closes it', group(both, 'signage.up').open === 0);
 }
 {
-  const p = withPlan({ sel: { signage: true } });
-  ok('turning a store on adds it', MK.toggleStoreOp(p, 'river-rd', OPTS)[0][2].join() === 'bend,center,river-rd');
-  ok('the last store will not turn off',
-     MK.toggleStoreOp(withPlan({ stores: ['bend'] }), 'bend', OPTS).length === 0);
+  ok('the item-level store picker is gone: no toggle op is exported (v2.000)', MK.toggleStoreOp === undefined);
 }
 
 console.log('\n4. which date wins');
@@ -190,7 +187,7 @@ const CTX = { today: TODAY, canEdit: true, engineReady: true, moving: '',
   ok('the cards carry no compliance warning', html.indexOf('tiered spend thresholds') < 0 && html.indexOf('mk-comp') < 0);
   ok('  …and not for one left off', html.indexOf('Entry is not tied to a purchase') < 0);
   ok('a vendor name cannot inject markup', html.indexOf('A<b>') < 0 && html.indexOf('A&lt;b&gt;') > 0);
-  ok('it uses the real store names it was given', html.indexOf('RIVER-RD') > 0);
+  ok('the item-level "Which stores?" picker is gone (v2.000)', html.indexOf('Which stores') < 0 && html.indexOf('mk-stores') < 0);
   /* collectPatch reads every [data-key] in the record's hosts. None here, so the program's Save
      button neither reads nor resends this section. */
   ok('nothing in it can be picked up by the program\'s own Save', html.indexOf('data-key') < 0);
@@ -201,7 +198,7 @@ const CTX = { today: TODAY, canEdit: true, engineReady: true, moving: '',
   const ro = MK.sectionHtml(p, Object.assign({}, CTX, { canEdit: false }));
   ok('a role that cannot edit gets it read-only',
      (ro.match(/data-mk-task="[^"]*"[^>]*>/g) || []).every(x => /disabled/.test(x))
-     && (ro.match(/data-mk-store="[^"]*"[^>]*>/g) || []).every(x => /disabled/.test(x))
+     && !/mk-stores|data-mk-store=/.test(ro)
      && !/data-mk-moving/.test(ro));
   ok('an engine without the column says so instead of silently not saving',
      /engine has not been updated/.test(MK.sectionHtml(p, Object.assign({}, CTX, { engineReady: false }))));

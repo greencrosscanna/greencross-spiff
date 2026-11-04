@@ -40,11 +40,6 @@
 .mk-opt.lock, .mk-opt[disabled] { cursor: default; opacity: .85; }
 .mk-opt small { display: block; color: var(--mk-mut); font-size: 11px; }
 
-.mk-stores-h { margin: 16px 0 6px; font-size: 14px; color: var(--mk-txt); }
-.mk-stores { display: flex; flex-wrap: wrap; gap: 6px; }
-.mk-stores button { background: var(--mk-in); border: 1px solid var(--mk-line); color: var(--mk-txt); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; }
-.mk-stores button.on { border-color: var(--mk-green); color: var(--mk-green); font-weight: 600; }
-.mk-stores button[disabled] { cursor: default; }
 
 .mk-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; }
 .mk-item { background: var(--mk-in); border: 1px solid var(--mk-line); border-radius: 10px; padding: 12px 14px; }

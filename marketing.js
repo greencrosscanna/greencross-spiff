@@ -262,10 +262,9 @@
     return Object.keys(ITEMS).filter(function (id) { return !ITEMS[id].lock && isOn(p, id); });
   }
 
-  /* Where marketing runs: what was chosen, else the program's own stores, else every store. */
+  /* Where marketing runs: the program's own stores, else every store. There is no item-level picker
+     (removed v2.000); a per-store task or vendor day with no store of its own runs at these. */
   function storesOf(p, opts) {
-    var plan = planOf(p);
-    if (plan.stores && plan.stores.length) return plan.stores.slice();
     if (p && p.stores_json && p.stores_json.length) return p.stores_json.slice();
     return ((opts && opts.stores) || []).slice();
   }
@@ -439,14 +438,6 @@
   function toggleItemOp(p, id) {
     if (!ITEMS[id] || ITEMS[id].lock) return [];
     return [['sel', id, isOn(p, id) ? null : true]];
-  }
-  /* The last store cannot be turned off: an empty list means "the program's stores", so the chip
-     would spring back on, which reads as a broken button. */
-  function toggleStoreOp(p, store, opts) {
-    var now = storesOf(p, opts), i = now.indexOf(store);
-    if (i >= 0 && now.length === 1) return [];
-    if (i >= 0) now.splice(i, 1); else now.push(store);
-    return [['stores', null, now]];
   }
   function detailOp(p, item, field, value) {
     var cur = JSON.parse(JSON.stringify(planOf(p).d[item] || {}));
@@ -804,10 +795,6 @@
           }).join('') + '</div>';
     }).join('');
 
-    var chips = ctx.stores.map(function (s) {
-      return '<button type="button" class="' + (on.indexOf(s.store_id) >= 0 ? 'on' : '') + '" data-mk-store="' + esc(s.store_id) + '"' + ro + '>' + esc(s.name) + '</button>';
-    }).join('');
-
     /* The incentive has no card: it has nothing to fill in, its payout is set in the Calculator. */
     var cards = Object.keys(ITEMS).filter(function (id) { return isOn(p, id) && !ITEMS[id].lock; }).map(function (id) {
       var it = ITEMS[id];
@@ -836,7 +823,7 @@
       + '<div class="mk-card"><h3 class="mk-h">What is ' + esc(p.vendor || 'this vendor') + ' in for?</h3>'
       + '<p class="mk-sub">Tick what the vendor signed up for. The tasks and dates below fill in on their own.</p>'
       + '<div class="mk-grid4">' + picker + '</div>'
-      + '<h5 class="mk-stores-h">Which stores?</h5><div class="mk-stores">' + chips + '</div></div>'
+      + '</div>'
       + '<div class="mk-card"><h3 class="mk-h">Details</h3>'
       + '<p class="mk-sub">Only what’s needed for the items picked above.</p>'
       + filesHtml(plan, ctx)
@@ -887,7 +874,6 @@
       if (t.dataset.mkVadd) return api.apply(addVdayOp(p));
       if (t.dataset.mkVdel) return api.apply(removeVdayOp(p, t.dataset.mkVdel));
       if (t.dataset.mkPick) return api.apply(toggleItemOp(p, t.dataset.mkPick));
-      if (t.dataset.mkStore) return api.apply(toggleStoreOp(p, t.dataset.mkStore, api.opts()));
       if (t.dataset.mkMoving) return api.moving(t.dataset.mkMoving);
       if (t.dataset.mkUnmove) return api.apply(dueOp(t.dataset.mkUnmove, null));
       if (t.dataset.mkTask) return api.tick(t.dataset.mkTask, !planOf(p).done[t.dataset.mkTask]);
@@ -1299,7 +1285,7 @@
     pickedItems: pickedItems, storesOf: storesOf, tasksOf: tasksOf, groupTasks: groupTasks,
     phaseOf: phaseOf, lateOf: lateOf, nextOf: nextOf, overdueTotal: overdueTotal,
     incentiveLine: incentiveLine, applyOps: applyOps, toggleItemOp: toggleItemOp,
-    toggleStoreOp: toggleStoreOp, detailOp: detailOp, doneOp: doneOp, dueOp: dueOp,
+    detailOp: detailOp, doneOp: doneOp, dueOp: dueOp,
     vdaysOf: vdaysOf, addVdayOp: addVdayOp, removeVdayOp: removeVdayOp, setVdayOp: setVdayOp,
     PEOPLE: PEOPLE, assignOp: assignOp,
     rowsOf: rowsOf, addRowOp: addRowOp, removeRowOp: removeRowOp, setRowOp: setRowOp, toggleRowStoreOp: toggleRowStoreOp,

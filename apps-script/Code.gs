@@ -6943,7 +6943,7 @@ function mktPlanFacts_(p) {
   var names = Object.create(null);
   try { (gxStores_() || []).forEach(function (x) { names[slug_(x.store_id)] = x.display_name || x.store_id; }); }
   catch (e) { /* slugs are a poor label, not a blank one */ }
-  var storeIds = (plan.stores && plan.stores.length) ? plan.stores : (p.stores_json || []);
+  var storeIds = p.stores_json || [];   /* the program's own stores; no item-level picker (v2.000) */
   var ids = mktPickedIds_(plan);
   var ISO = /^\d{4}-\d{2}-\d{2}$/;
   /* Vendor days, each with its store; a plan saved before the list existed holds one in d.vday. */
