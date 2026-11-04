@@ -409,6 +409,8 @@ function doGet(e) {
       case 'diag':        out = diag_();                                            break;
       case 'buildReport': out = buildReport_(p);                                    break;
       case 'emailDraft':  out = emailDraft_(p);                                     break;
+      /* Store-by-store breakdown + printable mid-week sheet. Read only; builds, never sends. */
+      case 'storeReport': out = storeReport_(p);                                    break;
       /* SENDS AN EMAIL. Editor session only, and never hedged client-side — a second copy would be
          a second email. See sendBrandEmail_. */
       case 'sendBrandEmail': out = sendBrandEmail_(p);                              break;
@@ -6081,7 +6083,169 @@ function measuredRowsFor_(prog) {
   }
   /* Most sold first — the vendor reads the top of this table. */
   rows.sort(function (a, b) { return b.units - a.units || String(a.name).localeCompare(String(b.name)); });
-  return { rows: rows, by_store: byStore, source: source };
+  return { rows: rows, by_store: byStore, source: source,
+           /* When the figures were taken, so a mid-week sheet can say "as of" rather than imply
+              they are live. A frozen snapshot carries its own time; a running program uses the
+              hourly cache's. Empty when neither is known. */
+           as_of: snap ? String(snap.at || '') : (live && live.ok ? String(live.refreshed_at || '') : '') };
+}
+
+/* ── STORE BY STORE (Sky's asks 2026-11-03: "break down by store like old reports" and "send mid
+ * week store by store reports (printable)") ────────────────────────────────────────────────────
+ * The old report, SPIFF_Sales Report - Gron - 092925.pdf, was one block per store: the store's
+ * total, then each budtender's units against the target. The staff copy had flattened that into one
+ * long table across all six stores. These three builders put the blocks back, and the SAME blocks
+ * feed the staff PDF and the mid-week sheet so the two cannot disagree.
+ *
+ * STAFF EYES ONLY. These carry budtender names. The brand page (brandPaperHtml_) is a different
+ * builder and never calls these. Nothing here sends anything: storeReport_ only builds.
+ *
+ * FIGURES COME FROM measuredRowsFor_: the frozen snapshot for a closed program, the hourly cache for
+ * a running one -- never a live Dutchie pull, so opening this costs the account no executions. */
+function storeSectionsOf_(prog, measured) {
+  var t = prog.target_json || {};
+  var perBt = t.per_bt || {};
+  var f = payoutFactsOf_(prog);
+  var names = Object.create(null);
+  try { (gxStores_() || []).forEach(function (x) { names[slug_(x.store_id)] = x.display_name || x.store_id; }); }
+  catch (e) { /* slugs are a poor label, not a blank one */ }
+  var rows = (measured && measured.rows) || [];
+
+  /* The program's stores first, in its order; then any store that has rows but is not listed, so
+     the flat table this replaces never loses a budtender. */
+  var ids = (prog.stores_json || []).slice(), seen = Object.create(null);
+  ids.forEach(function (s) { seen[slug_(s)] = 1; });
+  rows.forEach(function (r) { var k = slug_(r.store_id); if (!seen[k]) { seen[k] = 1; ids.push(r.store_id); } });
+
+  return ids.map(function (s) {
+    var key = slug_(s);
+    var goalPer = Number(perBt[s]) || 0;
+    var mine = rows.filter(function (r) { return slug_(r.store_id) === key; });
+    mine.sort(function (a, b) { return (Number(b.units) || 0) - (Number(a.units) || 0) || String(a.name).localeCompare(String(b.name)); });
+    var bts = mine.map(function (r) {
+      var units = Number(r.units) || 0, target = Number(r.target) || goalPer;
+      var earned = Number(r.earned) || 0;
+      return { name: r.name, units: units, target: target,
+               hit: !!r.hit || (f.per_unit && earned > 0), earned: earned };
+    });
+    var byStore = measured && measured.by_store ? measured.by_store[key] : null;
+    var sold = (byStore != null && byStore !== '' && isFinite(Number(byStore))) ? Number(byStore)
+             : (bts.length ? bts.reduce(function (n, b) { return n + b.units; }, 0) : null);
+    return { store_id: s, name: names[key] || s, sold: sold,
+             goal: Number((t.by_store || {})[s]) || 0, per_bt: goalPer,
+             hit: bts.filter(function (b) { return b.hit; }).length,
+             earned: bts.reduce(function (n, b) { return n + b.earned; }, 0),
+             bts: bts };
+  });
+}
+
+/* One store's block: heading line plus the budtender table. `o.togo` adds a "To go" column (the
+   mid-week sheet: how many more units until each person hits). Inline styles only, because the PDF
+   converter and a browser print of an injected fragment both ignore a stylesheet we don't ship. */
+function storeBlockHtml_(sec, f, o) {
+  o = o || {};
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var FONT = 'font-family:Helvetica,Arial,sans-serif;';
+  var showTarget = !f.per_unit;
+  var th = function (x, right) {
+    return '<th style="' + FONT + 'text-align:' + (right ? 'right' : 'left') + ';padding:6px 8px;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#5a635f;border-bottom:1px solid #d7dedb">' + x + '</th>';
+  };
+  var td = function (x, right, bold) {
+    return '<td style="' + FONT + 'text-align:' + (right ? 'right' : 'left') + ';padding:6px 8px;font-size:' + (o.big ? '14' : '12') + 'px;color:#1a1f1d;font-weight:' + (bold ? '700' : '400') + ';border-bottom:1px solid #eef2f0">' + x + '</td>';
+  };
+  var soldTxt = sec.sold == null ? '—' : sec.sold.toLocaleString();
+  var head = '<div style="' + FONT + 'font-size:15px;font-weight:800;color:#1a1f1d;border-bottom:2px solid #1a1f1d;padding:0 0 5px;margin:0 0 4px">'
+    + esc(sec.name)
+    + '<span style="font-weight:400;font-size:12px;color:#5a635f"> &middot; '
+    + soldTxt + ' units sold'
+    + (showTarget && sec.goal ? ' of ' + sec.goal.toLocaleString() + ' goal' : '')
+    + (showTarget && sec.bts.length ? ' &middot; ' + sec.hit + ' of ' + sec.bts.length + ' hit' : '')
+    + '</span></div>';
+  if (!sec.bts.length) {
+    return '<div style="margin:0 0 18px">' + head
+      + '<p style="' + FONT + 'font-size:12px;color:#5a635f;margin:6px 0">No budtender sales recorded for this store yet.</p></div>';
+  }
+  var body = sec.bts.map(function (b) {
+    var togo = (b.target > 0 && b.units < b.target) ? (b.target - b.units) : 0;
+    return '<tr>' + td(esc(b.name))
+      + td(b.units.toLocaleString(), true, true)
+      + (showTarget
+          ? td(b.target ? b.target.toLocaleString() : '—', true)
+            + (o.togo ? td(b.hit ? 'Hit' : (b.target ? String(togo) : '—'), true) : td(b.hit ? '✓' : '', true))
+          : td(moneyStr_(b.earned), true))
+      + '</tr>';
+  }).join('');
+  return '<div style="margin:0 0 18px;page-break-inside:avoid">' + head
+    + '<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse"><tr>'
+    + th('Budtender') + th('Units', 1)
+    + (showTarget ? th('Target', 1) + th(o.togo ? 'To go' : 'Hit', 1) : th('Earned', 1))
+    + '</tr>' + body + '</table></div>';
+}
+
+/* The days of a running program, as text-date arithmetic (both sides parsed the same way, so no
+   timezone can shift the answer). Returns null for a program with no usable window. */
+function programDayInfo_(prog, today) {
+  var d = function (s) { var m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86400000 : null; };
+  var a = d(prog.start_date), b = d(prog.end_date), n = d(today);
+  if (a == null || b == null || n == null || b < a) return null;
+  var total = b - a + 1, day = Math.min(Math.max(n - a + 1, 0), total);
+  return { day: day, total: total, left: Math.max(b - n, 0), over: n > b, before: n < a };
+}
+
+/* The mid-week sheet: one PAGE per store, light, meant to be printed and handed to that store. */
+function storeReportHtml_(prog, sections, info) {
+  info = info || {};
+  var f = payoutFactsOf_(prog);
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var FONT = 'font-family:Helvetica,Arial,sans-serif;';
+  var label = brandProgramLabel_(prog);
+  var period = prog.start_date ? prettyDay_(prog.start_date) + ' – ' + prettyDay_(prog.end_date || '') : '';
+  var di = info.days;
+  var dayLine = !di ? '' : (di.before ? 'Starts ' + prettyDay_(prog.start_date)
+    : (di.over ? 'Program ended' : 'Day ' + di.day + ' of ' + di.total + ' · ' + di.left + ' day' + (di.left === 1 ? '' : 's') + ' left'));
+  var asOf = info.as_of ? 'Figures as of ' + String(info.as_of).slice(0, 16).replace('T', ' ') + ' (updated hourly)' : 'Figures from the most recent hourly update';
+  var rate = f.per_unit ? moneyStr_(f.rate) + ' per unit sold' : moneyStr_(f.rate) + ' each for hitting target';
+
+  return '<div style="' + FONT + 'color:#1a1f1d;background:#fff">' + sections.map(function (sec, i) {
+    var pct = (!f.per_unit && sec.goal && sec.sold != null) ? Math.round(sec.sold / sec.goal * 100) + '% of goal' : '';
+    return '<div style="' + (i < sections.length - 1 ? 'page-break-after:always;' : '') + 'padding:6px 4px 24px">'
+      + '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-top:2px solid #1a1f1d;border-bottom:2px solid #1a1f1d;margin:0 0 14px"><tr>'
+      + '<td style="padding:12px 0"><img src="' + LOGO_ONLIGHT + '" alt="Green Cross" height="22" style="height:22px;width:auto;display:block;margin:0 0 8px">'
+      +   '<div style="' + FONT + 'font-size:18px;font-weight:800">' + esc(sec.name) + ' &mdash; SPIFF check-in</div>'
+      +   '<div style="' + FONT + 'font-size:12px;color:#5a635f">' + esc(label) + (period ? ' &middot; ' + esc(period) : '') + '</div></td>'
+      + '<td style="padding:12px 0;text-align:right;vertical-align:top">'
+      +   '<div style="' + FONT + 'font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#5a635f">' + esc(dayLine) + '</div>'
+      +   '<div style="' + FONT + 'font-size:26px;font-weight:800">' + (sec.sold == null ? '—' : sec.sold.toLocaleString()) + '</div>'
+      +   '<div style="' + FONT + 'font-size:11px;color:#5a635f">units sold' + (pct ? ' &middot; ' + esc(pct) : '') + '</div></td></tr></table>'
+      + '<p style="' + FONT + 'font-size:12px;color:#5a635f;margin:0 0 12px">SPIFF: ' + esc(rate) + '. '
+      +   (f.per_unit ? '' : 'Each budtender’s target is ' + (sec.per_bt ? sec.per_bt.toLocaleString() + ' units' : 'set on the program') + '. ') + '</p>'
+      + storeBlockHtml_(sec, f, { togo: true, big: true })
+      + '<p style="' + FONT + 'font-size:10.5px;color:#5a635f;margin:14px 0 0">' + esc(asOf) + ' &middot; Green Cross SPIFF &middot; for store staff, not for brands.</p>'
+      + '</div>';
+  }).join('') + '</div>';
+}
+
+/* `?action=storeReport&id=` -- the breakdown as data plus the printable HTML. READ ONLY, builds
+   and returns, never sends. Any signed-in role may read it (the editor-only gate is on sending, and
+   nothing here sends); names are on it, so it needs a real session or the deploy secret. */
+function storeReport_(p) {
+  var deploySecret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  var viaSecret = !!(deploySecret && p.secret && String(p.secret) === deploySecret);
+  if (!viaSecret) {
+    var auth = gxAuth_(p.token);
+    if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
+  }
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var prog = res.program;
+  var measured = measuredRowsFor_(prog);
+  var sections = storeSectionsOf_(prog, measured);
+  var info = { as_of: measured.as_of, days: programDayInfo_(prog, today_()) };
+  return { ok: true, program_id: prog.program_id, label: brandProgramLabel_(prog), status: prog.status,
+           per_unit: payoutFactsOf_(prog).per_unit, as_of: measured.as_of, source: measured.source,
+           days: info.days, stores: sections, html: storeReportHtml_(prog, sections, info) };
 }
 
 /* ── WHAT THE VENDOR IS OWED, IN ONE PLACE ────────────────────────────────────────────────────
@@ -6201,21 +6365,13 @@ function reportHtml_(p, matrix) {
       + '<td class="n">' + (act == null ? '&mdash;' : act) + '</td></tr>';
   }).join('');
 
+  /* ONE BLOCK PER STORE, like the old reports (Sky, 2026-11-03): the store's total, then each
+     budtender against the target. This was one flat table across every store. Same builder as the
+     mid-week sheet. The heading text is unchanged on purpose. */
   var matrixHtml = matrix && matrix.rows && matrix.rows.length
-    ? '<h2>By budtender</h2><table><tr><th>Budtender</th><th>Store</th><th class="n">Units</th>'
-      + (showTarget ? '<th class="n">Target</th><th>Hit</th>' : '<th class="n">Earned</th>')
-      + '</tr>'
-      + matrix.rows.map(function (r) {
-          return '<tr><td>' + esc(r.name) + '</td>'
-            + '<td>' + esc(storeNameOf[slug_(r.store_id)] || r.store_id) + '</td>'
-            + '<td class="n">' + r.units + '</td>'
-            /* On per-unit, Target and Hit were a column of zeros and 38 blank cells. What the
-               person actually earned is the fact that row is missing. */
-            + (showTarget
-                ? '<td class="n">' + r.target + '</td><td>' + (r.hit ? '✓' : '') + '</td>'
-                : '<td class="n">' + money(r.earned) + '</td>')
-            + '</tr>';
-        }).join('') + '</table>'
+    ? '<h2>By budtender</h2>' + storeSectionsOf_(p, matrix).map(function (sec) {
+        return storeBlockHtml_(sec, f, {});
+      }).join('')
     : '<p class="note">Per-budtender breakdown is not included: this program\'s sell-through was '
       + 'recorded in aggregate. Programs tracked in SPIFF carry the full budtender matrix.</p>';
 

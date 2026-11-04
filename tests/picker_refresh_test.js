@@ -88,7 +88,7 @@ ok('  …and a pull only starts when the open program is actually running',
 const rep = grab('fillReportPicker');
 ok('Reports keeps its selection the same way', /var was = sel\.value/.test(rep));
 ok('  …and restores it when the program is still listed',
-   /closed\.some\(function \(p\) \{ return p\.program_id === was; \}\)/.test(rep));
+   /closed\.concat\(running\)\.some\(function \(p\) \{ return p\.program_id === was; \}\)/.test(rep));
 
 /* ── THE VENDOR LIST HAS TO ARRIVE, AND SAY SO WHILE IT IS ARRIVING ───────────────────────────
    Found 2026-09-08 while creating a program end-to-end in Chrome. Only `focus` loaded the brand
