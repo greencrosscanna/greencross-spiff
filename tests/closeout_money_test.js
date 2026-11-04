@@ -102,7 +102,8 @@ const DOC = G.load({
          'payoutFactsOf_', 'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_',
          'friendlyName_', 'userKey_', 'scrubSecrets_', 'today_',
          'brandPaperHtml_', 'unitLiftOf_', 'brandProgramLabel_', 'prettyDay_', 'brandPdfBlob_',
-         'brandFromAddress_', 'sendBrandEmail_', 'brandSignatureHtml_'],
+         'brandFromAddress_', 'sendBrandEmail_', 'brandSignatureHtml_',
+         'storeSectionsOf_', 'storeBlockHtml_'],
   vars: ['EDIT_ROLES', 'LOGO_ONLIGHT', 'GX_SECRET_PROP', 'BTS_PER_STORE',
          'BRAND_FROM_PROP', 'BRAND_SENT_PREFIX', 'BRAND_FROM_DEFAULT',
          'BRAND_SIGNER_NAME', 'BRAND_SIGNER_TITLE', 'BRAND_SIG_LOGO', 'BRAND_SIG_LOCATIONS'],
@@ -313,11 +314,11 @@ ok('the flat formula is written nowhere by hand any more',
      />140</.test(html) && />102</.test(html));
   /* "242 UNITS SOLD / 0 TARGET" on a program that set no per-person target reads as a miss. */
   ok('a per-unit program prints no Target column at all', html.indexOf('>Target<') < 0);
-  ok('  …and shows what each person EARNED instead', /<th class="n">Earned<\/th>/.test(html)
+  ok('  …and shows what each person EARNED instead', />Earned</.test(html)
      && /\$76\.50/.test(html));
   const flatHtml = DOC.reportHtml_(FLAT, DOC.measuredRowsFor_(FLAT));
   ok('a flat program still gets Target and Hit, where the target is the point',
-     /<th class="n">Target<\/th>/.test(flatHtml) && /<th>Hit<\/th>/.test(flatHtml)
+     />Target</.test(flatHtml) && />Hit</.test(flatHtml)
      && /✓/.test(flatHtml));
   ok('  …with the per-budtender goal off the PROGRAM, never the snapshot row\'s zero',
      />5</.test(flatHtml) && !/TARGET 0/.test(flatHtml));

@@ -6457,7 +6457,18 @@
       if (b.dataset.act === 'sendbrand') sendBrand(b);
       if (b.dataset.act === 'cards')  copyCards(b);
       if (b.dataset.act === 'printcards') window.print();
+      if (b.dataset.act === 'printstores') printStoreSheets();
+      if (b.dataset.act === 'emailstores') sendStoreSheets(b);
     });
+  }
+
+  /* Prints ONLY the store sheets. The print stylesheet shows one element at a time; this names it
+     for the duration of the print dialog and then puts the default (the brand page) back. */
+  function printStoreSheets() {
+    var done = function () { document.body.removeAttribute('data-printing'); window.removeEventListener('afterprint', done); };
+    document.body.setAttribute('data-printing', 'stores');
+    window.addEventListener('afterprint', done);
+    window.print();
   }
 
   /* Opens the user's own mail app with the recipient and subject filled in, and puts the FORMATTED
@@ -6543,12 +6554,17 @@
     if (!sel) return;
     var was = sel.value;                     // same rule as Progress: a refill must not move you
     var closed = sortPrograms(state.programs.filter(function (p) { return p.actual_json; }));
-    sel.innerHTML = closed.map(function (p) {
+    /* RUNNING programs are listed too (mid-week store sheets). They have no recorded actuals, so
+       they get the store-by-store sheet only -- no vendor report, email or gift cards yet. */
+    var running = sortPrograms(state.programs.filter(function (p) { return !p.actual_json && p.status === 'active'; }));
+    var opt = function (p) {
       return '<option value="' + esc(p.program_id) + '">'
         + esc(programLabel(p)) + ' · ' + esc(prettyRangeY(p)) + '</option>';
-    }).join('');
-    if (was && closed.some(function (p) { return p.program_id === was; })) sel.value = was;
-    if (closed.length) renderReport();
+    };
+    sel.innerHTML = (running.length ? '<optgroup label="Running now — mid-week store sheets">' + running.map(opt).join('') + '</optgroup>' : '')
+      + (closed.length ? (running.length ? '<optgroup label="Closed — vendor close-out">' : '') + closed.map(opt).join('') + (running.length ? '</optgroup>' : '') : '');
+    if (was && closed.concat(running).some(function (p) { return p.program_id === was; })) sel.value = was;
+    if (closed.length || running.length) renderReport();
   }
 
   /* Which report render is the current one. Switching programs fires renderReport again while the
@@ -6564,6 +6580,17 @@
     if (!p) { host.innerHTML = '<div class="sp-notice">No closed programs yet.</div>'; return; }
 
     var mySeq = ++repRenderSeq;
+
+    /* A RUNNING program: mid-week store sheets only, from the hourly figures. */
+    if (!p.actual_json) {
+      var chip0 = $('#repStatus');
+      if (chip0) chip0.innerHTML = '<span class="sp-chip is-' + esc(p.status) + '">' + esc(p.status) + '</span>';
+      host.innerHTML = '<div class="sp-notice"><span class="sp-notice-l">Still running</span>'
+        + 'This program has not closed, so there is no vendor report yet. Below are the mid-week sheets for the stores, from the hourly figures.</div>'
+        + '<div id="repStores"></div>';
+      loadStoreSheets(p, mySeq);
+      return;
+    }
 
     /* SAY SOMETHING IS HAPPENING, IMMEDIATELY. This function awaits the vendor email draft from the
        engine, and until it returns the previous program's report sat fully rendered on screen —
@@ -6745,10 +6772,93 @@
       + '<div class="sp-step" id="repStep3">'
       +   '<div class="sp-step-h"><span class="sp-step-n">3</span><h4>Buy the gift cards</h4>'
       +     '<span class="sp-step-note">' + money(owed) + ' &middot; ' + hit + ' card' + (hit === 1 ? '' : 's') + ' at ' + money(rate) + '</span></div>'
-      +   '<div class="sp-step-b">' + giftList(p, cache, rate) + '</div></div>';
+      +   '<div class="sp-step-b">' + giftList(p, cache, rate) + '</div></div>'
+
+      /* ---- step 4: store by store, for the stores (staff only) */
+      + '<div id="repStores"></div>';
+    loadStoreSheets(p, mySeq);
 
     var to = $('#repTo');
     if (to && !primaryRep(p)) to.classList.add('sp-driving');
+  }
+
+  /* STORE BY STORE (Sky's asks 2026-11-03): one block per store like the old reports, printable one
+     page per store for the mid-week hand-out. STAFF ONLY: it lists budtender names, so it is never
+     part of what a brand receives. Built by the engine from the hourly figures (running) or the frozen
+     close-out measurement (closed); nothing is sent from here. */
+  async function loadStoreSheets(p, mySeq) {
+    var slot = $('#repStores');
+    if (!slot) return;
+    slot.innerHTML = '<div class="sp-step"><div class="sp-step-h"><span class="sp-step-n">S</span><h4>Store by store</h4></div>'
+      + '<div class="sp-step-b"><div class="sp-sk sp-sk-row"></div></div></div>';
+    var r = null, err = '';
+    try { r = await ENG.jsonp('storeReport', { token: (session() || {}).token, id: p.program_id }, { timeoutMs: 30000, retries: 1 }); }
+    catch (e) { err = 'Could not reach the engine'; console.error('[spiff] store sheets failed:', e); }
+    if (mySeq !== repRenderSeq) return;                 // a newer pick owns the screen
+    slot = $('#repStores');
+    if (!slot) return;
+    if (!r || !r.ok) {
+      var why = r && r.needsAuth ? 'Sign in to see the store sheets.' : ((r && r.error) || err || 'Not available right now.');
+      slot.innerHTML = '<div class="sp-step"><div class="sp-step-h"><span class="sp-step-n">S</span><h4>Store by store</h4></div>'
+        + '<div class="sp-step-b"><p class="sp-step-hint">' + esc(why) + '</p></div></div>';
+      return;
+    }
+    var hasRows = (r.stores || []).some(function (s) { return s.bts && s.bts.length; });
+    slot.innerHTML = '<div class="sp-step"><div class="sp-step-h"><span class="sp-step-n">S</span><h4>Store by store</h4>'
+      + '<span class="sp-step-note">' + (r.as_of ? 'figures as of ' + esc(String(r.as_of).slice(0, 16).replace('T', ' ')) : 'latest hourly figures') + '</span></div>'
+      + '<div class="sp-step-b">'
+      +   '<div class="sp-paper" id="printStores">' + r.html + '</div>'
+      +   '<div class="sp-step-actions">'
+      +     (hasRows ? '<button class="gx-btn gx-btn-green" data-act="printstores">Print store sheets (one page per store)</button>' : '')
+      +     (hasRows && r.plan && !r.plan.error ? '<button class="gx-btn" data-act="emailstores" data-id="' + esc(p.program_id) + '">Email the store sheets…</button>' : '')
+      +   '</div>'
+      +   storePlanHtml(r.plan)
+      +   '<p class="sp-step-hint">For store staff only &mdash; it names budtenders, so it is not what a brand gets. Nothing is sent until a person clicks Email and confirms.</p>'
+      + '</div></div>';
+  }
+
+  /* WHO WOULD GET IT, shown before anybody clicks: each store's manager(s) get their store's sheet,
+     Tawny gets all of them. Addresses come live from GX Core. A store with no manager address is
+     named here in red, never skipped quietly. */
+  function storePlanHtml(plan) {
+    if (!plan) return '';
+    if (plan.error) return '<div class="sp-notice is-bad"><span class="sp-notice-l">Cannot email yet</span>' + esc(plan.error) + '</div>';
+    var rows = (plan.units || []).map(function (u) {
+      return '<div class="sp-hint">' + esc(u.store) + ' &rarr; ' + esc((u.names || []).join(', ')) + ' (' + esc((u.to || []).join(', ')) + ')</div>';
+    }).join('');
+    var miss = (plan.missing || []).map(function (m) {
+      return '<li>' + esc(m.store_name) + (m.name ? ' &mdash; ' + esc(m.name) : '') + ': ' + esc(m.reason) + '</li>';
+    }).join('');
+    return '<div class="sp-step-hint"><b>Would email:</b>' + rows + '</div>'
+      + (miss ? '<div class="sp-notice is-bad"><span class="sp-notice-l">No address, will not get one</span><ul style="margin:4px 0 0 16px">' + miss + '</ul>'
+          + 'Add the manager&rsquo;s email in GX Core, then reload this page.</div>' : '');
+  }
+
+  /* SENDS EMAIL TO STAFF. A person decides: dry call first to get the recipients, a confirmation that
+     names them, then the real send. The engine refuses a repeat in the same week; no retries here. */
+  async function sendStoreSheets(btn) {
+    if (!canEdit()) { $('#btnAuth').click(); return; }
+    var id = btn.dataset.id, label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Checking…';
+    try {
+      var dry = await ENG.jsonp('sendStoreReports', { token: (session() || {}).token, id: id }, { timeoutMs: 45000, retries: 0 });
+      if (!dry || !dry.ok) { btn.textContent = 'Not sent — ' + ((dry && dry.error) || 'failed'); return; }
+      var who = (dry.would_send || []).map(function (u) { return u.store + ': ' + u.to.join(', '); });
+      if (!who.length) { btn.textContent = 'Already sent this week'; if (!window.confirm('This week\'s sheets already went out. Send them again?')) return; }
+      else if (!window.confirm('Email these store sheets?\n\n' + who.join('\n')
+        + (dry.already && dry.already.length ? '\n\n(Already sent this week, skipped: ' + dry.already.join(', ') + ')' : '')
+        + (dry.missing && dry.missing.length ? '\n\nNo address for: ' + dry.missing.map(function (m) { return m.store_name + (m.name ? ' (' + m.name + ')' : ''); }).join(', ') : ''))) return;
+      btn.textContent = 'Sending…';
+      var r = await ENG.jsonp('sendStoreReports', { token: (session() || {}).token, id: id, send: '1', resend: who.length ? '' : '1' },
+        { timeoutMs: 60000, retries: 0 });
+      btn.textContent = (r && r.sent && r.sent.length) ? 'Sent to ' + r.sent.length + ' address group' + (r.sent.length === 1 ? '' : 's')
+                        : 'Not sent — ' + ((r && r.error) || 'failed');
+      if (r && r.error && r.sent && r.sent.length) btn.textContent += ' — ' + r.error;
+    } catch (err) {
+      btn.textContent = 'Not confirmed — check the Sent folder before trying again';
+      console.error('[spiff] store sheet email failed:', err);
+    }
+    setTimeout(function () { btn.disabled = false; btn.textContent = label; }, 8000);
   }
 
   /* The brand email, laid out like the report page. Table layout and inline styles only: Gmail and
