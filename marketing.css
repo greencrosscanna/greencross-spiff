@@ -137,6 +137,18 @@ select.mk-own { border: 0; font: inherit; font-size: 11px; font-weight: 700; cur
 .mk-imgcheck { display: flex; gap: 12px; align-items: center; margin: 8px 0; }
 .mk-imgcheck img { border-radius: 6px; background: #fff; flex: none; }
 .mk-imgcheck .mk-warn { margin: 0; }
+/* The Featured image picker: a click-to-pick grid of the vendor folder's images. */
+.mk-imgrow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 4px 0 8px; }
+.mk-imggrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; margin: 0 0 8px; }
+.mk-imgtile { display: flex; flex-direction: column; gap: 4px; align-items: center; padding: 6px; background: var(--mk-in); border: 2px solid var(--mk-line); border-radius: 8px; color: var(--mk-txt); font: inherit; font-size: 11px; cursor: pointer; text-align: center; min-width: 0; }
+.mk-imgtile img { width: 96px; height: 96px; object-fit: contain; background: #fff; border-radius: 4px; }
+.mk-imgtile span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-imgtile small { color: var(--mk-red); font-size: 10px; line-height: 1.2; }
+.mk-imgtile:hover:not([disabled]), .mk-imgtile:focus-visible { border-color: var(--mk-green); }
+.mk-imgtile.on { border-color: var(--mk-green); box-shadow: 0 0 0 2px var(--mk-green) inset; }
+.mk-imgtile.bad { opacity: .55; cursor: not-allowed; }
+.mk-imgpaste { font-size: 12px; }
+.mk-imgfld a { color: var(--mk-green); }
 .mk-lrow { margin: 0 0 10px; }
 .mk-lrow-in { display: flex; gap: 8px; align-items: center; }
 .mk-lrow-in input { flex: 1; min-width: 0; box-sizing: border-box; background: var(--mk-bg); border: 1px solid var(--mk-line); border-radius: 6px; color: var(--mk-txt); padding: 6px 8px; font: inherit; font-size: 13px; }

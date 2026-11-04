@@ -298,6 +298,12 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   1080–2400, JPG/PNG, ≤2 MB) before import. Runs LAST in the hourly job, own try/catch, behind
   `WIX_PUBLISH_ON=1`; `?action=publishToWix` (secret, dry unless `apply=1`, `shop=1` re-reads inventory).
   Nothing that pays may call it. Pinned by `tests/wix_publish_test.js`.
+  **The Featured image is picked, not pasted** (Sky, 2026-11-03): "Choose from vendor folder" lists the
+  images in the program's vendor folder and one level of subfolders (`?action=webImages`, editor read,
+  never makes a folder); a file breaking the spec is greyed with the reason. Pasting a link still works.
+  **The image description fills itself** from the headline ("<headline>, through Nov 8"), and follows it
+  only while blank or still its own text, so typed text is never overwritten (`webDetailOp`). Pinned by
+  `tests/web_image_picker_test.js`.
 
 - **The deals page's weekly lines and brand logos are edited here, not in Wix** (Sky, 2026-11-02;
   Code.gs "THE DEALS PAGE, PART 2"). The Programs tab's **Deals page** view (`site.js`, behind the

@@ -486,6 +486,8 @@ function doGet(e) {
       case 'removeSiteDeal':  out = removeSiteDeal_(p);                             break;
       case 'approveSiteDeals': out = approveSiteDeals_(p);                          break;
       case 'siteMedia':       out = siteMediaSearch_(p);                            break;
+      /* The Featured image picker: images in the program's vendor folder. Editor session, a read. */
+      case 'webImages':       out = webImages_(p);                                  break;
       case 'siteImportLogo':  out = siteImportLogo_(p);                             break;
       case 'adoptSite':       out = adoptSite_(p);                                  break;
       /* ONE STORE PER CALL. A full sweep is ~9s per store and /exec is killed at 60s — asking for
@@ -9947,6 +9949,59 @@ function approveSiteDeals_(p) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/* THE FEATURED IMAGE PICKER (Sky, 2026-11-03: "make the image box a selection tool, so that it's
+   easier for the user to click & select"; source: the vendor's Drive folder). The images in the
+   program's vendor files folder (d.files.url when it is a Drive folder, else the vendor's folder under
+   Marketing ▸ Vendors, never created here) and one level of subfolders, newest first, each checked
+   against the Featured image spec so the screen can grey out a file the publisher would refuse.
+   A read: editor session, nothing written. Vendors upload there, and the folder is shared "anyone with
+   the link", so the screen's thumbnails load the same way the existing preview does. */
+var WEB_IMAGES_MAX_ = 60;
+var WEB_IMAGES_SUBFOLDERS_ = 20;
+function webFolderId_(url) {
+  var m = String(url || '').match(/\/folders\/([-\w]{10,})/);
+  return m ? m[1] : '';
+}
+function driveList_(q, fields) {
+  var res = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&includeItemsFromAllDrives=true'
+    + '&corpora=allDrives&pageSize=200&orderBy=' + encodeURIComponent('modifiedTime desc')
+    + '&q=' + encodeURIComponent(q) + '&fields=' + encodeURIComponent('files(' + fields + ')'), {
+    method: 'get', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }
+  });
+  var code = res.getResponseCode(), text = res.getContentText();
+  if (code >= 300) throw new Error('Drive said ' + code + ': ' + String(text).slice(0, 200));
+  return (JSON.parse(text || '{}').files) || [];
+}
+function webImages_(p) {
+  var who = mktEditor_(p, 'edit the deals page');
+  if (who.fail) return who.fail;
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var prog = res.program, plan = normalizeMarketing_(prog.marketing_json) || {};
+  var url = String(((plan.d || {}).files || {}).url || '');
+  var folder = webFolderId_(url);
+  if (!folder) {
+    var v = null;
+    try { v = vendorFolderFor_(prog.vendor, false); } catch (e) { v = null; }
+    if (v && v.id) { folder = v.id; url = v.url; }
+  }
+  if (!folder) return { ok: true, folder_url: '', files: [], why: 'no_folder' };
+  try {
+    var subs = driveList_("'" + folder + "' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'", 'id')
+      .slice(0, WEB_IMAGES_SUBFOLDERS_).map(function (f) { return f.id; });
+    var parents = [folder].concat(subs).map(function (id) { return "'" + id + "' in parents"; }).join(' or ');
+    var files = driveList_('(' + parents + ") and trashed = false and mimeType contains 'image/'",
+                           'id,name,mimeType,size,modifiedTime,imageMediaMetadata(width,height)');
+  } catch (e) {
+    return { ok: false, error: 'Could not read the vendor folder: ' + scrubSecrets_((e && e.message) || e) };
+  }
+  return { ok: true, folder_url: url, files: files.slice(0, WEB_IMAGES_MAX_).map(function (f) {
+    var im = f.imageMediaMetadata || {};
+    return { id: f.id, name: f.name, width: Number(im.width) || 0, height: Number(im.height) || 0,
+             url: 'https://drive.google.com/file/d/' + f.id + '/view', problem: wixImageProblem_(f) };
+  }) };
 }
 
 /* Logos already in Wix Media, by name, for the picker. A read: editor session, nothing written. */

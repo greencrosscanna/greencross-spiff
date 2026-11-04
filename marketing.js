@@ -131,8 +131,8 @@
        placeholder. The image must meet the Featured image spec, shown beside it (FEATURED_SPEC). */
     web: { t: 'Deals page (website)', s: 'Featured card and vendor days on greencrosscanna.com/deals', sec: 'mkt', web: 1,
       f: [['text', 'headline', 'Headline', null, 'e.g. Grön Pearls week'],
-          ['url', 'image', 'Featured image (Google Drive file link)', null, 'https://drive.google.com/file/d/…'],
-          ['text', 'alt', 'Image description', null, 'What the image shows, for screen readers'],
+          ['url', 'image', 'Featured image', null, 'https://drive.google.com/file/d/…'],
+          ['text', 'alt', 'Image description (fills itself from the headline)', null, 'What the image shows, for screen readers'],
           ['text', 'note', 'Vendor days note', null, 'e.g. 30% off all Grön, in store, at the listed store and time only.'],
           ['text', 'deal', 'Vendor day deal', null, 'e.g. 30% OFF'],
           ['text', 'offer', 'Vendor day offer details', null, 'e.g. all Grön, in store, this store and time only'],
@@ -444,6 +444,26 @@
     if (value === '' || value == null) delete cur[field]; else cur[field] = value;
     return [['d', item, cur]];
   }
+  /* The image description fills itself (Sky, 2026-11-03): the headline and the run, e.g. "Grön Pearls
+     week, through Nov 8". It follows the headline only while it is blank or still the text it filled in
+     last, so a description someone typed is never overwritten. */
+  function autoAlt(p, headline) {
+    var h = String(headline == null ? '' : headline).replace(/\s+/g, ' ').trim();
+    if (!h) return '';
+    var end = shortDate(p && p.end_date);
+    return (h + (end ? ', through ' + end : '')).slice(0, COPY_LIMITS.alt);
+  }
+  function webDetailOp(p, field, value) {
+    var ops = detailOp(p, 'web', field, value), next = ops[0][2];
+    var before = planOf(p).d.web || {};
+    var alt = String(before.alt || '');
+    var mine = !alt || alt === autoAlt(p, before.headline);
+    if (field !== 'alt' && mine) {
+      var a = autoAlt(p, next.headline);
+      if (a) next.alt = a; else delete next.alt;
+    }
+    return ops;
+  }
   /* Vendor days go as the whole (short) list, which also retires the one-day d.vday a plan held before. */
   function vdaysOps(list) { return [['vdays', null, list.length ? list : null], ['d', 'vday', null]]; }
   function addVdayOp(p) { return vdaysOps(vdaysOf(p).concat([{ store: '', date: '', time: '' }])); }
@@ -594,10 +614,47 @@
             return '<option value="' + esc(o) + '"' + (o === val ? ' selected' : '') + '>' + esc(o) + '</option>';
           }).join('') + '</select></label>';
     }
+    if (item === 'web' && f[1] === 'image') return imageFieldHtml(val, ctx);
     var max = item === 'web' && f[0] === 'text' ? COPY_LIMITS[f[1]] : 0;
     return '<label class="mk-fld">' + esc(f[2]) + '<input type="' + (f[0] === 'date' ? 'date' : f[0] === 'url' ? 'url' : 'text') + '"' + data
       + (f[4] ? ' placeholder="' + esc(f[4]) + '"' : '') + (max ? ' maxlength="' + max + '"' : '')
       + ' value="' + esc(val == null ? '' : val) + '"' + ro + '>' + (max ? counterHtml(val, max) : '') + '</label>';
+  }
+
+  /* THE FEATURED IMAGE PICKER (Sky, 2026-11-03: "make the image box a selection tool, so that it's
+     easier for the user to click & select"). "Choose from vendor folder" lists the images in the
+     program's vendor Drive folder (the engine's webImages); a click picks one. A file that breaks the
+     Featured image spec shows greyed with the reason and cannot be picked. Pasting a link still works,
+     under it, for an image kept somewhere else (or a wix:image value already in Wix Media). */
+  function wixImagePreview(v) {
+    var m = String(v || '').match(/^wix:image:\/\/v1\/([^/#]+)/);
+    return m ? 'https://static.wixstatic.com/media/' + m[1] : '';
+  }
+  function imageFieldHtml(val, ctx) {
+    var v = String(val == null ? '' : val), ro = ctx.canEdit ? '' : ' disabled';
+    var shown = driveFileId(v) ? 'Picked from Drive' : wixImagePreview(v) ? 'Already in Wix Media' : v ? 'A link' : 'None picked yet';
+    return '<div class="mk-fld mk-imgfld">Featured image'
+      + '<div class="mk-imgrow"><span class="mk-sub mk-tight">' + esc(shown) + '</span>'
+      + (ctx.canEdit ? ' <button type="button" class="gx-btn" data-mk-imgpick="1">Choose from vendor folder</button>' : '') + '</div>'
+      + '<div data-mk-imggrid></div>'
+      + '<label class="mk-fld mk-imgpaste">Or paste a Google Drive file link<input type="url" data-mk-item="web" data-mk-field="image"'
+      + ' placeholder="https://drive.google.com/file/d/…" value="' + esc(v) + '"' + ro + '></label></div>';
+  }
+  function imageGridHtml(r, current) {
+    if (!r || !r.ok) return '<div class="mk-warn">' + esc((r && r.error) || 'Could not read the vendor folder.') + '</div>';
+    var open = r.folder_url ? ' <a href="' + esc(r.folder_url) + '" target="_blank" rel="noopener noreferrer">Open the folder</a>' : '';
+    if (!r.folder_url) return '<p class="mk-sub">This program has no vendor folder yet. Add the vendor files link above, then look again.</p>';
+    if (!(r.files || []).length) return '<p class="mk-sub">No images in the vendor folder yet. Upload a square JPG or PNG there, then look again.' + open + '</p>';
+    var cur = driveFileId(current);
+    return '<div class="mk-imggrid" role="list">' + r.files.map(function (f) {
+      var bad = f.problem ? 'This image ' + f.problem + '.' : '';
+      var on = cur && cur === f.id;
+      return '<button type="button" role="listitem" class="mk-imgtile' + (bad ? ' bad' : '') + (on ? ' on' : '') + '"'
+        + ' data-mk-imgchoose="' + esc(f.url) + '"' + (bad ? ' disabled' : '') + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
+        + ' title="' + esc(f.name + (bad ? ': ' + bad : f.width ? ' (' + f.width + ' × ' + f.height + ')' : '')) + '">'
+        + '<img src="https://lh3.googleusercontent.com/d/' + esc(f.id) + '=s240" alt="" loading="lazy" width="96" height="96">'
+        + '<span>' + esc(f.name) + '</span>' + (bad ? '<small>' + esc(bad) + '</small>' : '') + '</button>';
+    }).join('') + '</div><p class="mk-sub">Newest first. Greyed images do not meet the spec.' + open + '</p>';
   }
 
   /* The Featured image spec (mockups/deals-wix-handover.md; Sky: "make sure this is noted wherever the
@@ -679,7 +736,9 @@
       + '<div class="mk-spec"><b>Featured image spec:</b> ' + esc(FEATURED_SPEC.text) + '</div>'
       + (id ? '<div class="mk-imgcheck"><img data-mk-imgcheck="1" src="https://lh3.googleusercontent.com/d/' + esc(id)
             + '" alt="Featured image preview" width="120" height="120" style="object-fit:contain">'
-            + '<span data-mk-imgnote role="status"></span></div>' : '')
+            + '<span data-mk-imgnote role="status"></span></div>'
+          : wixImagePreview((plan.d.web || {}).image) ? '<div class="mk-imgcheck"><img src="' + esc(wixImagePreview(plan.d.web.image))
+            + '" alt="Featured image preview" width="120" height="120" style="object-fit:contain"><span class="mk-sub">Already in Wix Media.</span></div>' : '')
       + '<p class="mk-sub">' + (approved
           ? 'Approved by ' + esc(approved.by || '') + '. Live on greencrosscanna.com/deals within the hour while the program runs. A change by anyone but Sky, Mike or Tawny takes the approval away.'
           : 'Goes on greencrosscanna.com/deals once Sky, Mike or Tawny ticks “Approve the deals page copy” below.') + '</p>';
@@ -868,6 +927,19 @@
       var p = api.program();
       if (!p) return;
       if (t.dataset.mkPlan) return api.plan(t.dataset.mkPlan, t);
+      if (t.dataset.mkImgchoose) return api.apply(webDetailOp(p, 'image', t.dataset.mkImgchoose));
+      if (t.dataset.mkImgpick) {
+        var grid = t.closest('.mk-imgfld') && t.closest('.mk-imgfld').querySelector('[data-mk-imggrid]');
+        if (!grid || !api.images) return;
+        grid.innerHTML = '<p class="mk-sub" role="status">Looking in the vendor folder&hellip;</p>';
+        t.disabled = true;
+        return Promise.resolve(api.images(p)).then(function (r) { return r; }, function (err) {
+          return { ok: false, error: 'Could not read the vendor folder: ' + String((err && err.message) || err) };
+        }).then(function (r) {
+          grid.innerHTML = imageGridHtml(r, (planOf(api.program() || p).d.web || {}).image);
+          t.disabled = false;
+        });
+      }
       if (t.dataset.mkRadd) return api.apply(addRowOp(p, t.dataset.mkRadd, t.dataset.mkRpreset));
       if (t.dataset.mkRdel) return api.apply(removeRowOp(p, t.dataset.mkRitem, t.dataset.mkRow));
       if (t.dataset.mkRstore) return api.apply(toggleRowStoreOp(p, t.dataset.mkRitem, t.dataset.mkRow, t.dataset.mkRstore));
@@ -886,6 +958,7 @@
       if (t.dataset.mkVday) return api.apply(setVdayOp(p, t.dataset.mkVday, t.dataset.mkVfield, t.value));
       if (t.dataset.mkTask) return api.tick(t.dataset.mkTask, t.checked);
       if (t.dataset.mkDue) return api.apply(dueOp(t.dataset.mkDue, t.value));
+      if (t.dataset.mkItem === 'web') return api.apply(webDetailOp(p, t.dataset.mkField, t.value));
       if (t.dataset.mkItem) return api.apply(detailOp(p, t.dataset.mkItem, t.dataset.mkField, t.value));
     });
   }
@@ -1291,6 +1364,8 @@
     rowsOf: rowsOf, addRowOp: addRowOp, removeRowOp: removeRowOp, setRowOp: setRowOp, toggleRowStoreOp: toggleRowStoreOp,
     makeSaver: makeSaver, listLine: listLine, foldNote: foldNote, sectionHtml: sectionHtml, wire: wire,
     FEATURED_SPEC: FEATURED_SPEC, imageShapeProblem: imageShapeProblem, driveFileId: driveFileId,
+    autoAlt: autoAlt, webDetailOp: webDetailOp, imageFieldHtml: imageFieldHtml, imageGridHtml: imageGridHtml,
+    wixImagePreview: wixImagePreview,
     COPY_RULES: COPY_RULES, copyProblem: copyProblem, COPY_LIMITS: COPY_LIMITS, lengthProblem: lengthProblem,
     smsCostLine: smsCostLine, smsCostHtml: smsCostHtml
   };
