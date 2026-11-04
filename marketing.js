@@ -777,6 +777,60 @@
       + '<br>A pass-through at Dutchie’s cost, added to the vendor’s credit.</div>';
   }
 
+  /* STAFF SWAG SIZES (Sky, 2026-11-04: "6 M, 10 L"). Counts per store come from GX Crew by way of
+     GX Core (the engine's swagSizes route); this only adds up the stores the program runs at. ss is
+     undefined while loading, { connected: false } before Core/Crew publish, else { connected, sizes }. */
+  var SWAG_ORDER = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', 'ONE SIZE'];
+  function swagLine(counts) {
+    counts = counts || {};
+    var keys = Object.keys(counts).filter(function (k) { return counts[k] > 0; });
+    keys.sort(function (a, b) {
+      var ia = SWAG_ORDER.indexOf(a), ib = SWAG_ORDER.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || (a < b ? -1 : 1);
+    });
+    return keys.map(function (k) { return counts[k] + ' ' + k; }).join(', ');
+  }
+  function swagAdd(into, counts) {
+    Object.keys(counts || {}).forEach(function (k) { into[k] = (into[k] || 0) + (counts[k] || 0); });
+    return into;
+  }
+  /* Sum the program's stores. Returns { shirt, hat, not_set, active, stores:[{store_id, shirt, hat, not_set}] }. */
+  function swagTotals(sizes, storeIds) {
+    var by = (sizes && sizes.by_store) || {};
+    var t = { shirt: {}, hat: {}, not_set: 0, active: 0, stores: [] };
+    (storeIds || []).forEach(function (id) {
+      var g = by[id];
+      if (!g) return;
+      swagAdd(t.shirt, g.shirt); swagAdd(t.hat, g.hat);
+      t.not_set += g.not_set || 0; t.active += g.active || 0;
+      t.stores.push({ store_id: id, shirt: g.shirt || {}, hat: g.hat || {}, not_set: g.not_set || 0 });
+    });
+    return t;
+  }
+  function swagSizesHtml(ss, storeIds, ctx) {
+    var head = '<div class="mk-spec"><b>Sizes needed:</b> ';
+    if (ss === undefined) return head + 'Loading staff sizes from Crew&hellip;</div>';
+    if (!ss || !ss.connected) return head + 'not connected to Crew yet. Until it is, type the sizes in above.</div>';
+    if (!ss.sizes) return head + 'Crew has not published staff sizes yet.</div>';
+    var t = swagTotals(ss.sizes, storeIds);
+    if (!t.stores.length) return head + 'Crew has no staff on file for this program’s stores.</div>';
+    var name = (ctx && ctx.storeName) || function (s) { return s; };
+    var shirts = swagLine(t.shirt), hats = swagLine(t.hat);
+    var html = head + (shirts ? 'Shirts ' + esc(shirts) : 'no shirt sizes on file')
+      + (hats ? '. Hats ' + esc(hats) : '') + '.';
+    if (t.not_set) html += ' <small>' + t.not_set + ' of ' + t.active + ' staff have no size in Crew yet.</small>';
+    if (t.stores.length > 1) {
+      html += '<ul class="mk-sub">' + t.stores.map(function (s) {
+        var line = swagLine(s.shirt), hat = swagLine(s.hat);
+        return '<li>' + esc(name(s.store_id)) + ': ' + esc(line || 'none on file')
+          + (hat ? '; hats ' + esc(hat) : '') + (s.not_set ? ' (' + s.not_set + ' not set)' : '') + '</li>';
+      }).join('') + '</ul>';
+    }
+    var age = ss.sizes.age_minutes;
+    if (age != null && age > 1440) html += '<small>Crew last updated these ' + Math.floor(age / 1440) + ' days ago.</small>';
+    return html + '</div>';
+  }
+
   /* The vendor day card: one row per day, each with its store, date and time. */
   function vdayHtml(p, ctx, on) {
     var ro = ctx.canEdit ? '' : ' disabled';
@@ -860,7 +914,8 @@
       var body = it.days ? vdayHtml(p, ctx, on)
         : it.f.map(function (f) {
             /* The per-send cost sits right under the cost model picker it informs. */
-            return fieldHtml(id, f, plan, ctx) + (id === 'sms' && f[1] === 'cost' ? smsCostHtml(ctx.smsPricing) : '');
+            return fieldHtml(id, f, plan, ctx) + (id === 'sms' && f[1] === 'cost' ? smsCostHtml(ctx.smsPricing) : '')
+              + (id === 'shirts' && f[1] === 'items' ? swagSizesHtml(ctx.swagSizes, on, ctx) : '');
           }).join('') + (it.list ? listHtml(p, id, ctx, on) : '')
           + (it.web ? webSpecHtml(p, plan) : '');
       /* No compliance note on the card (Sky, 2026-11-02): the workflows already carry those guardrails.
@@ -1367,7 +1422,8 @@
     autoAlt: autoAlt, webDetailOp: webDetailOp, imageFieldHtml: imageFieldHtml, imageGridHtml: imageGridHtml,
     wixImagePreview: wixImagePreview,
     COPY_RULES: COPY_RULES, copyProblem: copyProblem, COPY_LIMITS: COPY_LIMITS, lengthProblem: lengthProblem,
-    smsCostLine: smsCostLine, smsCostHtml: smsCostHtml
+    smsCostLine: smsCostLine, smsCostHtml: smsCostHtml,
+    swagLine: swagLine, swagTotals: swagTotals, swagSizesHtml: swagSizesHtml
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SpiffMarketing = api;
