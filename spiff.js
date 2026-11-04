@@ -1437,6 +1437,13 @@
       apply: mkApply,
       plan: mkPlanAction,
       assign: mkAssign,
+      /* The Featured image picker's list (the engine's webImages). A read; not hedged, like every
+         other session-gated marketing route. */
+      images: async function (p) {
+        var r = await ENG.jsonp('webImages', { token: (session() || {}).token, id: p.program_id }, { timeoutMs: 30000, retries: 1 });
+        if (r && r.needsAuth) { clearSession(); openSignIn(); }
+        return r;
+      },
       tick: function (key, on) {
         mkApply(MK.doneOp(key, on, (session() || {}).user || '', new Date().toISOString()));
       }
