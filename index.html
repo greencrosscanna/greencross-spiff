@@ -31,9 +31,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
-<link rel="stylesheet" href="spiff-tokens.css?v=2.009"/>
-<link rel="stylesheet" href="spiff.css?v=2.009"/>
-<link rel="stylesheet" href="marketing.css?v=2.009"/>
+<link rel="stylesheet" href="spiff-tokens.css?v=2.010"/>
+<link rel="stylesheet" href="spiff.css?v=2.010"/>
+<link rel="stylesheet" href="marketing.css?v=2.010"/>
 </head>
 <body>
 <div id="app" class="gx-app">
@@ -67,6 +67,17 @@
       <button class="gx-topnav-tab is-active" data-tab="programs">Programs</button>
       <button class="gx-topnav-tab" data-tab="reports">Reports</button>
       <button class="gx-topnav-tab" data-tab="history">History</button>
+      <!-- MARKETING VIEWS IN THE TOP BAR (Sky, 2026-11-05: "move Calendar, Tasks and Deals page to
+           the top navigation bar"). They used to be a List / Calendar / Tasks / Deals page switch
+           inside the Programs sub-nav. They are still VIEWS of the Programs panel, not panels of
+           their own — so no data-tab, and showTab never treats them as places; Programs is the
+           List view. Same curtain as before: hidden unless the marketing switch in marketing.js
+           lets this user see it. -->
+      <span class="mk-navgroup" id="mkViewSeg" role="group" aria-label="Marketing views" hidden>
+        <button type="button" class="gx-topnav-tab" data-mk-view="calendar">Calendar</button>
+        <button type="button" class="gx-topnav-tab" data-mk-view="tasks">Tasks <b class="mk-badge" id="mkLateBadge"></b></button>
+        <button type="button" class="gx-topnav-tab" data-mk-view="site" title="The weekly deals and brand logos on greencrosscanna.com/deals">Deals page</button>
+      </span>
       <!-- MY SPIFF IS NOT IN THIS NAV (Sky, 2026-09-08). flyer.html is the BUDTENDER's page — own
            row only, own sign-in — and this app is the operator's: Tawny and Sky, who have no row
            of their own to look at. A tab that opened a personal earnings page from the program
@@ -117,14 +128,7 @@
     <!-- Store pills lived here until 2026-08-31. A SPIFF runs chain-wide, so filtering the
          program list by store answered a question nobody has: every program matches every
          store. Store detail belongs on Progress, where the per-store grid is the point. -->
-    <!-- SPIFF 2.0 phase 2, behind the switch at the top of marketing.js: stays hidden for everyone
-         else. Inside the Programs tab on purpose; the app deliberately has three top-level tabs. -->
-    <span class="mk-seg" id="mkViewSeg" role="group" aria-label="Programs view" hidden>
-      <button type="button" data-mk-view="list" class="is-on">List</button>
-      <button type="button" data-mk-view="calendar">Calendar</button>
-      <button type="button" data-mk-view="tasks">Tasks <b class="mk-badge" id="mkLateBadge"></b></button>
-      <button type="button" data-mk-view="site" title="The weekly deals and brand logos on greencrosscanna.com/deals">Deals page</button>
-    </span>
+    <!-- The List / Calendar / Tasks / Deals page switch moved to the top bar 2026-11-05 (#mkViewSeg). -->
     <div class="sp-subnav-right">
       <button class="gx-btn gx-btn-green" id="btnNewProgram">+ New program</button>
     </div>
@@ -681,8 +685,8 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="marketing.js?v=2.009"></script>
-<script src="site.js?v=2.009"></script>
-<script src="spiff.js?v=2.009"></script>
+<script src="marketing.js?v=2.010"></script>
+<script src="site.js?v=2.010"></script>
+<script src="spiff.js?v=2.010"></script>
 </body>
 </html>
