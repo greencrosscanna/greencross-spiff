@@ -1816,8 +1816,9 @@
     var v = s.id ? (state.vdaysSolo || []).filter(function (x) { return x.vday_id === s.id; })[0] : null;
     if (s.id && !v) { mkView.dlg = null; d.hidden = true; d.innerHTML = ''; return; }
     var typed = d.querySelector('#mkVfBrand') ? mkVdayForm(d) : null;
+    var logo = mkVdayLogo(typed ? typed.brand : (v ? v.brand : ''));
     d.innerHTML = '<div class="mk-dlg-box" role="dialog" aria-modal="true">'
-      + MK.vendorDayDialogHtml(v, { today: today(), canEdit: canEdit(), stores: mkStoreList(), approver: mkIsVdayApprover(), error: s.error || '' }) + '</div>';
+      + MK.vendorDayDialogHtml(v, { today: today(), canEdit: canEdit(), stores: mkStoreList(), approver: mkIsVdayApprover(), error: s.error || '', logo: logo }) + '</div>';
     d.hidden = false;
     if (typed) {
       d.querySelector('#mkVfBrand').value = typed.brand;
@@ -1832,8 +1833,24 @@
       if (ap && typed.approve !== null) ap.checked = typed.approve;
       $$('[data-mk-vfst]', d).forEach(function (c) { c.checked = typed.stores.indexOf(c.dataset.mkVfst) >= 0; });
     }
+    if (!d.__mkVfLogoWired) {
+      d.__mkVfLogoWired = true;
+      d.addEventListener('input', function (e) { if (e.target && e.target.id === 'mkVfBrand') mkVdayLogoPaint(d); });
+    }
     var first = d.querySelector('input,button');
     if (first && !s.painted) { first.focus(); s.painted = true; }
+  }
+  /* The logo this vendor day will carry on the deals page, from the Deals page view's brand list
+     (site.js). The engine makes the same check and will not publish a day without one. */
+  function mkVdayLogo(brand) {
+    if (!window.SpiffSite || !window.SpiffSite.vendorsFor) return null;
+    var ctx = mkSiteCtx();
+    ctx.repaint = function () { if (mkView.dlg && mkView.dlg.kind === 'svday') mkVdayLogoPaint($('#mkDlg')); };
+    return MK.vdayLogoStatus(brand, window.SpiffSite.vendorsFor(ctx), state.brands || []);
+  }
+  function mkVdayLogoPaint(d) {
+    var box = d && $('#mkVfLogo', d);
+    if (box) box.innerHTML = MK.vdayLogoHtml(mkVdayLogo((($('#mkVfBrand', d) || {}).value) || ''), canEdit());
   }
   function mkVdayForm(d) {
     var ap = $('#mkVfApprove', d);
@@ -1881,6 +1898,17 @@
     if (name === 'penadd') return mkDlgOpen({ kind: 'form', day: '' });
     if (name === 'holadd') return mkDlgOpen({ kind: 'holiday', id: '' });
     if (name === 'svadd') return mkDlgOpen({ kind: 'svday', id: '' });
+    if (name === 'svlogo') {
+      /* Ask for the logo where logos live: the Deals page view, on this brand's card. What was typed in
+         the vendor day form is not saved; it says so first when there is something to lose. */
+      var lb = (($('#mkVfBrand', d) || {}).value || '').trim();
+      if (!window.SpiffSite || !lb) return;
+      if (!window.confirm('Open the Deals page brands for ' + lb + '? Anything not saved on this vendor day is lost; save it first to keep it.')) return;
+      window.SpiffSite.focusBrand(lb);
+      mkDlgClose();
+      mkView.view = 'site';
+      return mkRenderViews();
+    }
     if (name === 'holsuggest') {
       var box = $('#mkHfDate', d);
       if (box) { box.value = id; box.dataset.auto = id; mkHolidaySuggest(d, false); }

@@ -150,7 +150,7 @@ const STORES = [{ store_id: 'commercial', display_name: 'Commercial', address: '
 const wixApi = G.load({
   real: ['wixFold_', 'wixMenuSlug_', 'wixEsc_', 'wixStoreLabel_', 'wixTimeOf_', 'wixDayLabels_', 'wixThroughLabel_', 'wixOfferHtml_',
          'wixApprover_', 'wixCopyProblem_', 'wixLengthProblem_', 'wixDutchieBrand_', 'wixVendorIndex_', 'wixDesired_', 'wixSameItem_',
-         'wixCanon_', 'wixPlan_', 'calParseTime_', 'addDaysLocal_', 'normalizeMarketing_', 'mktPickedIds_', 'slug_'],
+         'wixCanon_', 'wixPlan_', 'calParseTime_', 'addDaysLocal_', 'normalizeMarketing_', 'mktPickedIds_', 'slug_', 'wixVdayLogoProblem_'],
   vars: ['WIX_LOOKAHEAD_DAYS_', 'WIX_MAX_REMOVES_', 'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_APPROVERS_', 'WIX_COPY_RULES_', 'WIX_COPY_LIMITS_',
          'WIX_LIMIT_NAMES_', 'WIX_DOW_', 'WIX_MON_', 'MKT_MENU_'],
   varValues: { WIX_APPROVER_FIELD_: G.grabVar('WIX_APPROVER_FIELD_') },
@@ -158,7 +158,8 @@ const wixApi = G.load({
 });
 {
   const labels = { commercial: 'Commercial St', 'river-rd': 'River Rd' };
-  const VENDORS = [{ _id: 'v-gron', title: 'Grön', aliases: ['Gron'] }];
+  const VENDORS = [{ _id: 'v-gron', title: 'Grön', aliases: ['Gron'], logo: 'wix:image://v1/gron.png/gron.png#originWidth=600&originHeight=600' },
+                   { _id: 'v-bare', title: 'Bare Brand' }];
   const V = (o) => Object.assign({ vday_id: 'vd-1', brand: 'Grön', stores: ['commercial', 'river-rd'], date: '2026-11-12', time: '1-3:30',
                                    note: '', status: 'planned', approved_by: 'tawny',
                                    web: { on: true, deal: '30% OFF', offer: 'all Grön, in store' } }, o);
@@ -182,8 +183,18 @@ const wixApi = G.load({
   ok('a day already past does not go', want([V({ date: '2026-11-04' })]).days.length === 0);
   ok('a day beyond the look-ahead window does not go yet', want([V({ date: '2027-02-01' })]).days.length === 0);
   ok('a canceled day does not go', want([V({ status: 'canceled' })]).days.length === 0);
+  /* The logo is a gate for a standalone day (Sky, 2026-11-05): never a card on a black tile. */
   const nov = want([V({ brand: 'Nobody' })]);
-  ok('a brand missing from Vendors still goes, with a problem to fix', nov.days.length === 2 && nov.days[0].vendorRef === undefined && nov.problems.length === 1);
+  ok('a brand missing from Vendors does NOT go, and says to add its logo', nov.days.length === 0 && nov.skipped.length === 1
+     && /no brand tile for "Nobody"/.test(nov.skipped[0].why) && /Brands and logos/.test(nov.skipped[0].why));
+  const bare = want([V({ brand: 'Bare Brand' })]);
+  ok('a Vendors row with no logo does NOT go, and says so', bare.days.length === 0 && /"Bare Brand" has no logo/.test(bare.skipped[0].why));
+  ok('another spelling finds the same logo', (() => { const a = want([V({ brand: 'Gron' })]).days; return a.length === 2 && a[0].vendorRef === 'v-gron'; })());
+  ok('a wide logo alone is enough', want([V({ brand: 'Wide' })], { vendors: [{ _id: 'v-w', title: 'Wide', logoWide: 'wix:image://v1/w.png/w.png' }] }).days.length === 2);
+  ok('every standalone row it sends carries a vendorRef', d.days.every((x) => x.vendorRef === 'v-gron'));
+  const gone = want([V({ brand: 'Nobody' })]);
+  const plan3 = wixApi.wixPlan_(gone, { featured: [], days: [] }, { featured: [], days: [] }, 5, '2026-11-05');
+  ok('  …so a logo-less day is never sent', plan3.days.length === 0);
 
   /* The plan: a published standalone day that is canceled comes off; one that is unchanged is left. */
   const have = d.days.map((x) => Object.assign({}, x, { approvedBy: undefined }));
@@ -219,6 +230,28 @@ console.log('\n6. the screen');
   ok('  …an existing one offers Cancel; a new one does not', /data-mk-act="svcancel"/.test(view) && !/data-mk-act="svcancel"/.test(form));
   ok('copy warnings use the OLCC rules and the layout limits', /OLCC/.test(MK.vdayCopyWarning('Grön', { deal: 'BOGO' }))
      && /characters/.test(MK.vdayCopyWarning('Grön', { deal: 'Thirty percent off' })) && MK.vdayCopyWarning('Grön', { deal: '30% OFF' }) === '');
+  /* The logo check on the form (Sky, 2026-11-05), from the Deals page view's brand list. */
+  const SITE = [{ kind: 'vendor', brand: 'Grön', logo: 'wix:image://v1/abc_123.png/g.png#x', wix_id: 'w1' },
+                { kind: 'vendor', brand: 'Bare', logo: '', logo_wide: '', wix_id: 'w2' },
+                { kind: 'vendor', brand: 'Newco', logo_wide: 'wix:image://v1/n.png/n.png', wix_id: '', approved_by: '' },
+                { kind: 'week', brand: 'Weekly Only', logo: 'wix:image://v1/q.png/q.png' }];
+  const REG = [{ display_name: 'Grön', aliases: ['Gron'] }];
+  const st = (b, list) => MK.vdayLogoStatus(b, list === undefined ? SITE : list, REG);
+  ok('a brand with a logo on the page: ok, with its picture', st('Grön').state === 'ok' && st('Grön').src === 'https://static.wixstatic.com/media/abc_123.png');
+  ok('  …found by another spelling too', st('gron').state === 'ok');
+  ok('no brand tile: missing', st('Nobody').state === 'missing' && st('Weekly Only').state === 'missing');
+  ok('a tile with no logo: nologo', st('Bare').state === 'nologo');
+  ok('a logo saved but never approved or published: waiting', st('Newco').state === 'waiting'
+     && MK.vdayLogoStatus('Newco', [Object.assign({}, SITE[2], { approved_by: 'mike' })], REG).state === 'ok');
+  ok('list not loaded yet: checking; no brand typed: blank', st('Grön', null).state === 'checking' && st('  ').state === 'blank');
+  const ask = MK.vdayLogoHtml(st('Nobody'), true);
+  ok('missing logo: the form says so and offers to add it', /no logo for Nobody/.test(ask) && /stays off the website/.test(ask) && /data-mk-act="svlogo"/.test(ask));
+  ok('  …a viewer is told, with no button', !/data-mk-act="svlogo"/.test(MK.vdayLogoHtml(st('Nobody'), false)));
+  ok('a found logo shows it, with no ask', /<img src="https:\/\/static\.wixstatic\.com/.test(MK.vdayLogoHtml(st('Grön'), true)) && !/svlogo/.test(MK.vdayLogoHtml(st('Grön'), true)));
+  ok('the form carries the logo box inside the deals-page section',
+     /id="mkVfWebBox"[^>]*>\s*<div id="mkVfLogo">[^]*no logo for Nobody/.test(MK.vendorDayDialogHtml(null, { canEdit: true, stores, approver: true, logo: st('Nobody') })));
+  const sj = fs.readFileSync(path.join(__dirname, '..', 'spiff.js'), 'utf8');
+  ok('SOURCE-SHAPED: "Add the logo" opens the Deals page view on that brand', /name === 'svlogo'[^]{0,600}SpiffSite\.focusBrand\(lb\)[^]{0,80}mkDlgClose\(\)[^]{0,60}mkView\.view = 'site'/.test(sj));
   const gs = fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8');
   const approvers = (gs.match(/var WIX_APPROVERS_ = (\[[^\]]*\])/) || [])[1];
   ok('the screen\'s approver list is the engine\'s', JSON.stringify(MK.VDAY_APPROVERS) === JSON.stringify(JSON.parse(approvers.replace(/'/g, '"'))));

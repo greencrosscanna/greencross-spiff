@@ -126,6 +126,11 @@ select.mk-own { border: 0; font: inherit; font-size: 11px; font-weight: 700; cur
 .mk-vb.holiday { background: #d98ab0; color: #1c0a13; font-size: 11px; padding: 0 6px; }
 .mk-hf-ch { display: flex; gap: 14px; padding: 8px 0; font-weight: 600; }
 .mk-hf-ch label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+/* The logo a standalone vendor day carries on the deals page (or the ask for one). */
+.mk-sv-logo { margin: 4px 0 10px; }
+.mk-sv-logo .gx-btn { margin-left: 6px; }
+.mk-sv-logo-ok { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.mk-sv-logo-ok img { width: 72px; height: 32px; object-fit: contain; background: #14181D; border-radius: 5px; padding: 3px; flex: none; }
 .mk-sv-st { flex-wrap: wrap; }
 .mk-vday { display: grid; grid-template-columns: 1.2fr 1.2fr 1fr auto; gap: 8px; align-items: end; }
 .mk-vday .mk-vdel { margin: 0 0 14px; }
