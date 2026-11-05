@@ -442,21 +442,26 @@
     } catch (e) { S.err = String((e && e.message) || e); ctx.repaint(); }
   }
 
-  /* Draw into host. ctx = { call(action, params) → Promise of the engine's ok answer (throws otherwise),
-     repaint(), user, canEdit, brands }. */
-  function render(host, ctx) {
-    css();
-    if (!S.loaded) load(ctx);
-    /* Keep what is typed and not saved across a repaint, by the screen-only id. It is kept in S, not
-       on the item, so a line a filter hides gets its typing back when it shows again, and the counts
-       and preview go on describing what is SAVED. */
+  /* Whatever button started an engine call shows it is working and takes no second click until the
+     answer (Sky, 2026-11-05). Every engine call act() makes goes through ctx.call, so wrapping it here
+     covers Save, Import, Search and Approve all alike, and only once a confirm has been answered. */
+  var BUSY = { saveSiteDeal: 'Saving…', siteImportLogo: 'Importing…', siteMedia: 'Searching…',
+               approveSiteDeals: 'Approving…', removeSiteDeal: 'Removing…', siteDeals: 'Loading…' };
+  function busyCtx(ctx, btn) {
+    var m = MK();
+    return Object.assign({}, ctx, {
+      call: function (action, params) {
+        var stop = m && m.busyButton ? m.busyButton(btn, BUSY[action] || 'Working…') : function () {};
+        return ctx.call(action, params).finally(stop);
+      }
+    });
+  }
+  /* Keep what is typed and not saved across a repaint, by the screen-only id. It is kept in S, not
+     on the item, so a line a filter hides gets its typing back when it shows again, and the counts
+     and preview go on describing what is SAVED. */
+  function paint(host, markup) {
     host.querySelectorAll('.st-line').forEach(function (l) { S.typed[l.dataset.stUid] = read(l); });
-    var focused = applyFocus(host);
-    host.innerHTML = html(ctx);
-    if (focused && focused._uid) {
-      var card = host.querySelector('[data-st-uid="' + focused._uid + '"]');
-      if (card && card.scrollIntoView) card.scrollIntoView({ block: 'center' });
-    }
+    host.innerHTML = markup;
     host.querySelectorAll('.st-line').forEach(function (l) {
       var t = S.typed[l.dataset.stUid];
       if (!t) return;
@@ -465,6 +470,14 @@
         if (el.type === 'checkbox') { if (!el.disabled) el.checked = !!t[el.dataset.f]; } else el.value = t[el.dataset.f];
       });
     });
+  }
+
+  /* Draw into host. ctx = { call(action, params) → Promise of the engine's ok answer (throws otherwise),
+     repaint(), user, canEdit, brands }. */
+  function render(host, ctx) {
+    css();
+    if (!S.loaded) load(ctx);
+    paint(host, html(ctx));
     applySearch(host);
     if (!host.__stWired) {
       host.__stWired = true;
@@ -472,7 +485,7 @@
         var b = e.target.closest ? e.target.closest('[data-st-act]') : null;
         if (!b || !host.contains(b) || b.disabled) return;
         e.preventDefault();
-        act(b.dataset.stAct, b.closest('.st-line'), b, host.__stCtx);
+        act(b.dataset.stAct, b.closest('.st-line'), b, busyCtx(host.__stCtx, b));
       });
       host.addEventListener('input', function (e) {
         if (e.target && e.target.id === 'stBrandQ') { S.q = e.target.value; applySearch(host); }
@@ -488,16 +501,74 @@
     if (!S.loaded) { load(ctx); return null; }
     return S.ready ? S.vendors : [];
   }
-  /* "Add the logo" from the vendor day form: open this screen on that brand's card, or start a new
-     card with the brand typed in. Applied at the next paint once the list is loaded. */
-  function focusBrand(brand) { S.focus = String(brand || '').trim(); S.filter = 'all'; S.q = S.focus; }
-  function applyFocus(host) {
-    if (!S.focus || !S.loaded) return;
-    var f = fold(S.focus), hit = S.vendors.filter(function (v) { return fold(v.brand) === f; })[0];
-    if (!hit) { hit = tag({ key: '', kind: 'vendor', brand: S.focus }); S.vendors.push(hit); S.msg = 'Add the ' + S.focus + ' logo here, then save and approve the brand.'; }
-    S.focus = '';
-    return hit;
+  /* "Add the logo" from the vendor day form (Sky, 2026-11-05): the brand's card from Brands and logos,
+     in a popup OVER the form, so nothing typed on the vendor day is lost and nobody leaves the page.
+     The same card, act() and save route as the Deals page view; a brand with no card gets a new one
+     with its name filled in. onChange runs after every paint and on close, so the form's logo line
+     follows what is saved here. */
+  var P = null;
+  function popCtx() { return Object.assign({}, P.ctx, { repaint: paintPopup }); }
+  function openBrandPopup(brand, ctx, onChange) {
+    css();
+    S.msg = ''; S.err = ''; S.mediaFor = null;
+    P = { brand: String(brand || '').trim(), uid: '', ctx: ctx, onChange: onChange };
+    var el = document.getElementById('stLogoDlg');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'stLogoDlg'; el.className = 'mk-dlg st-pop';
+      document.body.appendChild(el);
+      el.addEventListener('click', function (e) {
+        if (e.target === el) return closeBrandPopup();
+        var c = e.target.closest ? e.target.closest('[data-st-pop="close"]') : null;
+        if (c) return closeBrandPopup();
+        var b = e.target.closest ? e.target.closest('[data-st-act]') : null;
+        if (!b || !el.contains(b) || b.disabled || !P) return;
+        e.preventDefault();
+        act(b.dataset.stAct, b.closest('.st-line'), b, busyCtx(popCtx(), b));
+      });
+      /* Escape closes this popup only, not the vendor day form under it. */
+      window.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && P) { e.stopPropagation(); closeBrandPopup(); }
+      }, true);
+    }
+    el.hidden = false;
+    paintPopup();
+  }
+  function closeBrandPopup() {
+    var el = document.getElementById('stLogoDlg'), done = P && P.onChange;
+    if (el) { el.hidden = true; el.innerHTML = ''; }
+    /* A card this popup started and nobody saved is dropped, so it does not linger as "Not saved yet". */
+    if (P && P.uid) S.vendors = S.vendors.filter(function (v) { return v._uid !== P.uid || v.key; });
+    S.mediaFor = null; S.msg = ''; S.err = '';
+    P = null;
+    if (done) done();
+  }
+  function paintPopup() {
+    var el = document.getElementById('stLogoDlg');
+    if (!P || !el) return;
+    var ctx = popCtx(), body;
+    if (!S.loaded) { load(ctx); body = '<p class="hint">Loading the deals page brands…</p>'; }
+    else if (!S.ready) body = '<div class="mk-warn">The engine has not been updated yet, so brand logos cannot load or save.</div>';
+    else {
+      var card = P.uid ? byUid(P.uid) : null;
+      if (!card) {
+        card = vendorFor(P.brand);
+        if (!card) { card = { key: '', kind: 'vendor', brand: P.brand }; S.vendors.push(card); }
+        tag(card); P.uid = card._uid;
+      }
+      body = '<div class="st-brands">' + vendorHtml(card, ctx) + '</div>';
+    }
+    paint(el, '<div class="mk-dlg-box" role="dialog" aria-modal="true" aria-label="' + esc(P.brand) + ' logo">'
+      + '<h3 class="mk-h">' + esc(P.brand) + ' logo for the deals page</h3>'
+      + '<p class="mk-sub">Pick the logo from Wix Media or bring it in from Drive, then save'
+      + (S.approvers.indexOf(String(ctx.user || '').toLowerCase()) >= 0 ? ' with Approved on.' : '. Sky, Mike or Tawny then approves it.')
+      + ' Your vendor day stays open underneath.</p>'
+      + (S.err ? '<div class="mk-warn">' + esc(S.err) + '</div>' : '') + (S.msg ? '<div class="mk-spec">' + esc(S.msg) + '</div>' : '')
+      + body
+      + '<div class="mk-dlg-act"><button type="button" class="gx-btn" data-st-pop="close">Done</button></div></div>');
+    if (P.onChange) P.onChange();
   }
 
-  window.SpiffSite = { render: render, problemOf: problemOf, wixSrc: wixSrc, DAYS: DAYS, vendorsFor: vendorsFor, focusBrand: focusBrand };
+  window.SpiffSite = { render: render, problemOf: problemOf, wixSrc: wixSrc, DAYS: DAYS, vendorsFor: vendorsFor,
+                       openBrandPopup: openBrandPopup, closeBrandPopup: closeBrandPopup };
 })();

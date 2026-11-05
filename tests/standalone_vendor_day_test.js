@@ -251,7 +251,43 @@ console.log('\n6. the screen');
   ok('the form carries the logo box inside the deals-page section',
      /id="mkVfWebBox"[^>]*>\s*<div id="mkVfLogo">[^]*no logo for Nobody/.test(MK.vendorDayDialogHtml(null, { canEdit: true, stores, approver: true, logo: st('Nobody') })));
   const sj = fs.readFileSync(path.join(__dirname, '..', 'spiff.js'), 'utf8');
-  ok('SOURCE-SHAPED: "Add the logo" opens the Deals page view on that brand', /name === 'svlogo'[^]{0,600}SpiffSite\.focusBrand\(lb\)[^]{0,80}mkDlgClose\(\)[^]{0,60}mkView\.view = 'site'/.test(sj));
+  /* "Add the logo" opens the brand's card in a popup over the form (Sky, 2026-11-05): no leave-the-page
+     confirm, the form stays open, and the form's logo line repaints as the popup saves. */
+  const svlogo = (sj.match(/if \(name === 'svlogo'\) \{[^]*?\n    \}/) || [''])[0];
+  ok('SOURCE-SHAPED: "Add the logo" opens a popup over the form, not another view',
+     /SpiffSite\.openBrandPopup\(/.test(svlogo) && /mkVdayLogoPaint/.test(svlogo)
+     && !/confirm\(|mkDlgClose\(|mkView\.view =/.test(svlogo));
+  const site = fs.readFileSync(path.join(__dirname, '..', 'site.js'), 'utf8');
+  ok('SOURCE-SHAPED: the popup draws the same brand card and runs the same actions as the Deals page view',
+     /function paintPopup\(\)[^]*vendorHtml\(card, ctx\)/.test(site) && /act\(b\.dataset\.stAct, b\.closest\('\.st-line'\), b, busyCtx\(popCtx\(\), b\)\)/.test(site));
+  ok('SOURCE-SHAPED: Escape closes the popup only, not the vendor day form under it',
+     /e\.key === 'Escape' && P\) \{ e\.stopPropagation\(\)/.test(site) && /#stLogoDlg:not\(\[hidden\]\)/.test(sj));
+
+  /* A button that started a save says so and takes no second click (Sky, 2026-11-05). */
+  const fakeBtn = () => {
+    const cls = new Set();
+    return { innerHTML: 'Add it', disabled: false, isConnected: true, attrs: {},
+             classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c), has: (c) => cls.has(c) },
+             setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } };
+  };
+  const b1 = fakeBtn(), stop1 = MK.busyButton(b1, 'Saving…');
+  ok('busy: the button is disabled, says Saving… with a spinner, and is marked busy',
+     b1.disabled && /mk-spin/.test(b1.innerHTML) && /Saving…/.test(b1.innerHTML) && b1.classList.has('is-busy') && b1.attrs['aria-busy'] === 'true');
+  stop1();
+  ok('  …and comes back as it was when the engine answers', !b1.disabled && b1.innerHTML === 'Add it' && !b1.classList.has('is-busy') && !('aria-busy' in b1.attrs));
+  const b2 = fakeBtn(); b2.disabled = true;
+  const stop2 = MK.busyButton(b2, 'Saving…');
+  ok('  …a button already busy is left alone (no second save)', b2.innerHTML === 'Add it' && typeof stop2 === 'function');
+  const b3 = fakeBtn(), stop3 = MK.busyButton(b3, 'Saving…');
+  b3.isConnected = false; stop3();
+  ok('  …a button a repaint already replaced is not touched', b3.disabled);
+  ok('  …no button is fine', typeof MK.busyButton(null) === 'function');
+  ok('SOURCE-SHAPED: every dialog engine call marks the clicked button busy until it answers',
+     /async function mkPencilCall[^]{0,500}MK\.busyButton\(btn[^]{0,600}finally \{ stop\(\); \}/.test(sj)
+     && /mkView\.actBtn = dlg && !dlg\.hidden \? dlg\.querySelector/.test(sj));
+  ok('SOURCE-SHAPED: the Deals page view wraps every engine call the same way',
+     /function busyCtx\(ctx, btn\)[^]{0,400}busyButton\(btn[^]{0,200}\.finally\(stop\)/.test(site)
+     && /act\(b\.dataset\.stAct, b\.closest\('\.st-line'\), b, busyCtx\(host\.__stCtx, b\)\)/.test(site));
   const gs = fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8');
   const approvers = (gs.match(/var WIX_APPROVERS_ = (\[[^\]]*\])/) || [])[1];
   ok('the screen\'s approver list is the engine\'s', JSON.stringify(MK.VDAY_APPROVERS) === JSON.stringify(JSON.parse(approvers.replace(/'/g, '"'))));
