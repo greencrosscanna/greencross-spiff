@@ -1885,11 +1885,20 @@
   function mkDlgClose() { mkView.dlg = null; mkDlgPaint(); }
   function mkDlgError(msg) { if (mkView.dlg) { mkView.dlg.error = msg; mkDlgPaint(); } }
 
+  /* The dialog button that started a call says it is working until the engine answers, and takes no
+     second click (Sky, 2026-11-05: "Add it" showed nothing, so people clicked again). Set only once
+     validation and any confirm have passed, because this is where the call starts. */
   async function mkPencilCall(action, params) {
-    var r = await ENG.jsonp(action, Object.assign({ token: (session() || {}).token }, params));
-    if (r && r.needsAuth) { clearSession(); openSignIn(); throw new Error('You were signed out. Sign in and try again.'); }
-    if (!r || !r.ok) throw new Error((r && r.error) || 'That did not save');
-    return r;
+    var LABEL = { lockPencil: 'Locking in…', releasePencil: 'Releasing…', cancelStandaloneVday: 'Canceling…', cancelHoliday: 'Canceling…' };
+    var btn = mkView.actBtn;
+    mkView.actBtn = null;
+    var stop = btn && typeof MK !== 'undefined' && MK && MK.busyButton ? MK.busyButton(btn, LABEL[action] || 'Saving…') : function () {};
+    try {
+      var r = await ENG.jsonp(action, Object.assign({ token: (session() || {}).token }, params));
+      if (r && r.needsAuth) { clearSession(); openSignIn(); throw new Error('You were signed out. Sign in and try again.'); }
+      if (!r || !r.ok) throw new Error((r && r.error) || 'That did not save');
+      return r;
+    } finally { stop(); }
   }
 
   async function mkPencilAct(name, id) {
@@ -1899,15 +1908,13 @@
     if (name === 'holadd') return mkDlgOpen({ kind: 'holiday', id: '' });
     if (name === 'svadd') return mkDlgOpen({ kind: 'svday', id: '' });
     if (name === 'svlogo') {
-      /* Ask for the logo where logos live: the Deals page view, on this brand's card. What was typed in
-         the vendor day form is not saved; it says so first when there is something to lose. */
+      /* The brand's logo card opens in a popup over this form (Sky, 2026-11-05): nothing typed here is
+         lost and nobody leaves the page. The form's logo line repaints as the popup saves. */
       var lb = (($('#mkVfBrand', d) || {}).value || '').trim();
-      if (!window.SpiffSite || !lb) return;
-      if (!window.confirm('Open the Deals page brands for ' + lb + '? Anything not saved on this vendor day is lost; save it first to keep it.')) return;
-      window.SpiffSite.focusBrand(lb);
-      mkDlgClose();
-      mkView.view = 'site';
-      return mkRenderViews();
+      if (!window.SpiffSite || !window.SpiffSite.openBrandPopup || !lb) return;
+      var lst = mkVdayLogo(lb);
+      window.SpiffSite.openBrandPopup((lst && lst.brand) || lb, mkSiteCtx(), function () { mkVdayLogoPaint($('#mkDlg')); });
+      return;
     }
     if (name === 'holsuggest') {
       var box = $('#mkHfDate', d);
@@ -1995,7 +2002,11 @@
       holiday: function (id) { mkDlgOpen({ kind: 'holiday', id: id }); },
       svday: function (id) { mkDlgOpen({ kind: 'svday', id: id }); },
       svweb: function (on) { var b = $('#mkVfWebBox', $('#mkDlg')); if (b) b.hidden = !on; },
-      act: mkPencilAct,
+      act: function (name, id) {
+        var dlg = $('#mkDlg');
+        mkView.actBtn = dlg && !dlg.hidden ? dlg.querySelector('[data-mk-act="' + name + '"]') : null;
+        return mkPencilAct(name, id);
+      },
       open: function (id) { mkDlgClose(); openProgram(id); },
       pfChange: function () {
         var d = $('#mkDlg'), w = $('#mkPfWarn', d), a = $('#mkPfFirst', d), b = $('#mkPfLast', d);
@@ -2010,7 +2021,7 @@
     });
     var dlg = $('#mkDlg');
     if (dlg) dlg.addEventListener('click', function (e) { if (e.target === dlg) mkDlgClose(); });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && mkView.dlg) mkDlgClose(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && mkView.dlg && !document.querySelector('#stLogoDlg:not([hidden])')) mkDlgClose(); });
   }
 
   /* ── THE WAY INTO A PROGRAM ───────────────────────────────────────────────────────────────

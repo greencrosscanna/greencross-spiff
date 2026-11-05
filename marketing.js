@@ -1362,6 +1362,20 @@
     if (!hit.wix_id && !approved) return { state: 'waiting', brand: hit.brand, src: src };
     return { state: 'ok', brand: hit.brand, src: src };
   }
+  /* A button that has started a save says so and takes no second click until the engine answers (Sky,
+     2026-11-05: nothing moved after "Add it", so people clicked again). Returns stop(), which puts the
+     button back if it is still on the screen; a repaint that replaced it needs nothing. Used by the
+     dialogs here and by the Deals page view (site.js). */
+  function busyButton(btn, label) {
+    if (!btn || btn.disabled) return function () {};
+    var was = btn.innerHTML;
+    btn.disabled = true; btn.classList.add('is-busy'); btn.setAttribute('aria-busy', 'true');
+    btn.innerHTML = '<span class="mk-spin" aria-hidden="true"></span>' + esc(label || 'Saving…');
+    return function () {
+      if (!btn.isConnected) return;
+      btn.disabled = false; btn.classList.remove('is-busy'); btn.removeAttribute('aria-busy'); btn.innerHTML = was;
+    };
+  }
   function vdayLogoHtml(st, canEdit) {
     if (!st || st.state === 'blank') return '';
     if (st.state === 'checking') return '<p class="mk-sub mk-sv-logo">Checking the brand\'s logo for the deals page…</p>';
@@ -1510,7 +1524,7 @@
     pencilListHtml: pencilListHtml, pencilFormHtml: pencilFormHtml, pencilDetailHtml: pencilDetailHtml,
     wireViews: wireViews, monthStart: monthStart,
     vendorDayDialogHtml: vendorDayDialogHtml, vdayCopyWarning: vdayCopyWarning, VDAY_APPROVERS: VDAY_APPROVERS,
-    vdayLogoStatus: vdayLogoStatus, vdayLogoHtml: vdayLogoHtml,
+    vdayLogoStatus: vdayLogoStatus, vdayLogoHtml: vdayLogoHtml, busyButton: busyButton,
     holidayProgram: holidayProgram, holidayDialogHtml: holidayDialogHtml, channelWords: channelWords,
     sendSuggestion: sendSuggestion, suggestionHtml: suggestionHtml, mondayBefore: mondayBefore, holidayOn: holidayOn,
     isVisible: isVisible, SECTIONS: SECTIONS, ITEMS: ITEMS, CORE: CORE, BLAST: BLAST, OWNERS: OWNERS,

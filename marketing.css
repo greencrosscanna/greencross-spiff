@@ -131,6 +131,15 @@ select.mk-own { border: 0; font: inherit; font-size: 11px; font-weight: 700; cur
 .mk-sv-logo .gx-btn { margin-left: 6px; }
 .mk-sv-logo-ok { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .mk-sv-logo-ok img { width: 72px; height: 32px; object-fit: contain; background: #14181D; border-radius: 5px; padding: 3px; flex: none; }
+/* A button waiting on the engine (busyButton in marketing.js). */
+.gx-btn.is-busy { cursor: progress; opacity: .8; }
+.mk-spin { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -2px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: mk-spin .7s linear infinite; }
+@keyframes mk-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .mk-spin { animation-duration: 2s; } }
+/* The brand's logo card over the vendor day form (site.js openBrandPopup). */
+.mk-dlg.st-pop { z-index: 70; }
+.st-pop .mk-dlg-box { max-width: 520px; }
+.st-pop .st-brands { padding: 0; grid-template-columns: 1fr; }
 .mk-sv-st { flex-wrap: wrap; }
 .mk-vday { display: grid; grid-template-columns: 1.2fr 1.2fr 1fr auto; gap: 8px; align-items: end; }
 .mk-vday .mk-vdel { margin: 0 0 14px; }
