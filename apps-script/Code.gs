@@ -496,6 +496,7 @@ function doGet(e) {
       case 'siteMedia':       out = siteMediaSearch_(p);                            break;
       /* The Featured image picker: images in the program's vendor folder. Editor session, a read. */
       case 'webImages':       out = webImages_(p);                                  break;
+      case 'brandImages':     out = brandImages_(p);                                break;
       case 'siteImportLogo':  out = siteImportLogo_(p);                             break;
       case 'adoptSite':       out = adoptSite_(p);                                  break;
       /* ONE STORE PER CALL. A full sweep is ~9s per store and /exec is killed at 60s — asking for
@@ -10305,6 +10306,12 @@ function webImages_(p) {
     if (v && v.id) { folder = v.id; url = v.url; }
   }
   if (!folder) return { ok: true, folder_url: '', files: [], why: 'no_folder' };
+  return folderImages_(folder, url, wixImageProblem_);
+}
+/* The images in one Drive folder and one level of subfolders, newest first, capped, each with the
+   reason (if any) it breaks the spec `problemOf` checks. Shared by the Featured image picker and the
+   brand logo picker. */
+function folderImages_(folder, url, problemOf) {
   try {
     var subs = driveList_("'" + folder + "' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'", 'id')
       .slice(0, WEB_IMAGES_SUBFOLDERS_).map(function (f) { return f.id; });
@@ -10317,8 +10324,29 @@ function webImages_(p) {
   return { ok: true, folder_url: url, files: files.slice(0, WEB_IMAGES_MAX_).map(function (f) {
     var im = f.imageMediaMetadata || {};
     return { id: f.id, name: f.name, width: Number(im.width) || 0, height: Number(im.height) || 0,
-             url: 'https://drive.google.com/file/d/' + f.id + '/view', problem: wixImageProblem_(f) };
+             url: 'https://drive.google.com/file/d/' + f.id + '/view', problem: problemOf(f) };
   }) };
+}
+
+/* THE BRAND LOGO PICKER (Sky, 2026-11-05: "It should pull from the selected Vendor's drive location").
+   "Pick" on a brand card lists the images in that brand's folder under Marketing ▸ Vendors (found by
+   name, never made here), each checked against the logo spec siteImportLogo_ enforces, so the screen
+   can grey out a file the import would refuse. A read: editor session, nothing written. Picking one
+   imports it through siteImportLogo_, the same as pasting its link. */
+function siteLogoProblem_(meta) {
+  if (SITE_LOGO_SPEC_.types.indexOf(String(meta.mimeType || '')) < 0) return 'is not a PNG, JPG or SVG';
+  if (Number(meta.size) > SITE_LOGO_SPEC_.bytes) return 'is over 500 KB';
+  return '';
+}
+function brandImages_(p) {
+  var who = mktEditor_(p, 'edit the deals page');
+  if (who.fail) return who.fail;
+  var brand = String(p.brand || '').trim();
+  if (!brand) return { ok: false, error: 'Name the brand first.' };
+  var v = null;
+  try { v = vendorFolderFor_(brand, false); } catch (e) { return { ok: false, error: 'Could not read Marketing ▸ Vendors: ' + scrubSecrets_((e && e.message) || e) }; }
+  if (!v || !v.id) return { ok: true, folder_url: '', files: [], why: 'no_folder' };
+  return folderImages_(v.id, v.url, siteLogoProblem_);
 }
 
 /* Logos already in Wix Media, by name, for the picker. A read: editor session, nothing written. */
