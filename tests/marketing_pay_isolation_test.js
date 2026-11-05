@@ -75,6 +75,7 @@ function progressRow(program, emp, units, target, earned) {
 
 let PENCIL_TOUCHES = 0;
 let HOLIDAY_TOUCHES = 0;
+let VDAY_TOUCHES = 0;
 function engine(plan) {
   const programs = G.makeSheet(PH, programsRows(plan));
   const progress = G.makeSheet(PROG_H, [progressRow('running', 'e1', 6, 5, 50), progressRow('running', 'e2', 2, 5, 0)]);
@@ -101,6 +102,10 @@ function engine(plan) {
       holidaySheet_: () => { HOLIDAY_TOUCHES++; throw new Error('a pay route read the holidays tab'); },
       readHolidays_: () => { HOLIDAY_TOUCHES++; throw new Error('a pay route read the holidays'); },
       getHoliday_: () => { HOLIDAY_TOUCHES++; throw new Error('a pay route read a holiday'); },
+      /* Rigged the same way for standalone vendor days (a visit with no program). */
+      standaloneVdaySheet_: () => { VDAY_TOUCHES++; throw new Error('a pay route read the vendor_days tab'); },
+      readStandaloneVdays_: () => { VDAY_TOUCHES++; throw new Error('a pay route read the standalone vendor days'); },
+      getStandaloneVday_: () => { VDAY_TOUCHES++; throw new Error('a pay route read a standalone vendor day'); },
       progressSheet_: () => progress,
       listProgramsCached_: () => api.listPrograms_(),
       annotateActuals_: () => {}, annotateUnmeasurable_: () => {},
@@ -222,6 +227,43 @@ ok('no route above reached for the holidays tab', HOLIDAY_TOUCHES === 0);
   const js = require('fs').readFileSync(require('path').join(__dirname, '..', 'spiff.js'), 'utf8');
   const hedge = (js.match(/var ENGINE_HEDGE_READS = \{([\s\S]*?)\};/) || [])[1] || '';
   ok('no holiday route is hedged on the client', !/holiday/i.test(hedge));
+}
+
+console.log('\n5b2. standalone vendor days (a visit with no program, Sky 2026-11-05)');
+ok('no route above reached for the vendor_days tab', VDAY_TOUCHES === 0);
+{
+  const NAMES = ['spiffProgress_', 'publishSpiffToCore_', 'publishToCore_', 'refreshSpiffProgress_', 'refreshProgressPlan_',
+                 'rollProgramStatuses_', 'listPrograms_', 'listProgramsCached_', 'rowToProgram_', 'programToRow_',
+                 'storeView_', 'lastProgramsByStore_', 'recordMeasuredActuals_', 'recordActualsWeb_', 'bootAll_',
+                 'byEmployee_', 'progEarned_', 'programRunsAt_', 'noProgramHeartbeatPayload_', 'publishNoProgramHeartbeat_',
+                 'sweepOrphanProgress_', 'dropProgressRows_', 'auditClosedPayouts_', 'clientView_', 'payoutFactsOf_',
+                 'sendBrandEmail_', 'buildReport_', 'giftCardList_', 'createProgram_', 'editProgram_', 'deleteProgram_',
+                 'renameProgramId_', 'rollProgramStatuses_'];
+  const named = [];
+  NAMES.forEach((n) => { try { named.push([n, G.grab(n)]); } catch (e) { /* not in the engine, nothing to leak */ } });
+  ok('the functions checked are really there (' + named.length + ' of ' + NAMES.length + ')', named.length >= 24);
+  const leaks = named.filter(([n, src]) => /standalone.?vday|vendor_days|VDAYS_TAB/i.test(src)).map(([n]) => n);
+  ok('  …and none of them mentions a standalone vendor day: ' + (leaks.join(', ') || 'none'), leaks.length === 0);
+  /* Only its own routes, the Marketing Calendar source and the deals page publisher may read the tab:
+     both of those write only to Google Calendar / the public website, never to pay, Core or a kiosk. */
+  const users = ['standaloneVdaySheet_(', 'readStandaloneVdays_(', 'getStandaloneVday_('];
+  const owners = ['standaloneVdaySheet_', 'vdayStores_', 'vdayWeb_', 'rowToStandaloneVday_', 'standaloneVdayToRow_',
+                  'readStandaloneVdays_', 'standaloneVdaysRead_', 'getStandaloneVday_', 'saveStandaloneVday_',
+                  'cancelStandaloneVday_', 'calendarSource_', 'wixPublish_'];
+  let rest = G.GS;
+  owners.forEach((n) => { rest = rest.replace(G.grab(n), ''); });
+  ok('  …and nothing else in the engine calls the vendor_days tab', users.every((u) => rest.indexOf(u) < 0));
+  /* Writes never reach programs, progress or Core. */
+  const writes = ['saveStandaloneVday_', 'cancelStandaloneVday_'].map((n) => G.grab(n)).join('\n');
+  ok('  …and its writes never touch programs, progress or Core',
+     !/dataSheet_\(\)\.(append|getRange)|progressSheet_|saveProgram_|createProgram_|editProgram_|GXCore\.publish|invalidatePrograms_/.test(writes));
+  /* The tab is its own: no program row is ever made from it. */
+  ok('  …and nothing in its source creates a program', !/createProgram_|programToRow_/.test(G.grab('saveStandaloneVday_') + G.grab('standaloneVdayToRow_')));
+}
+{
+  const js = require('fs').readFileSync(require('path').join(__dirname, '..', 'spiff.js'), 'utf8');
+  const hedge = (js.match(/var ENGINE_HEDGE_READS = \{([\s\S]*?)\};/) || [])[1] || '';
+  ok('no standalone vendor day route is hedged on the client', !/vday|vendorday/i.test(hedge));
 }
 
 console.log('\n5c. the Marketing Calendar sync');

@@ -1058,6 +1058,13 @@
       if (!ISO.test(String(h.send_date || ''))) return;
       vdays.push({ id: h.holiday_id, label: h.name + ' (' + channelWords(h) + ')', start: h.send_date, end: h.send_date, kind: 'holiday' });
     });
+    /* Standalone vendor days (a visit with no program) are the same one-day markers; they open their own dialog. */
+    ((ctx && ctx.vdaysSolo) || []).forEach(function (v) {
+      if (!ISO.test(String(v.date || ''))) return;
+      var where = v.stores && v.stores.length ? v.stores.map(name).join(', ') : 'all stores';
+      vdays.push({ id: v.vday_id, label: (v.brand || 'Vendor') + ' at ' + where + (v.time ? ', ' + v.time : ''),
+                   start: v.date, end: v.date, kind: 'vday', solo: true });
+    });
     vdays.sort(byStart);
     var bars = (programs || []).filter(function (p) {
       return ISO.test(String(p.start_date || '')) && ISO.test(String(p.end_date || '')) && p.end_date >= p.start_date;
@@ -1116,6 +1123,7 @@
       var s = Math.max(0, daysBetween(ws, b.start)), e = Math.min(6, daysBetween(ws, b.end));
       var cls = 'mk-vb ' + b.kind + (b.start >= ws ? ' l' : '') + (b.end <= we ? ' r' : '');
       var act = b.kind === 'pencil' ? 'data-mk-pencil="' + esc(b.id) + '"'
+        : b.solo ? 'data-mk-svday="' + esc(b.id) + '"'
         : b.kind === 'holiday' ? 'data-mk-holiday="' + esc(b.id) + '"' : 'data-mk-open="' + esc(b.id) + '"';
       var word = b.kind === 'pencil' ? 'Penciled, not official' : b.kind === 'vday' ? 'Vendor day' : b.kind === 'holiday' ? 'Holiday send'
         : b.kind === 'run' ? 'Running' : b.kind === 'done' ? 'Closed' : 'Draft';
@@ -1148,7 +1156,8 @@
         + '</div>' + weeks + '</div>';
     }).join('');
     return '<div class="mk-row2"><h3 class="mk-h" style="margin:0">Calendar</h3><div class="mk-row2 mk-acts">' + nav
-      + (ctx.canEdit ? '<button type="button" class="gx-btn" data-mk-act="holadd">&#9993; Holiday send</button>'
+      + (ctx.canEdit ? '<button type="button" class="gx-btn" data-mk-act="svadd">&#9733; Vendor day</button>'
+        + '<button type="button" class="gx-btn" data-mk-act="holadd">&#9993; Holiday send</button>'
         + '<button type="button" class="gx-btn gx-btn-green" data-mk-act="penadd">&#9998; Pencil a brand</button>' : '') + '</div></div>'
       + legend + '<p class="mk-sub">' + (ctx.canEdit ? 'Click an empty day to pencil a brand there. ' : '') + 'Click a bar to open it.</p>'
       + '<div class="mk-cal-scroll"><div class="mk-cal">' + body + '</div></div>';
@@ -1311,6 +1320,52 @@
     return html + '<div class="mk-status" data-mk-status role="status"></div>';
   }
 
+  /* ── Standalone vendor days ──────────────────────────────────────────────────────────────────────
+     A vendor visiting a store with no SPIFF program behind it: brand, store(s), date, time, note. NOT a
+     program: it lives in the engine's own `vendor_days` tab, which nothing that pays anybody or feeds
+     a kiosk reads. It reaches the shared Marketing Calendar, and the deals page only when "Show on the
+     deals page" is on AND Sky, Mike or Tawny has approved the copy (the engine signs that with the
+     session; a change to the brand or copy by anyone else clears it).
+     ctx: { today, canEdit, stores:[{store_id,name}], approver, error }. v null = a new one. */
+  var VDAY_APPROVERS = ['sky', 'mike', 'tawny'];
+  function vdayCopyWarning(brand, web) {
+    var bad = copyProblem([brand, web && web.deal, web && web.offer]);
+    if (bad) return 'This breaks the OLCC copy rules ("' + bad + '"). It will not be published until it is reworded.';
+    return lengthProblem({ deal: web && web.deal, offer: web && web.offer }, []);
+  }
+  function vendorDayDialogHtml(v, ctx) {
+    var ro = ctx.canEdit ? '' : ' disabled', web = (v && v.web) || {};
+    var picked = (v && v.stores) || [];
+    var html = '<h3 class="mk-h">&#9733; ' + (v ? esc(v.brand) + ' vendor day' : 'New vendor day') + '</h3>'
+      + '<p class="mk-sub">A vendor visiting a store with no SPIFF program behind it. No goals, no payout, no kiosk card. '
+      + 'It goes on the shared Marketing Calendar.</p>'
+      + '<label class="mk-fld">Brand<input id="mkVfBrand" type="text" maxlength="80" placeholder="For example: Grön" value="' + esc(v ? v.brand : '') + '"' + ro + '></label>'
+      + '<div class="mk-fld">Stores <span class="mk-sub" style="display:inline">(none ticked = every store)</span><div class="mk-hf-ch mk-sv-st">'
+      + (ctx.stores || []).map(function (s) {
+          return '<label><input type="checkbox" data-mk-vfst="' + esc(s.store_id) + '"' + (picked.indexOf(s.store_id) >= 0 ? ' checked' : '') + ro + '> ' + esc(s.name) + '</label>';
+        }).join(' ') + '</div></div>'
+      + '<div class="mk-2col"><label class="mk-fld">Date<input id="mkVfDate" type="date" value="' + esc(v ? v.date : '') + '"' + ro + '></label>'
+      + '<label class="mk-fld">Time<input id="mkVfTime" type="text" maxlength="40" placeholder="For example: 1-3:30" value="' + esc(v ? v.time : '') + '"' + ro + '></label></div>'
+      + '<label class="mk-fld">Note (optional)<input id="mkVfNote" type="text" maxlength="300" value="' + esc(v ? v.note : '') + '"' + ro + '></label>'
+      + '<div class="mk-fld"><label><input type="checkbox" id="mkVfWeb"' + (web.on ? ' checked' : '') + ro + '> Show on the deals page (greencrosscanna.com/deals)</label></div>'
+      + '<div id="mkVfWebBox"' + (web.on ? '' : ' hidden') + '>'
+      + '<div class="mk-2col"><label class="mk-fld">Deal<input id="mkVfDeal" type="text" maxlength="60" placeholder="For example: 30% OFF" value="' + esc(web.deal || '') + '"' + ro + '></label>'
+      + '<label class="mk-fld">Offer details<input id="mkVfOffer" type="text" maxlength="200" placeholder="For example: all Grön, in store, this store and time only" value="' + esc(web.offer || '') + '"' + ro + '></label></div>'
+      + (ctx.approver
+          ? '<div class="mk-fld"><label><input type="checkbox" id="mkVfApprove"' + (v && v.approved_by ? ' checked' : '') + ro + '> Approve this copy for the public page</label></div>'
+          : '<p class="mk-sub" id="mkVfApproval">' + (v && v.approved_by
+              ? 'Copy approved by ' + esc(v.approved_by) + '.'
+              : 'Not on the page until Sky, Mike or Tawny approves the copy. Changing the copy takes the approval off.') + '</p>')
+      + '</div>'
+      + '<div id="mkVfWarn">' + (ctx.error ? '<div class="mk-warn">' + esc(ctx.error) + '</div>' : '') + '</div>';
+    html += ctx.canEdit
+      ? '<div class="mk-dlg-act"><button type="button" class="gx-btn gx-btn-green" data-mk-act="svsave" data-mk-id="' + esc(v ? v.vday_id : '') + '">' + (v ? 'Save changes' : 'Add it') + '</button>'
+        + (v ? '<button type="button" class="gx-btn" data-mk-act="svcancel" data-mk-id="' + esc(v.vday_id) + '">Cancel this vendor day</button>' : '')
+        + '<button type="button" class="gx-btn" data-mk-act="dlgclose">Close</button></div>'
+      : '<div class="mk-dlg-act"><button type="button" class="gx-btn" data-mk-act="dlgclose">Close</button></div>';
+    return html + '<div class="mk-status" data-mk-status role="status"></div>';
+  }
+
   /* ── Penciled brands ─────────────────────────────────────────────────────────────────────────── */
   function pencilListHtml(pencils, ctx) {
     if (!pencils || !pencils.length) return '';
@@ -1381,7 +1436,7 @@
     if (host.__mkViewsWired) return;
     host.__mkViewsWired = true;
     host.addEventListener('click', function (e) {
-      var t = e.target.closest ? e.target.closest('button,[data-mk-pencil],[data-mk-holiday],[data-mk-open],[data-mk-view]') : null;
+      var t = e.target.closest ? e.target.closest('button,[data-mk-pencil],[data-mk-holiday],[data-mk-svday],[data-mk-open],[data-mk-view]') : null;
       if (!t || t.disabled || !host.contains(t)) return;
       var d = t.dataset;
       if (d.mkView) return api.view(d.mkView);
@@ -1392,6 +1447,7 @@
       if (d.mkAct) return api.act(d.mkAct, d.mkId || '');
       if (d.mkPencil) return api.pencil(d.mkPencil);
       if (d.mkHoliday) return api.holiday(d.mkHoliday);
+      if (d.mkSvday) return api.svday(d.mkSvday);
       if (d.mkOpen) return api.open(d.mkOpen);
     });
     host.addEventListener('change', function (e) {
@@ -1399,6 +1455,7 @@
       if (!t || !t.dataset) return;
       if (t.dataset.mkXtask && t.type === 'checkbox') return api.tick(t.dataset.mkProg, t.dataset.mkXtask, t.checked);
       if (t.dataset.mkPf !== undefined) return api.pfChange();
+      if (t.id === 'mkVfWeb' && api.svweb) return api.svweb(t.checked);
     });
   }
 
@@ -1407,6 +1464,7 @@
     calendarHtml: calendarHtml, openTasksAcross: openTasksAcross, tasksAcrossHtml: tasksAcrossHtml,
     pencilListHtml: pencilListHtml, pencilFormHtml: pencilFormHtml, pencilDetailHtml: pencilDetailHtml,
     wireViews: wireViews, monthStart: monthStart,
+    vendorDayDialogHtml: vendorDayDialogHtml, vdayCopyWarning: vdayCopyWarning, VDAY_APPROVERS: VDAY_APPROVERS,
     holidayProgram: holidayProgram, holidayDialogHtml: holidayDialogHtml, channelWords: channelWords,
     sendSuggestion: sendSuggestion, suggestionHtml: suggestionHtml, mondayBefore: mondayBefore, holidayOn: holidayOn,
     isVisible: isVisible, SECTIONS: SECTIONS, ITEMS: ITEMS, CORE: CORE, BLAST: BLAST, OWNERS: OWNERS,

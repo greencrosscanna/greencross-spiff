@@ -245,6 +245,15 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   `marketingAssign` takes `kind=holiday`. Nothing that pays, publishes or feeds a kiosk may read the
   tab; no holiday route on `ENGINE_HEDGE_READS`. Nothing is seeded. Pinned by
   `tests/marketing_holidays_test.js` and the isolation test's section 5b.
+  **A vendor day with no program is its own record** (Sky, 2026-11-05): brand, stores (none = every
+  store), date, time, note, in its **own `vendor_days` tab, never in `programs`** — same reason as pencils
+  and holidays. Rows are never deleted (`status` planned / canceled). Read only by its own routes
+  (`standaloneVdays`, `saveStandaloneVday`, `cancelStandaloneVday`), the Marketing Calendar source
+  (`svday:<id>:<store>` events) and the deals page publisher. It goes on /deals only when ticked, **approved
+  by a signed-in Sky, Mike or Tawny** (the engine writes `approved_by` from the session; any other
+  person's change to the brand or copy clears it) and the copy passes the OLCC and length rules; its Wix
+  rows are keyed `sv-<id>|<store>|<date>`. No route on `ENGINE_HEDGE_READS`. Pinned by
+  `tests/standalone_vendor_day_test.js` and the isolation test's section 5b2.
   **The Text blast card prices one send** (Sky, 2026-11-03): opted-in phones × Dutchie's per-text
   and with-image rates, a pass-through at Dutchie's cost added to the vendor's credit (no
   160-character note: Sky took it off the same day). The three numbers are **settings, never constants** (script properties
