@@ -815,7 +815,8 @@
     var t = swagTotals(ss.sizes, storeIds);
     if (!t.stores.length) return head + 'Crew has no staff on file for this program’s stores.</div>';
     var name = (ctx && ctx.storeName) || function (s) { return s; };
-    var shirts = swagLine(t.shirt), hats = swagLine(t.hat);
+    /* Hats are one size (Sky, 2026-11-05): one per active staff member, unless Crew ever sends sizes. */
+    var shirts = swagLine(t.shirt), hats = swagLine(t.hat) || (t.active ? t.active + ' one size' : '');
     var html = head + (shirts ? 'Shirts ' + esc(shirts) : 'no shirt sizes on file')
       + (hats ? '. Hats ' + esc(hats) : '') + '.';
     if (t.not_set) html += ' <small>' + t.not_set + ' of ' + t.active + ' staff have no size in Crew yet.</small>';

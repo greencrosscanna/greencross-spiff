@@ -57,6 +57,7 @@ ok('one store: no per-store list', MK.swagSizesHtml({ connected: true, sizes: SI
 ok('loading says so', /Loading/.test(MK.swagSizesHtml(undefined, ['bend'], ctx)));
 ok('before Core/Crew publish: "not connected", never a zero count', /not connected to Crew yet/.test(MK.swagSizesHtml({ connected: false }, ['bend'], ctx)));
 ok('stale data says how old', /3 days ago/.test(MK.swagSizesHtml({ connected: true, sizes: Object.assign({}, SIZES, { age_minutes: 4400 }) }, ['bend'], ctx)));
+ok('hats are one size: one per active staff member (Sky, 2026-11-05)', h.indexOf('Hats 18 one size') > 0);
 ok('hats shown when Crew sends them', /Hats 2 ONE SIZE/.test(MK.swagSizesHtml({ connected: true,
   sizes: { by_store: { bend: { shirt: { M: 1 }, hat: { 'ONE SIZE': 2 } } } } }, ['bend'], ctx)));
 

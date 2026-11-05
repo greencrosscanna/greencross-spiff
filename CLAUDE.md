@@ -256,7 +256,8 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   `?action=swagSizes` (signed-in only) reads `GXCore.publishedCrewSwagSizes(secret)` — COUNTS per
   store, never names — and passes on only store ids, size names and whole numbers. Until that GXCore
   function exists in the pinned library (asked of core-admin and crew 2026-11-04) the card says "not
-  connected to Crew yet". Crew has no hat size; hats show only if Crew ever sends them. No vendor page
+  connected to Crew yet". Hats are one size (Sky, 2026-11-05): the card counts one per active staff member, so Crew needs no
+  hat field. No vendor page
   reads it. Pinned by `tests/swag_sizes_test.js`.
   **The vendor plan's artwork sizes are generic on purpose** (Sky, 2026-11-02, `MKT_SIZES_`): TV
   1920×1080 / 3840×2160 horizontal or vertical as image or MP4, standard social sizes, 8.5×11 print.
