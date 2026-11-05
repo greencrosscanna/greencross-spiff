@@ -256,6 +256,21 @@
     if (f === 'logosquare' || f === 'squarelogo' || f === 'logo') return 'logo';
     return '';
   }
+  /* Bring a Drive file into Wix Media and answer its wix:image value. Wix often needs longer than GX
+     Core waits (Sky's test, 2026-11-05: the Green Cross logos came back "still processing" and the
+     auto-fill gave up), so a pending answer is asked about again every few seconds, up to a minute. */
+  var LOGO_POLL_MS = 4000, LOGO_POLLS = 15;
+  async function importLogo(ctx, url, which, brand) {
+    var r = await ctx.call('siteImportLogo', { url: url, which: which, brand: brand });
+    if (r.wix_image) return r.wix_image;
+    if (!r.file_id) throw new Error(r.note || 'Wix did not take the file');
+    for (var i = 0; i < LOGO_POLLS; i++) {
+      await new Promise(function (res) { setTimeout(res, LOGO_POLL_MS); });
+      var s = await ctx.call('siteLogoStatus', { file_id: r.file_id });
+      if (s.wix_image) return s.wix_image;
+    }
+    throw new Error('Wix is still processing ' + (r.name || 'the logo') + '. Pick it again in a minute.');
+  }
   function namedLogos(files, brand) {
     var out = {};
     (files || []).forEach(function (f) { var s = logoSlotOf(f.name, brand); if (s && !f.problem && !out[s]) out[s] = f; });
@@ -460,10 +475,9 @@
       if (name === 'fpick') {
         var file = ((S.media || {}).files || [])[+btn.dataset.stI];
         if (!file) return;
-        var got = await ctx.call('siteImportLogo', { url: file.url, which: S.mediaFor.which, brand: S.mediaFor.item.brand });
-        if (got.pending) { S.msg = got.note; S.mediaFor = null; return ctx.repaint(); }
+        var got = await importLogo(ctx, file.url, S.mediaFor.which, S.mediaFor.item.brand);
         var into = byUid(S.mediaFor.uid);
-        if (into) { Object.assign(into, S.mediaFor.item); into[S.mediaFor.which] = got.wix_image; }
+        if (into) { Object.assign(into, S.mediaFor.item); into[S.mediaFor.which] = got; }
         S.mediaFor = null;
         S.msg = 'Logo picked. Save the brand to keep it.';
         return ctx.repaint();
@@ -481,9 +495,7 @@
         if (name === 'mpick') value = (S.media[+btn.dataset.stI] || {}).wix_image || '';
         else {
           var url = (document.getElementById('stDrive') || {}).value || '';
-          var imp = await ctx.call('siteImportLogo', { url: url, which: S.mediaFor.which, brand: S.mediaFor.item.brand });
-          if (imp.pending) { S.msg = imp.note; S.mediaFor = null; return ctx.repaint(); }
-          value = imp.wix_image;
+          value = await importLogo(ctx, url, S.mediaFor.which, S.mediaFor.item.brand);
         }
         var target = byUid(S.mediaFor.uid);
         if (target) { Object.assign(target, S.mediaFor.item); target[S.mediaFor.which] = value; }
@@ -497,7 +509,7 @@
   /* Whatever button started an engine call shows it is working and takes no second click until the
      answer (Sky, 2026-11-05). Every engine call act() makes goes through ctx.call, so wrapping it here
      covers Save, Import, Search and Approve all alike, and only once a confirm has been answered. */
-  var BUSY = { saveSiteDeal: 'Saving…', siteImportLogo: 'Importing…', siteMedia: 'Searching…', brandImages: 'Reading…',
+  var BUSY = { saveSiteDeal: 'Saving…', siteImportLogo: 'Importing…', siteLogoStatus: 'Importing…', siteMedia: 'Searching…', brandImages: 'Reading…',
                approveSiteDeals: 'Approving…', removeSiteDeal: 'Removing…', siteDeals: 'Loading…' };
   function busyCtx(ctx, btn) {
     var m = MK();
@@ -636,16 +648,19 @@
     for (var i = 0; i < slots.length; i++) {
       var slot = slots[i], f = named[slot];
       if (card[slot] || !f) continue;
+      if (P !== mine) return;
+      S.msg = 'Found ' + f.name + '. Bringing it into Wix; this can take up to a minute…';
+      paintPopup();
       try {
-        var imp = await ctx.call('siteImportLogo', { url: f.url, which: slot, brand: card.brand });
-        if (imp.wix_image) { card[slot] = imp.wix_image; got.push(f.name); }
+        card[slot] = await importLogo(ctx, f.url, slot, card.brand);
+        got.push(f.name);
       } catch (e) { S.err = 'Found ' + f.name + ' but could not bring it in: ' + String((e && e.message) || e); }
     }
     if (P !== mine) return;
     S.msg = got.length
       ? 'Found ' + got.join(' and ') + ' in the vendor folder and filled ' + (got.length > 1 ? 'them' : 'it') + ' in. Save to keep '
         + (got.length > 1 ? 'them' : 'it') + (S.approvers.indexOf(String(ctx.user || '').toLowerCase()) >= 0 ? ', with Approved on.' : '.')
-      : (r && r.ok && r.folder_url ? 'No file named "Logo Wide" or "Logo Square" in the vendor folder. Pick one below, or name it that way and reopen.' : '');
+      : (S.err ? '' : r && r.ok && r.folder_url && !Object.keys(named).length ? 'No file named "Logo Wide" or "Logo Square" in the vendor folder. Pick one below, or name it that way and reopen.' : '');
     paintPopup();
   }
 

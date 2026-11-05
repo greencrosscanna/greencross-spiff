@@ -127,6 +127,61 @@ console.log('\n1b. a brand\'s logo is picked from its own vendor folder');
     { name: 'Logo Square.png', url: 's-bad', problem: 'is over 500 KB' }, { name: 'logo.png', url: 's-ok', problem: '' }], 'Grön');
   ok('the newest named file wins, and one that breaks the spec is never picked', picked.logo_wide.url === 'w1' && picked.logo.url === 's-ok');
 }
+/* ── bringing a logo into Wix (Sky's test, 2026-11-05: Wix answered "still processing" and the auto-fill
+   gave up; the same file was then imported twice) ── */
+console.log('\n1c. a logo comes into Wix once, and a slow one is waited for');
+function importer(o) {
+  const calls = [];
+  const core = {
+    wixMediaSearch: (s, q) => { calls.push(['search', q]); return { ok: true, files: o.have || [] }; },
+    wixImportImage: (s, url, opts) => { calls.push(['import', url, opts.display_name]); return o.imported; },
+    wixMediaStatus: (s, id) => { calls.push(['status', id]); return o.status; },
+  };
+  const api = G.load({
+    real: ['siteImportLogo_', 'siteLogoStatus_'],
+    vars: ['SITE_LOGO_SPEC_'],
+    varValues: { GX_SECRET_PROP: 'GX_DEPLOY_SECRET', WIX_PUBLISHER_APP_: 'spiff' },
+    stubs: {
+      mktEditor_: () => (o.viewer ? { fail: { ok: false, error: 'viewer' } } : { auth: { user: 'sky' } }),
+      wixDriveFileId_: (u) => (/\/d\/([-\w]+)/.exec(String(u)) || [])[1] || '',
+      driveApi_: () => ({ name: 'Green Cross - Logo Wide.png', mimeType: 'image/png', size: '12491' }),
+      wixMenuSlug_: (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      scrubSecrets_: (x) => String(x),
+    },
+    globals: Object.assign({ GXCore: core }, G.makeProps ? G.makeProps({ GX_DEPLOY_SECRET: 's' }) : { PropertiesService: { getScriptProperties: () => ({ getProperty: () => 's' }) } }),
+  });
+  return { api, calls };
+}
+{
+  const URL = 'https://drive.google.com/file/d/1kIAIuqwdvrsT91QmzftkVvzE5zBjSAxT/view';
+  const fresh = importer({ imported: { ok: true, wix_image: 'wix:image://v1/new.png/x.png' } });
+  const r = fresh.api.siteImportLogo_({ url: URL, which: 'logo_wide', brand: 'Green Cross' });
+  const nm = r.name;
+  ok('the Wix name carries the Drive file, so a new file never reuses an old one', /^green-cross-logo-wide-1kiaiuqw\.png$/.test(nm));
+  ok('a new file is imported and answered', r.ok && r.wix_image === 'wix:image://v1/new.png/x.png' && fresh.calls.some(c => c[0] === 'import'));
+  const again = importer({ have: [{ name: nm, wix_image: 'wix:image://v1/old.png/x.png' }, { name: 'other.png', wix_image: 'wix:image://v1/o.png/o.png' }] });
+  const r2 = again.api.siteImportLogo_({ url: URL, which: 'logo_wide', brand: 'Green Cross' });
+  ok('the same file picked again is reused, not imported twice', r2.ok && r2.reused && r2.wix_image === 'wix:image://v1/old.png/x.png' && !again.calls.some(c => c[0] === 'import'));
+  const slow = importer({ imported: { ok: true, status: 'PENDING', file_id: 'f123456', wix_image: '' } });
+  const r3 = slow.api.siteImportLogo_({ url: URL, which: 'logo', brand: 'Green Cross' });
+  ok('a slow one answers pending with the Wix file id to ask about', r3.ok && r3.pending && r3.file_id === 'f123456');
+  const ready = importer({ status: { ok: true, status: 'READY', wix_image: 'wix:image://v1/f.png/f.png' } }).api.siteLogoStatus_({ file_id: 'f123456' });
+  ok('asking again answers the logo once Wix is done', ready.ok && ready.ready && ready.wix_image === 'wix:image://v1/f.png/f.png');
+  const still = importer({ status: { ok: true, status: 'PENDING', wix_image: '' } }).api.siteLogoStatus_({ file_id: 'f123456' });
+  ok('  …and says not yet while it is not', still.ok && !still.ready && still.wix_image === '');
+  ok('  …a Wix failure is an error', importer({ status: { ok: false, error: 'Wix could not process the file' } }).api.siteLogoStatus_({ file_id: 'f123456' }).ok === false);
+  ok('  …a viewer is refused, and no id is refused', importer({ viewer: true }).api.siteLogoStatus_({ file_id: 'f123456' }).ok === false
+     && importer({}).api.siteLogoStatus_({ file_id: '' }).ok === false);
+}
+ok('the status route is wired, is not secret-only, and is not hedged', /case 'siteLogoStatus':\s+out = siteLogoStatus_\(p\)/.test(G.GS)
+   && G.grabVar('SECRET_ACTIONS').indexOf('siteLogoStatus') < 0
+   && !/siteLogoStatus/.test(fs.readFileSync(path.join(__dirname, '..', 'spiff.js'), 'utf8').match(/var ENGINE_HEDGE_READS = \{[^}]*\}/)[0]));
+{
+  const site = fs.readFileSync(path.join(__dirname, '..', 'site.js'), 'utf8');
+  ok('SOURCE-SHAPED: every logo import on the screen waits out a pending answer (Pick, a pasted link, the auto-fill)',
+     (site.match(/await importLogo\(ctx,/g) || []).length === 3 && (site.match(/ctx\.call\('siteImportLogo'/g) || []).length === 1
+     && /async function importLogo[^]{0,500}siteLogoStatus/.test(site));
+}
 ok('the brand logo route is wired, and is not secret-only', /case 'brandImages':\s+out = brandImages_\(p\)/.test(G.GS)
    && G.grabVar('SECRET_ACTIONS').indexOf('brandImages') < 0);
 

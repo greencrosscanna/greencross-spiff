@@ -498,6 +498,7 @@ function doGet(e) {
       case 'webImages':       out = webImages_(p);                                  break;
       case 'brandImages':     out = brandImages_(p);                                break;
       case 'siteImportLogo':  out = siteImportLogo_(p);                             break;
+      case 'siteLogoStatus':  out = siteLogoStatus_(p);                             break;
       case 'adoptSite':       out = adoptSite_(p);                                  break;
       /* ONE STORE PER CALL. A full sweep is ~9s per store and /exec is killed at 60s — asking for
          all of them timed out with nothing written and no error to read, which is the worst of both.
@@ -10371,15 +10372,39 @@ function siteImportLogo_(p) {
   catch (e) { return { ok: false, error: 'Drive could not read that file: ' + String((e && e.message) || e).slice(0, 120) }; }
   if (SITE_LOGO_SPEC_.types.indexOf(String(meta.mimeType || '')) < 0) return { ok: false, error: 'A logo must be a PNG, JPG or SVG.' };
   if (Number(meta.size) > SITE_LOGO_SPEC_.bytes) return { ok: false, error: 'That file is over 500 KB.' };
+  /* The Drive file's id rides in the name, so the same file picked twice (auto-fill, then Pick) is found
+     already in Wix Media and reused instead of imported again, and a NEW file with the same name never
+     reuses the old one (Sky's test, 2026-11-05). */
   var name = wixMenuSlug_(p.brand || 'brand') + (String(p.which) === 'logo_wide' ? '-logo-wide' : '-logo')
+           + '-' + id.slice(0, 8).toLowerCase().replace(/[^a-z0-9]/g, '')
            + (meta.mimeType === 'image/jpeg' ? '.jpg' : meta.mimeType === 'image/svg+xml' ? '.svg' : '.png');
   var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
   try {
+    var have = null;
+    try { have = GXCore.wixMediaSearch(secret, name, { limit: 10 }); } catch (e) { have = null; }
+    var same = ((have && have.files) || []).filter(function (f) { return f.name === name && f.wix_image; })[0];
+    if (same) return { ok: true, wix_image: same.wix_image, name: name, reused: true };
     var r = GXCore.wixImportImage(secret, 'https://lh3.googleusercontent.com/d/' + id,
       { display_name: name, mime_type: meta.mimeType, apply: true, app: WIX_PUBLISHER_APP_, by: who.auth.user });
     if (r && r.wix_image) return { ok: true, wix_image: r.wix_image, name: name };
-    if (r && r.file_id) return { ok: true, pending: true, file_id: r.file_id, note: 'Wix is still processing it. Search for ' + name + ' in a minute.' };
+    /* Wix is still processing it: the screen asks siteLogoStatus with this id until it is ready. */
+    if (r && r.file_id) return { ok: true, pending: true, file_id: r.file_id, name: name, note: 'Wix is still processing ' + name + '.' };
     return { ok: false, error: 'Wix could not import it: ' + scrubSecrets_((r && r.error) || 'no answer') + '. Is the file shared "anyone with the link"?' };
+  } catch (e) { return { ok: false, error: 'GX Core unavailable: ' + scrubSecrets_((e && e.message) || e) }; }
+}
+
+/* Is a logo Wix was still processing ready yet? (siteImportLogo_ answered pending with its file id.)
+   A read: editor session, nothing written. */
+function siteLogoStatus_(p) {
+  var who = mktEditor_(p, 'edit the deals page');
+  if (who.fail) return who.fail;
+  var id = String(p.file_id || '').trim();
+  if (!/^[\w.~-]{6,200}$/.test(id)) return { ok: false, error: 'No Wix file to check.' };
+  var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  try {
+    var s = GXCore.wixMediaStatus(secret, id);
+    if (!s || s.ok === false) return { ok: false, error: 'Wix could not process the logo: ' + scrubSecrets_((s && s.error) || 'no answer') };
+    return { ok: true, ready: !!s.wix_image, wix_image: String(s.wix_image || '') };
   } catch (e) { return { ok: false, error: 'GX Core unavailable: ' + scrubSecrets_((e && e.message) || e) }; }
 }
 
