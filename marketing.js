@@ -1333,6 +1333,50 @@
     if (bad) return 'This breaks the OLCC copy rules ("' + bad + '"). It will not be published until it is reworded.';
     return lengthProblem({ deal: web && web.deal, offer: web && web.offer }, []);
   }
+  /* THE LOGO A STANDALONE VENDOR DAY WILL CARRY ON THE DEALS PAGE (Sky, 2026-11-05). The engine links
+     the brand's Vendors row and refuses to publish a day whose brand has no logo (wixVdayLogoProblem_
+     in Code.gs); this tells the form the same thing BEFORE anyone saves, from SPIFF's own copy of the
+     brands (the Deals page view's site_deals list). `vendors` null = not loaded yet. `brands` is GX
+     Core's registry, for other spellings ("Gron" finds "Grön"). Returns
+     { state: 'blank'|'checking'|'ok'|'waiting'|'nologo'|'missing', brand, src }. */
+  function logoFold(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+  function logoSrc(v) {
+    var m = /^wix:image:\/\/v1\/([^/]+)\//.exec(String(v || ''));
+    return m ? 'https://static.wixstatic.com/media/' + m[1] : '';
+  }
+  function vdayLogoStatus(brand, vendors, brands) {
+    var want = logoFold(brand);
+    if (!want) return { state: 'blank', brand: '' };
+    if (!Array.isArray(vendors)) return { state: 'checking', brand: brand };
+    var names = [want];
+    (brands || []).forEach(function (b) {
+      var all = [b.display_name].concat(b.aliases || []).map(logoFold);
+      if (all.indexOf(want) >= 0) names = names.concat(all);
+    });
+    var hit = vendors.filter(function (s) { return s.kind !== 'week' && names.indexOf(logoFold(s.brand)) >= 0; })[0];
+    if (!hit) return { state: 'missing', brand: brand };
+    var src = logoSrc(hit.logo_wide) || logoSrc(hit.logo);
+    if (!String(hit.logo || '').trim() && !String(hit.logo_wide || '').trim()) return { state: 'nologo', brand: hit.brand };
+    /* On the page already (adopted or published: it has a Wix id), or approved and going up next hour. */
+    var approved = VDAY_APPROVERS.indexOf(String(hit.approved_by || '').toLowerCase()) >= 0;
+    if (!hit.wix_id && !approved) return { state: 'waiting', brand: hit.brand, src: src };
+    return { state: 'ok', brand: hit.brand, src: src };
+  }
+  function vdayLogoHtml(st, canEdit) {
+    if (!st || st.state === 'blank') return '';
+    if (st.state === 'checking') return '<p class="mk-sub mk-sv-logo">Checking the brand\'s logo for the deals page…</p>';
+    var add = canEdit ? ' <button type="button" class="gx-btn" data-mk-act="svlogo">' + (st.state === 'waiting' ? 'Open the brand' : 'Add the logo') + '</button>' : '';
+    if (st.state === 'ok') {
+      return '<div class="mk-sv-logo mk-sv-logo-ok">' + (st.src ? '<img src="' + esc(st.src) + '" alt="' + esc(st.brand) + ' logo">' : '')
+        + '<span>The deals page shows the ' + esc(st.brand) + ' logo from Deals page ▸ Brands and logos.</span></div>';
+    }
+    var why = st.state === 'missing' ? 'The deals page has no logo for ' + esc(st.brand) + ' yet.'
+            : st.state === 'nologo' ? esc(st.brand) + ' is on the deals page brand list, but with no logo yet.'
+            : esc(st.brand) + '\'s logo is saved but not approved yet.';
+    return '<div class="mk-warn mk-sv-logo">' + why + ' This vendor day stays off the website until '
+      + (st.state === 'waiting' ? 'Sky, Mike or Tawny approves the brand' : 'a logo is added') + '.' + add + '</div>';
+  }
+
   function vendorDayDialogHtml(v, ctx) {
     var ro = ctx.canEdit ? '' : ' disabled', web = (v && v.web) || {};
     var picked = (v && v.stores) || [];
@@ -1349,6 +1393,7 @@
       + '<label class="mk-fld">Note (optional)<input id="mkVfNote" type="text" maxlength="300" value="' + esc(v ? v.note : '') + '"' + ro + '></label>'
       + '<div class="mk-fld"><label><input type="checkbox" id="mkVfWeb"' + (web.on ? ' checked' : '') + ro + '> Show on the deals page (greencrosscanna.com/deals)</label></div>'
       + '<div id="mkVfWebBox"' + (web.on ? '' : ' hidden') + '>'
+      + '<div id="mkVfLogo">' + vdayLogoHtml(ctx.logo, ctx.canEdit) + '</div>'
       + '<div class="mk-2col"><label class="mk-fld">Deal<input id="mkVfDeal" type="text" maxlength="60" placeholder="For example: 30% OFF" value="' + esc(web.deal || '') + '"' + ro + '></label>'
       + '<label class="mk-fld">Offer details<input id="mkVfOffer" type="text" maxlength="200" placeholder="For example: all Grön, in store, this store and time only" value="' + esc(web.offer || '') + '"' + ro + '></label></div>'
       + (ctx.approver
@@ -1465,6 +1510,7 @@
     pencilListHtml: pencilListHtml, pencilFormHtml: pencilFormHtml, pencilDetailHtml: pencilDetailHtml,
     wireViews: wireViews, monthStart: monthStart,
     vendorDayDialogHtml: vendorDayDialogHtml, vdayCopyWarning: vdayCopyWarning, VDAY_APPROVERS: VDAY_APPROVERS,
+    vdayLogoStatus: vdayLogoStatus, vdayLogoHtml: vdayLogoHtml,
     holidayProgram: holidayProgram, holidayDialogHtml: holidayDialogHtml, channelWords: channelWords,
     sendSuggestion: sendSuggestion, suggestionHtml: suggestionHtml, mondayBefore: mondayBefore, holidayOn: holidayOn,
     isVisible: isVisible, SECTIONS: SECTIONS, ITEMS: ITEMS, CORE: CORE, BLAST: BLAST, OWNERS: OWNERS,

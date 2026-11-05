@@ -451,7 +451,12 @@
        on the item, so a line a filter hides gets its typing back when it shows again, and the counts
        and preview go on describing what is SAVED. */
     host.querySelectorAll('.st-line').forEach(function (l) { S.typed[l.dataset.stUid] = read(l); });
+    var focused = applyFocus(host);
     host.innerHTML = html(ctx);
+    if (focused && focused._uid) {
+      var card = host.querySelector('[data-st-uid="' + focused._uid + '"]');
+      if (card && card.scrollIntoView) card.scrollIntoView({ block: 'center' });
+    }
     host.querySelectorAll('.st-line').forEach(function (l) {
       var t = S.typed[l.dataset.stUid];
       if (!t) return;
@@ -476,5 +481,23 @@
     host.__stCtx = ctx;
   }
 
-  window.SpiffSite = { render: render, problemOf: problemOf, wixSrc: wixSrc, DAYS: DAYS };
+  /* For the vendor day form (Sky, 2026-11-05): the brands as this screen holds them, loading them once
+     if needed (null until then; ctx.repaint is the FORM's repaint). The same list the Brands card edits,
+     so a logo saved here is seen by the form without a reload. */
+  function vendorsFor(ctx) {
+    if (!S.loaded) { load(ctx); return null; }
+    return S.ready ? S.vendors : [];
+  }
+  /* "Add the logo" from the vendor day form: open this screen on that brand's card, or start a new
+     card with the brand typed in. Applied at the next paint once the list is loaded. */
+  function focusBrand(brand) { S.focus = String(brand || '').trim(); S.filter = 'all'; S.q = S.focus; }
+  function applyFocus(host) {
+    if (!S.focus || !S.loaded) return;
+    var f = fold(S.focus), hit = S.vendors.filter(function (v) { return fold(v.brand) === f; })[0];
+    if (!hit) { hit = tag({ key: '', kind: 'vendor', brand: S.focus }); S.vendors.push(hit); S.msg = 'Add the ' + S.focus + ' logo here, then save and approve the brand.'; }
+    S.focus = '';
+    return hit;
+  }
+
+  window.SpiffSite = { render: render, problemOf: problemOf, wixSrc: wixSrc, DAYS: DAYS, vendorsFor: vendorsFor, focusBrand: focusBrand };
 })();

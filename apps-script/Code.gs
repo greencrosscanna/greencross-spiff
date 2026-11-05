@@ -9427,6 +9427,16 @@ function wixVendorIndex_(vendors) {
   return idx;
 }
 
+/* Why a standalone vendor day cannot go on the deals page for want of a logo, or ''. `vend` is the
+   brand's Vendors row (matched by title or other spelling), or null. Mirrored on the screen by
+   vdayLogoStatus in marketing.js, which reads SPIFF's own copy of the brands (site_deals). */
+function wixVdayLogoProblem_(brand, vend) {
+  var where = 'Add it in Programs ▸ Deals page ▸ Brands and logos, then approve the brand.';
+  if (!vend || !vend._id) return 'the deals page has no brand tile for "' + brand + '" yet, so there is no logo to show. ' + where;
+  if (!String(vend.logo || '').trim() && !String(vend.logoWide || '').trim()) return '"' + brand + '" has no logo on the deals page yet. ' + where;
+  return '';
+}
+
 /* WHAT THE PAGE SHOULD HOLD, as plain data. src = {programs, vendors, storeLabels:{id:label},
    shop: {stores:{id:[brand]}} | null, sendShopBrand}. Returns the items, plus why each planned program
    is NOT going out, and anything a person should fix. `images` maps programId -> the typed image link,
@@ -9548,15 +9558,21 @@ function wixDesired_(src, today) {
     if (broken) { out.skipped.push({ program_id: id, why: 'the copy breaks the OLCC copy rules ("' + broken + '"); fix it on the vendor day' }); return; }
     var long = wixLengthProblem_({ deal: web.deal, offer: web.offer }, []);
     if (long) { out.skipped.push({ program_id: id, why: long + ' Too much copy breaks the layout; shorten it on the vendor day' }); return; }
+    /* THE LOGO IS A GATE HERE, not a warning (Sky, 2026-11-05: "we will need to automatically connect
+       the logo for the vendor, or ask if one hasn't been established"). The logo is linked exactly as a
+       program's day links it, by vendorRef to the brand's Vendors row; with no row, or a row with no
+       logo, the day waits and says why, and the vendor day form asks for one. Programs keep the softer
+       rule (a problem line, name on a black tile) because their cards were already live that way. */
     var vend = idx[wixFold_(brand)] || null;
-    if (!vend) out.problems.push({ program_id: id, problem: 'no Vendors item in Wix matches "' + brand + '", so the page shows the name on a black tile. Add the brand to Vendors.' });
+    var noLogo = wixVdayLogoProblem_(brand, vend);
+    if (noLogo) { out.skipped.push({ program_id: id, why: noLogo }); return; }
     var time = wixTimeOf_(v.time), L = wixDayLabels_(v.date);
     (v.stores && v.stores.length ? v.stores : ['']).forEach(function (store) {
       var label = store ? (labels[slug_(store)] || store) : '';
       var row = { dayKey: id + '|' + (label ? wixMenuSlug_(label) : 'all') + '|' + v.date, programId: id, title: brand,
                   date: v.date, dayLabel: L.dayLabel, dateLabel: L.dateLabel, store: label,
                   time: time.label, sortTime: time.minute, deal: text(web.deal, 40), offer: text(web.offer, 200) };
-      if (vend) row.vendorRef = vend._id;
+      row.vendorRef = vend._id;
       if (WIX_APPROVER_FIELD_) row[WIX_APPROVER_FIELD_] = by;
       out.days.push(row);
     });

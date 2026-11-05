@@ -252,7 +252,11 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   (`svday:<id>:<store>` events) and the deals page publisher. It goes on /deals only when ticked, **approved
   by a signed-in Sky, Mike or Tawny** (the engine writes `approved_by` from the session; any other
   person's change to the brand or copy clears it) and the copy passes the OLCC and length rules; its Wix
-  rows are keyed `sv-<id>|<store>|<date>`. No route on `ENGINE_HEDGE_READS`. Pinned by
+  rows are keyed `sv-<id>|<store>|<date>`. **It must carry the brand's logo** (Sky, 2026-11-05): linked by
+  `vendorRef` to the brand's Wix `Vendors` row, like a program's day, but unlike a program a day whose
+  brand has no row or no logo is NOT sent (`wixVdayLogoProblem_`, reported in `skipped`). The form shows
+  the logo or asks for one (`vdayLogoStatus` in marketing.js, read from the Deals page view's brand list)
+  and "Add the logo" opens that view on the brand's card. No route on `ENGINE_HEDGE_READS`. Pinned by
   `tests/standalone_vendor_day_test.js` and the isolation test's section 5b2.
   **The Text blast card prices one send** (Sky, 2026-11-03): opted-in phones × Dutchie's per-text
   and with-image rates, a pass-through at Dutchie's cost added to the vendor's credit (no
