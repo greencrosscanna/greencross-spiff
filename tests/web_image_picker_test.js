@@ -32,8 +32,8 @@ function engine(o) {
   const prog = Object.assign({ program_id: 'all-products-202610', vendor: 'Gron', end_date: '2026-11-08',
     marketing_json: { v: 1, sel: { web: true }, d: { files: { url: 'https://drive.google.com/drive/folders/FOLDERaaaaaaaaaaaa' } } } }, o.prog || {});
   const api = G.load({
-    real: ['webFolderId_', 'webImages_', 'wixImageProblem_', 'normalizeMarketing_'],
-    vars: ['WEB_IMAGES_MAX_', 'WEB_IMAGES_SUBFOLDERS_', 'WIX_FEATURED_SPEC_'],
+    real: ['webFolderId_', 'webImages_', 'folderImages_', 'wixImageProblem_', 'normalizeMarketing_', 'brandImages_', 'siteLogoProblem_'],
+    vars: ['WEB_IMAGES_MAX_', 'WEB_IMAGES_SUBFOLDERS_', 'WIX_FEATURED_SPEC_', 'SITE_LOGO_SPEC_'],
     stubs: {
       mktEditor_: () => (o.viewer ? { fail: { ok: false, error: 'Your role (viewer) cannot edit the deals page' } } : { auth: { user: 'tawny' } }),
       getProgram_: (id) => (id === prog.program_id ? { ok: true, program: JSON.parse(JSON.stringify(prog)) } : { ok: false, error: 'not found' }),
@@ -89,6 +89,46 @@ console.log('\n1. the engine lists the vendor folder');
 }
 ok('the route is wired, and is not secret-only', /case 'webImages':\s+out = webImages_\(p\)/.test(G.GS)
    && G.grabVar('SECRET_ACTIONS').indexOf('webImages') < 0);
+
+/* ── the brand logo picker (Sky, 2026-11-05: "It should pull from the selected Vendor's drive location") */
+console.log('\n1b. a brand\'s logo is picked from its own vendor folder');
+{
+  const VF = { id: 'VENDORgggggggggggg', url: 'https://drive.google.com/drive/folders/VENDORgggggggggggg' };
+  const e = engine({ vendorFolder: VF, subfolders: [{ id: 'LOGOSssssssssssssss' }],
+    files: [sq('LOGO1aaaaaaaaaaaaaaaaaaa', 'gron-wide.png', 1000, 'image/png', 90000),
+            sq('LOGO2aaaaaaaaaaaaaaaaaaa', 'gron-huge.png', 3000, 'image/png', 2000000),
+            sq('LOGO3aaaaaaaaaaaaaaaaaaa', 'gron.webp', 600, 'image/webp', 50000)] });
+  const r = e.api.brandImages_({ brand: 'Grön', token: 't' });
+  ok('lists the brand\'s folder under Marketing ▸ Vendors and its subfolders', r.ok && r.folder_url === VF.url
+     && /'VENDORgggggggggggg' in parents or 'LOGOSssssssssssssss' in parents/.test(e.queries[1]));
+  ok('a logo that meets the logo spec has no problem', r.files[0].problem === '' && r.files[0].url === 'https://drive.google.com/file/d/LOGO1aaaaaaaaaaaaaaaaaaa/view');
+  ok('  …one over 500 KB says so', /500 KB/.test(r.files[1].problem));
+  ok('  …one that is not PNG, JPG or SVG says so', /PNG, JPG or SVG/.test(r.files[2].problem));
+  const none = engine({}).api.brandImages_({ brand: 'Nobody' });
+  ok('a brand with no folder is an empty answer that says so, and no folder is made', none.ok && none.why === 'no_folder' && !none.folder_url);
+  ok('no brand is refused', engine({ vendorFolder: VF }).api.brandImages_({ brand: ' ' }).ok === false);
+  ok('a viewer is refused', engine({ viewer: true, vendorFolder: VF }).api.brandImages_({ brand: 'Grön' }).ok === false);
+  ok('a Drive failure is an error, never an empty folder', engine({ driveFails: true, vendorFolder: VF }).api.brandImages_({ brand: 'Grön' }).ok === false);
+}
+{
+  /* Files NAMED for a slot fill it by themselves (Sky: "name them correctly and they'll automatically
+     be connected"). site.js runs here; these two need no DOM. */
+  const sb = {}; sb.window = sb;
+  vm.createContext(sb);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'site.js'), 'utf8'), sb);
+  const SITE = sb.SpiffSite;
+  const slot = (n, b) => SITE.logoSlotOf(n, b === undefined ? 'Grön' : b);
+  ok('"Logo Wide.png" is the wide logo; "Logo Square.png" and "logo.svg" the square one',
+     slot('Logo Wide.png') === 'logo_wide' && slot('logo-square.jpg') === 'logo' && slot('logo.svg') === 'logo' && slot('Wide Logo.PNG') === 'logo_wide');
+  ok('  …with the brand\'s name in front, in any spelling', slot('Gron - Logo Wide.png') === 'logo_wide' && slot('GRÖN_logo_square.png') === 'logo');
+  ok('  …anything else is not a logo slot', slot('Gron_Pearls_Week_1200.png') === '' && slot('logo-old.png') === '' && slot('banner wide.png') === '');
+  const picked = SITE.namedLogos([
+    { name: 'Logo Wide.png', url: 'w1', problem: '' }, { name: 'logo wide.png', url: 'w2', problem: '' },
+    { name: 'Logo Square.png', url: 's-bad', problem: 'is over 500 KB' }, { name: 'logo.png', url: 's-ok', problem: '' }], 'Grön');
+  ok('the newest named file wins, and one that breaks the spec is never picked', picked.logo_wide.url === 'w1' && picked.logo.url === 's-ok');
+}
+ok('the brand logo route is wired, and is not secret-only', /case 'brandImages':\s+out = brandImages_\(p\)/.test(G.GS)
+   && G.grabVar('SECRET_ACTIONS').indexOf('brandImages') < 0);
 
 /* ── the description ─────────────────────────────────────────────────────────────────────────── */
 console.log('\n2. the image description fills itself');

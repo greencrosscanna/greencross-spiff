@@ -245,9 +245,44 @@
       + '</div>';
   }
 
+  /* A file in the brand's vendor folder NAMED for a logo slot fills that slot by itself (Sky,
+     2026-11-05: "create images and name them correctly and they'll automatically be connected").
+     "Logo Wide" → the wide logo, "Logo Square" (or just "Logo") → the square one; case, spaces,
+     dashes, the brand's name and the file type are ignored, so "Gron - Logo Wide.png" counts. */
+  function logoSlotOf(fileName, brand) {
+    var f = fold(String(fileName || '').replace(/\.[a-z0-9]+$/i, '')), b = fold(brand);
+    if (b && f.indexOf(b) === 0) f = f.slice(b.length);
+    if (f === 'logowide' || f === 'widelogo') return 'logo_wide';
+    if (f === 'logosquare' || f === 'squarelogo' || f === 'logo') return 'logo';
+    return '';
+  }
+  function namedLogos(files, brand) {
+    var out = {};
+    (files || []).forEach(function (f) { var s = logoSlotOf(f.name, brand); if (s && !f.problem && !out[s]) out[s] = f; });
+    return out;
+  }
+  function folderHtml(m) {
+    var r = S.media;
+    var wix = '<button class="gx-btn" data-st-act="wixsearch">Search Wix Media instead</button> <button class="gx-btn" data-st-act="mclose">Cancel</button>';
+    var head = '<span class="st-note">The ' + (m.which === 'logo_wide' ? 'wide (1000 × 400)' : 'square (600 × 600)')
+      + ' logo, from ' + esc(m.item.brand || 'the brand') + '\'s folder under Marketing ▸ Vendors. Name a file "Logo Wide" or "Logo Square" and it is picked by itself.</span>';
+    if (r === null) return head + '<span class="st-note">Reading the vendor folder…</span><span>' + wix + '</span>';
+    if (!r.ok) return head + '<div class="mk-warn">' + esc(r.error || 'Could not read the vendor folder.') + '</div><span>' + wix + '</span>';
+    var open = r.folder_url ? ' <a href="' + esc(r.folder_url) + '" target="_blank" rel="noopener noreferrer">Open the folder</a>' : '';
+    if (!r.folder_url) return head + '<span class="st-note">' + esc(m.item.brand || 'This brand') + ' has no folder under Marketing ▸ Vendors yet.</span><span>' + wix + '</span>';
+    if (!(r.files || []).length) return head + '<span class="st-note">No images in the folder yet. Upload the logo there, then Pick again.' + open + '</span><span>' + wix + '</span>';
+    return head + '<div class="st-media">' + r.files.map(function (f, i) {
+      var bad = f.problem ? 'This file ' + f.problem + '.' : '';
+      return '<button data-st-act="fpick" data-st-i="' + i + '"' + (bad ? ' disabled title="' + esc(bad) + '" style="opacity:.45"' : '') + '>'
+        + '<img src="https://lh3.googleusercontent.com/d/' + esc(f.id) + '=s240" alt="" loading="lazy"><span>' + esc(f.name) + '</span>'
+        + (bad ? '<span>' + esc(bad) + '</span>' : '') + '</button>';
+    }).join('') + '</div><span class="st-note">Newest first. Greyed files do not meet the logo spec (PNG, JPG or SVG, 500 KB max).' + open + '</span><span>' + wix + '</span>';
+  }
+
   function mediaHtml() {
     var m = S.mediaFor;
     if (!m) return '';
+    if (m.mode === 'pick') return folderHtml(m);
     if (m.mode === 'drive') {
       return '<span class="st-note">Paste the Drive link of the ' + (m.which === 'logo_wide' ? 'wide (1000 × 400)' : 'square (600 × 600)')
         + ' logo, from the brand\'s folder under Marketing ▸ Vendors. PNG, JPG or SVG, 500 KB max.</span>'
@@ -413,8 +448,25 @@
         S.mediaFor = { uid: line.dataset.stUid, which: btn.dataset.stWhich, mode: name, q: (cur.brand || '').toLowerCase(), item: cur };
         S.media = null;
         ctx.repaint();
-        if (name === 'pick') return act('msearch', null, null, ctx);
+        /* Pick lists the brand's own vendor folder (Sky, 2026-11-05), not Wix Media. */
+        if (name === 'pick') {
+          try { S.media = await ctx.call('brandImages', { brand: cur.brand || '' }); }
+          catch (e2) { S.media = { ok: false, error: String((e2 && e2.message) || e2) }; }
+          return ctx.repaint();
+        }
         return;
+      }
+      if (name === 'wixsearch') { S.mediaFor.mode = 'wix'; return act('msearch', null, null, ctx); }
+      if (name === 'fpick') {
+        var file = ((S.media || {}).files || [])[+btn.dataset.stI];
+        if (!file) return;
+        var got = await ctx.call('siteImportLogo', { url: file.url, which: S.mediaFor.which, brand: S.mediaFor.item.brand });
+        if (got.pending) { S.msg = got.note; S.mediaFor = null; return ctx.repaint(); }
+        var into = byUid(S.mediaFor.uid);
+        if (into) { Object.assign(into, S.mediaFor.item); into[S.mediaFor.which] = got.wix_image; }
+        S.mediaFor = null;
+        S.msg = 'Logo picked. Save the brand to keep it.';
+        return ctx.repaint();
       }
       if (name === 'msearch') {
         var q = document.getElementById('stMediaQ');
@@ -445,7 +497,7 @@
   /* Whatever button started an engine call shows it is working and takes no second click until the
      answer (Sky, 2026-11-05). Every engine call act() makes goes through ctx.call, so wrapping it here
      covers Save, Import, Search and Approve all alike, and only once a confirm has been answered. */
-  var BUSY = { saveSiteDeal: 'Saving…', siteImportLogo: 'Importing…', siteMedia: 'Searching…',
+  var BUSY = { saveSiteDeal: 'Saving…', siteImportLogo: 'Importing…', siteMedia: 'Searching…', brandImages: 'Reading…',
                approveSiteDeals: 'Approving…', removeSiteDeal: 'Removing…', siteDeals: 'Loading…' };
   function busyCtx(ctx, btn) {
     var m = MK();
@@ -556,11 +608,12 @@
         if (!card) { card = { key: '', kind: 'vendor', brand: P.brand }; S.vendors.push(card); }
         tag(card); P.uid = card._uid;
       }
+      if (!P.auto) { P.auto = true; setTimeout(function () { autoFill(card, ctx); }, 0); }
       body = '<div class="st-brands">' + vendorHtml(card, ctx) + '</div>';
     }
     paint(el, '<div class="mk-dlg-box" role="dialog" aria-modal="true" aria-label="' + esc(P.brand) + ' logo">'
       + '<h3 class="mk-h">' + esc(P.brand) + ' logo for the deals page</h3>'
-      + '<p class="mk-sub">Pick the logo from Wix Media or bring it in from Drive, then save'
+      + '<p class="mk-sub">Pick the logo from the brand\'s vendor folder (files named "Logo Wide" or "Logo Square" are filled in for you), then save'
       + (S.approvers.indexOf(String(ctx.user || '').toLowerCase()) >= 0 ? ' with Approved on.' : '. Sky, Mike or Tawny then approves it.')
       + ' Your vendor day stays open underneath.</p>'
       + (S.err ? '<div class="mk-warn">' + esc(S.err) + '</div>' : '') + (S.msg ? '<div class="mk-spec">' + esc(S.msg) + '</div>' : '')
@@ -569,6 +622,33 @@
     if (P.onChange) P.onChange();
   }
 
-  window.SpiffSite = { render: render, problemOf: problemOf, wixSrc: wixSrc, DAYS: DAYS, vendorsFor: vendorsFor,
+  /* When the popup opens on a brand missing a logo, look in its vendor folder for files named for the
+     empty slots and bring them in (logoSlotOf). They are filled in, not saved: approval stays a
+     person's Save with Approved on, like every other brand. */
+  async function autoFill(card, ctx) {
+    if (!ctx.canEdit || (card.logo && card.logo_wide)) return;
+    var mine = P;
+    S.msg = 'Looking in ' + card.brand + '\'s vendor folder for files named "Logo Wide" or "Logo Square"…';
+    paintPopup();
+    var r;
+    try { r = await ctx.call('brandImages', { brand: card.brand }); } catch (e) { r = { ok: false }; }
+    var named = namedLogos(r && r.files, card.brand), slots = ['logo_wide', 'logo'], got = [];
+    for (var i = 0; i < slots.length; i++) {
+      var slot = slots[i], f = named[slot];
+      if (card[slot] || !f) continue;
+      try {
+        var imp = await ctx.call('siteImportLogo', { url: f.url, which: slot, brand: card.brand });
+        if (imp.wix_image) { card[slot] = imp.wix_image; got.push(f.name); }
+      } catch (e) { S.err = 'Found ' + f.name + ' but could not bring it in: ' + String((e && e.message) || e); }
+    }
+    if (P !== mine) return;
+    S.msg = got.length
+      ? 'Found ' + got.join(' and ') + ' in the vendor folder and filled ' + (got.length > 1 ? 'them' : 'it') + ' in. Save to keep '
+        + (got.length > 1 ? 'them' : 'it') + (S.approvers.indexOf(String(ctx.user || '').toLowerCase()) >= 0 ? ', with Approved on.' : '.')
+      : (r && r.ok && r.folder_url ? 'No file named "Logo Wide" or "Logo Square" in the vendor folder. Pick one below, or name it that way and reopen.' : '');
+    paintPopup();
+  }
+
+  window.SpiffSite = { logoSlotOf: logoSlotOf, namedLogos: namedLogos, render: render, problemOf: problemOf, wixSrc: wixSrc, DAYS: DAYS, vendorsFor: vendorsFor,
                        openBrandPopup: openBrandPopup, closeBrandPopup: closeBrandPopup };
 })();
