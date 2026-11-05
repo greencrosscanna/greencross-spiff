@@ -122,7 +122,7 @@ const makeApi = (varValues) => G.load({
          'WIX_DOW_', 'WIX_MON_', 'MKT_MENU_', 'MKT_PEOPLE_', 'MKT_APP_URL', 'GX_SECRET_PROP'],
   varValues: Object.assign({ WIX_APPROVER_FIELD_: G.grabVar('WIX_APPROVER_FIELD_') }, varValues || {}),
   stubs: {
-    listPrograms_: () => PROGRAMS, gxStores_: () => STORES, wixAdapter_: () => WIX, readSite_: () => [],
+    listPrograms_: () => PROGRAMS, gxStores_: () => STORES, readStandaloneVdays_: () => [], wixAdapter_: () => WIX, readSite_: () => [],
     dutchieInventoryViaGXCore_: (id) => { if (invFails[id]) throw new Error('Dutchie 401'); return INVENTORY[id] || []; },
     today_: () => WIX.today, nowStamp_: () => '2026-11-02 09:00:00',
     scrubSecrets_: (m) => String(m), sendMail_: (m) => { mail.push(m); },

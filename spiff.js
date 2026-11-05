@@ -68,7 +68,8 @@
     brands:    null, // GX Core's shared brand list, reps included; null until it has loaded
     pencils:   null, // penciled brands (marketing, behind the switch); null until read
     holidays:  null, // holiday sends (marketing, behind the switch); null until read
-    record:    null  // program open in the record modal
+    vdaysSolo: null, // standalone vendor days (no program; marketing, behind the switch); null until read
+    record:   null  // program open in the record modal
   };
 
   /* ------------------------------------------------------------------ util */
@@ -1628,7 +1629,7 @@
      that pays anybody or feeds a kiosk reads; the only way one becomes a program is a person pressing
      Lock it in. None of the pencil routes is in ENGINE_HEDGE_READS: a hedged write runs twice. */
   var mkView = { view: 'list', offset: 0, owner: '', dlg: null, wired: false, loading: false, ready: true,
-                 holLoading: false, holReady: true };
+                 holLoading: false, holReady: true, vdLoading: false, vdReady: true };
 
   function mkStoreList() {
     return state.stores.map(function (s) { return { store_id: s.store_id, name: s.display_name || s.store_id }; });
@@ -1679,6 +1680,26 @@
   }
   function mkHolidayPrograms() { return (state.holidays || []).map(MK.holidayProgram); }
 
+  /* Standalone vendor days (a visit with no program): their own tab and read, never hedged. An engine
+     that has not been updated says so rather than looking like there are none. */
+  async function mkLoadVdaysSolo() {
+    if (mkView.vdLoading || state.vdaysSolo) return;
+    mkView.vdLoading = true;
+    try {
+      var r = await ENG.jsonp('standaloneVdays', { token: (session() || {}).token });
+      if (r && r.needsAuth) { state.vdaysSolo = null; return; }
+      mkView.vdReady = !!(r && r.ok && Array.isArray(r.vdays));
+      state.vdaysSolo = mkView.vdReady ? r.vdays : [];
+    } catch (e) {
+      mkView.vdReady = false;
+      state.vdaysSolo = [];
+    } finally {
+      mkView.vdLoading = false;
+    }
+    mkRenderViews();
+  }
+  function mkIsVdayApprover() { return MK.VDAY_APPROVERS.indexOf(String((session() || {}).user || '').toLowerCase()) >= 0; }
+
   function mkRenderViews() {
     var seg = $('#mkViewSeg'), host = $('#mkView'), pens = $('#mkPencils');
     if (!seg || !host || !pens) return;
@@ -1696,12 +1717,14 @@
     if (badge) badge.textContent = late || '';
     mkLoadPencils();
     mkLoadHolidays();
+    mkLoadVdaysSolo();
 
     var pencils = state.pencils || [];
     var ctx = { today: today(), canEdit: canEdit(), offset: mkView.offset, owner: mkView.owner,
-                stores: mkStoreList(), storeName: storeName, holidays: state.holidays || [] };
+                stores: mkStoreList(), storeName: storeName, holidays: state.holidays || [], vdaysSolo: state.vdaysSolo || [] };
     var notice = (mkView.ready ? '' : '<div class="mk-warn">The engine has not been updated yet, so penciled brands cannot load or save. The rest works.</div>')
-      + (mkView.holReady ? '' : '<div class="mk-warn">The engine has not been updated yet, so holiday sends cannot load or save. The rest works.</div>');
+      + (mkView.holReady ? '' : '<div class="mk-warn">The engine has not been updated yet, so holiday sends cannot load or save. The rest works.</div>')
+      + (mkView.vdReady ? '' : '<div class="mk-warn">The engine has not been updated yet, so standalone vendor days cannot load or save. The rest works.</div>');
     pens.innerHTML = view === 'list' ? MK.pencilListHtml(pencils, ctx) : '';
     host.hidden = view === 'list';
     if (view === 'calendar') host.innerHTML = notice + MK.calendarHtml(state.programs, pencils, ctx);
@@ -1732,6 +1755,7 @@
     if (!d) return;
     if (!s || !mkOn()) { d.hidden = true; d.innerHTML = ''; return; }
     if (s.kind === 'holiday') return mkHolidayDlgPaint(d, s);
+    if (s.kind === 'svday') return mkVdayDlgPaint(d, s);
     var pencils = state.pencils || [];
     var ctx = { today: today(), canEdit: canEdit(), periods: mkPeriods(), programs: state.programs, pencils: pencils,
                 day: s.day, error: s.error || '' };
@@ -1787,6 +1811,41 @@
     var first = d.querySelector('input,button');
     if (first && !s.painted) { first.focus(); s.painted = true; }
   }
+  /* A standalone vendor day's dialog. What has been typed and not saved survives a repaint. */
+  function mkVdayDlgPaint(d, s) {
+    var v = s.id ? (state.vdaysSolo || []).filter(function (x) { return x.vday_id === s.id; })[0] : null;
+    if (s.id && !v) { mkView.dlg = null; d.hidden = true; d.innerHTML = ''; return; }
+    var typed = d.querySelector('#mkVfBrand') ? mkVdayForm(d) : null;
+    d.innerHTML = '<div class="mk-dlg-box" role="dialog" aria-modal="true">'
+      + MK.vendorDayDialogHtml(v, { today: today(), canEdit: canEdit(), stores: mkStoreList(), approver: mkIsVdayApprover(), error: s.error || '' }) + '</div>';
+    d.hidden = false;
+    if (typed) {
+      d.querySelector('#mkVfBrand').value = typed.brand;
+      d.querySelector('#mkVfDate').value = typed.date;
+      d.querySelector('#mkVfTime').value = typed.time;
+      d.querySelector('#mkVfNote').value = typed.note;
+      d.querySelector('#mkVfDeal').value = typed.web_deal;
+      d.querySelector('#mkVfOffer').value = typed.web_offer;
+      d.querySelector('#mkVfWeb').checked = typed.web_on;
+      d.querySelector('#mkVfWebBox').hidden = !typed.web_on;
+      var ap = d.querySelector('#mkVfApprove');
+      if (ap && typed.approve !== null) ap.checked = typed.approve;
+      $$('[data-mk-vfst]', d).forEach(function (c) { c.checked = typed.stores.indexOf(c.dataset.mkVfst) >= 0; });
+    }
+    var first = d.querySelector('input,button');
+    if (first && !s.painted) { first.focus(); s.painted = true; }
+  }
+  function mkVdayForm(d) {
+    var ap = $('#mkVfApprove', d);
+    return {
+      brand: ($('#mkVfBrand', d) || {}).value || '', date: ($('#mkVfDate', d) || {}).value || '',
+      time: ($('#mkVfTime', d) || {}).value || '', note: ($('#mkVfNote', d) || {}).value || '',
+      web_on: !!($('#mkVfWeb', d) || {}).checked, web_deal: ($('#mkVfDeal', d) || {}).value || '',
+      web_offer: ($('#mkVfOffer', d) || {}).value || '', approve: ap ? ap.checked : null,
+      stores: $$('[data-mk-vfst]', d).filter(function (c) { return c.checked; }).map(function (c) { return c.dataset.mkVfst; })
+    };
+  }
+
   /* The suggested send date (see sendSuggestion in marketing.js). Typing a known holiday's name fills
      the date only while the box is empty or still holds the date it filled in last, so a date the
      person chose is never overwritten. */
@@ -1821,6 +1880,7 @@
     if (name === 'dlgclose') return mkDlgClose();
     if (name === 'penadd') return mkDlgOpen({ kind: 'form', day: '' });
     if (name === 'holadd') return mkDlgOpen({ kind: 'holiday', id: '' });
+    if (name === 'svadd') return mkDlgOpen({ kind: 'svday', id: '' });
     if (name === 'holsuggest') {
       var box = $('#mkHfDate', d);
       if (box) { box.value = id; box.dataset.auto = id; mkHolidaySuggest(d, false); }
@@ -1839,6 +1899,25 @@
         mkView.dlg = { kind: 'holiday', id: hr.holiday.holiday_id, painted: true };
         d.innerHTML = '';
         mkRenderViews();
+      } else if (name === 'svsave') {
+        var vf = mkVdayForm(d);
+        if (!vf.brand.trim()) return mkDlgError('Add the brand that is visiting.');
+        if (!vf.date) return mkDlgError('Pick the date of the vendor day.');
+        if (vf.web_on) {
+          var warn = MK.vdayCopyWarning(vf.brand, { deal: vf.web_deal, offer: vf.web_offer });
+          if (warn && vf.approve) return mkDlgError(warn);
+        }
+        var params = { id: id, brand: vf.brand.trim(), stores: vf.stores.join(','), date: vf.date, time: vf.time.trim(), note: vf.note,
+                       web_on: vf.web_on ? '1' : '0', web_deal: vf.web_deal, web_offer: vf.web_offer };
+        if (vf.approve !== null) params.approve = vf.approve && vf.web_on ? '1' : '0';
+        var vr = await mkPencilCall('saveStandaloneVday', params);
+        state.vdaysSolo = (state.vdaysSolo || []).filter(function (q) { return q.vday_id !== vr.vday.vday_id; }).concat([vr.vday]);
+        mkDlgClose(); mkRenderViews();
+      } else if (name === 'svcancel') {
+        if (!window.confirm('Cancel this vendor day? It comes off the calendar and the deals page. The record is kept.')) return;
+        await mkPencilCall('cancelStandaloneVday', { id: id });
+        state.vdaysSolo = (state.vdaysSolo || []).filter(function (q) { return q.vday_id !== id; });
+        mkDlgClose(); mkRenderViews();
       } else if (name === 'holcancel') {
         if (!window.confirm('Cancel this holiday send? Its tasks come off every list. The record is kept.')) return;
         await mkPencilCall('cancelHoliday', { id: id });
@@ -1886,6 +1965,8 @@
       penAdd: function (day) { if (canEdit()) mkDlgOpen({ kind: 'form', day: day }); },
       pencil: function (id) { mkDlgOpen({ kind: 'detail', id: id }); },
       holiday: function (id) { mkDlgOpen({ kind: 'holiday', id: id }); },
+      svday: function (id) { mkDlgOpen({ kind: 'svday', id: id }); },
+      svweb: function (on) { var b = $('#mkVfWebBox', $('#mkDlg')); if (b) b.hidden = !on; },
       act: mkPencilAct,
       open: function (id) { mkDlgClose(); openProgram(id); },
       pfChange: function () {

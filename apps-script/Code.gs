@@ -398,6 +398,11 @@ function doGet(e) {
       case 'saveHoliday':     out = saveHoliday_(p);                                break;
       case 'cancelHoliday':   out = cancelHoliday_(p);                              break;
       case 'saveHolidayPlan': out = saveHolidayPlan_(p);                            break;
+      /* Standalone vendor days (a visit with no SPIFF program): the same shape, their own tab, read
+         by nothing that pays anybody or feeds a kiosk; none hedged. See STANDALONE VENDOR DAYS. */
+      case 'standaloneVdays':      out = standaloneVdaysRead_(p);                   break;
+      case 'saveStandaloneVday':   out = saveStandaloneVday_(p);                    break;
+      case 'cancelStandaloneVday': out = cancelStandaloneVday_(p);                  break;
       /* What one text blast costs: list size and Dutchie's two rates, set in Settings. See TEXT
          BLAST PRICING. Read by the Text blast card only; nothing that pays anybody reads it. */
       case 'smsPricing':      out = smsPricingRead_(p);                             break;
@@ -2138,6 +2143,166 @@ function saveHolidayPlan_(p) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/* ── STANDALONE VENDOR DAYS (Sky, 2026-11-05) ─────────────────────────────────────────────────
+ * Tawny sometimes books a vendor to visit a store without running a SPIFF incentive. That visit is
+ * brand + store(s) + date + time + note, and it is NOT a program: no goals, no payout, no tasks.
+ *
+ * IT LIVES IN ITS OWN `vendor_days` TAB, NEVER IN `programs`, for the reason pencils and holidays do:
+ * the hourly job activates programs and active programs reach kiosks and Crew's pay. Nothing that
+ * pays, publishes to Core (spiff_publications) or feeds a kiosk may read this tab. Its only readers
+ * are the Calendar screen, the Marketing Calendar sync (calendarSource_) and the deals page
+ * publisher (wixPublish_). tests/marketing_pay_isolation_test.js pins all of it. Do not add a route
+ * for it to the client's ENGINE_HEDGE_READS (a hedged write runs twice).
+ *
+ * Rows are never deleted: `status` is planned | canceled, and every read serves only `planned`.
+ *
+ * ON THE DEALS PAGE only with the same approval a program's page copy needs: `web` = {on, deal, offer};
+ * `approved_by` is set only from a signed-in Sky/Mike/Tawny (WIX_APPROVERS_), and any change to the
+ * brand or the page copy by anyone else clears it. The copy passes the OLCC word rules and the length
+ * limits at the publisher (wixDesired_). Its Wix rows are keyed `sv-<id>|<store>|<date>`. */
+var VDAYS_TAB = 'vendor_days';
+var VDAY_HEADERS = ['vday_id', 'brand', 'stores', 'date', 'time', 'note', 'status', 'web', 'approved_by', 'approved_at',
+                    'created_by', 'created_at', 'closed_by', 'closed_at'];
+
+function standaloneVdaySheet_() {
+  var book = dataSheet_().getParent();
+  var sh = book.getSheetByName(VDAYS_TAB);
+  if (!sh) {
+    sh = book.insertSheet(VDAYS_TAB);
+    sh.getRange(1, 1, 1, VDAY_HEADERS.length).setValues([VDAY_HEADERS]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    /* Dates are TEXT at rest; pinned before the first row is written. Time is text too ("1-3:30"). */
+    var rows = Math.max(sh.getMaxRows() - 1, 1);
+    [4, 5, 10, 12, 14].forEach(function (c) { sh.getRange(2, c, rows, 1).setNumberFormat('@'); });
+  }
+  return sh;
+}
+
+function vdayStores_(v) {
+  var list = Array.isArray(v) ? v : String(v || '').split(',');
+  return list.map(function (s) { return String(s).trim(); })
+    .filter(function (s, i, a) { return /^[a-z0-9-]{1,40}$/.test(s) && a.indexOf(s) === i; });
+}
+
+/* What the page-copy box may hold. Lengths are the website's limits (WIX_COPY_LIMITS_). */
+function vdayWeb_(v) {
+  v = v && typeof v === 'object' ? v : {};
+  var cut = function (x, n) { return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, n); };
+  return { on: v.on === true || v.on === '1' || v.on === 1, deal: cut(v.deal, 60), offer: cut(v.offer, 200) };
+}
+
+function rowToStandaloneVday_(r) {
+  return {
+    vday_id: String(r[0] || ''), brand: String(r[1] || ''), stores: vdayStores_(r[2]), date: textDate_(r[3]),
+    time: String(r[4] || ''), note: String(r[5] || ''), status: String(r[6] || ''), web: vdayWeb_(parseJson_(r[7], {})),
+    approved_by: String(r[8] || ''), approved_at: String(r[9] || ''),
+    created_by: String(r[10] || ''), created_at: textDate_(r[11]), closed_by: String(r[12] || ''), closed_at: textDate_(r[13])
+  };
+}
+
+function standaloneVdayToRow_(v) {
+  return VDAY_HEADERS.map(function (k) {
+    if (k === 'stores') return (v.stores || []).join(',');
+    if (k === 'web') return JSON.stringify(vdayWeb_(v.web));
+    return v[k] == null ? '' : v[k];
+  });
+}
+
+function readStandaloneVdays_() {
+  var sh = standaloneVdaySheet_(), last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, VDAY_HEADERS.length).getValues()
+    .filter(function (r) { return r[0]; }).map(rowToStandaloneVday_);
+}
+
+/* Signed-in read, from the sheet each time: the tab is tiny and a canceled day must not reappear. */
+function standaloneVdaysRead_() {
+  return { ok: true, vdays: readStandaloneVdays_().filter(function (v) { return v.status === 'planned'; }) };
+}
+
+function getStandaloneVday_(id) {
+  var sh = standaloneVdaySheet_(), last = sh.getLastRow(), rowNo = 0;
+  if (last >= 2 && id) {
+    var ids = sh.getRange(2, 1, last - 1, 1).getValues();
+    for (var i = 0; i < ids.length; i++) if (String(ids[i][0]) === String(id)) { rowNo = i + 2; break; }
+  }
+  if (!rowNo) return { ok: false, error: 'That vendor day is not there any more.' };
+  return { ok: true, vday: rowToStandaloneVday_(sh.getRange(rowNo, 1, 1, VDAY_HEADERS.length).getValues()[0]), sh: sh, rowNo: rowNo };
+}
+
+/* Create (no id) or change (with id). `web_on`, `web_deal`, `web_offer` are the page copy; `approve` is
+   '1' to approve it, '0' to withdraw approval, absent to leave it. Approval is the SESSION's: a browser
+   cannot name an approver, and only Sky, Mike or Tawny can give it. */
+function saveStandaloneVday_(p) {
+  var who = mktEditor_(p, 'plan vendor days');
+  if (who.fail) return who.fail;
+  var user = String(who.auth.user || '').toLowerCase();
+  var brand = String(p.brand || '').trim().slice(0, 80);
+  if (!brand) return { ok: false, error: 'Add the brand that is visiting.' };
+  var date = String(p.date || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { ok: false, error: 'Pick the date of the vendor day.' };
+  var stores = vdayStores_(p.stores);
+  var time = String(p.time || '').trim().slice(0, 40);
+  var note = String(p.note || '').trim().slice(0, 300);
+  var web = vdayWeb_({ on: p.web_on, deal: p.web_deal, offer: p.web_offer });
+
+  var existing = null, got = null;
+  if (p.id) {
+    got = getStandaloneVday_(p.id);
+    if (!got.ok) return got;
+    if (got.vday.status !== 'planned') return { ok: false, error: 'That vendor day was ' + got.vday.status + '.' };
+    existing = got.vday;
+  }
+  /* The approval, decided here and nowhere else. */
+  var approver = WIX_APPROVERS_.indexOf(user) >= 0;
+  var copyChanged = !existing || existing.brand !== brand || existing.web.on !== web.on
+                 || existing.web.deal !== web.deal || existing.web.offer !== web.offer;
+  var approvedBy = existing ? existing.approved_by : '', approvedAt = existing ? existing.approved_at : '';
+  if (copyChanged || !web.on) { approvedBy = ''; approvedAt = ''; }
+  if (String(p.approve || '') === '0') { approvedBy = ''; approvedAt = ''; }
+  if (web.on && String(p.approve || '') === '1' && approver) {
+    var bad = wixCopyProblem_([brand, web.deal, web.offer]);
+    if (bad) return { ok: false, error: 'The page copy breaks the OLCC copy rules ("' + bad + '"). Reword it before approving.' };
+    var long = wixLengthProblem_({ deal: web.deal, offer: web.offer }, []);
+    if (long) return { ok: false, error: long + ' Too much copy breaks the page layout; shorten it before approving.' };
+    approvedBy = user; approvedAt = nowStamp_();
+  }
+
+  if (existing) {
+    var v = existing;
+    v.brand = brand; v.stores = stores; v.date = date; v.time = time; v.note = note; v.web = web;
+    v.approved_by = approvedBy; v.approved_at = approvedAt;
+    got.sh.getRange(got.rowNo, 1, 1, VDAY_HEADERS.length).setValues([standaloneVdayToRow_(v)]);
+    return { ok: true, vday: v, created: false };
+  }
+
+  /* A retried call is not a second visit: writes ride on GET and gx-client retries a slow reply. */
+  var same = readStandaloneVdays_().filter(function (x) {
+    return x.status === 'planned' && x.created_by === user && x.brand.toLowerCase() === brand.toLowerCase()
+        && x.date === date && x.stores.join(',') === stores.join(',') && x.time === time;
+  })[0];
+  if (same) return { ok: true, vday: same, created: false, replay: true };
+
+  var made = { vday_id: 'vd-' + Date.now().toString(36) + '-' + Math.floor(Math.random() * 1296).toString(36),
+               brand: brand, stores: stores, date: date, time: time, note: note, status: 'planned', web: web,
+               approved_by: approvedBy, approved_at: approvedAt, created_by: user, created_at: nowStamp_(),
+               closed_by: '', closed_at: '' };
+  standaloneVdaySheet_().appendRow(standaloneVdayToRow_(made));
+  return { ok: true, vday: made, created: true };
+}
+
+function cancelStandaloneVday_(p) {
+  var who = mktEditor_(p, 'cancel vendor days');
+  if (who.fail) return who.fail;
+  var got = getStandaloneVday_(p.id);
+  if (!got.ok) return got;
+  if (got.vday.status !== 'planned') return { ok: true, vday_id: got.vday.vday_id, canceled: false, status: got.vday.status };
+  var v = got.vday;
+  v.status = 'canceled'; v.closed_by = String(who.auth.user || '').toLowerCase(); v.closed_at = nowStamp_();
+  got.sh.getRange(got.rowNo, 1, 1, VDAY_HEADERS.length).setValues([standaloneVdayToRow_(v)]);
+  return { ok: true, vday_id: v.vday_id, canceled: true };
 }
 
 /* Validate a GX Core session token and resolve this user's role on `spiff`.
@@ -8776,7 +8941,8 @@ function addDaysLocal_(ymd, n) {
  * removed; Tawny's hand-made events carry no tag and are never touched. A possible duplicate is
  * left alone, and SPIFF skips its own copy of anything one already covers (skipped_duplicates).
  *
- * IT IS NOT A PAY PATH. It reads programs, pencils and holidays and writes only to Google Calendar.
+ * IT IS NOT A PAY PATH. It reads programs, pencils and standalone vendor days (a visit with no program,
+ * kept in its own `vendor_days` tab) and writes only to Google Calendar.
  * It runs LAST in the hourly job, in its own try/catch, behind the CAL_SYNC_ON script property, so a
  * Calendar outage, a missing permission or a bug costs the calendar and nothing else. Nothing that
  * pays, publishes or feeds a kiosk may call it (pinned by tests/calendar_sync_test.js and the
@@ -8856,6 +9022,23 @@ function calendarDesired_(src, today) {
     span('pencil:' + x.pencil_id, 'Spiff reserved - ' + x.brand, x.start_date, x.end_date,
          CAL_NOTE_ + (x.note ? '\n' + x.note : ''), x.brand);
   });
+  /* Standalone vendor days (no program): one event per store, or one for every store. */
+  (src.vdays || []).forEach(function (v) {
+    if (v.status && v.status !== 'planned') return;
+    if (!ISO.test(String(v.date || ''))) return;
+    var brand = String(v.brand || '').trim() || 'Unnamed brand';
+    var t = calParseTime_(v.time);
+    var places = v.stores && v.stores.length ? v.stores : [''];
+    places.forEach(function (store) {
+      var where = store ? (names[slug_(store)] || store) : 'All stores';
+      out.push({ key: 'svday:' + v.vday_id + ':' + (store ? slug_(store) : 'all'),
+                 summary: brand + ' Vendor Day - ' + where + (!t && v.time ? ' (' + v.time + ')' : ''),
+                 allDay: !t, date: v.date, endDate: t ? v.date : addDaysLocal_(v.date, 1),
+                 start: t ? t.start : '', end: t ? t.end : '',
+                 description: CAL_NOTE_ + '\nVendor day, not part of a SPIFF program.' + (v.note ? '\n' + v.note : ''),
+                 vday: true, brand: brand, kind: 'vday' });
+    });
+  });
   return out.filter(function (e) { return e.endDate > from && e.date < to; });
 }
 
@@ -8914,6 +9097,7 @@ function calendarSource_() {
   return {
     programs: listPrograms_(),
     pencils: readPencils_().filter(function (x) { return x.status === 'penciled'; }),
+    vdays: readStandaloneVdays_().filter(function (v) { return v.status === 'planned'; }),
     storeNames: names
   };
 }
@@ -9042,7 +9226,9 @@ function runCalendarSyncHourly_() {
  * refused source is not a zero. A Menu Slug that disagrees with Dutchie is REPORTED in menu_slug_fixes
  * for a person to change on the Deals page screen (PART 2, below), which owns the Vendors rows.
  *
- * IT IS NOT A PAY PATH. It reads programs and inventory and writes only to the public website. It runs
+ * STANDALONE VENDOR DAYS (a visit with no program, `vendor_days` tab, wixDesired_ src.vdays) go out as
+ * VendorDays rows keyed `sv-<id>|<store>|<date>`, behind the same approval and copy rules.
+ * IT IS NOT A PAY PATH. It reads programs, standalone vendor days and inventory and writes only to the public website. It runs
  * LAST in the hourly job in its own try/catch, behind script property WIX_PUBLISH_ON=1. Nothing that
  * pays may call it. ?action=publishToWix (secret, dry unless apply=1) shows exactly what it would send.
  * Pinned by tests/wix_publish_test.js. */
@@ -9343,6 +9529,38 @@ function wixDesired_(src, today) {
       out.days.push(row);
     });
   });
+
+  /* STANDALONE VENDOR DAYS (a visit with no SPIFF program). One Wix row per store (one for every
+     store when none is picked), keyed `sv-<id>|<store>|<date>` so it can never collide with a
+     program's. Same gates as a program's days: ticked on for the page, approved by Sky, Mike or
+     Tawny (the engine put that name there from the session), copy inside the OLCC rules and the
+     layout limits, and inside the same look-ahead window. */
+  (src.vdays || []).forEach(function (v) {
+    if (v.status && v.status !== 'planned') return;
+    var web = v.web || {};
+    if (!web.on) return;
+    if (!ISO.test(String(v.date || '')) || v.date < today || v.date > horizon) return;
+    var id = 'sv-' + v.vday_id;
+    var brand = text(v.brand, 120);
+    var by = String(v.approved_by || '').toLowerCase();
+    if (WIX_APPROVERS_.indexOf(by) < 0) { out.skipped.push({ program_id: id, why: 'waiting for Sky, Mike or Tawny to approve the ' + brand + ' vendor day for the deals page' }); return; }
+    var broken = wixCopyProblem_([brand, web.deal, web.offer]);
+    if (broken) { out.skipped.push({ program_id: id, why: 'the copy breaks the OLCC copy rules ("' + broken + '"); fix it on the vendor day' }); return; }
+    var long = wixLengthProblem_({ deal: web.deal, offer: web.offer }, []);
+    if (long) { out.skipped.push({ program_id: id, why: long + ' Too much copy breaks the layout; shorten it on the vendor day' }); return; }
+    var vend = idx[wixFold_(brand)] || null;
+    if (!vend) out.problems.push({ program_id: id, problem: 'no Vendors item in Wix matches "' + brand + '", so the page shows the name on a black tile. Add the brand to Vendors.' });
+    var time = wixTimeOf_(v.time), L = wixDayLabels_(v.date);
+    (v.stores && v.stores.length ? v.stores : ['']).forEach(function (store) {
+      var label = store ? (labels[slug_(store)] || store) : '';
+      var row = { dayKey: id + '|' + (label ? wixMenuSlug_(label) : 'all') + '|' + v.date, programId: id, title: brand,
+                  date: v.date, dayLabel: L.dayLabel, dateLabel: L.dateLabel, store: label,
+                  time: time.label, sortTime: time.minute, deal: text(web.deal, 40), offer: text(web.offer, 200) };
+      if (vend) row.vendorRef = vend._id;
+      if (WIX_APPROVER_FIELD_) row[WIX_APPROVER_FIELD_] = by;
+      out.days.push(row);
+    });
+  });
   return out;
 }
 
@@ -9562,7 +9780,10 @@ function wixPublish_(opts) {
   else if (shop.failed && shop.failed.length) out.problems.push({ problem: 'inventory could not be read at ' + shop.failed.join(', ') + '; those stores keep yesterday\'s answer' });
 
   var vendors = w.vendors();
-  var d = wixDesired_({ programs: programs, vendors: vendors, storeLabels: labels, shop: shop,
+  /* Standalone vendor days (their own tab). A failed read THROWS: a source that could not be read is
+     not an empty one, and an empty list would take every published standalone day off the page. */
+  var vdays = opts.vdays || readStandaloneVdays_().filter(function (v) { return v.status === 'planned'; });
+  var d = wixDesired_({ programs: programs, vdays: vdays, vendors: vendors, storeLabels: labels, shop: shop,
                         sendShopBrand: String(props.getProperty('WIX_SEND_SHOP_BRAND') || '') === '1' }, today);
   out.skipped = d.skipped; out.problems = out.problems.concat(d.problems); out.shop = d.shop;
   out.menu_slug_fixes = d.shop.filter(function (s) { return s.fix; }).map(function (s) {
