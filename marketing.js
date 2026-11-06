@@ -632,8 +632,10 @@
     return '<div class="mk-mline"><b>Marketing</b>'
       + '<span class="mk-chip">' + n + ' add-on' + (n === 1 ? '' : 's') + '</span>'
       + (late.length ? '<span class="mk-chip late">' + late.length + ' overdue</span>' : '')
-      + (nx ? '<span class="mk-chip' + (soon ? ' soon' : '') + '">Next: ' + esc(nx.text) + ' &middot; '
-            + esc(nx.owner) + ' &middot; ' + esc(niceDate(nx.due)) + '</span>' : '')
+      + (nx ? '<div class="mk-next' + (soon ? ' soon' : '') + '"><span class="mk-next-k">Next</span>'
+            + '<span class="mk-next-t">' + esc(nx.text) + '</span>'
+            + '<span class="mk-next-m">' + esc(nx.owner) + ' &middot; <span class="mk-next-d">'
+            + esc(niceDate(nx.due)) + '</span></span></div>' : '')
       + '</div>';
   }
 

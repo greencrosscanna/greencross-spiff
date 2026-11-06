@@ -16,6 +16,12 @@
 
 .mk-mline { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-top: 10px; padding: 8px 10px; border: 1px solid var(--mk-line); border-radius: 8px; font-size: 13px; color: var(--mk-txt); }
 .sp-hero .mk-mline { margin: 14px 0 0; }
+/* The next task: a plain line under the chips, not a pill — a pill wraps into a big rounded blob. */
+.mk-next { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; padding-top: 6px; border-top: 1px solid var(--mk-line); line-height: 1.45; }
+.mk-next-k { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--mk-mut, #8a8f98); }
+.mk-next-t { flex: 1 1 260px; min-width: 0; }
+.mk-next-m { font-size: 12px; color: var(--mk-mut, #8a8f98); white-space: nowrap; }
+.mk-next.soon .mk-next-d { color: var(--mk-gold); font-weight: 600; }
 .mk-chip { font-size: 12px; border-radius: 999px; padding: 2px 9px; background: var(--mk-in); border: 1px solid var(--mk-line); color: var(--mk-txt); }
 .mk-chip.late { border-color: var(--mk-red); color: var(--mk-red); }
 .mk-chip.soon { border-color: var(--mk-gold); color: var(--mk-gold); }
