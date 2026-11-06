@@ -431,6 +431,66 @@
     return model === 'per_unit' ? money + ' per unit sold' : 'Flat ' + money + ' per budtender who hits their goal';
   }
 
+  /* ── The Dutchie campaign name (Sky, 2026-11-05; SOP claude/sops/dutchie-campaign-naming.md) ────
+     `YYYY-MM-DD | TYPE | Who | Hook [stores] [SMS]`, so a blast can be found in Dutchie later instead
+     of reading "One-time blast 11/09/2026 11 AM". Tawny types the hook when she locks the deal
+     (blast.deal); Mike copies the name on blast.copy and pastes it into Dutchie's Campaign name.
+     There is deliberately NO Dutchie integration: Dutchie has no API the app can use without storing
+     Sky's login.
+
+     COMPUTED ON EVERY READ from the send date, stores, channels and hook, so it cannot go stale. Only
+     the hook is stored, as d.blast.hook. The date is the earliest typed send date (what the blast
+     tasks count back from), else the window's start. Dates are text throughout and never pass through
+     a Date, so there is no toISOString day shift. Store labels are GX Core's display names via
+     ctx.storeName; with no store list the stores tag is left off rather than guessed. */
+  var HOOK_MAX = 40;
+  function nameBit(s) {
+    return String(s == null ? '' : s).replace(/[‒-―]/g, '-').replace(/\|/g, '/').replace(/\s+/g, ' ').trim();
+  }
+  function blastName(p, ctx) {
+    var blasts = Object.keys(ITEMS).filter(function (id) { return ITEMS[id].blast && isOn(p, id); });
+    if (!blasts.length) return null;
+    var plan = planOf(p);
+    var sends = blasts.map(function (id) { var d = (plan.d[id] || {}).date; return ISO.test(String(d || '')) ? d : ''; })
+      .filter(Boolean).sort();
+    var date = sends[0] || (ISO.test(String(p.start_date || '')) ? p.start_date : '');
+    var hook = nameBit((plan.d.blast || {}).hook).slice(0, HOOK_MAX).trim();
+    var tags = [];
+    var all = ((ctx && ctx.stores) || []).map(function (s) { return s.store_id; });
+    var mine = p.stores_json && p.stores_json.length ? p.stores_json : [];
+    if (all.length && mine.length && all.some(function (s) { return mine.indexOf(s) < 0; })) {
+      var nm = (ctx && ctx.storeName) || function (s) { return s; };
+      /* In the program's own order, the order its stores were picked in. */
+      tags.push('[' + mine.map(function (s) { return nameBit(nm(s)); }).join(', ') + ']');
+    }
+    if (blasts.length === 1) tags.push(blasts[0] === 'sms' ? '[SMS]' : '[Email]');
+    var parts = [date, p.holiday ? 'PROMO' : 'SPIFF', nameBit(p.vendor || p.program_name)];
+    if (hook) parts.push(hook);
+    return { name: date ? parts.join(' | ') + (tags.length ? ' ' + tags.join(' ') : '') : '', date: date, hook: hook };
+  }
+  function blastNameHtml(p, ctx) {
+    var b = blastName(p, ctx);
+    if (!b) return '';
+    if (!b.name) return '<div class="mk-sub">Campaign name: set a send date first.</div>';
+    return '<div class="mk-bname"><code data-mk-bname>' + esc(b.name) + '</code> '
+      + '<button type="button" class="mk-link" data-mk-copyname="' + esc(b.name) + '">Copy</button>'
+      + (b.hook ? '' : ' <span class="mk-chip soon">add a hook</span>')
+      + '<small>Paste into Campaign name (Build content step) before scheduling.</small></div>';
+  }
+  function hookHtml(p, ctx) {
+    var ro = ctx.canEdit ? '' : ' disabled';
+    return '<label class="mk-fld mk-hook">Blast hook<input type="text" maxlength="' + HOOK_MAX + '" placeholder="e.g. $3 carts Fridays"'
+      + ' data-mk-item="blast" data-mk-field="hook" value="' + esc((planOf(p).d.blast || {}).hook || '') + '"' + ro + '></label>';
+  }
+  /* Copy the name to the clipboard; the button says what happened. */
+  function copyName(btn) {
+    var text = btn.dataset.mkCopyname, was = btn.textContent;
+    var say = function (m) { btn.textContent = m; setTimeout(function () { btn.textContent = was; }, 1500); };
+    try {
+      return navigator.clipboard.writeText(text).then(function () { say('Copied'); }, function () { say('Copy failed'); });
+    } catch (err) { say('Copy failed'); }
+  }
+
   /* ── Changing a plan: small operations, not the whole record ─────────────────────────────────────
      Each click sends only what it changed, as [section, key, value]. Writes ride on GET here, and the
      live engine refuses a URL somewhere past 10,000 characters (measured 2026-11-01), which a whole
@@ -618,8 +678,9 @@
     if (item) sub.push(esc(item));
     if (g.each) sub.push((g.rows[0].store ? 'each store: ' : 'each date: ') + (g.rows.length - g.open) + ' of ' + g.rows.length);
     if (g.moved && g.open) sub.push('date moved by hand');
+    var extra = g.id === 'blast.deal' ? hookHtml(p, ctx) : g.id === 'blast.copy' ? blastNameHtml(p, ctx) : '';
     return '<div class="mk-task' + (g.open ? '' : ' done') + '">' + box
-      + '<span class="tx">' + esc(g.text) + (sub.length ? '<small>' + sub.join(' · ') + '</small>' : '') + stores + '</span>'
+      + '<span class="tx">' + esc(g.text) + (sub.length ? '<small>' + sub.join(' · ') + '</small>' : '') + stores + extra + '</span>'
       + (ctx.canEdit ? ownerPicker(g, ctx) : '<span class="mk-own o-' + esc(g.own) + '">' + esc(g.owner) + '</span>') + due + '</div>';
   }
 
@@ -1042,6 +1103,7 @@
       if (!t || t.disabled || !host.contains(t)) return;
       var p = api.program();
       if (!p) return;
+      if (t.dataset.mkCopyname) return copyName(t);
       if (t.dataset.mkPlan) return api.plan(t.dataset.mkPlan, t);
       if (t.dataset.mkImgchoose) return api.apply(webDetailOp(p, 'image', t.dataset.mkImgchoose));
       if (t.dataset.mkHeroprompt) {
@@ -1277,7 +1339,9 @@
           return '<button type="button" class="mk-store-tick' + (t.done ? ' on' : '') + '" data-mk-xtask="' + esc(t.key) + '" data-mk-prog="' + pid + '"'
             + ' aria-pressed="' + (t.done ? 'true' : 'false') + '"' + ro + '>' + esc(ctx.storeName(t.store)) + '</button>';
         }).join('') + '</div>';
-        return '<div class="mk-task">' + box + '<span class="tx">' + esc(g.text) + '<small>' + sub.join(' · ') + '</small>' + stores + '</span>'
+        /* Mike runs the blast cycle from here, so the campaign name is copyable here too. */
+        var bname = g.id === 'blast.copy' ? blastNameHtml(p, ctx) : '';
+        return '<div class="mk-task">' + box + '<span class="tx">' + esc(g.text) + '<small>' + sub.join(' · ') + '</small>' + stores + bname + '</span>'
           + (p.holiday ? '<button type="button" class="mk-link" data-mk-holiday="' + pid + '" title="Open this holiday send">Open</button>'
             : '<button type="button" class="mk-link" data-mk-open="' + pid + '" title="Open this program">Open</button>') + dueHtml(g, ctx.today) + '</div>';
       }).join('');
@@ -1304,6 +1368,8 @@
       sel[c] = true;
       d[c] = h.send_date ? { date: h.send_date } : {};
     });
+    /* The blast hook is the one detail a holiday stores (its Dutchie campaign name). */
+    if (m.d && m.d.blast && m.d.blast.hook) d.blast = { hook: m.d.blast.hook };
     return { program_id: h.holiday_id, holiday: true, vendor: h.name, program_name: h.name, status: 'active',
              start_date: h.send_date, end_date: h.send_date, stores_json: [], note: h.note || '',
              marketing_json: { v: 1, sel: sel, d: d, done: m.done || {}, due: m.due || {}, own: m.own || {} } };
@@ -1572,6 +1638,7 @@
       var t = e.target.closest ? e.target.closest('button,[data-mk-pencil],[data-mk-holiday],[data-mk-svday],[data-mk-open],[data-mk-view]') : null;
       if (!t || t.disabled || !host.contains(t)) return;
       var d = t.dataset;
+      if (d.mkCopyname) return copyName(t);
       if (d.mkView) return api.view(d.mkView);
       if (d.mkNav !== undefined) return api.nav(+d.mkNav);
       if (d.mkOwner !== undefined) return api.owner(d.mkOwner);
@@ -1605,7 +1672,7 @@
     addDays: addDays, daysBetween: daysBetween, planOf: planOf, hasPlan: hasPlan, isOn: isOn,
     pickedItems: pickedItems, storesOf: storesOf, tasksOf: tasksOf, groupTasks: groupTasks,
     phaseOf: phaseOf, lateOf: lateOf, nextOf: nextOf, overdueTotal: overdueTotal,
-    incentiveLine: incentiveLine, applyOps: applyOps, toggleItemOp: toggleItemOp,
+    incentiveLine: incentiveLine, blastName: blastName, blastNameHtml: blastNameHtml, HOOK_MAX: HOOK_MAX, applyOps: applyOps, toggleItemOp: toggleItemOp,
     detailOp: detailOp, doneOp: doneOp, dueOp: dueOp,
     vdaysOf: vdaysOf, addVdayOp: addVdayOp, removeVdayOp: removeVdayOp, setVdayOp: setVdayOp,
     PEOPLE: PEOPLE, assignOp: assignOp,

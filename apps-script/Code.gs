@@ -2026,6 +2026,10 @@ function holidayPlan_(v) {
   var n = normalizeMarketing_(v) || {};
   var out = { v: 1 };
   ['done', 'due', 'own'].forEach(function (k) { if (n[k] && Object.keys(n[k]).length) out[k] = n[k]; });
+  /* The blast hook (Sky, 2026-11-05) is the one typed detail a holiday keeps: it names the Dutchie
+     campaign. Channels and the date stay columns. */
+  var hook = n.d && n.d.blast && n.d.blast.hook ? String(n.d.blast.hook).slice(0, 40) : '';
+  if (hook) out.d = { blast: { hook: hook } };
   return out;
 }
 
