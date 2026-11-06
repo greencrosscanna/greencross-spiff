@@ -724,6 +724,44 @@
       c.className = 'mk-count' + (n > max ? ' over' : n >= max * 0.9 ? ' near' : '');
     });
   }
+  /* THE HERO IMAGE PROMPT (Sky, 2026-11-05: "an image create prompt so we can quickly and consistently
+     create the hero image for deals"). ONE fixed template, filled from the program's own deals-page
+     copy, so every Featured image comes out the same shape: square, safe zone, an empty corner for the
+     real logo (composited afterward, never drawn by the generator), and copy that passes the OLCC rules.
+     Pure text out; it reads nothing, saves nothing and touches nothing that pays. Returns
+     {ok, text} or {ok:false, why} when the copy it would put on the picture breaks a rule. Tile colors
+     mirror COLORS in wix/gc-deals.js; an unknown brand gets "the brand's own colors". */
+  var HERO_COLORS = { gron: '#7CD4CA', wyld: '#1E271B', goodtide: '#1E271B', muleextracts: '#E1E2E0',
+    verdantleaf: '#E1E2E0', freshy: '#1A1919', bobsled: '#4197C6', hellavated: '#3A1A4A' };
+  function heroPrompt(p, plan) {
+    var w = (plan && plan.d && plan.d.web) || {};
+    var brand = String((p && p.vendor) || '').trim();
+    var head = String(w.headline || '').replace(/\s+/g, ' ').trim();
+    var lines = (rowsOf(p, 'web') || []).map(function (r) { return String(r.text || '').replace(/\s+/g, ' ').trim(); }).filter(Boolean).slice(0, COPY_LIMITS.lines);
+    if (!brand) return { ok: false, why: 'This program has no vendor name yet.' };
+    if (!head) return { ok: false, why: 'Type the headline first; the picture says what the headline says.' };
+    var bad = copyProblem([head].concat(lines));
+    if (bad) return { ok: false, why: 'The copy uses “' + bad + '”, which the rules do not allow. Fix it first.' };
+    var fold = brand.normalize ? brand.normalize('NFD').replace(/[̀-ͯ]/g, '') : brand;
+    var color = HERO_COLORS[fold.toLowerCase().replace(/[^a-z0-9]/g, '')];
+    var through = shortDate(p && p.end_date);
+    var text = [
+      'Create a square 1200 x 1200 pixel promotional image for a cannabis dispensary website deals page. Flat, bold, high-contrast graphic design. Not a photograph of people.',
+      '',
+      'Layout: keep ALL text and key artwork inside the center 1080 x 1080 pixels, with a clear 60 pixel margin on every edge. Leave the top-left area (about 300 x 300 pixels) completely empty and plain for a logo that will be added later. Do not draw any logo, brand mark, badge or seal anywhere.',
+      '',
+      'Brand: ' + brand + '. Colors: ' + (color ? 'a solid ' + color + ' background with strong contrasting text' : 'use the brand\'s own colors on a clean solid background') + '. Accent a lime green (#95D500) sparingly.',
+      '',
+      'Headline, large heavy sans-serif capitals, exactly this text and nothing else: "' + head + '"',
+      lines.length ? 'Below it, smaller, exactly these lines of text, spelled exactly as written: ' + lines.map(function (l) { return '"' + l + '"'; }).join(' / ') : '',
+      through ? 'Small text near the bottom, exactly: "Through ' + through + '"' : '',
+      '',
+      'Style: clean, bold, few elements, lots of breathing room, easy to read on a phone. Simple shapes and product-style artwork only (for example a plain jar, pre-roll or package silhouette in the brand colors) if artwork is wanted at all.',
+      'Do not include: people, hands, anyone consuming, cartoons, characters, candy or toy imagery, smoke clouds, health or effect claims, extra words, prices or percentages that are not listed above, QR codes, or any logo.',
+      'Output a single flat image, PNG, sRGB, exactly 1200 x 1200 pixels.'
+    ].filter(function (s, i, a) { return s !== '' || (a[i - 1] !== '' && i < a.length - 1); }).join('\n');
+    return { ok: true, text: text };
+  }
   function webSpecHtml(p, plan) {
     var id = driveFileId((plan.d.web || {}).image);
     var approved = planOf(p).done['web.approve'];
@@ -734,6 +772,9 @@
       + (broken ? '<div class="mk-warn">The copy uses “' + esc(broken) + '”, which the rules do not allow. It will not go on the website until that is changed.</div>' : '')
       + (long ? '<div class="mk-warn">' + esc(long) + ' Too much copy breaks the layout, so it will not go on the website until it is shortened.</div>' : '')
       + '<div class="mk-spec"><b>Featured image spec:</b> ' + esc(FEATURED_SPEC.text) + '</div>'
+      + '<div class="mk-heroprompt"><button type="button" class="gx-btn" data-mk-heroprompt="1">Make image prompt</button>'
+      + ' <span class="mk-sub">Fills one fixed prompt from the headline and offer lines. Paste it into the image generator, then add the real logo and save the file in the vendor folder.</span>'
+      + '<div data-mk-herobox></div></div>'
       + (id ? '<div class="mk-imgcheck"><img data-mk-imgcheck="1" src="https://lh3.googleusercontent.com/d/' + esc(id)
             + '" alt="Featured image preview" width="120" height="120" style="object-fit:contain">'
             + '<span data-mk-imgnote role="status"></span></div>'
@@ -984,6 +1025,20 @@
       if (!p) return;
       if (t.dataset.mkPlan) return api.plan(t.dataset.mkPlan, t);
       if (t.dataset.mkImgchoose) return api.apply(webDetailOp(p, 'image', t.dataset.mkImgchoose));
+      if (t.dataset.mkHeroprompt) {
+        var box = t.parentNode && t.parentNode.querySelector('[data-mk-herobox]');
+        if (!box) return;
+        var hp = heroPrompt(p, planOf(p));
+        if (!hp.ok) { box.innerHTML = '<div class="mk-warn">' + esc(hp.why) + '</div>'; return; }
+        box.innerHTML = '<textarea readonly rows="12" style="width:100%" data-mk-heroText>' + esc(hp.text) + '</textarea>'
+          + '<p class="mk-sub" role="status" data-mk-herostatus></p>';
+        var ta = box.querySelector('textarea'), st = box.querySelector('[data-mk-herostatus]');
+        var done = function (m) { if (st) st.textContent = m; };
+        try {
+          return navigator.clipboard.writeText(hp.text).then(function () { done('Copied. Paste it into the image generator.'); },
+            function () { ta.select(); done('Select all and copy it from the box.'); });
+        } catch (err) { ta.select(); return done('Select all and copy it from the box.'); }
+      }
       if (t.dataset.mkImgpick) {
         var grid = t.closest('.mk-imgfld') && t.closest('.mk-imgfld').querySelector('[data-mk-imggrid]');
         if (!grid || !api.images) return;
@@ -1538,7 +1593,7 @@
     rowsOf: rowsOf, addRowOp: addRowOp, removeRowOp: removeRowOp, setRowOp: setRowOp, toggleRowStoreOp: toggleRowStoreOp,
     makeSaver: makeSaver, listLine: listLine, foldNote: foldNote, sectionHtml: sectionHtml, wire: wire,
     FEATURED_SPEC: FEATURED_SPEC, imageShapeProblem: imageShapeProblem, driveFileId: driveFileId,
-    autoAlt: autoAlt, webDetailOp: webDetailOp, imageFieldHtml: imageFieldHtml, imageGridHtml: imageGridHtml,
+    heroPrompt: heroPrompt, autoAlt: autoAlt, webDetailOp: webDetailOp, imageFieldHtml: imageFieldHtml, imageGridHtml: imageGridHtml,
     wixImagePreview: wixImagePreview,
     COPY_RULES: COPY_RULES, copyProblem: copyProblem, COPY_LIMITS: COPY_LIMITS, lengthProblem: lengthProblem,
     smsCostLine: smsCostLine, smsCostHtml: smsCostHtml,
