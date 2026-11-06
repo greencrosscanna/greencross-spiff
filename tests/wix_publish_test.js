@@ -113,12 +113,12 @@ let invFails = {};
 const bugs = [];
 const makeApi = (varValues) => G.load({
   real: ['wixFold_', 'wixMenuSlug_', 'wixEsc_', 'wixStoreLabel_', 'wixTimeOf_', 'wixDayLabels_', 'wixThroughLabel_', 'wixOfferHtml_',
-         'wixApprover_', 'wixCopyProblem_', 'wixLengthProblem_', 'wixSignDelta_', 'wixDutchieBrand_', 'wixVendorIndex_', 'wixDesired_', 'wixSameItem_', 'wixCanon_', 'wixPlan_',
+         'wixApprover_', 'wixCopyProblem_', 'wixLengthProblem_', 'wixSignDelta_', 'wixDutchieBrand_', 'wixVendorIndex_', 'wixDesired_', 'wixVdayCopy_', 'wixSameItem_', 'wixCanon_', 'wixPlan_',
          'wixImageProblem_', 'wixDriveFileId_', 'wixImageFor_', 'wixShopStores_', 'wixPublish_', 'publishToWixWeb_', 'wixReportFailure_', 'wixRememberRun_', 'wixDiag_',
          'runWixPublishHourly_', 'calParseTime_', 'addDaysLocal_', 'normalizeMarketing_', 'mktPickedIds_', 'slug_', 'parseJson_', 'num_',
          'sitePublish_', 'sitePlan_', 'siteProblem_'],
   vars: ['SITE_DAYS_', 'SITE_MAX_REMOVES_', 'WIX_PUBLISHED_PROP_', 'WIX_SHOP_PROP_', 'WIX_NOSHOP_PREFIX_', 'WIX_IMAGE_PREFIX_', 'WIX_LOOKAHEAD_DAYS_', 'WIX_MAX_REMOVES_',
-         'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_APPROVERS_', 'WIX_VDAY_AUTO_APPROVER_', 'WIX_COPY_RULES_', 'WIX_COPY_LIMITS_', 'WIX_LIMIT_NAMES_', 'WIX_FAIL_PROP_', 'WIX_LAST_RUN_PROP_', 'WIX_FEATURED_SPEC_', 'WIX_SPEC_TEXT_',
+         'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_VDAY_APPROVE_TASK_', 'WIX_APPROVERS_', 'WIX_VDAY_AUTO_APPROVER_', 'WIX_COPY_RULES_', 'WIX_COPY_LIMITS_', 'WIX_LIMIT_NAMES_', 'WIX_FAIL_PROP_', 'WIX_LAST_RUN_PROP_', 'WIX_FEATURED_SPEC_', 'WIX_SPEC_TEXT_',
          'WIX_DOW_', 'WIX_MON_', 'MKT_MENU_', 'MKT_PEOPLE_', 'MKT_APP_URL', 'GX_SECRET_PROP'],
   varValues: Object.assign({ WIX_APPROVER_FIELD_: G.grabVar('WIX_APPROVER_FIELD_') }, varValues || {}),
   stubs: {
@@ -236,7 +236,28 @@ console.log('\n2. what goes out, and what does not');
   ok('  …and a blank field name sends none (the pre-v365 shape)', !Object.keys(blank.featured[0]).some(k => /approv/i.test(k)));
   const noHead = api.wixDesired_({ programs: [gron({ plan: { d: { web: { deal: '30% OFF' } } } })], vendors: VENDORS }, '2026-11-02');
   ok('no headline: no card, and says why', !noHead.featured.length && /no headline yet/.test(noHead.skipped[0].why));
-  ok('  …its vendor days still go up', noHead.days.length === 5 && noHead.days.every(x => x.deal === ''));
+  ok('  …its vendor days still go up', noHead.days.length === 5);
+
+  /* The vendor-day deal wording lives in the Vendor day section, d.vday, with its own approval
+     (Sky, 2026-11-06). The old place, d.web, is read only while d.vday holds none. */
+  const VD = (d, done) => gron({ plan: { d: { web: { headline: 'Grön Pearls week' }, vday: d }, done: Object.assign({ 'web.approve': APPROVED }, done || {}) } });
+  const vOwn = api.wixDesired_({ programs: [VD({ deal: '20% OFF', offer: 'all Grön carts' }, { 'vday.approve': { by: 'tawny', at: 'x' } })], vendors: VENDORS }, '2026-11-02');
+  ok('vendor-day wording from the Vendor day section, approved there, rides on every day',
+     vOwn.days.length === 5 && vOwn.days.every(x => x.deal === '20% OFF' && x.offer === 'all Grön carts' && x.approvedBy === 'tawny'));
+  ok('  …and the card is unaffected by it', vOwn.featured.length === 1 && vOwn.featured[0].approvedBy === APPROVED.by);
+  const vWait = api.wixDesired_({ programs: [VD({ deal: '20% OFF' })], vendors: VENDORS }, '2026-11-02');
+  ok('  …approving the CARD does not approve the day wording', vWait.featured.length === 1 && vWait.days.every(x => x.deal === '' && x.approvedBy === 'sky')
+     && vWait.skipped.some(s => /deal wording waits/.test(s.why)));
+  const vNot = api.wixDesired_({ programs: [VD({ deal: '20% OFF' }, { 'vday.approve': { by: 'kim', at: 'x' } })], vendors: VENDORS }, '2026-11-02');
+  ok('  …a tick signed by anyone else is not approval', vNot.days.every(x => x.deal === ''));
+  const vBogo = api.wixDesired_({ programs: [VD({ deal: 'BOGO' }, { 'vday.approve': APPROVED })], vendors: VENDORS }, '2026-11-02');
+  ok('  …wording that breaks the OLCC rules stays off; the days and the card still go',
+     vBogo.days.length === 5 && vBogo.days.every(x => x.deal === '') && vBogo.featured.length === 1 && vBogo.skipped.some(s => /OLCC/.test(s.why)));
+  const vLong = api.wixDesired_({ programs: [VD({ deal: 'Thirty percent off' }, { 'vday.approve': APPROVED })], vendors: VENDORS }, '2026-11-02');
+  ok('  …wording over the limit stays off, and says how long', vLong.days.every(x => x.deal === '') && vLong.skipped.some(s => /characters/.test(s.why)));
+  const cardBad = api.wixDesired_({ programs: [gron({ plan: { d: { web: { headline: 'Grön Pearls week', deal: 'BOGO' } } } })], vendors: VENDORS }, '2026-11-02');
+  ok('old wording left on the Deals page item no longer blocks the card', cardBad.featured.length === 1);
+  ok('  …but is still judged before it rides on a day', cardBad.days.every(x => x.deal === ''));
   const noItem = api.wixDesired_({ programs: [gron({ plan: { sel: { vday: true } } })], vendors: VENDORS }, '2026-11-02');
   ok('a program with no deal card planned is silent about the card', !noItem.featured.length && !noItem.skipped.length);
   ok('  …and its vendor days still go up', noItem.days.length === 5 && noItem.days.every(x => x.approvedBy === 'sky'));
@@ -274,6 +295,23 @@ console.log('\n3. the session signs ticks, and only Sky approves');
   ok('an approver changing approved copy re-signs it as their own', re.length === 2 && re[1][2].by === 'tawny');
   ok('re-saving the same copy is not a change', api.wixSignDelta_([['d', 'web', { headline: 'A' }]], 'kim', cur).length === 1);
   ok('moving a vendor day is not copy and keeps it', api.wixSignDelta_([['vdays', null, []]], 'kim', cur).length === 1);
+
+  /* The vendor-day wording's own approval (Sky, 2026-11-06), held to the same rules. */
+  const vcur = { d: { vday: { deal: '30% OFF' } }, done: { 'vday.approve': APPROVED, 'web.approve': APPROVED } };
+  ok('a manager cannot tick the vendor-day wording approval', api.wixSignDelta_([['done', 'vday.approve', { by: 'sky', at: 'x' }]], 'kim', {}).length === 0);
+  ok('  …Tawny can, signed as herself', api.wixSignDelta_([['done', 'vday.approve', { by: 'x', at: 'x' }]], 'tawny', {})[0][2].by === 'tawny');
+  const vEdit = api.wixSignDelta_([['d', 'vday', { deal: '40% OFF' }]], 'kim', vcur);
+  ok('anyone else changing the wording takes THAT approval away, and leaves the card\'s',
+     vEdit.length === 2 && vEdit[1][1] === 'vday.approve' && vEdit[1][2] === null);
+  ok('  …and editing the card leaves the wording\'s approval', api.wixSignDelta_([['d', 'web', { headline: 'B' }]], 'kim', vcur).every(o => o[1] !== 'vday.approve'));
+  ok('retiring an old one-day date from d.vday is not a wording change',
+     api.wixSignDelta_([['d', 'vday', { deal: '30% OFF' }]], 'kim', { d: { vday: { deal: '30% OFF', date: '2026-11-03' } }, done: { 'vday.approve': APPROVED } }).length === 1);
+
+  /* The screen's vendor-day ops keep the wording when the days change. */
+  const MKs = require('../marketing.js');
+  const withWords = gron({ plan: { d: { vday: { deal: '30% OFF', date: '2026-11-03' } } } });
+  const add = MKs.addVdayOp(withWords);
+  ok('adding a vendor day keeps the deal wording, and retires only the old date', JSON.stringify(add[1]) === JSON.stringify(['d', 'vday', { deal: '30% OFF' }]));
 }
 
 console.log('\n4. publishing: hand-made rows stay, ours move, closed comes off');
@@ -491,8 +529,14 @@ console.log('\n9. the program screen: where the copy is typed, and the spec besi
   const ctx = { today: '2026-11-02', canEdit: true, engineReady: true, stores: STORES.map(s => ({ store_id: s.store_id, name: s.display_name })),
                 storeName: (id) => id, moving: null };
   const html = MK.sectionHtml(gron({ plan: { done: {} } }), ctx);
-  ok('the Deals page item has its headline, image, deal and offer fields',
-     ['headline', 'image', 'alt', 'note', 'deal', 'offer', 'fine'].every(f => html.indexOf('data-mk-item="web" data-mk-field="' + f + '"') >= 0));
+  ok('the Deals page item has its headline, image and card fields',
+     ['headline', 'image', 'alt', 'note', 'fine'].every(f => html.indexOf('data-mk-item="web" data-mk-field="' + f + '"') >= 0));
+  /* Sky, 2026-11-06: the vendor-day deal inputs belong in the Vendor day section. */
+  ok('  …and no vendor-day deal fields any more', ['deal', 'offer'].every(f => html.indexOf('data-mk-item="web" data-mk-field="' + f + '"') < 0));
+  ok('the Vendor day section has the deal and offer fields, with their limits',
+     /data-mk-item="vday" data-mk-field="deal"[^>]*maxlength="12"/.test(html) && /data-mk-item="vday" data-mk-field="offer"[^>]*maxlength="60"/.test(html));
+  ok('  …and its own approval tick', /data-mk-task="vday.approve"/.test(html));
+  ok('  …saying the days go up already and the wording waits', /vendor days go on the deals page as soon as they are entered/i.test(html));
   ok('  …offer lines are a list, one per line', /data-mk-radd="web"/.test(html));
   ok('  …the Featured image spec sits beside the image link', /Featured image spec:<\/b> 1200 × 1200 px/.test(html));
   ok('  …and it says it waits for an approver', /once Sky, Mike or Tawny ticks/.test(html));

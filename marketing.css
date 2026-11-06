@@ -52,6 +52,9 @@
 .mk-item h6 { margin: 0 0 8px; font-size: 14px; color: var(--mk-txt); }
 .mk-fld { display: block; font-size: 12px; color: var(--mk-mut); margin: 0 0 8px; }
 .mk-fld input, .mk-fld select { display: block; width: 100%; box-sizing: border-box; margin-top: 3px; background: var(--mk-bg); border: 1px solid var(--mk-line); border-radius: 6px; color: var(--mk-txt); padding: 6px 8px; font: inherit; font-size: 13px; }
+/* A checkbox sits beside its words, not on a full-width line below them. */
+.mk-fld input[type=checkbox] { display: inline-block; width: 16px; height: 16px; margin: 0 6px 0 0; padding: 0; vertical-align: -3px; accent-color: var(--mk-green); }
+.mk-fld label:has(> input[type=checkbox]) { color: var(--mk-txt); cursor: pointer; }
 .mk-comp { font-size: 12px; border-left: 3px solid var(--mk-gold); background: rgba(212, 168, 71, .08); padding: 6px 8px; border-radius: 0 6px 6px 0; color: #f0dca8; }
 .mk-warn { font-size: 13px; border: 1px solid var(--mk-gold); background: rgba(212, 168, 71, .08); color: #f0dca8; border-radius: 8px; padding: 8px 12px; margin: 12px 0 0; }
 

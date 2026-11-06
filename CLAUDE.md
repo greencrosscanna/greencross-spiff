@@ -191,7 +191,8 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
 - **Marketing is hidden behind one switch, and stores only what a person decided** (SPIFF 2.0, phase 1,
   Sky 2026-11-01; plan in `docs/plans/marketing-section.md`). `marketing.js` holds the menu and the
   rules; `VISIBLE_TO_EVERYONE` / `PREVIEW_USERS` at its top decide who sees anything, and only Sky, Mike and Tawny do
-  until he approves the flip. That is a curtain: `editProgram_`'s role check protects the save.
+  until he approves the flip, plus `gx-dev`, the read-only dev viewer from `gxdevlogin.sh` (Sky,
+  2026-11-06), so a session can check the section signed in; it cannot save anything. That is a curtain: `editProgram_`'s role check protects the save.
   **Task ids are the stored key**: reword a task freely, never rename its id, or its ticks are orphaned.
   Tasks, due dates, overdue and compliance are computed on read; `normalizeMarketing_` builds the
   `marketing_json` cell from a list of what may be kept, so nothing derived gets frozen. **Saves send
@@ -250,7 +251,7 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   before-start task counts back from that item's typed send date; the `blast.*` pair from the
   earliest one. `email.creative` drops out when "Who makes the creative" is "We do" (blank keeps
   it). Pinned by `tests/marketing_tasks_test.js` section 13. The section shows to sky, mike and
-  tawny (their GX Core sign-in names) until `VISIBLE_TO_EVERYONE` is flipped.
+  tawny (their GX Core sign-in names) and the read-only `gx-dev` viewer until `VISIBLE_TO_EVERYONE` is flipped.
   **Holiday sends are not programs** (Sky, 2026-11-02): name + send date + channels (email/sms) +
   note, in their **own `holidays` tab, never in `programs`** — same reason as pencils. Rows are never
   deleted (`status` planned / canceled). The screen reads one as a program with only its blast
@@ -274,7 +275,10 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   `WIX_VDAY_AUTO_APPROVER_` (`'sky'`, his standing approval, for GX Core's gate). Only the DEAL needs a
   person: the Featured card still waits for `web.approve`, and a day's deal/offer wording rides on it
   only once approved and inside the copy rules, else the day goes up with it blank (reported in
-  `skipped`). A standalone day's "Show on the deals page" is ticked by default and is now an opt-out.
+  `skipped`). **A program's vendor-day wording is typed in the Vendor day section** (Sky, 2026-11-06),
+  stored in `d.vday {deal, offer}` with its own tick `vday.approve` (`WIX_VDAY_APPROVE_TASK_`, signed and
+  un-ticked by `wixSignDelta_` like `web.approve`). `wixVdayCopy_` reads the old `d.web.deal/offer` under
+  `web.approve` only while `d.vday` holds none. `vdaysOps` retires only `d.vday`'s old date/time, never the wording. A standalone day's "Show on the deals page" is ticked by default and is now an opt-out.
   Pinned by `tests/wix_publish_test.js` section 2 and `tests/standalone_vendor_day_test.js`.
   **It must carry the brand's logo** (Sky, 2026-11-05): linked by
   `vendorRef` to the brand's Wix `Vendors` row, like a program's day, but unlike a program a day whose
@@ -326,7 +330,7 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   `<program>|<street-slug>|<date>`) as soon as the days are entered (Sky, 2026-11-06; see the standalone
   vendor day bullet above), plus a Featured card (`FeaturedDeals`, keyed `programId`) only when
   it is active (or a draft starting within 60 days, Sky 2026-11-04, sent `live=false`), its plan picks the **Deals page**
-  item (`web`: headline, image link, offer lines, vendor-day deal/offer), **Sky, Mike or Tawny has ticked
+  item (`web`: headline, image link, offer lines — the two-week featured deal), **Sky, Mike or Tawny has ticked
   `web.approve`** (`WIX_APPROVERS_`, Sky 2026-11-02) and the copy passes the OLCC word rules
   (`WIX_COPY_RULES_`, mirrored as `COPY_RULES` in marketing.js). The engine signs every marketing tick
   with the SESSION user (`wixSignDelta_`), refuses that tick from anyone else, and un-ticks it when anyone

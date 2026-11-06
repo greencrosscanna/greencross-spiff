@@ -292,7 +292,7 @@ function pencilJoin(role, answer) {
      && nodes['#mkView'].innerHTML === '' && nodes['#mkPencils'].innerHTML === '');
   ok('  …and the pencils are not even fetched', loads.length === 0);
   /* Sky, 2026-11-02: Mike runs the blast cycle and Tawny the deals, so the preview opens to them. */
-  ok('the switch is still closed to everyone but Sky, Mike and Tawny', /var VISIBLE_TO_EVERYONE = false;/.test(SRC) && /var PREVIEW_USERS = \['sky', 'mike', 'tawny'\];/.test(SRC));
+  ok('the switch is still closed to everyone but Sky, Mike, Tawny and the read-only dev viewer', /var VISIBLE_TO_EVERYONE = false;/.test(SRC) && /var PREVIEW_USERS = \['sky', 'mike', 'tawny', 'gx-dev'\];/.test(SRC));
   ok('the app still has three top-level tabs', (fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').match(/data-tab="/g) || []).length === 3);
 
   console.log(fail ? '\n' + fail + ' FAILED' : '\nmarketing calendar: all passed');
