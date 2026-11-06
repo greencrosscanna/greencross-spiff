@@ -149,9 +149,9 @@ const STORES = [{ store_id: 'commercial', display_name: 'Commercial', address: '
                 { store_id: 'river-rd', display_name: 'River', address: '3165 River Rd N' }];
 const wixApi = G.load({
   real: ['wixFold_', 'wixMenuSlug_', 'wixEsc_', 'wixStoreLabel_', 'wixTimeOf_', 'wixDayLabels_', 'wixThroughLabel_', 'wixOfferHtml_',
-         'wixApprover_', 'wixCopyProblem_', 'wixLengthProblem_', 'wixDutchieBrand_', 'wixVendorIndex_', 'wixDesired_', 'wixSameItem_',
+         'wixApprover_', 'wixCopyProblem_', 'wixLengthProblem_', 'wixDutchieBrand_', 'wixVendorIndex_', 'wixDesired_', 'wixVdayCopy_', 'wixSameItem_',
          'wixCanon_', 'wixPlan_', 'calParseTime_', 'addDaysLocal_', 'normalizeMarketing_', 'mktPickedIds_', 'slug_', 'wixVdayLogoProblem_'],
-  vars: ['WIX_LOOKAHEAD_DAYS_', 'WIX_MAX_REMOVES_', 'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_APPROVERS_', 'WIX_VDAY_AUTO_APPROVER_', 'WIX_COPY_RULES_', 'WIX_COPY_LIMITS_',
+  vars: ['WIX_LOOKAHEAD_DAYS_', 'WIX_MAX_REMOVES_', 'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_VDAY_APPROVE_TASK_', 'WIX_APPROVERS_', 'WIX_VDAY_AUTO_APPROVER_', 'WIX_COPY_RULES_', 'WIX_COPY_LIMITS_',
          'WIX_LIMIT_NAMES_', 'WIX_DOW_', 'WIX_MON_', 'MKT_MENU_'],
   varValues: { WIX_APPROVER_FIELD_: G.grabVar('WIX_APPROVER_FIELD_') },
   globals: { console },

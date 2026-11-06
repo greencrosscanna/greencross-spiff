@@ -222,7 +222,7 @@ function editor(opts) {
            'applyMarketingDelta_', 'normalizeMarketing_', 'parseJson_', 'textDate_', 'nowStamp_', 'slug_',
            'normalizePitch_', 'periodStartFor_', 'stripDerivedActuals_', 'scrubSecrets_', 'wixSignDelta_'],
     vars: ['PROGRAM_HEADERS', 'PROGRESS_HEADERS', 'EDIT_ROLES', 'MEASURED_BY', 'DERIVED_ACTUALS', 'PROGRAMS_CACHE_KEY', 'PITCH_MAX_LEN',
-           'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_APPROVERS_'],
+           'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_VDAY_APPROVE_TASK_', 'WIX_APPROVERS_'],
     varValues: { EDITABLE_FIELDS: EDITABLE, PITCH_MAX_TIPS: 5 },
     stubs: {
       dataSheet_: () => programs, progressSheet_: () => progress,

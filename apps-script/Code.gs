@@ -9100,6 +9100,7 @@ var WIX_LOOKAHEAD_DAYS_ = 60;   // Sky, 2026-11-04: future vendor days must show
 var WIX_MAX_REMOVES_ = 40;
 var WIX_ITEM_ = 'web';
 var WIX_APPROVE_TASK_ = 'web.approve';
+var WIX_VDAY_APPROVE_TASK_ = 'vday.approve';   // the vendor-day deal wording's own approval (Sky, 2026-11-06)
 /* Who may switch a program onto the page (Sky, 2026-11-02: "Sky, Mike and Tawny only", not every
    editor). Sign-in names as GX Core holds them. GX Core's approval gate checks the same three. */
 var WIX_APPROVERS_ = ['sky', 'mike', 'tawny'];
@@ -9246,25 +9247,50 @@ function wixSignDelta_(ops, user, current) {
   var who = String(user || '').toLowerCase();
   var approver = WIX_APPROVERS_.indexOf(who) >= 0;
   var cur = current && typeof current === 'object' ? current : {};
-  var copyChanged = false;
+  var gated = [WIX_APPROVE_TASK_, WIX_VDAY_APPROVE_TASK_];
+  var changed = Object.create(null);
+  var same = function (a, b) { return JSON.stringify(a == null ? null : a) === JSON.stringify(b == null ? null : b); };
   var out = (Array.isArray(ops) ? ops : []).filter(function (op) {
-    return Array.isArray(op) && !(op[0] === 'done' && op[1] === WIX_APPROVE_TASK_ && op[2] && !approver);
+    return Array.isArray(op) && !(op[0] === 'done' && gated.indexOf(op[1]) >= 0 && op[2] && !approver);
   }).map(function (op) {
     if (op[0] === 'done' && op[2] && typeof op[2] === 'object') {
       return ['done', op[1], { by: who, at: String(op[2].at || '') || nowStamp_() }];
     }
-    if ((op[0] === 'd' || op[0] === 'rows') && op[1] === WIX_ITEM_) {
-      var before = ((cur[op[0]] || {})[WIX_ITEM_]);
-      if (JSON.stringify(before == null ? null : before) !== JSON.stringify(op[2] == null ? null : op[2])) copyChanged = true;
+    if ((op[0] === 'd' || op[0] === 'rows') && op[1] === WIX_ITEM_ && !same((cur[op[0]] || {})[WIX_ITEM_], op[2])) changed[WIX_APPROVE_TASK_] = true;
+    /* The vendor-day deal wording lives in d.vday {deal, offer} (Sky, 2026-11-06). Only those two are
+       copy: d.vday also held a pre-list day's date and time, which retiring is not a copy change. */
+    if (op[0] === 'd' && op[1] === 'vday') {
+      var b = (cur.d || {}).vday || {}, a = op[2] || {};
+      if (String(b.deal || '') !== String(a.deal || '') || String(b.offer || '') !== String(a.offer || '')) changed[WIX_VDAY_APPROVE_TASK_] = true;
     }
     return op;
   });
-  var ticked = cur.done && cur.done[WIX_APPROVE_TASK_];
-  var setsIt = out.some(function (op) { return op[0] === 'done' && op[1] === WIX_APPROVE_TASK_; });
-  if (copyChanged && ticked && !setsIt) {
-    out.push(approver ? ['done', WIX_APPROVE_TASK_, { by: who, at: nowStamp_() }] : ['done', WIX_APPROVE_TASK_, null]);
-  }
+  gated.forEach(function (task) {
+    var ticked = cur.done && cur.done[task];
+    var setsIt = out.some(function (op) { return op[0] === 'done' && op[1] === task; });
+    if (changed[task] && ticked && !setsIt) {
+      out.push(approver ? ['done', task, { by: who, at: nowStamp_() }] : ['done', task, null]);
+    }
+  });
   return out;
+}
+
+/* THE VENDOR-DAY DEAL WORDING, and who approved it (Sky, 2026-11-06: the vendor day deal inputs belong
+   in the Vendor day section; the Deals page item is the two-week featured deal). Stored in d.vday
+   {deal, offer}, approved by its own tick, vday.approve. A plan written before that kept it on the
+   Deals page item (d.web.deal / d.web.offer) under web.approve; that is read only while d.vday holds
+   no wording, so a program mid-run keeps the wording it was approved with. */
+function wixVdayCopy_(plan) {
+  var d = (plan && plan.d) || {}, v = d.vday || {}, w = d[WIX_ITEM_] || {};
+  var by = function (task) {
+    var t = plan && plan.done && plan.done[task];
+    var u = t ? String(t.by || '').toLowerCase() : '';
+    return WIX_APPROVERS_.indexOf(u) >= 0 ? u : '';
+  };
+  if (String(v.deal || '').trim() || String(v.offer || '').trim()) {
+    return { deal: String(v.deal || ''), offer: String(v.offer || ''), approver: by(WIX_VDAY_APPROVE_TASK_) };
+  }
+  return { deal: String(w.deal || ''), offer: String(w.offer || ''), approver: by(WIX_APPROVE_TASK_), legacy: true };
 }
 
 /* The Dutchie spelling of a program's brand, out of the brand names the stores actually stock. Same
@@ -9338,10 +9364,12 @@ function wixDesired_(src, today) {
     if (!text(web.headline)) return noCard('deal card: no headline yet (its vendor days go on the page anyway)');
     var approver = wixApprover_(plan);
     if (!approver) return noCard('deal card: waiting for Sky, Mike or Tawny to approve the deals page copy (its vendor days go on the page anyway)');
-    var broken = wixCopyProblem_([web.headline, web.note, web.deal, web.offer, web.fine, web.alt]
+    /* The card's own copy only: the vendor-day deal wording is judged with the days (wixVdayCopy_). */
+    var cardCopy = { headline: web.headline, note: web.note, fine: web.fine, alt: web.alt };
+    var broken = wixCopyProblem_([web.headline, web.note, web.fine, web.alt]
       .concat(((plan.rows && plan.rows[WIX_ITEM_]) || []).map(function (r) { return r.text; })));
     if (broken) return noCard('deal card: the copy breaks the OLCC copy rules ("' + broken + '"); fix it on the program (its vendor days go on the page anyway)');
-    var long = wixLengthProblem_(web, ((plan.rows && plan.rows[WIX_ITEM_]) || []).map(function (r) { return r.text; }));
+    var long = wixLengthProblem_(cardCopy, ((plan.rows && plan.rows[WIX_ITEM_]) || []).map(function (r) { return r.text; }));
     if (long) return noCard('deal card: ' + long + ' Too much copy breaks the layout; shorten it on the program (its vendor days go on the page anyway)');
     picked.push({ p: p, plan: plan, web: web, approver: approver, card: true });
   });
@@ -9405,8 +9433,16 @@ function wixDesired_(src, today) {
     out.featured.push(item);
     }
 
-    /* The days. Deal/offer wording is the card's approved copy, so a day whose card is not approved goes
-       out with that wording blank (sent as '' so wording approved earlier is taken back off too). */
+    /* The days. Their deal/offer wording is the Vendor day section's own (wixVdayCopy_), with its own
+       approval; until approved, and inside the copy rules, the days go out with it blank (sent as '' so
+       wording approved earlier is taken back off too). */
+    var vc = days.length ? wixVdayCopy_(plan) : { deal: '', offer: '', approver: '' };
+    var hasWords = !!(text(vc.deal) || text(vc.offer)), wordsOk = hasWords && !!vc.approver;
+    if (hasWords && !vc.approver) out.skipped.push({ program_id: id, why: 'vendor days are on the page; their deal wording waits for Sky, Mike or Tawny to approve it' });
+    var vBroken = wordsOk ? wixCopyProblem_([vc.deal, vc.offer]) : '';
+    if (vBroken) { wordsOk = false; out.skipped.push({ program_id: id, why: 'vendor days are on the page without their deal wording, which breaks the OLCC copy rules ("' + vBroken + '"); fix it in the Vendor day section' }); }
+    var vLong = wordsOk ? wixLengthProblem_({ deal: vc.deal, offer: vc.offer }, []) : '';
+    if (vLong) { wordsOk = false; out.skipped.push({ program_id: id, why: 'vendor days are on the page without their deal wording. ' + vLong + ' Shorten it in the Vendor day section' }); }
     var seen = Object.create(null);
     days.forEach(function (d) {
       var base = id + '|' + d.storeKey + '|' + d.date;
@@ -9415,9 +9451,9 @@ function wixDesired_(src, today) {
       var row = { dayKey: base + (seen[base] > 1 ? '|' + seen[base] : ''), programId: id, title: vendor,
                   date: d.date, dayLabel: L.dayLabel, dateLabel: L.dateLabel, store: d.store,
                   time: d.time.label, sortTime: d.time.minute,
-                  deal: x.card ? text(web.deal, 40) : '', offer: x.card ? text(web.offer, 200) : '' };
+                  deal: wordsOk ? text(vc.deal, 40) : '', offer: wordsOk ? text(vc.offer, 200) : '' };
       if (v) row.vendorRef = v._id;
-      if (WIX_APPROVER_FIELD_) row[WIX_APPROVER_FIELD_] = x.card ? x.approver : WIX_VDAY_AUTO_APPROVER_;
+      if (WIX_APPROVER_FIELD_) row[WIX_APPROVER_FIELD_] = wordsOk ? vc.approver : WIX_VDAY_AUTO_APPROVER_;
       out.days.push(row);
     });
   });

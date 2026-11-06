@@ -20,8 +20,10 @@
 
   var VISIBLE_TO_EVERYONE = false;
   /* Sign-in names as GX Core's roster holds them (app_roster for spiff, checked 2026-11-02). Mike
-     runs every blast cycle from the Tasks view, Tawny sets the deals. */
-  var PREVIEW_USERS = ['sky', 'mike', 'tawny'];
+     runs every blast cycle from the Tasks view, Tawny sets the deals. `gx-dev` is the read-only dev
+     viewer gxdevlogin.sh mints (Sky, 2026-11-06), so a session can check this section signed in. It
+     is role viewer: every save is refused by the engine, so it can look and never change anything. */
+  var PREVIEW_USERS = ['sky', 'mike', 'tawny', 'gx-dev'];
 
   function isVisible(session) {
     if (VISIBLE_TO_EVERYONE) return !!session;
@@ -133,28 +135,30 @@
       c: 'Review the placement and any offer shown with it.',
       k: [['ecom.set', 'INV', 'Set featured placement on the online menu', 's', -2],
           ['ecom.remove', 'INV', 'Remove featured placement', 'e', 1]] },
-    /* The website's deals page (Sky, 2026-11-02). Everything typed here is PUBLIC customer copy. The
-       engine publishes the Featured card to greencrosscanna.com/deals on its own, but only once Sky,
-       Mike or Tawny has ticked web.approve (Sky, 2026-11-02), and anyone else changing the copy
-       afterwards un-ticks it (wixSignDelta_). The program's VENDOR DAYS go up without waiting for that
-       (Sky, 2026-11-06); the deal and offer fields fill each vendor-day row once approved. f[4] is a
-       placeholder. The image must meet the Featured image spec, shown beside it (FEATURED_SPEC). */
-    web: { t: 'Deals page (website)', s: 'Featured card and vendor days on greencrosscanna.com/deals', sec: 'mkt', web: 1,
+    /* The website's deals page (Sky, 2026-11-02): the two-week FEATURED deal at the top of
+       greencrosscanna.com/deals. Everything typed here is PUBLIC customer copy. The engine publishes
+       the card on its own, but only once Sky, Mike or Tawny has ticked web.approve, and anyone else
+       changing the copy afterwards un-ticks it (wixSignDelta_). The vendor-day deal wording is NOT
+       here any more (Sky, 2026-11-06): it is typed in the Vendor day section with its own approval.
+       f[4] is a placeholder. The image must meet the Featured image spec (FEATURED_SPEC). */
+    web: { t: 'Deals page (website)', s: 'The two-week featured deal on greencrosscanna.com/deals', sec: 'mkt', web: 1,
       f: [['text', 'headline', 'Headline', null, 'e.g. Grön Pearls week'],
           ['url', 'image', 'Featured image', null, 'https://drive.google.com/file/d/…'],
           ['text', 'alt', 'Image description (fills itself from the headline)', null, 'What the image shows, for screen readers'],
           ['text', 'note', 'Vendor days note', null, 'e.g. 30% off all Grön, in store, at the listed store and time only.'],
-          ['text', 'deal', 'Vendor day deal', null, 'e.g. 30% OFF'],
-          ['text', 'offer', 'Vendor day offer details', null, 'e.g. all Grön, in store, this store and time only'],
           ['text', 'fine', 'Fine print (optional)']],
       list: { kind: 'text', label: 'Offer lines (start each with its price)', add: '+ Add an offer line', ph: 'e.g. $4 off Pearls 10-packs, Tuesday Nov 3' },
       c: 'Public ad copy. Same Oregon offer rules as email; no health claims, nothing that appeals to minors.',
       k: [['web.copy', 'INV', 'Write the deals page copy, offer lines and image', 's', -5],
           ['web.approve', 'SKY', 'Approve the deals page copy (it publishes to the website on approval)', 's', -3]] },
     /* Several days, each at one store (or every store), are kept in the plan's own `vdays` list rather
-       than in `d`. A plan saved before that holds one day as d.vday {date, time}; vdaysOf reads it. */
+       than in `d`. A plan saved before that holds one day as d.vday {date, time}; vdaysOf reads it.
+       The days go on the deals page as soon as they are entered (Sky, 2026-11-06). Their deal wording,
+       d.vday {deal, offer}, is customer copy: it shows on them only once vday.approve is ticked by Sky,
+       Mike or Tawny (the engine signs it and un-ticks it on anyone else's change). */
     vday: { t: 'Vendor day', s: 'Rep in store, best 4–7 PM', sec: 'cust', days: 1,
-      f: [],
+      f: [['text', 'deal', 'Vendor day deal', null, 'e.g. 30% OFF'],
+          ['text', 'offer', 'Vendor day offer details', null, 'e.g. all Grön, in store, this store and time only']],
       c: 'Review the vendor’s planned games and discounts before the day. Same Oregon offer rules.',
       k: [['vday.slots', 'INV', 'Set vendor day dates and slots per store', 's', -14],
           ['vday.confirm', 'INV', 'Confirm rep, dates and times with vendor', 's', -10],
@@ -544,15 +548,20 @@
     }
     return ops;
   }
-  /* Vendor days go as the whole (short) list, which also retires the one-day d.vday a plan held before. */
-  function vdaysOps(list) { return [['vdays', null, list.length ? list : null], ['d', 'vday', null]]; }
-  function addVdayOp(p) { return vdaysOps(vdaysOf(p).concat([{ store: '', date: '', time: '' }])); }
-  function removeVdayOp(p, i) { var l = vdaysOf(p); l.splice(+i, 1); return vdaysOps(l); }
+  /* Vendor days go as the whole (short) list, which also retires the one-day date/time d.vday held
+     before the list. Only those two: d.vday also holds the days' deal wording, which must survive. */
+  function vdaysOps(p, list) {
+    var keep = JSON.parse(JSON.stringify(planOf(p).d.vday || {}));
+    delete keep.date; delete keep.time;
+    return [['vdays', null, list.length ? list : null], ['d', 'vday', Object.keys(keep).length ? keep : null]];
+  }
+  function addVdayOp(p) { return vdaysOps(p, vdaysOf(p).concat([{ store: '', date: '', time: '' }])); }
+  function removeVdayOp(p, i) { var l = vdaysOf(p); l.splice(+i, 1); return vdaysOps(p, l); }
   function setVdayOp(p, i, field, value) {
     var l = vdaysOf(p);
     if (!l[+i] || ['store', 'date', 'time'].indexOf(field) < 0) return [];
     l[+i][field] = String(value || '');
-    return vdaysOps(l);
+    return vdaysOps(p, l);
   }
   /* An item's list goes whole: it is short, and [rows, item, list] keeps the other items' lists. */
   function rowsOp(item, list) { return [['rows', item, list.length ? list : null]]; }
@@ -698,7 +707,7 @@
           }).join('') + '</select></label>';
     }
     if (item === 'web' && f[1] === 'image') return imageFieldHtml(val, ctx);
-    var max = item === 'web' && f[0] === 'text' ? COPY_LIMITS[f[1]] : 0;
+    var max = (item === 'web' || item === 'vday') && f[0] === 'text' ? COPY_LIMITS[f[1]] : 0;
     return '<label class="mk-fld">' + esc(f[2]) + '<input type="' + (f[0] === 'date' ? 'date' : f[0] === 'url' ? 'url' : 'text') + '"' + data
       + (f[4] ? ' placeholder="' + esc(f[4]) + '"' : '') + (max ? ' maxlength="' + max + '"' : '')
       + ' value="' + esc(val == null ? '' : val) + '"' + ro + '>' + (max ? counterHtml(val, max) : '') + '</label>';
@@ -849,8 +858,9 @@
     var id = driveFileId((plan.d.web || {}).image);
     var approved = planOf(p).done['web.approve'];
     var w = plan.d.web || {};
-    var broken = copyProblem([w.headline, w.note, w.deal, w.offer, w.fine, w.alt].concat(rowsOf(p, 'web').map(function (r) { return r.text; })));
-    var long = lengthProblem(w, rowsOf(p, 'web').map(function (r) { return r.text; }));
+    /* The card's own copy only; the vendor-day wording is judged in the Vendor day section. */
+    var broken = copyProblem([w.headline, w.note, w.fine, w.alt].concat(rowsOf(p, 'web').map(function (r) { return r.text; })));
+    var long = lengthProblem({ headline: w.headline, note: w.note, fine: w.fine, alt: w.alt }, rowsOf(p, 'web').map(function (r) { return r.text; }));
     return '<div class="mk-spec"><b>Copy rules:</b> ' + esc(COPY_RULES_TEXT) + '</div>'
       + (broken ? '<div class="mk-warn">The copy uses “' + esc(broken) + '”, which the rules do not allow. It will not go on the website until that is changed.</div>' : '')
       + (long ? '<div class="mk-warn">' + esc(long) + ' Too much copy breaks the layout, so it will not go on the website until it is shortened.</div>' : '')
@@ -973,7 +983,27 @@
         + '</div>';
     }).join('');
     return (rows || '<p class="mk-sub">No days set yet.</p>')
-      + (ctx.canEdit ? '<button type="button" class="gx-btn mk-vadd" data-mk-vadd="1">+ Add a vendor day</button>' : '');
+      + (ctx.canEdit ? '<button type="button" class="gx-btn mk-vadd" data-mk-vadd="1">+ Add a vendor day</button>' : '')
+      + vdayDealHtml(p, ctx);
+  }
+
+  /* The vendor days' deal wording and its own approval (Sky, 2026-11-06). The days are on the deals
+     page already; this wording joins them once Sky, Mike or Tawny ticks vday.approve. */
+  function vdayDealHtml(p, ctx) {
+    var plan = planOf(p), v = plan.d.vday || {}, ro = ctx.canEdit ? '' : ' disabled';
+    var approved = plan.done['vday.approve'];
+    var hasWords = !!(String(v.deal || '').trim() || String(v.offer || '').trim());
+    var broken = copyProblem([v.deal, v.offer]), long = lengthProblem({ deal: v.deal, offer: v.offer }, []);
+    return '<div class="mk-vdeal">'
+      + ITEMS.vday.f.map(function (f) { return fieldHtml('vday', f, plan, ctx); }).join('')
+      + (broken ? '<div class="mk-warn">The wording uses “' + esc(broken) + '”, which the copy rules do not allow. It stays off the website until that is changed.</div>' : '')
+      + (long ? '<div class="mk-warn">' + esc(long) + ' It stays off the website until it is shortened.</div>' : '')
+      + '<div class="mk-fld mk-vapprove"><label><input type="checkbox" data-mk-task="vday.approve"' + (approved ? ' checked' : '') + ro
+      + '> Approve the vendor day deal wording</label></div>'
+      + '<p class="mk-sub">Vendor days go on the deals page as soon as they are entered. '
+      + (!hasWords ? 'Add a deal here to show it on each day.'
+        : approved ? 'Wording approved by ' + esc(approved.by || '') + '. A change by anyone but Sky, Mike or Tawny takes the approval away.'
+        : 'This wording shows on them once Sky, Mike or Tawny approves it.') + '</p></div>';
   }
 
   /* The program's vendor files: one link to a Drive folder of art, posters and info sheets. Kept in
