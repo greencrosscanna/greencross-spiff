@@ -433,11 +433,20 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   `removeBrandContact`, `addBrand` — editor session, stamped `by` the signed-in user) and Core is the
   only writer. Inventory is a named consumer. Pinned by `tests/brand_contacts_test.js`.
   Hist: "Brand reps live in GX Core's shared brand registry".
-  - **The vendor sign-in reads it.** `clientView_` lets in any **active rep on an active brand**, with
-    the brand resolved by `GXCore.resolveBrand` from `match_json.brand` (else `vendor`). The old
-    per-program `contact_email` opens **nothing** now, and `contact_name` / `contact_email` are out of
-    `EDITABLE_FIELDS` — the columns stay because names are names. Removing a rep is soft in Core and
-    closes their access at once.
+  - **The vendor link is RETIRED** (Sky, 2026-11-05). `clientView_` refuses every request with
+    "This link is no longer active. Ask Tawny for a progress report." and reads nothing; `client.html`
+    is a static page saying the same (links were already emailed, so no 404), and `shareLink_` no
+    longer mints (revoke still clears a stale token). The share button and the record panel's
+    brand-link block are gone. The `share_token` column and the `CLIENT_VIEW_PASSWORD` property stay
+    (names stay; the property can be removed later). **Do not rebuild a self-serve vendor view.**
+    Brand reps still live in Core's registry (the close-out email goes to them); `contact_name` /
+    `contact_email` stay out of `EDITABLE_FIELDS`. Pinned by `tests/client_view_test.js`.
+  - **Tawny sends progress herself: "Download progress report (PDF)"** on Reports, editors only
+    (`progressSnapshot`). It is the SAME brand page (`brandPaperHtml_`, no budtender names) built
+    from the measurement so far, labeled "Progress as of <time>" and "Earned so far", from a COPY of
+    the program (nothing written). It builds a PDF to download; it sends nothing. Emailing a vendor
+    stays "Send to brand" (one click, confirmation naming the recipient, Tawny alias, resend guard).
+    Pinned by `tests/progress_snapshot_test.js`.
   - **Core's library read is slow** — `getBrands` measured 6–30s. The engine caches it **for the
     screen only**: the hourly trigger re-reads it (`warmBrandsCache_`, 65-minute cache), and SPIFF's
     own writes **patch** the cached list from Core's answer (`applyBrandWrite_`, mirrored by

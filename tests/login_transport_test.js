@@ -58,7 +58,6 @@ const ok = (l, c) => c ? console.log('  ✓ ' + l) : (fail++, console.log('  ✗
 
 const spiff  = fs.readFileSync(R + 'spiff.js', 'utf8');
 const flyer  = fs.readFileSync(R + 'flyer.js', 'utf8');
-const client = fs.readFileSync(R + 'client.js', 'utf8');
 const APP    = G.grabVar('APP');
 
 /* ── 1. THE BROWSER SIDE — source-shaped, and it has to be ───────────────────────────────────────
@@ -66,7 +65,7 @@ const APP    = G.grabVar('APP');
    so what is checked here is which client object the call is written against. GX is the GX Core
    client; ENG is our engine. A login through GX is the regression. */
 console.log('\n1. no frontend calls GX Core to log in  (source-shaped: DOM code)');
-[['spiff.js', spiff], ['flyer.js', flyer], ['client.js', client]].forEach(([name, src]) => {
+[['spiff.js', spiff], ['flyer.js', flyer]].forEach(([name, src]) => {
   ok(name + ' does not route login through the GX Core client',
      !/\bGX\s*\.\s*(jsonp|getJSON|postJSON)\s*\(\s*['"]login['"]/.test(src));
 });

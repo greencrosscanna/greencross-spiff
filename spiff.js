@@ -572,7 +572,7 @@
       + '<span class="sp-head-note">' + esc(note) + '</span>'
       + (link ? '<a class="sp-head-link" href="#" data-goto="history">' + esc(link) + '</a>' : '')
       + '</div>'
-      + '<div class="sp-list' + (canEdit() ? ' can-share' : '') + '">'
+      + '<div class="sp-list">'
       + rows.map(listRow).join('') + '</div>';
   }
 
@@ -990,40 +990,8 @@
       +   (tot ? tot.hit + ' / ' + tot.bts : '&mdash;') + '</div>'
       + '<div class="sp-num sp-money ' + (a ? (a.roi >= 0 ? 'is-pos' : 'is-neg') : '') + '">' + roi + '</div>'
       + '<div><span class="sp-chip is-' + esc(p.status) + '">' + esc(p.status) + '</span></div>'
-      + shareCell(p)
       + '</div>';
   }
-
-  /* The vendor link, reachable from the row instead of only from the bottom of the record panel.
-     It was already built — engine route, gate page, mint/revoke — but the only way to reach it was
-     to know it was down there, so in practice nobody did. Sky, 2026-08-29.
-
-     Rendered for editors ONLY, same gate as the record-panel block: minting exposes a program to an
-     outside party. `.sp-list` carries can-share so the column collapses entirely for a viewer
-     rather than leaving them a dead gutter. */
-  function shareCell(p) {
-    if (!canEdit()) return '';
-    var has = !!p.share_token;
-    var noEmail = needsRep(p);
-    /* A token on a program whose brand has no active rep is a DEAD LINK: clientView_ lets in only an
-       active rep on the program's brand, so the vendor gets the same generic "does not match" a
-       wrong password gives — no clue that the fault is ours. Say so here rather than let a broken
-       link get emailed. (Contacts moved to GX Core's brand registry on 2026-09-15.) */
-    var title = noEmail ? 'Add a rep for this brand first — without one the link opens nothing'
-              : has     ? 'Copy the brand link'
-                        : 'Create a brand link';
-    return '<div class="sp-row-share">'
-      + '<button class="sp-share' + (has ? ' has-link' : '') + (noEmail ? ' is-blocked' : '')
-      +   '" data-share="' + esc(p.program_id) + '" title="' + esc(title) + '"'
-      +   ' aria-label="' + esc(title) + '">' + (has ? ICON_LINK : ICON_SHARE) + '</button>'
-      + '</div>';
-  }
-
-  var ICON_SHARE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/>'
-    + '<path d="M12 15V3"/><path d="M8 7l4-4 4 4"/></svg>';
-  var ICON_LINK  = '<svg viewBox="0 0 24 24" aria-hidden="true">'
-    + '<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/>'
-    + '<path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>';
 
   /* Active programs first — they're the ones you can still act on — then newest to
      oldest. Undated records sort last rather than pretending to be old. */
@@ -1072,11 +1040,6 @@
       panel.addEventListener('click', function (e) {
         var go = e.target.closest('[data-goto]');
         if (go) { e.preventDefault(); showTab(go.dataset.goto); return; }
-        /* BEFORE the row handler, and it stops there. The button sits inside a row whose own click
-           opens the record, so without this you would copy a link and get the panel over the top
-           of the confirmation you were trying to read. */
-        var sh = e.target.closest('[data-share]');
-        if (sh) { e.preventDefault(); e.stopPropagation(); rowShare(sh); return; }
         var ed = e.target.closest('[data-edit]');
         if (ed) { openProgram(ed.dataset.edit); return; }
         var row = e.target.closest('.sp-row[data-id]');
@@ -1084,7 +1047,6 @@
       });
       panel.addEventListener('keydown', function (e) {
         if (e.key !== 'Enter' && e.key !== ' ') return;
-        if (e.target.closest('[data-share]')) return;   // the button handles its own activation
         var row = e.target.closest('.sp-row[data-id]');
         if (row) { e.preventDefault(); openProgram(row.dataset.id); }
       });
@@ -2948,23 +2910,6 @@
       if (ta) { ta.addEventListener('input', syncTips); syncTips(); }
     }
 
-    // Minting a vendor link exposes this program to an outside party, so it sits behind
-    // the same role gate as editing and says plainly what it does.
-    if (canEdit()) {
-      $(REC.body).insertAdjacentHTML('beforeend',
-        '<h4>Brand link</h4>'
-        + '<p class="hint">A read-only page showing only this program. To open it they enter '
-        + '<b>their own email</b> and the shared password. Any active rep listed above for this brand '
-        + 'can open it &mdash; add one first, or the link opens nothing.</p>'
-        + '<div class="share-row">'
-        +   '<button class="gx-btn" id="btnShare">' + (p.share_token ? 'Copy brand link' : 'Create brand link') + '</button>'
-        +   (p.share_token ? '<button class="gx-btn" id="btnRevoke">Revoke</button>' : '')
-        +   '<input class="gx-input" id="shareUrl" readonly hidden>'
-        + '</div>');
-      $('#btnShare').addEventListener('click', function () { makeShare(p, this); });
-      if (p.share_token) $('#btnRevoke').addEventListener('click', function () { revokeShare(p, this); });
-    }
-
     /* ── Deleting ─────────────────────────────────────────────────────────────────────────────
        Last thing in the panel, because it is the last thing anyone should reach for. A closed
        program says why it cannot go rather than simply not offering the button — an absent
@@ -3330,10 +3275,6 @@
     }
   }
 
-  function clientUrl(tok) {
-    return location.origin + location.pathname.replace(/[^/]*$/, '') + 'client.html?t=' + tok;
-  }
-
   /* ── COPY TO THE CLIPBOARD — ONE FUNCTION, AND ITS NAME IS NOT REUSED (2026-10-10, v1.459) ──
      Sky: Copy on a kiosk link says "Copy failed", while selecting the link and copying by hand
      works. THE CAUSE WAS A NAME. This file declared `copyText` TWICE in the same scope — this one,
@@ -3415,97 +3356,6 @@
     if (m) m.textContent = 'This browser would not copy for us. The link is selected — press '
                          + '⌘C (Mac) or Ctrl+C to copy it.';
     setTimeout(function () { b.textContent = 'Copy'; }, 6000);
-  }
-
-  /* Row-level share. Mints on first use and copies every time, so one control does the whole job —
-     there is no second click to hunt for, which was the point of moving this out of the panel.
-     Revoking stays in the record panel: it is destructive and belongs where the program is open in
-     front of you, not one stray click from a list. */
-  async function rowShare(btn) {
-    var id = btn.dataset.share;
-    var p  = (state.programs || []).filter(function (x) { return x.program_id === id; })[0];
-    if (!p) return;
-
-    if (needsRep(p)) {
-      /* Refuses rather than minting a link that cannot open. Opens the record on the program so the
-         missing rep is in front of them, instead of an error they have to act on from memory. */
-      flashShare(btn, 'Needs a brand rep', false);
-      /* Opens the program so the missing field is in front of them — on the Calculator now,
-         where the Contact section lives, rather than in a modal that no longer opens. */
-      setTimeout(function () { openProgram(id); }, 900);
-      return;
-    }
-
-    btn.disabled = true;
-    try {
-      var tok = p.share_token;
-      if (!tok) {
-        var r = await ENG.jsonp('shareLink', { token: (session() || {}).token, id: p.program_id });
-        if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
-        tok = r.token;
-        p.share_token = tok;
-        btn.classList.add('has-link');
-        btn.innerHTML = ICON_LINK;
-      }
-      flashShare(btn, await copyText(clientUrl(tok)) ? 'Link copied' : 'Link ready', true);
-    } catch (err) {
-      console.error('[spiff] share failed:', err);
-      flashShare(btn, 'Failed — try the record panel', false);
-    }
-    btn.disabled = false;
-  }
-
-  /* A row has nowhere to put a message, so the confirmation rides on the button itself and clears
-     itself. Silence after a copy reads as a no-op, and the user clicks again. */
-  function flashShare(btn, msg, good) {
-    var cell = btn.parentNode;
-    var old  = cell.querySelector('.sp-share-msg');
-    if (old) old.remove();
-    var tip = document.createElement('span');
-    tip.className = 'sp-share-msg' + (good ? '' : ' is-bad');
-    tip.textContent = msg;
-    cell.appendChild(tip);
-    setTimeout(function () { if (tip.parentNode) tip.remove(); }, 2600);
-  }
-
-  async function makeShare(p, btn) {
-    btn.disabled = true;
-    try {
-      var r = await ENG.jsonp('shareLink', { token: (session() || {}).token, id: p.program_id });
-      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
-      p.share_token = r.token;
-      var box = $('#shareUrl');
-      box.hidden = false;
-      box.value = clientUrl(r.token);
-      box.select();
-      /* execCommand answers false far more often than it throws (this runs after an await, so
-         Safari and Firefox no longer count it as inside the click). Reading only the throw said
-         "Link copied" over a clipboard that had not changed. The box stays visible and selected
-         either way, so "copy it" is one keystroke. */
-      var did = false;
-      try { did = document.execCommand('copy') === true; } catch (e) { did = false; }
-      btn.textContent = did ? 'Link copied' : 'Link ready — copy it';
-    } catch (err) {
-      btn.textContent = 'Failed: ' + (err.message || err);
-    }
-    btn.disabled = false;
-  }
-
-  async function revokeShare(p, btn) {
-    btn.disabled = true;
-    btn.textContent = 'Revoking…';
-    try {
-      var r = await ENG.jsonp('shareLink', { token: (session() || {}).token, id: p.program_id, revoke: '1' });
-      if (!r || !r.ok) throw new Error((r && r.error) || 'failed');
-      p.share_token = '';
-      btn.textContent = 'Revoked';
-      var box = $('#shareUrl'); if (box) { box.hidden = true; box.value = ''; }
-      $('#btnShare').textContent = 'Create brand link';
-    } catch (err) {
-      btn.textContent = 'Failed';
-      console.error('[spiff] revoke failed:', err);
-    }
-    btn.disabled = false;
   }
 
   /* Deleting is gated on typing the program's NAME, not on an OK. A confirm() dialog is one reflex
@@ -6625,6 +6475,7 @@
       if (b.dataset.act === 'print') window.print();
       if (b.dataset.act === 'mailto') openInMail(b);
       if (b.dataset.act === 'sendbrand') sendBrand(b);
+      if (b.dataset.act === 'progresspdf') downloadProgress(b);
       if (b.dataset.act === 'cards')  copyCards(b);
       if (b.dataset.act === 'printcards') window.print();
       if (b.dataset.act === 'printstores') printStoreSheets();
@@ -6688,6 +6539,43 @@
       console.error('[spiff] send to brand failed:', err);
     }
     setTimeout(function () { btn.disabled = false; btn.textContent = btn.dataset.label; }, 6000);
+  }
+
+  /* THE PROGRESS SNAPSHOT (Sky, 2026-11-05; replaces the retired vendor link). An editor downloads
+     the brand page -- no budtender names -- as it stands now, labeled with its as-of time, and sends
+     it to the vendor herself. Nothing is emailed from here; sending stays "Send to brand". */
+  function progressBar(closed) {
+    if (!canEdit()) return '';
+    return '<div class="sp-step-actions"><button class="gx-btn gx-btn-green" data-act="progresspdf" '
+      + 'title="The brand page with no budtender names, as of the latest measurement.">Download progress report (PDF)</button>'
+      + '<span class="hint" id="progMsg"></span></div>';
+  }
+
+  async function downloadProgress(btn) {
+    if (!canEdit()) { $('#btnAuth').click(); return; }
+    var id = $('#repProgram').value;
+    var was = btn.dataset.label || btn.textContent;
+    btn.dataset.label = was;
+    btn.disabled = true; btn.textContent = 'Building…';
+    try {
+      var r = await ENG.jsonp('progressSnapshot', { token: (session() || {}).token, id: id },
+                              { timeoutMs: 60000, retries: 0 });
+      if (!r || !r.ok) { btn.textContent = 'Not built — ' + ((r && r.error) || 'failed'); }
+      else {
+        var bin = atob(r.pdf_base64), bytes = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        var url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+        var a = document.createElement('a');
+        a.href = url; a.download = r.filename || 'SPIFF progress.pdf';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+        btn.textContent = 'Downloaded — as of ' + r.as_of;
+      }
+    } catch (err) {
+      btn.textContent = 'Not built — try again';
+      console.error('[spiff] progress snapshot failed:', err);
+    }
+    setTimeout(function () { btn.disabled = false; btn.textContent = was; }, 6000);
   }
 
   /* Select a block and copy it, so the clipboard gets its HTML layout as well as its text. */
@@ -6757,6 +6645,7 @@
       if (chip0) chip0.innerHTML = '<span class="sp-chip is-' + esc(p.status) + '">' + esc(p.status) + '</span>';
       host.innerHTML = '<div class="sp-notice"><span class="sp-notice-l">Still running</span>'
         + 'This program has not closed, so there is no vendor report yet. Below are the mid-week sheets for the stores, from the hourly figures.</div>'
+        + progressBar(false)
         + '<div id="repStores"></div>';
       loadStoreSheets(p, mySeq);
       return;
@@ -6911,6 +6800,7 @@
       +     '</div>'
       +     '<div class="sp-step-actions">'
       +       '<button class="gx-btn gx-btn-green" data-act="print">Print / save PDF for the brand</button>'
+      +       (canEdit() ? '<button class="gx-btn" data-act="progresspdf" title="A snapshot of progress so far, as the brand page with no budtender names, labeled with its as-of time.">Download progress report (PDF)</button>' : '')
       +       '<button class="gx-btn" data-act="pdf" title="Saves our own copy to the SPIFF Reports folder in Drive. It lists every budtender by name, so it is for our records and is not what the brand gets.">Save staff copy to Drive (with budtender names)</button>'
       +     '</div>'
       +   '</div></div>'

@@ -426,6 +426,7 @@ function doGet(e) {
       /* SENDS AN EMAIL. Editor session only, and never hedged client-side — a second copy would be
          a second email. See sendBrandEmail_. */
       case 'sendBrandEmail': out = sendBrandEmail_(p);                              break;
+      case 'progressSnapshot': out = progressSnapshot_(p);                           break;
       /* Marketing (phase 3). Editor sessions only, neither hedged on the client. marketingNotify
          EMAILS THE INTERNAL TEAM (never a brand) and refuses a repeat without resend=1. */
       case 'marketingOverview': out = marketingOverview_(p);                        break;
@@ -4944,222 +4945,23 @@ function progressRowsFor_(programId) {
   return out;
 }
 
+/* THE VENDOR LINK IS RETIRED (Sky, 2026-11-05). Brand reps used to sign in at client.html?t=<token>
+   with their email and one shared password to watch a program live. That was the app's weakest
+   outside door and it duplicated the close-out PDF Tawny already sends, so it now refuses EVERY
+   request, whatever the token, email or password. Links already emailed land here and read the
+   message instead of a 404. Nothing is read, nothing is looked up, and no failure counter is kept:
+   there is no secret left to guess.
+
+   What replaced it: an editor's "Download progress" on the program (`progressSnapshot`), which is
+   the same brand page with no budtender names, labeled with its as-of time, that Tawny sends
+   herself. The `share_token` column and the CLIENT_VIEW_PASSWORD property are left in place on
+   purpose (names stay; the property can be removed later). Do not rebuild a self-serve view. */
+var CLIENT_LINK_RETIRED_MSG = 'This link is no longer active. Ask Tawny for a progress report.';
+
 function clientView_(p) {
-  var token = String(p.t || '').trim();
-  var pass  = String(p.pass || '');
-  var email = norm_(p.email || '');
-
-  if (!email || !pass) return { ok: false, error: 'Enter your email and the password.' };
-
-  // Cheap brute-force brake: a shared passphrase is guessable given time, and Apps
-  // Script has no rate limiting of its own.
-  var cache = CacheService.getScriptCache();
-  var key   = 'cv_fail_' + (token || email);
-  var fails = Number(cache.get(key) || 0);
-  if (fails >= 8) return { ok: false, error: 'Too many attempts — try again later.' };
-
-  var expected = PropertiesService.getScriptProperties().getProperty(CLIENT_PASS_PROP);
-  if (!expected) return { ok: false, error: 'Brand access is not set up yet.' };
-
-  // One generic failure for a wrong password OR an unknown email — telling them apart
-  // would let someone confirm which reps we work with.
-  var deny = function () {
-    cache.put(key, String(fails + 1), 900);
-    return { ok: false, error: 'That email and password combination does not match an active proposal.' };
-  };
-  if (pass !== expected) return deny();
-
-  /* WHO MAY OPEN A PROPOSAL IS DECIDED BY THE BRAND REGISTRY IN GX CORE (Sky, 2026-09-14/15).
-     It used to be one contact_email typed onto each program. Now any ACTIVE rep on the program's
-     brand may sign in, on an ACTIVE brand — so adding a rep in one place opens every proposal for
-     that brand, and removing one (or retiring the brand) closes them all at once. getBrands and
-     resolveBrand already omit removed reps; the active checks here are belt and braces, so a
-     missed filter upstream fails closed rather than letting someone back in.
-
-     A Core outage is NOT a wrong password. It gets its own message, which still names no rep. */
-  var repOn = function (brand) {
-    if (!brand || !brand.active) return null;
-    return (brand.contacts || []).filter(function (c) { return c.active && norm_(c.email) === email; })[0] || null;
-  };
-  var shared = listProgramsCached_().filter(function (x) { return x.share_token; });
-  var unavailable = { ok: false, error: 'Brand sign-in is unavailable right now — please try again in a few minutes.' };
-
-  var prog = null, rep = null;
-  if (token) {
-    // The link scopes to one program, and the email must be an active rep on THAT program's brand.
-    // resolveBrand is Core's own answer to "which brand is this", so the gate never forms a second one.
-    prog = shared.filter(function (x) { return x.share_token === token; })[0] || null;
-    if (!prog) return deny();
-    var brand;
-    try { brand = GXCore.resolveBrand(brandNameOf_(prog)); } catch (e) { return unavailable; }
-    rep = repOn(brand);
-    if (!rep) return deny();
-  } else {
-    /* No link: show what this rep is on. The shortlist matches each shared program's brand name
-       against the names of the brands this rep is on, folded the way Core folds. Core refuses two
-       brands sharing a folded name, so this agrees with resolveBrand for every registry-written
-       row — and it only offers CHOICES: opening one comes back through the token branch above,
-       which asks Core directly. */
-    var brands;
-    try { brands = GXCore.getBrands() || []; } catch (e) { return unavailable; }
-    var mine = brands.filter(function (b) { return repOn(b); });
-    if (!mine.length) return deny();
-    var names = Object.create(null);
-    mine.forEach(function (b) { brandFoldedNames_(b).forEach(function (n) { names[n] = b; }); });
-    var onMine = shared.filter(function (x) { return names[brandFold_(brandNameOf_(x))]; });
-    if (!onMine.length) return deny();
-    if (onMine.length > 1) {
-      return { ok: true, choices: onMine.map(function (x) {
-        return { token: x.share_token, name: x.program_name || x.title, period: x.start_date || '' };
-      }) };
-    }
-    prog = onMine[0];
-    rep = repOn(names[brandFold_(brandNameOf_(prog))]);
-  }
-
-  var t = prog.target_json || {}, b = prog.baseline_json || {}, a = prog.actual_json;
-  var cost = (prog.cost_json || {}).per_unit || 0;
-  var rate = (prog.payout_json || {}).amount || 0;
-
-  // Store-level detail uses display names, not internal ids.
-  var stores = gxStores_(), nameOf = Object.create(null);
-  stores.forEach(function (s) { nameOf[s.store_id] = s.display_name || s.store_id; });
-
-  /* Per-store RESULTS come from the progress cache, which is already refreshed hourly — so the
-     vendor's table can show what each store actually sold without this page triggering six
-     sell-through calls while a rep waits on it.
-   *
-   * "Absent cache means no result columns" was the intent and NOT what happened. The cache is only
-   * ever swept for ACTIVE programs (refreshSpiffProgress_ reads listPrograms_('active')), so a
-   * CLOSED one — which is exactly what a vendor is sent — has no rows in it, and byStore emitted
-   * sold:0 for every store. The vendor then saw a table totaling 0 units directly beneath a
-   * headline of 117. Reported by Sky 2026-08-29 on the BeGoat page.
-   *
-   * There is no per-store settled figure to fall back on: actual_json records program TOTALS only.
-   * So the honest answer is to say we do not have the breakdown, not to print zeros — hence the
-   * flag below, which the page uses to drop the columns entirely rather than fill them with a
-   * number that is wrong. */
-  var progByStore = Object.create(null);
-  try {
-    var pRows = progressRowsFor_(prog.program_id);
-    pRows.forEach(function (row) {
-      var g = progByStore[row.store_id] || (progByStore[row.store_id] = { sold: 0, hit: 0, budtenders: 0 });
-      g.sold += Number(row.units) || 0;
-      g.budtenders++;
-      if (row.hit) g.hit++;
-    });
-  } catch (e) { /* no cache is not an error here */ }
-
-  var byStore = (prog.stores_json || []).map(function (id) {
-    var g = progByStore[id] || {};
-    var tgt = (t.by_store || {})[id] || 0;
-    var sold = g.sold || 0;
-
-    /* HOW MANY BUDTENDERS THE STORE WAS PLAYING WITH.
-     *
-     * This used to be g.budtenders — a count of people who appear in the sell-through, i.e. who
-     * sold AT LEAST ONE unit. So a store where only two staff ever touched the product read
-     * "0 of 2", which flatters it: nobody hit, out of a denominator that had quietly shrunk to
-     * the people who tried. Stores looked inconsistent for no reason a vendor could see (6, 2, 5,
-     * 3, 7, 2 across one program) and the number understated how many staff the vendor's money
-     * was actually put in front of.
-     *
-     * The PLAN knows the answer: a store's unit goal divided by its per-budtender goal is the
-     * headcount the program was designed around — exactly 6 at every BeGoat store. That is the
-     * denominator the vendor was sold and the one they should be shown.
-     *
-     * Never below the number who actually took part, though: at portland-rd seven people sold and
-     * all seven hit, and "7 of 6" reads as a broken page rather than an overperforming store. */
-    var perBt   = Number((t.per_bt || {})[id]) || 0;
-    var planned = perBt > 0 ? Math.round(tgt / perBt) : 0;
-    var took    = g.budtenders || 0;
-    var roster  = Math.max(planned, took, g.hit || 0);
-
-    var base = (b.by_store || {})[id] || 0;
-    return { store: nameOf[id] || id,
-             baseline: base,
-             target: tgt,
-             sold: sold,
-             /* Both comparisons are computed HERE so a row and the totals cannot drift apart.
-                `lift` answers the question the vendor actually came with — did the SPIFF move
-                anything — which "vs goal" alone does not: a store can miss an ambitious goal and
-                still have tripled. BeGoat's bend went 2 to 18 while finishing level with goal. */
-             lift: sold - base,
-             delta: sold - tgt,
-             hit: g.hit || 0,
-             budtenders: roster,
-             /* Kept for anyone reconciling later: how many actually sold, before the floor. */
-             sellers: took };
-  });
-
-  /* TRUE only when the cache actually carried per-store rows for this program. */
-  var hasStoreResults = Object.keys(progByStore).length > 0;
-
-  /* The planned headcount, and ONLY if we genuinely know it. The previous fallback summed
-     `baseline.by_store` — which is baseline UNITS, not people — so a program without an explicit
-     budtender count reported its prior-period unit total as a headcount. Better to return 0 and
-     let the page omit the comparison than to state a confident wrong number to a vendor. */
-  /* ONE SOURCE PER PAGE.
-   *
-   * The headline KPIs used to come from actual_json while the table came from the progress cache,
-   * so a vendor could read "117 units sold" above a table totaling 122 and neither number
-   * explained the other. Sky, 2026-08-29: measured data wins, the historical actuals get
-   * recalibrated separately.
-   *
-   * So when per-store rows exist they drive EVERYTHING — units, hits, headcount and therefore the
-   * credit — and actual_json is only the fallback for a program the cache has never held. The
-   * credit is the number the vendor is invoiced, so it must come from the same measurement as the
-   * table that justifies it: paying 18 hits under a table showing 14 is the version of this bug
-   * that costs someone money. */
-  var measured = hasStoreResults ? byStore.reduce(function (n, x) {
-    n.units += x.sold; n.hit += x.hit; n.bts += x.budtenders; return n;
-  }, { units: 0, hit: 0, bts: 0 }) : null;
-
-  var rate_    = a && a.spiff_amount ? a.spiff_amount : rate;
-  var soldTot  = measured ? measured.units : (a ? (a.units_sold || 0) : 0);
-  var hitTot   = measured ? measured.hit   : (a ? (a.bts_hit || 0) : 0);
-  var bts      = measured ? measured.bts   : (Number(t.budtenders) || 0);
-  var invest   = (a || measured) ? hitTot * rate_ : 0;
-  var revInc   = ((t.units || 0) - (b.units || 0)) * cost;
-
-  return {
-    ok: true,
-    program: {
-      name: prog.program_name || prog.title,
-      vendor: prog.vendor,
-      contact_name: (rep && rep.name) || '',        // the rep who signed in, not a per-program field
-      status: prog.status,
-      start_date: prog.start_date,
-      end_date: prog.end_date,
-      cost_per_unit: cost,
-      spiff_per_budtender: rate,
-      baseline_units: b.units || 0,
-      target_units: t.units || 0,
-      unit_lift: (t.units || 0) - (b.units || 0),
-      revenue_increase: revInc,
-      by_store: byStore,
-      // Results only once the program has actually closed.
-      budtenders: bts,
-      has_store_results: hasStoreResults,
-      investment: rate * (t.budtenders || 0),
-      results: (a || measured) ? {
-        units_sold: soldTot, budtenders_hit: hitTot, budtenders: bts,
-        rate_paid: rate_, investment: invest,
-        /* The vendor's own gain, in dollars, at the cost they charge us. It was computed in
-           the browser before, from figures the page did not all have — so the sentence under
-           the headline could disagree with the table above it. Derived from the SAME sold total
-           as the table, for the same reason. */
-        added_revenue: Math.round(((soldTot - (b.units || 0)) * cost) * 100) / 100,
-        /* Which measurement the reader is looking at. Nothing renders it today; it is here so a
-           later reconciliation can tell a measured page from a seeded one without guessing. */
-        source: measured ? 'measured' : 'recorded'
-      } : null
-    }
-  };
+  return { ok: false, retired: true, error: CLIENT_LINK_RETIRED_MSG };
 }
 
-/* Mint (or reuse) a program's share token. Admin-gated — creating a link that exposes
-   a program to an outside party is a write, not a read. */
 /* ═══════════════════ THE KIOSK LINK, ONE PER STORE ═══════════════════
  * Sky, 2026-09-07: "We need unique store links for each store. We will then wire these to
  * Leaderboard so that BTs can open a window with the SPIFF details from their Kiosk."
@@ -6172,11 +5974,9 @@ function shareLink_(p) {
     return { ok: true, revoked: true };
   }
 
-  if (!prog.share_token) {
-    prog.share_token = Utilities.getUuid().replace(/-/g, '');
-    saveProgram_(prog, { editedBy: auth.user });
-  }
-  return { ok: true, token: prog.share_token, program_id: prog.program_id };
+  /* Minting is closed (Sky, 2026-11-05; see clientView_). Revoking above stays, so a stale token
+     can still be cleared off a record. */
+  return { ok: false, retired: true, error: CLIENT_LINK_RETIRED_MSG };
 }
 
 /* ============================ CLOSE-OUT =============================
@@ -6912,12 +6712,18 @@ function brandPaperHtml_(p, measured, opts) {
     + td(before.toLocaleString(), true, true, true) + td(goal.toLocaleString(), true, true, true)
     + td(sold.toLocaleString(), true, true, true) + td(f.earners + ' / ' + totalBts, true, true, true) + '</tr>';
 
+  /* A MID-PROGRAM SNAPSHOT (opts.snapshot = {asOf}) is the same page with three honest changes: it
+     says "progress", it carries its as-of time, and the money is "earned so far", not a credit
+     being requested. */
+  var snap = opts.snapshot || null;
   var paper = '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-top:2px solid ' + INK + ';border-bottom:2px solid ' + INK + ';margin:14px 0">'
     + '<tr><td style="padding:14px 0"><img src="' + LOGO_ONLIGHT + '" alt="Green Cross" height="22" style="height:22px;width:auto;display:block;margin:0 0 10px">'
-    +   '<div style="' + FONT + 'font-size:16px;font-weight:800;color:' + INK + '">' + esc(label) + ' — SPIFF results</div>'
-    +   '<div style="' + FONT + 'font-size:12px;color:' + MUTE + '">Green Cross Cannabis Emporium · ' + esc(period) + '</div></td>'
+    +   '<div style="' + FONT + 'font-size:16px;font-weight:800;color:' + INK + '">' + esc(label) + (snap ? ' — SPIFF progress' : ' — SPIFF results') + '</div>'
+    +   '<div style="' + FONT + 'font-size:12px;color:' + MUTE + '">Green Cross Cannabis Emporium · ' + esc(period) + '</div>'
+    +   (snap ? '<div style="' + FONT + 'font-size:12px;font-weight:700;color:' + INK + ';margin-top:4px">Progress as of ' + esc(snap.asOf || 'now') + ' — the program is still running</div>' : '')
+    +   '</td>'
     + '<td style="padding:14px 0;text-align:right;vertical-align:top">'
-    +   '<div style="' + FONT + 'font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:' + MUTE + '">Credit requested</div>'
+    +   '<div style="' + FONT + 'font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:' + MUTE + '">' + (snap ? 'Earned so far' : 'Credit requested') + '</div>'
     +   '<div style="' + FONT + 'font-size:26px;font-weight:800;color:' + INK + '">' + esc(moneyStr_(owed)) + '</div></td></tr></table>'
     + '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 16px"><tr>'
     +   stat('Units sold', sold.toLocaleString(), goal ? (sold - goal >= 0 ? '+' : '') + (sold - goal).toLocaleString() + ' vs. goal' : '')
@@ -6993,6 +6799,53 @@ function brandPdfBlob_(p, measured) {
   var stamp = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'MMddyy');
   var name = 'Green Cross SPIFF Results - ' + (p.vendor || p.title || 'Brand') + ' - ' + stamp + '.pdf';
   return Utilities.newBlob(doc, 'text/html', 'r.html').getAs('application/pdf').setName(name);
+}
+
+/* ── THE PROGRESS SNAPSHOT (Sky, 2026-11-05) ─────────────────────────────────────────────────────
+ * Replaces the retired vendor link (see clientView_). An editor asks for it on a program; it is the
+ * SAME brand page (brandPaperHtml_, no budtender names) built from what has been measured so far,
+ * labeled with its as-of time, so Tawny can send the vendor a mid-program picture herself.
+ *
+ * Mid-program there are no recorded actuals, so the totals are derived here from the measurement
+ * (the hourly cache, or the frozen snapshot on a closed program) and handed to the builder as a
+ * COPY of the program: nothing is written to the record. Nothing is sent from this route. The PDF
+ * comes back for a person to attach; sending stays sendBrandEmail_'s job. */
+function snapshotProgramOf_(prog, measured) {
+  var rows = (measured && measured.rows) || [];
+  var byStore = (measured && measured.by_store) || {};
+  var keys = Object.keys(byStore);
+  var sold = keys.length ? keys.reduce(function (n, k) { return n + (Number(byStore[k]) || 0); }, 0)
+                         : rows.reduce(function (n, r) { return n + (Number(r.units) || 0); }, 0);
+  var perUnit = payoutModelOf_(prog) === 'per_unit';
+  var hit = rows.filter(function (r) { return r.hit || (perUnit && (Number(r.earned) || 0) > 0); }).length;
+  var copy = JSON.parse(JSON.stringify(prog));
+  copy.actual_json = { units_sold: sold, bts_hit: hit, spiff_amount: payoutRateOf_(prog) };
+  return copy;
+}
+
+function progressSnapshot_(p) {
+  var auth = gxAuth_(p.token);
+  if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
+  if (EDIT_ROLES.indexOf(String(auth.role)) < 0) return { ok: false, error: 'Your role cannot create progress reports' };
+
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var prog = res.program;
+
+  var measured = measuredRowsFor_(prog);
+  if (!measured.rows.length && !Object.keys(measured.by_store).length) {
+    return { ok: false, error: 'Nothing has been measured for this program yet. Try again after the next hourly refresh.' };
+  }
+  var asOf = measured.as_of ? String(measured.as_of).slice(0, 16).replace('T', ' ')
+                            : Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd HH:mm');
+  var copy = snapshotProgramOf_(prog, measured);
+  var html = brandPaperHtml_(copy, measured, { snapshot: { asOf: asOf } });
+  var stamp = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'MMddyy');
+  var name = 'Green Cross SPIFF Progress - ' + (prog.vendor || prog.title || 'Brand') + ' - ' + stamp + '.pdf';
+  var pdf = Utilities.newBlob('<html><head><meta charset="utf-8"></head><body style="margin:36px">' + html + '</body></html>',
+                              'text/html', 'r.html').getAs('application/pdf').setName(name);
+  return { ok: true, program_id: prog.program_id, as_of: asOf, filename: name, html: html,
+           pdf_base64: Utilities.base64Encode(pdf.getBytes()), by: auth.user };
 }
 
 /* Tawny's address is the default (Sky, 2026-09-30); the BRAND_EMAIL_FROM script property overrides
