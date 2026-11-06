@@ -264,10 +264,19 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   store), date, time, note, in its **own `vendor_days` tab, never in `programs`** — same reason as pencils
   and holidays. Rows are never deleted (`status` planned / canceled). Read only by its own routes
   (`standaloneVdays`, `saveStandaloneVday`, `cancelStandaloneVday`), the Marketing Calendar source
-  (`svday:<id>:<store>` events) and the deals page publisher. It goes on /deals only when ticked, **approved
-  by a signed-in Sky, Mike or Tawny** (the engine writes `approved_by` from the session; any other
-  person's change to the brand or copy clears it) and the copy passes the OLCC and length rules; its Wix
-  rows are keyed `sv-<id>|<store>|<date>`. **It must carry the brand's logo** (Sky, 2026-11-05): linked by
+  (`svday:<id>:<store>` events) and the deals page publisher. It goes on /deals when ticked (the default);
+  its deal WORDING shows only once **approved by a signed-in Sky, Mike or Tawny** (the engine writes
+  `approved_by` from the session; any other person's change to the brand or copy clears it) and passes
+  the OLCC and length rules; its Wix
+  rows are keyed `sv-<id>|<store>|<date>`. **Vendor days no longer wait for approval** (Sky, 2026-11-06:
+  "vendor days, once entered into the app, should be automatically approved and published"): a program's
+  days and a standalone day go up as soon as they are entered, signed `approvedBy` =
+  `WIX_VDAY_AUTO_APPROVER_` (`'sky'`, his standing approval, for GX Core's gate). Only the DEAL needs a
+  person: the Featured card still waits for `web.approve`, and a day's deal/offer wording rides on it
+  only once approved and inside the copy rules, else the day goes up with it blank (reported in
+  `skipped`). A standalone day's "Show on the deals page" is ticked by default and is now an opt-out.
+  Pinned by `tests/wix_publish_test.js` section 2 and `tests/standalone_vendor_day_test.js`.
+  **It must carry the brand's logo** (Sky, 2026-11-05): linked by
   `vendorRef` to the brand's Wix `Vendors` row, like a program's day, but unlike a program a day whose
   brand has no row or no logo is NOT sent (`wixVdayLogoProblem_`, reported in `skipped`). The form shows
   the logo or asks for one (`vdayLogoStatus` in marketing.js, read from the Deals page view's brand list)
@@ -313,8 +322,9 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   the owner runs `authorize()` once. Nothing that pays may call it. Pinned by `tests/calendar_sync_test.js`
   and the isolation test's section 5c.
   **The deals page (greencrosscanna.com/deals) fills itself, one way, through GX Core's Wix connector**
-  (Sky, 2026-11-02; needs GXCore v365+). A program goes on it as a Featured card (`FeaturedDeals`, keyed
-  `programId`) plus one `VendorDays` row per vendor day (keyed `<program>|<street-slug>|<date>`) only when
+  (Sky, 2026-11-02; needs GXCore v365+). A program goes on it as one `VendorDays` row per vendor day (keyed
+  `<program>|<street-slug>|<date>`) as soon as the days are entered (Sky, 2026-11-06; see the standalone
+  vendor day bullet above), plus a Featured card (`FeaturedDeals`, keyed `programId`) only when
   it is active (or a draft starting within 60 days, Sky 2026-11-04, sent `live=false`), its plan picks the **Deals page**
   item (`web`: headline, image link, offer lines, vendor-day deal/offer), **Sky, Mike or Tawny has ticked
   `web.approve`** (`WIX_APPROVERS_`, Sky 2026-11-02) and the copy passes the OLCC word rules
