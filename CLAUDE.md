@@ -236,6 +236,11 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   approves at the Friday L10 (backup approver: Tawny) — Sky approves all customer copy. The one
   task Sky owns by default is the program's `core.gonogo` at that same L10.
   The three `blast.*` tasks come once however many channels are picked.
+  **The Dutchie campaign name is computed, never stored** (Sky, 2026-11-05;
+  `_handoffs/spiff-blast-name-at-lock.md`): `YYYY-MM-DD | SPIFF|PROMO | Who | Hook [stores] [SMS|Email]`
+  from the earliest send date, the program's stores, the channels and `d.blast.hook` (the one stored
+  piece, typed on `blast.deal`; a holiday keeps it too via `holidayPlan_`). Shown with Copy on
+  `blast.copy`. No Dutchie integration, on purpose. Pinned by `tests/blast_name_test.js`.
   **The 360 schedule fixes** (Sky, 2026-11-05; `_handoffs/spiff-360-schedule-fixes.md`): stock is
   ordered at -14 and checked at `e -6` (`core.stock`, `core.midcheck`), a vendor-funded customer
   deal is its own item (`promo`), close-out lands on the L10 after the end (`core.wrapup` e+4,

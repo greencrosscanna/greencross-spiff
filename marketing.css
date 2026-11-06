@@ -56,6 +56,11 @@
 .mk-task.done .tx > small { text-decoration: none; }
 .mk-task .tx small { display: block; color: var(--mk-mut); font-size: 11px; }
 .mk-task-stores { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+/* The Dutchie campaign name on blast.copy, and the hook box on blast.deal. */
+.mk-bname { margin-top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mk-bname code { font-size: 12px; padding: 2px 6px; border-radius: 6px; background: var(--mk-in); border: 1px solid var(--mk-line); color: var(--mk-txt); overflow-wrap: anywhere; }
+.mk-bname small { flex-basis: 100%; }
+.mk-hook { margin-top: 6px; max-width: 320px; }
 .mk-store-tick { background: var(--mk-in); border: 1px solid var(--mk-line); color: var(--mk-mut); border-radius: 999px; padding: 1px 8px; font: inherit; font-size: 11px; cursor: pointer; }
 .mk-store-tick.on { border-color: var(--mk-green); color: var(--mk-green); }
 .mk-store-tick[disabled] { cursor: default; }
