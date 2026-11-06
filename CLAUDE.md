@@ -230,10 +230,18 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   Addresses are fixed in `MKT_PEOPLE_` (mirrored by `PEOPLE` in marketing.js), never read from the request.
   Pinned by `tests/marketing_vendor_plan_test.js` section 7 and `tests/marketing_tasks_test.js` section 12.
   **Email and text blasts follow the real cycle** (Sky, 2026-11-02; send day = Monday): Tawny
-  locks the deal Wednesday (`blast.deal`, -5), Mike has copy and the Dutchie draft Thursday
+  locks the deal when its terms are set (`blast.deal`, -14; moved 2026-11-05) and hands final
+  details to Mike Wednesday (`blast.handoff`, -5), Mike has copy and the Dutchie draft Thursday
   (`blast.copy`, -4), Mike's proof tasks (`email.review`, `sms.approve`, -3) are ticked when Sky
-  approves at the Friday L10 — Sky approves all customer copy, and there is no separate Sky task.
-  The two `blast.*` tasks come once however many channels are picked. On a `blast` item every
+  approves at the Friday L10 (backup approver: Tawny) — Sky approves all customer copy. The one
+  task Sky owns by default is the program's `core.gonogo` at that same L10.
+  The three `blast.*` tasks come once however many channels are picked.
+  **The 360 schedule fixes** (Sky, 2026-11-05; `_handoffs/spiff-360-schedule-fixes.md`): stock is
+  ordered at -14 and checked at `e -6` (`core.stock`, `core.midcheck`), a vendor-funded customer
+  deal is its own item (`promo`), close-out lands on the L10 after the end (`core.wrapup` e+4,
+  `core.results` e+5), and no default task falls on a Sunday — pinned by section 14 of
+  `tests/marketing_tasks_test.js`. The team cheat sheet (claude.ai artifact KwVhMeWbfTbUpmCTADx2Jz)
+  mirrors this schedule; change one, tell the other. On a `blast` item every
   before-start task counts back from that item's typed send date; the `blast.*` pair from the
   earliest one. `email.creative` drops out when "Who makes the creative" is "We do" (blank keeps
   it). Pinned by `tests/marketing_tasks_test.js` section 13. The section shows to sky, mike and

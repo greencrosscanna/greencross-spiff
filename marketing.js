@@ -53,16 +53,25 @@
     ['core.menu', 'INV', 'Marketing menu filled in with the rep', 's', -21],
     ['core.plan', 'INV', 'Send the vendor plan to the rep', 's', -7],
     ['core.managers', 'DIR', 'Send managers the summary for this vendor', 's', -7],
-    ['core.wrapup', 'DIR', 'Wrap-up notes on what ran', 'e', 10],
-    ['core.results', 'INV', 'Share results with vendor; talk next cycle', 'e', 14]
+    /* 360 schedule fixes (Sky, 2026-11-05). Stock for the lift is ordered two weeks out and checked
+       on the Monday of the last week (e -6; on a one-week window that is launch day, which is fine).
+       The go / no-go is the Friday L10 before launch. Close-out lands on the L10 after the end:
+       notes Thursday (e +4), results shared Friday (e +5). No deadline falls on a Sunday. */
+    ['core.stock', 'INV', 'Order stock for the expected lift', 's', -14, { vendor: 1 }],
+    ['core.gonogo', 'SKY', 'Go / no-go at the Friday L10: proofs approved, goods in stores, vendor days confirmed, training sent. Any "no" slips the launch or cuts the item (backup: Tawny)', 's', -3],
+    ['core.midcheck', 'INV', 'Mid-window check: stock levels and staff leaderboard', 'e', -6, { vendor: 1 }],
+    ['core.wrapup', 'DIR', 'Wrap-up notes on what ran, ready for the Friday L10', 'e', 4],
+    ['core.results', 'INV', 'Share results with vendor after the Friday L10 postmortem; talk next cycle', 'e', 5]
   ];
 
-  /* The blast cycle (Sky, 2026-11-02). Send day is a Monday: the deal is locked the Wednesday
-     before, copy and the Dutchie draft are ready Thursday, Sky approves the proofs at the Friday L10.
+  /* The blast cycle (Sky, 2026-11-02; deal moved 2026-11-05). Send day is a Monday: the deal is
+     locked two weeks out, when its terms are set, final details go to Mike the Wednesday before,
+     copy and the Dutchie draft are ready Thursday, Sky approves the proofs at the Friday L10.
      These come once per program when an email or a text blast is picked, never twice for both, and
      count back from the earliest typed send date, else the window's start. */
   var BLAST = [
-    ['blast.deal', 'INV', 'Deal and timeline set with the vendor, locked', 's', -5],
+    ['blast.deal', 'INV', 'Deal and timeline set with the vendor, locked', 's', -14],
+    ['blast.handoff', 'INV', 'Final offer details and assets handed to Mike', 's', -5],
     ['blast.copy', 'DIR', 'Copy and Dutchie draft ready (with Sky and Claude)', 's', -4]
   ];
 
@@ -75,7 +84,7 @@
       k: [['edu.video', 'DIR', 'Collect training video and talking points from vendor', 's', -14],
           ['edu.samples', 'INV', 'Receive product samples (medical and non-medical)', 's', -10],
           ['edu.send', 'DIR', 'Send education materials to store managers', 's', -7],
-          ['edu.train', 'MGR', 'Budtenders complete the training', 's', -1, { each: 1 }]] },
+          ['edu.train', 'MGR', 'Budtenders complete the training', 's', -2, { each: 1 }]] },
     shirts: { t: 'Staff swag (shirts / hats)', s: 'Staff wear the brand for the window', sec: 'emp',
       f: [['text', 'items', 'Items and sizes']],
       c: 'Branded apparel only. No health claims, nothing that appeals to minors.',
@@ -101,7 +110,7 @@
           ['date', 'date', 'Send date']],
       c: 'Review copy and offer before sending. Prohibited under Oregon rules: BOGO, tiered spend thresholds, tied discounts, cannabis gift-with-purchase.',
       k: [['email.creative', 'DIR', 'Receive email creative and offer from vendor', 's', -14, { unless: ['maker', 'We do'], vendor: 1 }],
-          ['email.review', 'DIR', 'Send email proof to Sky Thursday; tick when Sky approves at the Friday L10', 's', -3],
+          ['email.review', 'DIR', 'Send email proof to Sky Thursday; tick when Sky approves at the Friday L10 (backup: Tawny)', 's', -3],
           ['email.send', 'DIR', 'Send at 11 AM, then check emails sent vs planned', 's', 0, { on: 'date' }],
           ['email.stats', 'DIR', 'Record opens and clicks', 'e', 3]] },
     sms: { t: 'Text blast', s: 'One SMS send', sec: 'mkt', blast: 1,
@@ -109,7 +118,7 @@
           ['date', 'date', 'Send date']],
       c: 'Review copy, offer and opt-in / opt-out wording. Same Oregon offer rules as email.',
       k: [['sms.cost', 'INV', 'Agree on cost model and vendor credit', 's', -14, { vendor: 1 }],
-          ['sms.approve', 'DIR', 'Send text proof to Sky Thursday; tick when Sky approves at the Friday L10', 's', -3],
+          ['sms.approve', 'DIR', 'Send text proof to Sky Thursday; tick when Sky approves at the Friday L10 (backup: Tawny)', 's', -3],
           ['sms.send', 'DIR', 'Send at 11 AM', 's', 0, { on: 'date' }]] },
     social: { t: 'Social media', s: 'Posts on our accounts', sec: 'mkt',
       f: [['sel', 'maker', 'Who makes the posts', ['We do', 'Vendor supplies', 'Both']]],
@@ -122,7 +131,7 @@
     ecom: { t: 'Online menu feature', s: 'Featured placement on the online menu', sec: 'mkt',
       f: [],
       c: 'Review the placement and any offer shown with it.',
-      k: [['ecom.set', 'INV', 'Set featured placement on the online menu', 's', -1],
+      k: [['ecom.set', 'INV', 'Set featured placement on the online menu', 's', -2],
           ['ecom.remove', 'INV', 'Remove featured placement', 'e', 1]] },
     /* The website's deals page (Sky, 2026-11-02). Everything typed here is PUBLIC customer copy. The
        engine publishes it to greencrosscanna.com/deals on its own, as a Featured card plus one row per
@@ -151,6 +160,16 @@
           ['vday.relay', 'DIR', 'Relay schedule to managers', 's', -7],
           ['vday.held', 'MGR', 'Vendor day held', 's', 0, { each: 1, vdays: 1 }],
           ['vday.photos', 'DIR', 'Collect photos and video', 'e', 3]] },
+    /* A discount on the shelf price that the vendor pays for (Sky, 2026-11-05). The credit owed is
+       logged after close so it can be claimed against the next buy. */
+    promo: { t: 'Customer deal (vendor-funded)', s: 'A discount the vendor pays for', sec: 'cust',
+      f: [['text', 'deal', 'The deal', null, 'e.g. $3 off for two weeks'],
+          ['sel', 'funding', 'How the vendor funds it', ['Vendor credit', 'Vendor invoice', 'Split']]],
+      c: 'Same Oregon offer rules as email: no BOGO, no tiered spend thresholds, no tied discounts, no cannabis gift-with-purchase.',
+      k: [['promo.terms', 'INV', 'Agree the customer deal and how the vendor funds it', 's', -14, { vendor: 1 }],
+          ['promo.build', 'DIR', 'Build the discount in Dutchie; ring a test sale', 's', -3, { vendor: 1 }],
+          ['promo.remove', 'DIR', 'Turn the discount off in Dutchie', 'e', 1, { vendor: 1 }],
+          ['promo.credit', 'INV', 'Log the vendor credit owed for the discount', 'e', 3, { vendor: 1 }]] },
     raffle: { t: 'Customer raffle', s: 'Entries in store, one winner', sec: 'cust',
       f: [['text', 'prize', 'Prize'], ['date', 'date', 'Draw date']],
       c: 'Entry is not tied to a purchase and the prize is not cannabis.',
@@ -173,7 +192,7 @@
               presets: ['Featured Case', 'Daily Buzz'] },
       c: 'Shelf talkers: no health claims, nothing that appeals to minors.',
       k: [['case.space', 'INV', 'Confirm case space for each store', 's', -10],
-          ['case.set', 'MGR', 'Featured placement set', 's', -1, { each: 1, rowStores: 1 }],
+          ['case.set', 'MGR', 'Featured placement set', 's', -2, { each: 1, rowStores: 1 }],
           ['case.reset', 'MGR', 'Case back to normal', 'e', 1, { each: 1, rowStores: 1 }]] },
     signage: { t: 'Signage & readerboard', s: 'Clings, flags, readerboard', sec: 'store',
       f: [],
@@ -187,7 +206,7 @@
       f: [],
       c: 'Review LED content before it runs.',
       k: [['led.art', 'DIR', 'Receive and approve LED artwork', 's', -10],
-          ['led.load', 'MGR', 'Load brand content', 's', -1, { each: 1 }],
+          ['led.load', 'MGR', 'Load brand content', 's', -2, { each: 1 }],
           ['led.remove', 'MGR', 'Remove brand content', 'e', 1, { each: 1 }]] },
     counter: { t: 'Countertop ads', s: 'Checkout / daily buzz ads', sec: 'store',
       f: [],

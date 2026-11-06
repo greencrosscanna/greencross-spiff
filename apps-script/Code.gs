@@ -7091,6 +7091,7 @@ var MKT_MENU_ = {
   ecom:     { t: 'Online menu feature', need: 'Product images and descriptions for the featured spot.', spec: 'Clean product images on a plain background.' },
   web:      { t: 'Deals page (website)', need: 'One featured image and the offer, for our deals page at greencrosscanna.com/deals.', spec: 'Featured image: 1200×1200 px square (1080 to 2400 accepted), JPG or PNG, 2 MB max, with text, prices and logos inside the center 1080×1080.' },
   vday:     { t: 'Vendor day', need: 'Your rep’s name, and the games or discounts you plan to run.', spec: '', dated: 'date', datedLabel: 'Vendor day' },
+  promo:    { t: 'Customer deal (vendor-funded)', need: 'Agreement on the customer discount and how you fund it: credit against the next buy, an invoice, or a split.', spec: '' },
   raffle:   { t: 'Customer raffle', need: 'The prize. It cannot be cannabis.', spec: '', dated: 'date', datedLabel: 'Raffle drawing' },
   swag:     { t: 'Customer swag', need: 'Giveaway items, counted and shipped to us.', spec: '' },
   'case':   { t: 'Featured case', need: 'Display material for the featured case.', spec: '8.5×11 in print-ready PDF, or ship the physical display.' },

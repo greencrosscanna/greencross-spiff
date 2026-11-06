@@ -51,10 +51,10 @@ ok('  …and a blank window gives a blank date, not a guess', MK.addDays('', 3) 
 {
   const t = MK.tasksOf(prog(), OPTS);
   ok('the menu task is due three weeks before the start', find(t, 'core.menu').due === '2026-09-21');
-  ok('sharing results is due two weeks after the end', find(t, 'core.results').due === '2026-11-08');
+  ok('sharing results is due the Friday L10 after the end', find(t, 'core.results').due === '2026-10-30');
   const moved = MK.tasksOf(prog({ start_date: '2026-11-09', end_date: '2026-11-22' }), OPTS);
   ok('move the window and every date moves with it', find(moved, 'core.menu').due === '2026-10-19'
-     && find(moved, 'core.results').due === '2026-12-06');
+     && find(moved, 'core.results').due === '2026-11-27');
 }
 
 console.log('\n2. what is on the list');
@@ -384,7 +384,7 @@ async function saveJoinChecks() {
     await flush();
     const mail = j.calls[j.calls.length - 1] || {};
     ok('  …and a holiday hand-off asks the engine as a holiday', j.calls[j.calls.length - 2].action === 'saveHolidayPlan'
-       && mail.action === 'marketingAssign' && mail.params.kind === 'holiday' && mail.params.id === 'hol-1' && mail.params.due === '2026-11-18');
+       && mail.action === 'marketingAssign' && mail.params.kind === 'holiday' && mail.params.id === 'hol-1' && mail.params.due === '2026-11-09');
   }
 }
 
@@ -396,14 +396,17 @@ function blastChecks() {
   const MON = { start_date: '2026-11-16', end_date: '2026-11-29' };
   const byId = (p) => { const m = {}; MK.groupTasks(MK.tasksOf(p, OPTS)).forEach(g => { m[g.id] = g; }); return m; };
   const email = byId(withPlan({ sel: { email: true } }, MON));
-  ok('the deal is Tawny\'s, locked the Wednesday before the send', email['blast.deal'].owner === 'Tawny' && email['blast.deal'].due === '2026-11-11');
+  ok('the deal is Tawny\'s, locked two weeks before the send', email['blast.deal'].owner === 'Tawny' && email['blast.deal'].due === '2026-11-02');
+  ok('the hand-off to Mike is Tawny\'s, the Wednesday before', email['blast.handoff'].owner === 'Tawny' && email['blast.handoff'].due === '2026-11-11');
+  ok('the proofs say who approves when Sky is out', /\(backup: Tawny\)/.test(email['email.review'].text));
   ok('copy and the Dutchie draft are Mike\'s, Thursday', email['blast.copy'].owner === 'Mike' && email['blast.copy'].due === '2026-11-12');
   ok('the email proof is Mike\'s, due Friday, and says Sky approves at the L10',
      email['email.review'].owner === 'Mike' && email['email.review'].due === '2026-11-13' && /Sky approves at the Friday L10/.test(email['email.review'].text));
   ok('the send is Mike\'s, on the Monday, at 11 AM, with the sent-vs-planned check',
      email['email.send'].owner === 'Mike' && email['email.send'].due === '2026-11-16' && /11 AM/.test(email['email.send'].text) && /sent vs planned/.test(email['email.send'].text));
   ok('stats are unchanged: Mike, three days after the end', email['email.stats'].owner === 'Mike' && email['email.stats'].due === '2026-12-02');
-  ok('no task is Sky\'s by default', !Object.keys(email).some(id => email[id].defOwn === 'SKY'));
+  ok('the only task Sky owns by default is the Friday go / no-go',
+     JSON.stringify(Object.keys(email).filter(id => email[id].defOwn === 'SKY')) === '["core.gonogo"]' && email['core.gonogo'].due === '2026-11-13');
 
   const sms = byId(withPlan({ sel: { sms: true } }, MON));
   ok('a text blast alone gets the deal and copy tasks too', sms['blast.deal'] && sms['blast.copy']);
@@ -428,15 +431,58 @@ function blastChecks() {
      typed['email.creative'].due === '2026-11-09' && typed['email.review'].due === '2026-11-20' && typed['email.send'].due === '2026-11-23');
   ok('the text tasks count back from the text send date',
      typed['sms.cost'].due === '2026-11-16' && typed['sms.approve'].due === '2026-11-27' && typed['sms.send'].due === '2026-11-30');
-  ok('the deal and copy count back from the earlier of the two', typed['blast.deal'].due === '2026-11-18' && typed['blast.copy'].due === '2026-11-19');
+  ok('the deal and copy count back from the earlier of the two', typed['blast.deal'].due === '2026-11-09'
+     && typed['blast.handoff'].due === '2026-11-18' && typed['blast.copy'].due === '2026-11-19');
   ok('after-the-end tasks still follow the window', typed['email.stats'].due === '2026-12-02');
   const half = byId(withPlan({ sel: { email: true, sms: true }, d: { sms: { date: '2026-11-30' } } }, MON));
   ok('one send date typed: the email side stays on the window, the shared tasks take the typed one',
-     half['email.review'].due === '2026-11-13' && half['blast.deal'].due === '2026-11-25');
+     half['email.review'].due === '2026-11-13' && half['blast.deal'].due === '2026-11-16');
   const handMoved = byId(withPlan({ sel: { email: true }, d: { email: { date: '2026-11-23' } }, due: { 'email.review': '2026-11-19' } }, MON));
   ok('a date moved by hand still wins over the send date', handMoved['email.review'].due === '2026-11-19' && handMoved['email.review'].moved);
   ok('the new tasks can be handed to the three people', MK.assignOp({}, 'blast.deal', 'mike')[0][2] === 'mike'
      && JSON.stringify(MK.assignOp({}, 'blast.deal', 'tawny')) === '[["own","blast.deal",null]]');
+}
+
+/* ── THE 360 SCHEDULE FIXES (Sky, 2026-11-05; _handoffs/spiff-360-schedule-fixes.md) ──────────────
+   Stock ordered for the lift and checked mid-window, a vendor-funded customer deal, the Friday L10
+   go / no-go, close-out on the L10 after the end, and no deadline on a Sunday. Monday start. */
+function scheduleFixChecks() {
+  console.log('\n14. the 360 schedule fixes');
+  const MON = { start_date: '2026-11-16', end_date: '2026-11-29' };
+  const byId = (p) => { const m = {}; MK.groupTasks(MK.tasksOf(p, OPTS)).forEach(g => { m[g.id] = g; }); return m; };
+  const base = byId(withPlan({}, MON));
+  ok('stock is Tawny\'s, ordered two weeks out', base['core.stock'].owner === 'Tawny' && base['core.stock'].due === '2026-11-02');
+  ok('the mid-window check is the Monday of week two', base['core.midcheck'].owner === 'Tawny' && base['core.midcheck'].due === '2026-11-23');
+  ok('go / no-go is Sky\'s, the Friday L10 before launch, backup Tawny',
+     base['core.gonogo'].owner === 'Sky' && base['core.gonogo'].due === '2026-11-13' && /\(backup: Tawny\)/.test(base['core.gonogo'].text));
+  ok('wrap-up notes Thursday after the end, results Friday',
+     base['core.wrapup'].due === '2026-12-03' && base['core.results'].due === '2026-12-04');
+  ok('no customer deal tasks unless the deal is picked', !Object.keys(base).some(id => /^promo\./.test(id)));
+  const one = byId(withPlan({}, { start_date: '2026-11-16', end_date: '2026-11-22' }));
+  ok('on a one-week window the mid-window check lands on launch day', one['core.midcheck'].due === '2026-11-16');
+
+  const promo = byId(withPlan({ sel: { promo: true } }, MON));
+  ok('the customer deal: terms two weeks out (Tawny), built Friday (Mike)',
+     promo['promo.terms'].owner === 'Tawny' && promo['promo.terms'].due === '2026-11-02'
+     && promo['promo.build'].owner === 'Mike' && promo['promo.build'].due === '2026-11-13');
+  ok('  …off the day after the end (Mike), credit logged three days after (Tawny)',
+     promo['promo.remove'].owner === 'Mike' && promo['promo.remove'].due === '2026-11-30'
+     && promo['promo.credit'].owner === 'Tawny' && promo['promo.credit'].due === '2026-12-02');
+  ok('the deal is a customer item with the three funding choices',
+     MK.ITEMS.promo.sec === 'cust' && JSON.stringify(MK.ITEMS.promo.f[1][3]) === '["Vendor credit","Vendor invoice","Split"]');
+
+  const vendorOnly = ['promo.terms', 'promo.build', 'promo.remove', 'promo.credit', 'core.stock', 'core.midcheck'];
+  const rowOf = (id) => MK.CORE.concat(MK.BLAST).concat([].concat.apply([], Object.keys(MK.ITEMS).map(k => MK.ITEMS[k].k))).filter(r => r[0] === id)[0];
+  ok('each new vendor-only task is marked vendor', vendorOnly.every(id => (rowOf(id)[5] || {}).vendor === 1));
+  const hol = byId(MK.holidayProgram({ holiday_id: 'h', name: 'X', send_date: '2026-11-23', channels: ['email', 'sms'], marketing_json: { v: 1, sel: { promo: true } } }));
+  ok('  …and none of them reaches a holiday send', !vendorOnly.some(id => hol[id]));
+
+  const all = {}; Object.keys(MK.ITEMS).forEach(id => { all[id] = true; });
+  const every = MK.tasksOf(withPlan({ sel: all }, MON), OPTS);
+  const sunday = every.filter(t => t.id !== 'vday.held' && t.id !== 'social.publish' && t.due
+    && new Date(Date.UTC(+t.due.slice(0, 4), +t.due.slice(5, 7) - 1, +t.due.slice(8, 10))).getUTCDay() === 0);
+  ok('every item picked, two-week window: no task is due on a Sunday',
+     sunday.length === 0 || (console.log('    Sunday:', sunday.map(t => t.id + ' ' + t.due).join(', ')), false));
 }
 
 async function main() {
@@ -482,6 +528,7 @@ async function main() {
 
   await saveJoinChecks();
   blastChecks();
+  scheduleFixChecks();
 
   console.log(fail ? '\n' + fail + ' FAILED' : '\nmarketing tasks: all passed');
   process.exit(fail ? 1 : 0);
