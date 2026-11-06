@@ -85,6 +85,10 @@ select.mk-own { border: 0; font: inherit; font-size: 11px; font-weight: 700; cur
 .mk-seg { display: inline-flex; border: 1px solid var(--mk-line); border-radius: 8px; overflow: hidden; }
 .mk-seg button { background: transparent; color: var(--mk-txt); border: 0; padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
 .mk-seg button.is-on { background: var(--mk-green); color: #0a0e0d; font-weight: 700; }
+/* Calendar / Tasks / Deals page in the top bar (2026-11-05): the wrapper vanishes from layout so the
+   three buttons sit in the nav's own flex row like Programs, Reports and History. */
+.mk-navgroup:not([hidden]) { display: contents; }
+.mk-navgroup[hidden] { display: none !important; }
 .mk-badge { display: inline-block; min-width: 16px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: var(--mk-red); color: #0a0e0d; font-size: 11px; line-height: 16px; }
 .mk-badge:empty { display: none; }
 .mk-acts { margin: 0; gap: 8px; }

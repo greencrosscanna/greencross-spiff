@@ -101,6 +101,7 @@
     /* Each tab filters different things, so each owns its own sub-nav bar and only the
        active one is in the layout. Hidden with [hidden] so it takes no height. */
     $$('.sp-subnav').forEach(function (b) { b.hidden = b.id !== subnavIdFor(name); });
+    mkLightNav();
 
     /* The progress auto-pull moved with the tab it belonged to. It now fires from
        applyStatusView when a RUNNING program is opened, which is the same trigger expressed
@@ -160,7 +161,10 @@
          guard below is NOT dead and is the load-bearing half — a tab with neither attribute
          would call showTab(undefined) and blank the app. */
       if (b.dataset.href) { window.open(b.dataset.href, '_blank', 'noopener'); return; }
-      if (b.dataset.tab) showTab(b.dataset.tab);
+      if (!b.dataset.tab) return;
+      /* Programs is the List view now that Calendar, Tasks and Deals page sit beside it. */
+      if (b.dataset.tab === 'programs' && mkView && mkView.view !== 'list') { mkView.view = 'list'; showTab('programs'); mkRenderViews(); return; }
+      showTab(b.dataset.tab);
     });
   }
 
@@ -1700,18 +1704,35 @@
   }
   function mkIsVdayApprover() { return MK.VDAY_APPROVERS.indexOf(String((session() || {}).user || '').toLowerCase()) >= 0; }
 
+  /* Which top-bar button is lit while the Programs panel shows. Programs IS the List view; on
+     Calendar, Tasks or Deals page that button lights instead. Inside a program (state.tab is
+     'calculator') Programs stays lit, as NAV_OWNER says. Called from showTab and mkRenderViews. */
+  function mkLightNav() {
+    if (!mkView) return;
+    var view = mkOn() && state.tab === 'programs' ? mkView.view : 'list';
+    $$('#mkViewSeg button').forEach(function (b) { b.classList.toggle('is-active', b.dataset.mkView === view); });
+    if (view !== 'list') {
+      var p = $('#tabs .gx-topnav-tab[data-tab="programs"]');
+      if (p) p.classList.remove('is-active');
+    }
+  }
+
   function mkRenderViews() {
     var seg = $('#mkViewSeg'), host = $('#mkView'), pens = $('#mkPencils');
     if (!seg || !host || !pens) return;
     var on = mkOn(), view = on ? mkView.view : 'list';
     seg.hidden = !on;
-    ['#progStats', '#progRunning', '#progDrafts', '#progClosed'].forEach(function (sel) {
+    /* The search box and the Active / Draft / Closed filter only filter the list, so they leave
+       with it rather than sitting over a calendar they do nothing to. */
+    ['#progStats', '#progRunning', '#progDrafts', '#progClosed', '#progScope'].forEach(function (sel) {
       var el = $(sel);
       if (el) el.hidden = view !== 'list';
     });
+    var search = $('#progSearch');
+    if (search && search.parentNode) search.parentNode.hidden = view !== 'list';
     if (!on) { pens.innerHTML = ''; host.innerHTML = ''; host.hidden = true; return; }
     mkWireViews();
-    $$('#mkViewSeg button').forEach(function (b) { b.classList.toggle('is-on', b.dataset.mkView === view); });
+    mkLightNav();
     var late = MK.overdueTotal((state.programs || []).concat(mkHolidayPrograms()), today(), mkOpts());
     var badge = $('#mkLateBadge');
     if (badge) badge.textContent = late || '';
@@ -1991,7 +2012,9 @@
     if (mkView.wired) return;
     mkView.wired = true;
     var api = {
-      view: function (v) { mkView.view = v; mkRenderViews(); },
+      /* The view buttons live in the top bar now, so one can be pressed from Reports, History or
+         an open program: go back to the Programs panel first, which is where every view paints. */
+      view: function (v) { mkView.view = v; if (state.tab !== 'programs') showTab('programs'); mkRenderViews(); },
       nav: function (n) { mkView.offset = n === 0 ? 0 : mkView.offset + n; mkRenderViews(); },
       owner: function (o) { mkView.owner = o; mkRenderViews(); },
       tick: function (programId, key, on) {
