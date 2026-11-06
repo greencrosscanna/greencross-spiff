@@ -202,8 +202,10 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   `dataSheet_` runs on every read, so a mistake there stops every route and the hourly job. Pinned by
   `tests/marketing_tasks_test.js`, `tests/marketing_json_test.js` and
   `tests/marketing_pay_isolation_test.js`.
-  **Phase 2 (2026-11-01): the Programs tab has a List / Calendar / Tasks switch, and brands can be
-  penciled.** A pencil is brand + whole pay periods + note, in its **own `pencils` tab, never in
+  **Phase 2 (2026-11-01): Calendar, Tasks and Deals page are views of the Programs panel, and brands
+  can be penciled.** Since v2.011 (Sky, 2026-11-05) their buttons sit in the TOP BAR (`#mkViewSeg`
+  inside `#tabs`, no `data-tab`, so showTab never treats them as places); Programs is the List view,
+  and `mkLightNav` decides which top-bar button is lit. A pencil is brand + whole pay periods + note, in its **own `pencils` tab, never in
   `programs`**, because the hourly job turns a draft ACTIVE on its start date and active programs
   reach kiosks and pay. Nothing that pays, publishes or feeds a kiosk may read that tab; the
   isolation test pins it. Rows are never deleted (`status` is penciled / locked / released). A pencil
