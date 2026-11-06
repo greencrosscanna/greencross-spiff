@@ -138,13 +138,20 @@ function importer(o) {
     wixMediaStatus: (s, id) => { calls.push(['status', id]); return o.status; },
   };
   const api = G.load({
-    real: ['siteImportLogo_', 'siteLogoStatus_'],
+    real: ['siteImportLogo_', 'siteLogoStatus_', 'logoLinkReadable_'],
     vars: ['SITE_LOGO_SPEC_'],
     varValues: { GX_SECRET_PROP: 'GX_DEPLOY_SECRET', WIX_PUBLISHER_APP_: 'spiff' },
     stubs: {
       mktEditor_: () => (o.viewer ? { fail: { ok: false, error: 'viewer' } } : { auth: { user: 'sky' } }),
       wixDriveFileId_: (u) => (/\/d\/([-\w]+)/.exec(String(u)) || [])[1] || '',
-      driveApi_: () => ({ name: 'Green Cross - Logo Wide.png', mimeType: 'image/png', size: '12491' }),
+      driveApi_: (method, p, body) => {
+        if (/\/permissions/.test(p)) {
+          calls.push(['perm', method, p, body]);
+          if (method === 'post' && o.shareFails) throw new Error('Drive said 403: sharing outside the domain is off');
+          return method === 'get' ? { permissions: o.perms || [{ type: 'domain', role: 'reader' }] } : {};
+        }
+        return { name: 'Green Cross - Logo Wide.png', mimeType: 'image/png', size: '12491' };
+      },
       wixMenuSlug_: (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-'),
       scrubSecrets_: (x) => String(x),
     },
@@ -165,6 +172,21 @@ function importer(o) {
   const slow = importer({ imported: { ok: true, status: 'PENDING', file_id: 'f123456', wix_image: '' } });
   const r3 = slow.api.siteImportLogo_({ url: URL, which: 'logo', brand: 'Green Cross' });
   ok('a slow one answers pending with the Wix file id to ask about', r3.ok && r3.pending && r3.file_id === 'f123456');
+  /* Sky's test, 2026-11-05: a hand-made folder shared only inside Green Cross, so Wix could not fetch it. */
+  const share = fresh.calls.filter(c => c[0] === 'perm');
+  ok('a file only Green Cross can see is shared view-only by link, before Wix is asked for it',
+     share.length === 2 && share[1][1] === 'post' && /^1kIAIuqwdvrsT91QmzftkVvzE5zBjSAxT\/permissions/.test(share[1][2])
+     && share[1][3].type === 'anyone' && share[1][3].role === 'reader' && share[1][3].allowFileDiscovery === false
+     && fresh.calls.findIndex(c => c[1] === 'post') < fresh.calls.findIndex(c => c[0] === 'import'));
+  const already = importer({ perms: [{ type: 'anyone', role: 'reader' }], imported: { ok: true, wix_image: 'wix:image://v1/a.png/a.png' } });
+  already.api.siteImportLogo_({ url: URL, which: 'logo', brand: 'Green Cross' });
+  ok('  …a file anyone can already see is left as it is', !already.calls.some(c => c[0] === 'perm' && c[1] === 'post'));
+  ok('  …a reused logo touches no sharing at all', !again.calls.some(c => c[0] === 'perm'));
+  const blocked = importer({ shareFails: true, imported: { ok: true, wix_image: 'x' } });
+  const rb = blocked.api.siteImportLogo_({ url: URL, which: 'logo', brand: 'Green Cross' });
+  ok('  …if Drive refuses, it says how to fix it and asks Wix for nothing', rb.ok === false && /Anyone with the link can view/.test(rb.error)
+     && !blocked.calls.some(c => c[0] === 'import'));
+  ok('SOURCE-SHAPED: only the picked file is shared, never a folder', !/logoLinkReadable_\((?!id\))/.test(G.GS.replace(/function logoLinkReadable_\(id\)/, '')));
   const ready = importer({ status: { ok: true, status: 'READY', wix_image: 'wix:image://v1/f.png/f.png' } }).api.siteLogoStatus_({ file_id: 'f123456' });
   ok('asking again answers the logo once Wix is done', ready.ok && ready.ready && ready.wix_image === 'wix:image://v1/f.png/f.png');
   const still = importer({ status: { ok: true, status: 'PENDING', wix_image: '' } }).api.siteLogoStatus_({ file_id: 'f123456' });

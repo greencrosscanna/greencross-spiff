@@ -10384,6 +10384,15 @@ function siteImportLogo_(p) {
     try { have = GXCore.wixMediaSearch(secret, name, { limit: 10 }); } catch (e) { have = null; }
     var same = ((have && have.files) || []).filter(function (f) { return f.name === name && f.wix_image; })[0];
     if (same) return { ok: true, wix_image: same.wix_image, name: name, reused: true };
+    /* Wix downloads the file like an outside visitor, so a logo in a folder shared only inside Green
+       Cross comes back "Wix could not process the file" (Sky's test, 2026-11-05: a hand-made Green
+       Cross folder). Share THIS file, view only, by link, never its folder: it is about to be public
+       on the website anyway. */
+    try { logoLinkReadable_(id); }
+    catch (e) {
+      return { ok: false, error: 'Wix can only bring in a file anyone with the link can view, and SPIFF could not share this one ('
+        + scrubSecrets_((e && e.message) || e) + '). Set it to "Anyone with the link can view" in Drive and try again.' };
+    }
     var r = GXCore.wixImportImage(secret, 'https://lh3.googleusercontent.com/d/' + id,
       { display_name: name, mime_type: meta.mimeType, apply: true, app: WIX_PUBLISHER_APP_, by: who.auth.user });
     if (r && r.wix_image) return { ok: true, wix_image: r.wix_image, name: name };
@@ -10391,6 +10400,17 @@ function siteImportLogo_(p) {
     if (r && r.file_id) return { ok: true, pending: true, file_id: r.file_id, name: name, note: 'Wix is still processing ' + name + '.' };
     return { ok: false, error: 'Wix could not import it: ' + scrubSecrets_((r && r.error) || 'no answer') + '. Is the file shared "anyone with the link"?' };
   } catch (e) { return { ok: false, error: 'GX Core unavailable: ' + scrubSecrets_((e && e.message) || e) }; }
+}
+
+/* Make one Drive file viewable by anyone with the link (never listed in search), unless anyone can
+   already see it. Answers true when it changed the sharing. Files only: the caller passes the id of
+   the logo being imported, never a folder. */
+function logoLinkReadable_(id) {
+  var path = encodeURIComponent(id) + '/permissions?supportsAllDrives=true';
+  var r = driveApi_('get', path + '&fields=' + encodeURIComponent('permissions(type,role)'));
+  if ((r.permissions || []).some(function (x) { return x.type === 'anyone'; })) return false;
+  driveApi_('post', path, { type: 'anyone', role: 'reader', allowFileDiscovery: false });
+  return true;
 }
 
 /* Is a logo Wix was still processing ready yet? (siteImportLogo_ answered pending with its file id.)
