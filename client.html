@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Green Cross SPIFF Proposal</title>
+<title>Green Cross SPIFF</title>
 <meta name="robots" content="noindex, nofollow"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -15,45 +15,24 @@
 </head>
 <body class="client">
 
-<!-- The lockup a VENDOR sees. Was a bare "+" glyph and unstyled text: .brand-mark and
-     .brand-name were never defined in client.css, spiff.css or gx-theme, so this header rendered
-     as a literal plus sign next to default-size body text on the one page that goes outside the
-     company. Now the real logo, then the app name. Sky, 2026-08-29. -->
+<!-- THE VENDOR LINK IS RETIRED (Sky, 2026-11-05). Links were emailed to brand reps, so this page stays
+     and says so, rather than 404ing. It is static on purpose: no sign-in form, no script, no call to
+     the engine. Tawny sends progress reports herself (Download progress, on the program). -->
 <header class="client-top">
   <img class="client-logo" src="https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png" alt="Green Cross">
   <span class="client-app">SPIFF</span>
 </header>
 
 <main class="client-main" id="main">
-  <!-- Gate. Rendered first; the program is never fetched until the password checks out. -->
   <section class="client-gate" id="gate">
-    <h1>SPIFF proposal</h1>
-    <p>Shared with you by Green Cross. Enter your email address and the password you were given.</p>
-    <label class="fld"><span>Your email</span><input class="gx-input" id="cvEmail" type="email" autocomplete="email"></label>
-    <label class="fld"><span>Password</span><input class="gx-input" id="cvPass" type="password" autocomplete="off"></label>
-    <button class="gx-btn gx-btn-green" id="cvGo">View proposal</button>
-    <p class="client-msg" id="cvMsg"></p>
+    <h1>This link is no longer active</h1>
+    <p>Ask Tawny for a progress report.</p>
   </section>
-
-  <section id="view" hidden></section>
 </main>
 
 <footer class="client-foot">
   <span id="cvFoot">Green Cross Cannabis Emporium</span>
 </footer>
 
-<script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-client.js" data-app="spiff"></script>
-<!-- Maintenance gate, NEUTRAL tone. This is the vendor-facing proposal page: a rep opens it from a
-     link Tawny emails, so the out-back screen (4:20 clock, smoke, "smokin' a Fatty") is the wrong
-     voice here even though it is right on index.html and flyer.html. tone:'neutral' keeps the gate,
-     the levers and the automatic un-gating, and drops the joke and the internal poke button.
-     Sky's call, 2026-08-29: gate outward-facing pages with a sober variant rather than leave a
-     vendor to hit a dead link during an outage. -->
-<script src="https://greencrosscanna.github.io/greencross-gx-theme/gx-maintenance.js"></script>
-<script>
-  GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', tone: 'neutral',
-    gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
-</script>
-<script src="client.js?v=2.000"></script>
 </body>
 </html>

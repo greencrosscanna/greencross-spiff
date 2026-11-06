@@ -367,7 +367,7 @@ ok('  …and the two-field shape it briefly shipped as still reads back',
    /src\.bullets/.test(norm) && /src\.talking_points/.test(norm));
 /* The four that already exist must NOT have become typeable copies. */
 const editor = js.slice(js.indexOf('Selling tips &mdash; what budtenders see'),
-                        js.indexOf('Minting a vendor link'));
+                        js.indexOf('Deleting ──'));
 ok('the editor offers tips only — no goal, payout or product boxes',
    editor.indexOf("data-key=\"pitch_json\"") > 0
    && editor.indexOf('target_json') < 0 && editor.indexOf('payout_json') < 0

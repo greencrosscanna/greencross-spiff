@@ -128,8 +128,8 @@ ok('  …and adopts it into the editing bar, which used to read "no dates set" a
    a figure strip near the top of a closed program, where they are what you came to read. The
    vendor link stays — it is minted per program and belongs to nothing else. The guarantee that
    replaces "they are all here" is that each now has exactly one home, checked here. */
-ok('the record still mints the brand link',
-   /btnShare/.test(render));
+ok('the record no longer mints a brand link (retired 2026-11-05)',
+   !/btnShare|btnRevoke/.test(render));
 ok('  …the brand reps have exactly one editor, and it is Settings',
    !/rBrandReps/.test(render) && /repsEditor\(/.test(grab('paintBrandBody')));
 ok('  …and the actuals have exactly one, and it is the strip',
@@ -139,9 +139,10 @@ ok('  …and the actuals have exactly one, and it is the strip',
 ok('openProgram is the single way in',
    (js.match(/function openProgram\s*\(/g) || []).length === 1);
 ok('  …and it hands off to the Calculator', /openInCalculator\(p\)/.test(grab('openProgram')));
-/* 8 = the definition + seven ways in; 10 adds the two Marketing callers (the calendar/tasks "Open"
-   and Lock it in), which land on the same single door. */
-ok('all seven entry points call it', (js.match(/openProgram\(/g) || []).length === 10);
+/* 8 = the definition + seven ways in; 10 added the two Marketing callers (the calendar/tasks "Open"
+   and Lock it in), which land on the same single door; 9 since the row's brand-link button went
+   (it opened the record when a rep was missing). */
+ok('all seven entry points call it', (js.match(/openProgram\(/g) || []).length === 9);
 
 /* Unsaved edits are carried forward ONLY from a form showing the same program. Every list row
    lands here now, and the mounted form is usually the LAST program opened — collecting that would

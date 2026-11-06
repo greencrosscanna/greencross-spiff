@@ -35,79 +35,26 @@ function grab(src, name) {
   throw new Error('unbalanced ' + name);
 }
 
-/* ── the vendor sign-in, run for real against a stubbed Core ── */
-console.log('vendor sign-in');
-const DENY = /does not match an active proposal/;
+/* ── the vendor sign-in is RETIRED (Sky, 2026-11-05) ──
+   Brand reps used to open a shared proposal with their email + one shared password, and this section
+   pinned that an ACTIVE rep on an ACTIVE brand got in and a removed one did not. The link is gone:
+   clientView_ refuses everyone, so a rep's registry state no longer decides anything about access.
+   The cases that matter now are that the refusal holds for exactly the people it used to admit.
+   (tests/client_view_test.js pins the refusal itself; this checks it against the registry shapes.) */
+console.log('vendor sign-in (retired)');
+const MSG = 'This link is no longer active. Ask Tawny for a progress report.';
+const clientView = new Function('var CLIENT_LINK_RETIRED_MSG = ' + JSON.stringify(MSG) + ';\n'
+  + grab(gs, 'clientView_') + '\nreturn clientView_;')();
 
-function portal(opts) {
-  const programs = opts.programs;
-  const brands = opts.brands;
-  const cacheStore = {};
-  const GXCore = {
-    resolveBrand(name) {
-      if (opts.coreDown) throw new Error('Service unavailable');
-      const k = String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
-      return brands.filter(b => [b.brand_id, b.display_name].concat(b.aliases || [])
-        .map(x => String(x).toLowerCase().replace(/[^a-z0-9]/g, '')).indexOf(k) >= 0)[0] || null;
-    },
-    getBrands() {
-      if (opts.coreDown) throw new Error('Service unavailable');
-      return brands.filter(b => b.active);
-    },
-  };
-  const f = new Function('GXCore', 'CacheService', 'PropertiesService', 'listProgramsCached_',
-    'gxStores_', 'progressRowsFor_', 'listPrograms_', 'textDate_',
-    [grab(gs, 'norm_'), grab(gs, 'parseJson_'), grab(gs, 'brandNameOf_'), grab(gs, 'brandFold_'),
-     grab(gs, 'brandFoldedNames_'), 'var CLIENT_PASS_PROP = "CLIENT_VIEW_PASSWORD";',
-     grab(gs, 'clientView_'), 'return clientView_;'].join('\n'));
-  return f(GXCore,
-    { getScriptCache: () => ({ get: k => cacheStore[k] || null, put: (k, v) => { cacheStore[k] = v; } }) },
-    { getScriptProperties: () => ({ getProperty: () => 'pw' }) },
-    () => programs, () => [], () => [], () => [], x => x);
-}
-
-const PROG = { program_id: 'mule-1', program_name: 'Mule Dank Tank', vendor: 'Mule Extracts',
-               match_json: { brand: 'Mule Extracts' }, share_token: 'tok1', status: 'active',
-               target_json: {}, baseline_json: {}, cost_json: {}, payout_json: {},
-               // A stale legacy contact on the row must open NOTHING any more.
-               contact_email: 'old@legacy.com' };
 const rep = (email, over) => Object.assign({ contact_id: 'bc_' + email, email, name: 'Rep ' + email, active: true }, over || {});
 const MULE = { brand_id: 'mule-extracts', display_name: 'Mule Extracts', aliases: [], active: true,
                contacts: [rep('amy@mule.com')] };
-
-let cv = portal({ programs: [PROG], brands: [MULE] })({ t: 'tok1', email: 'Amy@Mule.com', pass: 'pw' });
-ok('an active rep on the program\'s brand opens the link (email case-blind)', cv.ok === true && cv.program);
-ok('  …and the page is prepared for the rep who signed in', cv.ok && cv.program.contact_name === 'Rep amy@mule.com');
-
-cv = portal({ programs: [PROG], brands: [MULE] })({ t: 'tok1', email: 'old@legacy.com', pass: 'pw' });
-ok('the program\'s old contact_email no longer opens anything', !cv.ok && DENY.test(cv.error));
-
-cv = portal({ programs: [PROG], brands: [MULE] })({ t: 'tok1', email: 'amy@mule.com', pass: 'wrong' });
-ok('a wrong password is still refused', !cv.ok && DENY.test(cv.error));
-
-const removed = Object.assign({}, MULE, { contacts: [rep('amy@mule.com', { active: false })] });
-cv = portal({ programs: [PROG], brands: [removed] })({ t: 'tok1', email: 'amy@mule.com', pass: 'pw' });
-ok('a REMOVED rep is refused even if Core hands the row back', !cv.ok && DENY.test(cv.error));
-
-const off = Object.assign({}, MULE, { active: false });
-cv = portal({ programs: [PROG], brands: [off] })({ t: 'tok1', email: 'amy@mule.com', pass: 'pw' });
-ok('a rep on a TURNED-OFF brand is refused', !cv.ok && DENY.test(cv.error));
-
-const OTHER = { brand_id: 'freshy', display_name: 'Freshy', aliases: [], active: true, contacts: [rep('bo@freshy.com')] };
-cv = portal({ programs: [PROG], brands: [MULE, OTHER] })({ t: 'tok1', email: 'bo@freshy.com', pass: 'pw' });
-ok('a rep on a DIFFERENT brand cannot open this brand\'s link', !cv.ok && DENY.test(cv.error));
-
-cv = portal({ programs: [PROG], brands: [MULE], coreDown: true })({ t: 'tok1', email: 'amy@mule.com', pass: 'pw' });
-ok('a Core outage says unavailable, not "wrong password"', !cv.ok && /unavailable/.test(cv.error) && !DENY.test(cv.error));
-ok('  …and names no rep while saying it', !cv.ok && !/amy/.test(cv.error));
-
-const PROG2 = Object.assign({}, PROG, { program_id: 'mule-2', program_name: 'Mule Carts', share_token: 'tok2',
-                                        vendor: 'MULE EXTRACTS.', match_json: { brand: 'MULE EXTRACTS.' } });
-cv = portal({ programs: [PROG, PROG2], brands: [MULE] })({ email: 'amy@mule.com', pass: 'pw' });
-ok('with no link, a rep on two shared programs is offered both (spelling folded)',
-   cv.ok && Array.isArray(cv.choices) && cv.choices.length === 2);
-cv = portal({ programs: [PROG], brands: [MULE, OTHER] })({ email: 'bo@freshy.com', pass: 'pw' });
-ok('  …and a rep whose brand has no shared program is refused', !cv.ok && DENY.test(cv.error));
+let cv = clientView({ t: 'tok1', email: 'Amy@Mule.com', pass: 'pw' });
+ok('an active rep on the brand with the right password is refused', !cv.ok && cv.error === MSG);
+cv = clientView({ email: 'amy@mule.com', pass: 'pw' });
+ok('  …and so is the old no-link "pick a program" path', !cv.ok && !cv.choices && cv.error === MSG);
+ok('the refusal does not look at the brand registry at all',
+   !/GXCore|getBrands|resolveBrand|BRANDS_CACHE_KEY|brandsRead_|CacheService|PropertiesService/.test(grab(gs, 'clientView_')));
 
 /* ── the program no longer carries its own contact list ── */
 console.log('program record');
@@ -127,8 +74,8 @@ const editable = gs.slice(gs.indexOf('var EDITABLE_FIELDS'), gs.indexOf('];', gs
 ok('contact_name and contact_email are no longer editable on a program',
    !/'contact_name'|'contact_email'/.test(editable.replace(/\/\*[\s\S]*?\*\//g, '')));
 ok('the record screen has no contact_email input left', !/data-key="contact_/.test(js) && !/'contact_email', p\.contact_email/.test(js));
-ok('the list and the record warn from the brand\'s reps, not from contact_email',
-   /needsRep\(p\)/.test(grab(js, 'shareCell')) && /needsRep\(p\)/.test(grab(js, 'rowShare')));
+ok('the record still warns from the brand\'s reps, not from contact_email',
+   /needsRep\(p\)/.test(js) && !/p\.contact_email/.test(js));
 
 /* ── the write doors ── */
 console.log('writes');
@@ -150,8 +97,6 @@ ok('a viewer cannot change a brand\'s reps', !w.r.ok && w.sent === null);
 ['addBrand_', 'saveBrandContact_', 'removeBrandContact_'].forEach(function (fn) {
   ok(fn + ' clears the screen\'s brand cache after a write', /brandsChanged_\(GXCore\./.test(grab(gs, fn)));
 });
-ok('the vendor sign-in never reads the cached brand list — a removed rep is locked out at once',
-   !/BRANDS_CACHE_KEY|brandsRead_/.test(grab(gs, 'clientView_')));
 
 /* Blank means "leave it alone" to Core, so an emptied box has to be sent as an explicit clear. */
 const saveRep = new Function('brandCall', grab(js, 'repMsg') + grab(js, 'saveRep') + 'return saveRep;');

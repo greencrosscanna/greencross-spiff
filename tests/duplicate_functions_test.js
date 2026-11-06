@@ -154,7 +154,7 @@ function check(label, rel) {
 check('1. spiff.js', 'spiff.js');
 check('2. apps-script/Code.gs', 'apps-script/Code.gs');
 /* The other pages are small and separate files, but the same trap is open in each. */
-['client.js', 'flyer.js', 'store.js'].forEach((f, i) => check((3 + i) + '. ' + f, f));
+['flyer.js', 'store.js'].forEach((f, i) => check((3 + i) + '. ' + f, f));
 
 console.log(fail ? `\n✗ ${fail} failed\n` : '\n✓ all passed\n');
 process.exit(fail ? 1 : 0);

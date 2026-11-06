@@ -94,9 +94,8 @@ function page(o) {
   ok('  …and it is the one-argument, promise-returning one', /async function copyText\(text\)/.test(G.grab('copyText', js)));
   ok('the buy list calls it and reads its answer, instead of declaring its own',
      /copyText\(rows\.join\('\\n'\)\)\.then\(/.test(G.grab('copyCards', js)));
-  ok('the other two callers await its answer too',
-     /await copyText\(storeUrl\(b\.dataset\.kcopy\)\)/.test(G.grab('copyKioskLink', js))
-     && /await copyText\(clientUrl\(tok\)\)/.test(G.grab('rowShare', js)));
+  ok('the kiosk-link caller awaits its answer too',
+     /await copyText\(storeUrl\(b\.dataset\.kcopy\)\)/.test(G.grab('copyKioskLink', js)));
   ok('the old second helper it leaned on is gone as well', !/function fallbackCopy\s*\(/.test(js));
 
   /* ══ (a) the async API is refused, execCommand works ══ */

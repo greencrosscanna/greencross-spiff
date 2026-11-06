@@ -128,7 +128,7 @@ const STDLIB = [
 const BROWSER = [
   'setTimeout','clearTimeout','setInterval','clearInterval','alert','confirm','fetch','document','window',
   'console','navigator','sessionStorage','localStorage','requestAnimationFrame','KeyboardEvent','MouseEvent',
-  'Event','URL','Blob',
+  'Event','URL','Blob','atob',
   'GXClient','GXTopNav','GXStores','GXAvatar','GXSession','GXChangelog','GXBugReport','GXDev','GXUpdateCheck',
 ];
 /* Globals Apps Script hands the engine, plus the bound GX Core library. */
