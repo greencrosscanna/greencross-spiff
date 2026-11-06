@@ -9103,6 +9103,12 @@ var WIX_APPROVE_TASK_ = 'web.approve';
 /* Who may switch a program onto the page (Sky, 2026-11-02: "Sky, Mike and Tawny only", not every
    editor). Sign-in names as GX Core holds them. GX Core's approval gate checks the same three. */
 var WIX_APPROVERS_ = ['sky', 'mike', 'tawny'];
+/* Who signs a VENDOR DAY that went up without a person ticking it. Sky's standing approval
+   (2026-11-06: "vendor days, once entered into the app, should be automatically approved and
+   published"). A day is brand, store, date and time only; any deal wording on it is still the
+   card's, approved by a person. GX Core's gate wants a name on its kv wixApprovers list, and this
+   is the one who gave the approval. */
+var WIX_VDAY_AUTO_APPROVER_ = 'sky';
 /* The field each row carries naming its approver (a GX Core user_id), for GX Core's approval gate
    (GXCore v365+). Core checks it against kv wixApprovers and STRIPS it, so Wix never holds it, which
    is why wixSameItem_ leaves it out of the comparison. Every write also says app 'spiff'. */
@@ -9312,33 +9318,42 @@ function wixDesired_(src, today) {
   if (shop) Object.keys(shop.stores).forEach(function (s) { brandNames = brandNames.concat(shop.stores[s] || []); });
   var text = function (x, max) { return String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, max || 500); };
 
-  var picked = [];
+  /* TWO GATES, NOT ONE (Sky, 2026-11-06: "deal approval is more complicated and needs eyes and
+     approval. vendor days, once entered into the app, should be automatically approved and published").
+     The deal CARD (headline, offer lines, image) waits for a person's approval exactly as before. The
+     program's VENDOR DAYS (brand, store, date, time) go out on their own as soon as they are entered,
+     signed by WIX_VDAY_AUTO_APPROVER_; they carry the card's deal/offer wording only once the card
+     itself is approved and passes the copy rules. */
+  var picked = [], dayOnly = [];
   (src.programs || []).forEach(function (p) {
     if (!ISO.test(String(p.start_date || '')) || !ISO.test(String(p.end_date || '')) || p.end_date < today) return;
     if (!(p.status === 'active' || (p.status === 'draft' && p.start_date <= horizon))) return;
     var plan = normalizeMarketing_(p.marketing_json) || {};
-    if (mktPickedIds_(plan).indexOf(WIX_ITEM_) < 0) return;          // not planned for the website
+    var noCard = function (why) {
+      if (why) out.skipped.push({ program_id: p.program_id, why: why });
+      dayOnly.push({ p: p, plan: plan, web: {}, approver: '', card: false });
+    };
+    if (mktPickedIds_(plan).indexOf(WIX_ITEM_) < 0) return noCard('');   // no deal card planned; its days still go
     var web = (plan.d && plan.d[WIX_ITEM_]) || {};
-    if (!text(web.headline)) { out.skipped.push({ program_id: p.program_id, why: 'no headline yet' }); return; }
+    if (!text(web.headline)) return noCard('deal card: no headline yet (its vendor days go on the page anyway)');
     var approver = wixApprover_(plan);
-    if (!approver) { out.skipped.push({ program_id: p.program_id, why: 'waiting for Sky, Mike or Tawny to approve the deals page copy' }); return; }
+    if (!approver) return noCard('deal card: waiting for Sky, Mike or Tawny to approve the deals page copy (its vendor days go on the page anyway)');
     var broken = wixCopyProblem_([web.headline, web.note, web.deal, web.offer, web.fine, web.alt]
       .concat(((plan.rows && plan.rows[WIX_ITEM_]) || []).map(function (r) { return r.text; })));
-    if (broken) { out.skipped.push({ program_id: p.program_id, why: 'the copy breaks the OLCC copy rules ("' + broken + '"); fix it on the program' }); return; }
+    if (broken) return noCard('deal card: the copy breaks the OLCC copy rules ("' + broken + '"); fix it on the program (its vendor days go on the page anyway)');
     var long = wixLengthProblem_(web, ((plan.rows && plan.rows[WIX_ITEM_]) || []).map(function (r) { return r.text; }));
-    if (long) { out.skipped.push({ program_id: p.program_id, why: long + ' Too much copy breaks the layout; shorten it on the program' }); return; }
-    picked.push({ p: p, plan: plan, web: web, approver: approver });
+    if (long) return noCard('deal card: ' + long + ' Too much copy breaks the layout; shorten it on the program (its vendor days go on the page anyway)');
+    picked.push({ p: p, plan: plan, web: web, approver: approver, card: true });
   });
   /* Soonest-ending first, which is the card order on the page. */
   picked.sort(function (a, b) {
     return a.p.end_date < b.p.end_date ? -1 : a.p.end_date > b.p.end_date ? 1 : (a.p.program_id < b.p.program_id ? -1 : 1);
   });
 
-  picked.forEach(function (x, i) {
+  picked.concat(dayOnly).forEach(function (x, i) {
     var p = x.p, plan = x.plan, web = x.web, id = p.program_id;
     var vendor = text(p.vendor, 120) || text((p.match_json || {}).brand, 120);
     var v = idx[wixFold_(vendor)] || idx[wixFold_((p.match_json || {}).brand)] || null;
-    if (!v) out.problems.push({ program_id: id, problem: 'no Vendors item in Wix matches "' + vendor + '", so the page shows the name on a black tile. Add the brand to Vendors.' });
 
     var days = [];
     if (mktPickedIds_(plan).indexOf('vday') >= 0) {
@@ -9351,7 +9366,10 @@ function wixDesired_(src, today) {
         })
         .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : a.time.minute - b.time.minute; });
     }
+    if (!x.card && !days.length) return;                              // nothing of this program goes on the page
+    if (!v) out.problems.push({ program_id: id, problem: 'no Vendors item in Wix matches "' + vendor + '", so the page shows the name on a black tile. Add the brand to Vendors.' });
 
+    if (x.card) {
     var item = {
       programId: id, title: vendor, headline: text(web.headline, 200),
       offerLines: wixOfferHtml_(((plan.rows && plan.rows[WIX_ITEM_]) || []).map(function (r) { return r.text; })),
@@ -9385,7 +9403,10 @@ function wixDesired_(src, today) {
     }
     if (src.sendShopBrand && b.name) item.shopBrand = slug;
     out.featured.push(item);
+    }
 
+    /* The days. Deal/offer wording is the card's approved copy, so a day whose card is not approved goes
+       out with that wording blank (sent as '' so wording approved earlier is taken back off too). */
     var seen = Object.create(null);
     days.forEach(function (d) {
       var base = id + '|' + d.storeKey + '|' + d.date;
@@ -9393,9 +9414,10 @@ function wixDesired_(src, today) {
       var L = wixDayLabels_(d.date);
       var row = { dayKey: base + (seen[base] > 1 ? '|' + seen[base] : ''), programId: id, title: vendor,
                   date: d.date, dayLabel: L.dayLabel, dateLabel: L.dateLabel, store: d.store,
-                  time: d.time.label, sortTime: d.time.minute, deal: text(web.deal, 40), offer: text(web.offer, 200) };
+                  time: d.time.label, sortTime: d.time.minute,
+                  deal: x.card ? text(web.deal, 40) : '', offer: x.card ? text(web.offer, 200) : '' };
       if (v) row.vendorRef = v._id;
-      if (WIX_APPROVER_FIELD_) row[WIX_APPROVER_FIELD_] = x.approver;
+      if (WIX_APPROVER_FIELD_) row[WIX_APPROVER_FIELD_] = x.card ? x.approver : WIX_VDAY_AUTO_APPROVER_;
       out.days.push(row);
     });
   });
@@ -9412,12 +9434,18 @@ function wixDesired_(src, today) {
     if (!ISO.test(String(v.date || '')) || v.date < today || v.date > horizon) return;
     var id = 'sv-' + v.vday_id;
     var brand = text(v.brand, 120);
+    /* The DAY goes up on its own (Sky, 2026-11-06); its deal/offer WORDING only once a person approved
+       it and it passes the copy rules. Otherwise the day goes up with the wording blank, and says why. */
+    var bad = wixCopyProblem_([brand]);
+    if (bad) { out.skipped.push({ program_id: id, why: 'the brand name breaks the OLCC copy rules ("' + bad + '"); fix it on the vendor day' }); return; }
     var by = String(v.approved_by || '').toLowerCase();
-    if (WIX_APPROVERS_.indexOf(by) < 0) { out.skipped.push({ program_id: id, why: 'waiting for Sky, Mike or Tawny to approve the ' + brand + ' vendor day for the deals page' }); return; }
-    var broken = wixCopyProblem_([brand, web.deal, web.offer]);
-    if (broken) { out.skipped.push({ program_id: id, why: 'the copy breaks the OLCC copy rules ("' + broken + '"); fix it on the vendor day' }); return; }
-    var long = wixLengthProblem_({ deal: web.deal, offer: web.offer }, []);
-    if (long) { out.skipped.push({ program_id: id, why: long + ' Too much copy breaks the layout; shorten it on the vendor day' }); return; }
+    var hasCopy = !!(text(web.deal) || text(web.offer));
+    var copyOk = hasCopy && WIX_APPROVERS_.indexOf(by) >= 0;
+    if (hasCopy && !copyOk) out.skipped.push({ program_id: id, why: 'the ' + brand + ' vendor day is on the page; its deal wording waits for Sky, Mike or Tawny to approve it' });
+    var broken = copyOk ? wixCopyProblem_([web.deal, web.offer]) : '';
+    if (broken) { copyOk = false; out.skipped.push({ program_id: id, why: 'the ' + brand + ' vendor day is on the page without its deal wording, which breaks the OLCC copy rules ("' + broken + '"); fix it on the vendor day' }); }
+    var long = copyOk ? wixLengthProblem_({ deal: web.deal, offer: web.offer }, []) : '';
+    if (long) { copyOk = false; out.skipped.push({ program_id: id, why: 'the ' + brand + ' vendor day is on the page without its deal wording. ' + long + ' Shorten it on the vendor day' }); }
     /* THE LOGO IS A GATE HERE, not a warning (Sky, 2026-11-05: "we will need to automatically connect
        the logo for the vendor, or ask if one hasn't been established"). The logo is linked exactly as a
        program's day links it, by vendorRef to the brand's Vendors row; with no row, or a row with no
@@ -9431,9 +9459,10 @@ function wixDesired_(src, today) {
       var label = store ? (labels[slug_(store)] || store) : '';
       var row = { dayKey: id + '|' + (label ? wixMenuSlug_(label) : 'all') + '|' + v.date, programId: id, title: brand,
                   date: v.date, dayLabel: L.dayLabel, dateLabel: L.dateLabel, store: label,
-                  time: time.label, sortTime: time.minute, deal: text(web.deal, 40), offer: text(web.offer, 200) };
+                  time: time.label, sortTime: time.minute,
+                  deal: copyOk ? text(web.deal, 40) : '', offer: copyOk ? text(web.offer, 200) : '' };
       row.vendorRef = vend._id;
-      if (WIX_APPROVER_FIELD_) row[WIX_APPROVER_FIELD_] = by;
+      if (WIX_APPROVER_FIELD_) row[WIX_APPROVER_FIELD_] = copyOk ? by : WIX_VDAY_AUTO_APPROVER_;
       out.days.push(row);
     });
   });
@@ -9447,6 +9476,9 @@ function wixSameItem_(row, item) {
     if (f === WIX_APPROVER_FIELD_) return true;      // checked and stripped by GX Core, never stored
     var a = row[f], b = item[f];
     if (a && typeof a === 'object' && a.$date) a = String(a.$date).slice(0, 10);
+    /* Blank is blank: Wix may drop an empty text field, and a vendor day with no approved deal wording
+       sends deal '' every hour. Without this it would be rewritten every hour. */
+    if ((a == null || a === '') && b === '') return true;
     return wixCanon_(a) === wixCanon_(b);
   });
 }

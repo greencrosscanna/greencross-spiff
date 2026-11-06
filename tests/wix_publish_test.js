@@ -118,7 +118,7 @@ const makeApi = (varValues) => G.load({
          'runWixPublishHourly_', 'calParseTime_', 'addDaysLocal_', 'normalizeMarketing_', 'mktPickedIds_', 'slug_', 'parseJson_', 'num_',
          'sitePublish_', 'sitePlan_', 'siteProblem_'],
   vars: ['SITE_DAYS_', 'SITE_MAX_REMOVES_', 'WIX_PUBLISHED_PROP_', 'WIX_SHOP_PROP_', 'WIX_NOSHOP_PREFIX_', 'WIX_IMAGE_PREFIX_', 'WIX_LOOKAHEAD_DAYS_', 'WIX_MAX_REMOVES_',
-         'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_APPROVERS_', 'WIX_COPY_RULES_', 'WIX_COPY_LIMITS_', 'WIX_LIMIT_NAMES_', 'WIX_FAIL_PROP_', 'WIX_LAST_RUN_PROP_', 'WIX_FEATURED_SPEC_', 'WIX_SPEC_TEXT_',
+         'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_APPROVERS_', 'WIX_VDAY_AUTO_APPROVER_', 'WIX_COPY_RULES_', 'WIX_COPY_LIMITS_', 'WIX_LIMIT_NAMES_', 'WIX_FAIL_PROP_', 'WIX_LAST_RUN_PROP_', 'WIX_FEATURED_SPEC_', 'WIX_SPEC_TEXT_',
          'WIX_DOW_', 'WIX_MON_', 'MKT_MENU_', 'MKT_PEOPLE_', 'MKT_APP_URL', 'GX_SECRET_PROP'],
   varValues: Object.assign({ WIX_APPROVER_FIELD_: G.grabVar('WIX_APPROVER_FIELD_') }, varValues || {}),
   stubs: {
@@ -198,7 +198,16 @@ console.log('\n2. what goes out, and what does not');
   ok('no payout, cost, actuals or staff field rides along', !/payout|amount|per_unit|units_sold|cost_json|actual/.test(sent) && sent.indexOf('"25"') < 0);
 
   const wait = api.wixDesired_({ programs: [gron({ plan: { done: {} } })], vendors: VENDORS }, '2026-11-02');
-  ok('nothing goes out before an approver approves', !wait.featured.length && !wait.days.length && /Sky, Mike or Tawny to approve/.test(wait.skipped[0].why));
+  ok('no deal card before an approver approves, and it says why', !wait.featured.length && /Sky, Mike or Tawny to approve/.test(wait.skipped[0].why));
+  /* Sky, 2026-11-06: vendor days go up once entered; only the deal needs a person. */
+  ok('  …but its vendor days go up anyway, with no deal wording, on Sky\'s standing approval',
+     wait.days.length === 5 && wait.days.every(x => x.deal === '' && x.offer === '' && x.approvedBy === 'sky' && x.vendorRef === 'v-gron'));
+  ok('  …keyed the same as when the card is approved, so approving later updates the same rows',
+     (() => {
+       const L = { commercial: 'Commercial St', 'river-rd': 'River Rd', hillsboro: 'Baseline St', center: 'Center St' };
+       const a = api.wixDesired_({ programs: [gron({ plan: { done: {} } })], vendors: VENDORS, storeLabels: L }, '2026-11-02');
+       return JSON.stringify(a.days.map(x => x.dayKey)) === JSON.stringify(d.days.map(x => x.dayKey));
+     })());
   const byTawny = api.wixDesired_({ programs: [gron({ plan: { done: { 'web.approve': { by: 'tawny', at: 'x' } } } })], vendors: VENDORS }, '2026-11-02');
   ok('  …Tawny\'s approval counts (Sky, Mike and Tawny only)', byTawny.featured.length === 1);
   const notApprover = api.wixDesired_({ programs: [gron({ plan: { done: { 'web.approve': { by: 'kim', at: 'x' } } } })], vendors: VENDORS }, '2026-11-02');
@@ -226,9 +235,13 @@ console.log('\n2. what goes out, and what does not');
   const blank = makeApi({ WIX_APPROVER_FIELD_: '' }).wixDesired_({ programs: [gron()], vendors: VENDORS }, '2026-11-02');
   ok('  …and a blank field name sends none (the pre-v365 shape)', !Object.keys(blank.featured[0]).some(k => /approv/i.test(k)));
   const noHead = api.wixDesired_({ programs: [gron({ plan: { d: { web: { deal: '30% OFF' } } } })], vendors: VENDORS }, '2026-11-02');
-  ok('no headline: not sent, and says why', !noHead.featured.length && noHead.skipped[0].why === 'no headline yet');
+  ok('no headline: no card, and says why', !noHead.featured.length && /no headline yet/.test(noHead.skipped[0].why));
+  ok('  …its vendor days still go up', noHead.days.length === 5 && noHead.days.every(x => x.deal === ''));
   const noItem = api.wixDesired_({ programs: [gron({ plan: { sel: { vday: true } } })], vendors: VENDORS }, '2026-11-02');
-  ok('a program not planned for the website is silent', !noItem.featured.length && !noItem.skipped.length);
+  ok('a program with no deal card planned is silent about the card', !noItem.featured.length && !noItem.skipped.length);
+  ok('  …and its vendor days still go up', noItem.days.length === 5 && noItem.days.every(x => x.approvedBy === 'sky'));
+  const nothing = api.wixDesired_({ programs: [gron({ plan: { sel: { vday: false }, vdays: [] } })], vendors: VENDORS }, '2026-11-02');
+  ok('a program with no card and no vendor days sends nothing', !nothing.featured.length && !nothing.days.length);
   const noVday = api.wixDesired_({ programs: [gron({ plan: { sel: { web: true } } })], vendors: VENDORS }, '2026-11-02');
   ok('days go out only when Vendor day is picked too', noVday.featured.length === 1 && !noVday.days.length);
   ok('closed programs never go out', !api.wixDesired_({ programs: [gron({ status: 'closed' })], vendors: VENDORS }, '2026-11-02').featured.length);

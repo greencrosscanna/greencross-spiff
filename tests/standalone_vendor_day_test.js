@@ -37,7 +37,7 @@ function engine(role, user) {
     real: ['standaloneVdaySheet_', 'vdayStores_', 'vdayWeb_', 'rowToStandaloneVday_', 'standaloneVdayToRow_',
            'readStandaloneVdays_', 'standaloneVdaysRead_', 'getStandaloneVday_', 'saveStandaloneVday_',
            'cancelStandaloneVday_', 'mktEditor_', 'parseJson_', 'textDate_', 'wixCopyProblem_', 'wixLengthProblem_'],
-    vars: ['VDAYS_TAB', 'VDAY_HEADERS', 'EDIT_ROLES', 'WIX_APPROVERS_', 'WIX_COPY_RULES_', 'WIX_COPY_LIMITS_', 'WIX_LIMIT_NAMES_'],
+    vars: ['VDAYS_TAB', 'VDAY_HEADERS', 'EDIT_ROLES', 'WIX_APPROVERS_', 'WIX_VDAY_AUTO_APPROVER_', 'WIX_COPY_RULES_', 'WIX_COPY_LIMITS_', 'WIX_LIMIT_NAMES_'],
     stubs: {
       dataSheet_: () => programs,
       gxAuth_: (t) => (t === 'good' ? { ok: true, user: user || 'tawny', role: role || 'editor' } : { ok: false, error: 'bad token' }),
@@ -108,7 +108,7 @@ console.log('\n3. the deals-page approval is the session\'s');
   const sheet = t.book.getSheetByName('vendor_days');
   const other = G.load({ real: ['standaloneVdaySheet_', 'vdayStores_', 'vdayWeb_', 'rowToStandaloneVday_', 'standaloneVdayToRow_',
       'readStandaloneVdays_', 'getStandaloneVday_', 'saveStandaloneVday_', 'mktEditor_', 'parseJson_', 'textDate_', 'wixCopyProblem_', 'wixLengthProblem_'],
-    vars: ['VDAYS_TAB', 'VDAY_HEADERS', 'EDIT_ROLES', 'WIX_APPROVERS_', 'WIX_COPY_RULES_', 'WIX_COPY_LIMITS_', 'WIX_LIMIT_NAMES_'],
+    vars: ['VDAYS_TAB', 'VDAY_HEADERS', 'EDIT_ROLES', 'WIX_APPROVERS_', 'WIX_VDAY_AUTO_APPROVER_', 'WIX_COPY_RULES_', 'WIX_COPY_LIMITS_', 'WIX_LIMIT_NAMES_'],
     stubs: { dataSheet_: () => ({ getParent: () => t.book }), gxAuth_: () => ({ ok: true, user: 'jordan', role: 'editor' }), nowStamp_: () => 'x' },
     globals: { PropertiesService: G.makeProps({}).PropertiesService, console: { warn() {}, log() {} }, GXCore: { roleCanEdit: () => true } } });
   const hijack = other.saveStandaloneVday_(Object.assign({}, BASE, web, { id, web_deal: 'Half off' }));
@@ -151,7 +151,7 @@ const wixApi = G.load({
   real: ['wixFold_', 'wixMenuSlug_', 'wixEsc_', 'wixStoreLabel_', 'wixTimeOf_', 'wixDayLabels_', 'wixThroughLabel_', 'wixOfferHtml_',
          'wixApprover_', 'wixCopyProblem_', 'wixLengthProblem_', 'wixDutchieBrand_', 'wixVendorIndex_', 'wixDesired_', 'wixSameItem_',
          'wixCanon_', 'wixPlan_', 'calParseTime_', 'addDaysLocal_', 'normalizeMarketing_', 'mktPickedIds_', 'slug_', 'wixVdayLogoProblem_'],
-  vars: ['WIX_LOOKAHEAD_DAYS_', 'WIX_MAX_REMOVES_', 'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_APPROVERS_', 'WIX_COPY_RULES_', 'WIX_COPY_LIMITS_',
+  vars: ['WIX_LOOKAHEAD_DAYS_', 'WIX_MAX_REMOVES_', 'WIX_ITEM_', 'WIX_APPROVE_TASK_', 'WIX_APPROVERS_', 'WIX_VDAY_AUTO_APPROVER_', 'WIX_COPY_RULES_', 'WIX_COPY_LIMITS_',
          'WIX_LIMIT_NAMES_', 'WIX_DOW_', 'WIX_MON_', 'MKT_MENU_'],
   varValues: { WIX_APPROVER_FIELD_: G.grabVar('WIX_APPROVER_FIELD_') },
   globals: { console },
@@ -173,13 +173,20 @@ const wixApi = G.load({
   ok('  …linked to the brand\'s Vendors row', r.vendorRef === 'v-gron' && d.problems.length === 0);
   ok('no stores sends one "all" row with a blank store', (() => { const a = want([V({ stores: [] })]).days; return a.length === 1 && a[0].dayKey === 'sv-vd-1|all|2026-11-12' && a[0].store === ''; })());
   ok('not ticked for the page: nothing, and nothing to report', (() => { const a = want([V({ web: { on: false, deal: 'x' } })]); return a.days.length === 0 && a.skipped.length === 0; })());
+  /* The DAY goes on its own; only its deal WORDING waits for a person (Sky, 2026-11-06). */
+  const bareDay = (a) => a.days.length === 2 && a.days.every((x) => x.deal === '' && x.offer === '' && x.approvedBy === 'sky');
   const wait = want([V({ approved_by: '' })]);
-  ok('not approved: nothing goes, and it says why', wait.days.length === 0 && /approve/.test(wait.skipped[0].why));
-  ok('approved by someone not on the list: nothing goes', want([V({ approved_by: 'jordan' })]).days.length === 0);
+  ok('not approved: the day still goes, without its deal wording, signed by Sky\'s standing approval',
+     bareDay(wait) && /waits for Sky, Mike or Tawny/.test(wait.skipped[0].why));
+  ok('approved by someone not on the list: the day goes, the wording does not', bareDay(want([V({ approved_by: 'jordan' })])));
+  const noCopy = want([V({ approved_by: '', web: { on: true, deal: '', offer: '' } })]);
+  ok('a day with no deal wording goes, with nothing to report', noCopy.days.length === 2 && noCopy.skipped.length === 0);
   const olcc = want([V({ web: { on: true, deal: 'BOGO', offer: 'x' } })]);
-  ok('copy that breaks the OLCC rules does not go', olcc.days.length === 0 && /OLCC/.test(olcc.skipped[0].why));
+  ok('wording that breaks the OLCC rules stays off; the day goes', bareDay(olcc) && /OLCC/.test(olcc.skipped[0].why));
   const long = want([V({ web: { on: true, deal: 'Thirty percent off', offer: 'x' } })]);
-  ok('copy over the layout limit does not go', long.days.length === 0 && /characters/.test(long.skipped[0].why));
+  ok('wording over the layout limit stays off; the day goes', bareDay(long) && /characters/.test(long.skipped[0].why));
+  const badBrand = want([V({ brand: 'Best Buds' })]);
+  ok('a brand name that breaks the OLCC rules keeps the whole day off', badBrand.days.length === 0 && /brand name/.test(badBrand.skipped[0].why));
   ok('a day already past does not go', want([V({ date: '2026-11-04' })]).days.length === 0);
   ok('a day beyond the look-ahead window does not go yet', want([V({ date: '2027-02-01' })]).days.length === 0);
   ok('a canceled day does not go', want([V({ status: 'canceled' })]).days.length === 0);
@@ -223,7 +230,11 @@ console.log('\n6. the screen');
   const form = MK.vendorDayDialogHtml(null, { canEdit: true, stores, approver: true });
   ok('the form takes brand, stores, date, time, note and the page copy', ['mkVfBrand', 'mkVfDate', 'mkVfTime', 'mkVfNote', 'mkVfWeb', 'mkVfDeal', 'mkVfOffer']
      .every((id) => form.indexOf('id="' + id + '"') >= 0) && /data-mk-vfst="river-rd"/.test(form));
-  ok('  …the page copy is hidden until ticked', /id="mkVfWebBox" hidden/.test(form));
+  /* Sky, 2026-11-06: a new day goes on the deals page by default; unticking takes it off. */
+  ok('  …a new day is ticked for the deals page, its copy box open', /id="mkVfWeb" checked/.test(form) && !/id="mkVfWebBox" hidden/.test(form));
+  const off = MK.vendorDayDialogHtml({ vday_id: 'vd-1', brand: 'Grön', stores: [], date: '2026-11-12', time: '', note: '', web: { on: false } },
+                                     { canEdit: true, stores, approver: true });
+  ok('  …a day someone took off the page stays off, its copy box hidden', !/id="mkVfWeb" checked/.test(off) && /id="mkVfWebBox" hidden/.test(off));
   ok('  …an approver sees the approval box', /id="mkVfApprove"/.test(form));
   const view = MK.vendorDayDialogHtml(V, { canEdit: true, stores, approver: false });
   ok('  …anyone else sees who approved, and no box', !/id="mkVfApprove"/.test(view) && /approved by tawny/.test(view) && /data-mk-vfst="commercial" checked/.test(view));

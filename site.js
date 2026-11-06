@@ -375,7 +375,7 @@
     var vendors = S.vendors.filter(shown).sort(function (a, b) { return String(a.brand).localeCompare(String(b.brand)); });
     return '<div class="st-wrap"><datalist id="stBrands">' + brands + '</datalist>'
       + '<div class="st-head"><div><h3 class="st-title">Deals page</h3>'
-      +   '<p class="st-sub">The weekly deals and brand logos on greencrosscanna.com/deals. Featured cards and vendor days come from each program. An approved line goes up on the next hourly update.</p></div>'
+      +   '<p class="st-sub">The weekly deals and brand logos on greencrosscanna.com/deals. Featured cards and vendor days come from each program. Vendor days go up as soon as they are entered; a featured card or weekly line goes up once approved, on the next hourly update.</p></div>'
       +   approveAll + '</div>'
       + (S.err ? '<div class="mk-warn">' + esc(S.err) + '</div>' : '') + (S.msg ? '<div class="mk-spec">' + esc(S.msg) + '</div>' : '')
       + '<div class="st-stats" role="group" aria-label="Filter by status">'

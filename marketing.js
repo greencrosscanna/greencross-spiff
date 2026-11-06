@@ -134,9 +134,10 @@
       k: [['ecom.set', 'INV', 'Set featured placement on the online menu', 's', -2],
           ['ecom.remove', 'INV', 'Remove featured placement', 'e', 1]] },
     /* The website's deals page (Sky, 2026-11-02). Everything typed here is PUBLIC customer copy. The
-       engine publishes it to greencrosscanna.com/deals on its own, as a Featured card plus one row per
-       vendor day, but only once Sky, Mike or Tawny has ticked web.approve (Sky, 2026-11-02), and
-       anyone else changing the copy afterwards un-ticks it (wixSignDelta_). The deal and offer fields fill each vendor-day row. f[4] is a
+       engine publishes the Featured card to greencrosscanna.com/deals on its own, but only once Sky,
+       Mike or Tawny has ticked web.approve (Sky, 2026-11-02), and anyone else changing the copy
+       afterwards un-ticks it (wixSignDelta_). The program's VENDOR DAYS go up without waiting for that
+       (Sky, 2026-11-06); the deal and offer fields fill each vendor-day row once approved. f[4] is a
        placeholder. The image must meet the Featured image spec, shown beside it (FEATURED_SPEC). */
     web: { t: 'Deals page (website)', s: 'Featured card and vendor days on greencrosscanna.com/deals', sec: 'mkt', web: 1,
       f: [['text', 'headline', 'Headline', null, 'e.g. Grön Pearls week'],
@@ -1465,9 +1466,10 @@
   /* ── Standalone vendor days ──────────────────────────────────────────────────────────────────────
      A vendor visiting a store with no SPIFF program behind it: brand, store(s), date, time, note. NOT a
      program: it lives in the engine's own `vendor_days` tab, which nothing that pays anybody or feeds
-     a kiosk reads. It reaches the shared Marketing Calendar, and the deals page only when "Show on the
-     deals page" is on AND Sky, Mike or Tawny has approved the copy (the engine signs that with the
-     session; a change to the brand or copy by anyone else clears it).
+     a kiosk reads. It reaches the shared Marketing Calendar, and the deals page on its own as soon as it
+     is saved with "Show on the deals page" on (the default; Sky, 2026-11-06). Only its deal and offer
+     WORDING waits for Sky, Mike or Tawny to approve it (the engine signs that with the session; a
+     change to the brand or copy by anyone else clears it); until then the day shows without it.
      ctx: { today, canEdit, stores:[{store_id,name}], approver, error }. v null = a new one. */
   var VDAY_APPROVERS = ['sky', 'mike', 'tawny'];
   function vdayCopyWarning(brand, web) {
@@ -1534,7 +1536,7 @@
   }
 
   function vendorDayDialogHtml(v, ctx) {
-    var ro = ctx.canEdit ? '' : ' disabled', web = (v && v.web) || {};
+    var ro = ctx.canEdit ? '' : ' disabled', web = (v && v.web) || { on: true };   // a new day goes on the page by default
     var picked = (v && v.stores) || [];
     var html = '<h3 class="mk-h">&#9733; ' + (v ? esc(v.brand) + ' vendor day' : 'New vendor day') + '</h3>'
       + '<p class="mk-sub">A vendor visiting a store with no SPIFF program behind it. No goals, no payout, no kiosk card. '
@@ -1553,10 +1555,11 @@
       + '<div class="mk-2col"><label class="mk-fld">Deal<input id="mkVfDeal" type="text" maxlength="60" placeholder="For example: 30% OFF" value="' + esc(web.deal || '') + '"' + ro + '></label>'
       + '<label class="mk-fld">Offer details<input id="mkVfOffer" type="text" maxlength="200" placeholder="For example: all Grön, in store, this store and time only" value="' + esc(web.offer || '') + '"' + ro + '></label></div>'
       + (ctx.approver
-          ? '<div class="mk-fld"><label><input type="checkbox" id="mkVfApprove"' + (v && v.approved_by ? ' checked' : '') + ro + '> Approve this copy for the public page</label></div>'
+          ? '<div class="mk-fld"><label><input type="checkbox" id="mkVfApprove"' + (v && v.approved_by ? ' checked' : '') + ro + '> Approve the deal wording for the public page</label></div>'
+            + '<p class="mk-sub">The day itself goes on the page as soon as it is saved. The deal and offer wording shows once approved.</p>'
           : '<p class="mk-sub" id="mkVfApproval">' + (v && v.approved_by
-              ? 'Copy approved by ' + esc(v.approved_by) + '.'
-              : 'Not on the page until Sky, Mike or Tawny approves the copy. Changing the copy takes the approval off.') + '</p>')
+              ? 'Deal wording approved by ' + esc(v.approved_by) + '.'
+              : 'The day goes on the page as soon as it is saved. The deal and offer wording shows once Sky, Mike or Tawny approves it. Changing the wording takes the approval off.') + '</p>')
       + '</div>'
       + '<div id="mkVfWarn">' + (ctx.error ? '<div class="mk-warn">' + esc(ctx.error) + '</div>' : '') + '</div>';
     html += ctx.canEdit
