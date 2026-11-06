@@ -141,7 +141,8 @@ const byId = (p) => { const m = {}; MK.groupTasks(MK.tasksOf(p, { stores: ['bend
 console.log('\n6. a holiday runs the blast cycle, counted back from its send date');
 {
   const t = byId(MK.holidayProgram(H));
-  ok('the deal is Tawny\'s, the Wednesday before', t['blast.deal'].owner === 'Tawny' && t['blast.deal'].due === '2026-11-18');
+  ok('the deal is Tawny\'s, two weeks before', t['blast.deal'].owner === 'Tawny' && t['blast.deal'].due === '2026-11-09');
+  ok('the hand-off to Mike is Tawny\'s, the Wednesday before', t['blast.handoff'].owner === 'Tawny' && t['blast.handoff'].due === '2026-11-18');
   ok('copy is Mike\'s, Thursday', t['blast.copy'].owner === 'Mike' && t['blast.copy'].due === '2026-11-19');
   ok('both proofs are Mike\'s, Friday', t['email.review'].owner === 'Mike' && t['email.review'].due === '2026-11-20'
      && t['sms.approve'].owner === 'Mike' && t['sms.approve'].due === '2026-11-20');
@@ -149,11 +150,11 @@ console.log('\n6. a holiday runs the blast cycle, counted back from its send dat
   ok('stats three days after', t['email.stats'].owner === 'Mike' && t['email.stats'].due === '2026-11-26');
   ok('no vendor-only task: no creative, no cost model', !t['email.creative'] && !t['sms.cost']);
   ok('no program task and no incentive', !Object.keys(t).some(id => /^(core|incentive)\./.test(id)));
-  ok('exactly the cycle, nothing else', Object.keys(t).sort().join() === 'blast.copy,blast.deal,email.review,email.send,email.stats,sms.approve,sms.send');
+  ok('exactly the cycle, nothing else', Object.keys(t).sort().join() === 'blast.copy,blast.deal,blast.handoff,email.review,email.send,email.stats,sms.approve,sms.send');
   const textOnly = byId(MK.holidayProgram(Object.assign({}, H, { channels: ['sms'] })));
   ok('text only: no email tasks, the shared pair once', !textOnly['email.send'] && textOnly['sms.send'] && textOnly['blast.deal']);
   const moved = byId(MK.holidayProgram(Object.assign({}, H, { send_date: '2026-12-21' })));
-  ok('move the send date and the whole cycle moves', moved['blast.deal'].due === '2026-12-16' && moved['email.send'].due === '2026-12-21');
+  ok('move the send date and the whole cycle moves', moved['blast.deal'].due === '2026-12-07' && moved['email.send'].due === '2026-12-21');
   const ticked = byId(MK.holidayProgram(Object.assign({}, H, { marketing_json: { done: { 'blast.deal': { by: 'tawny', at: 'x' } }, own: { 'blast.copy': 'sky' } } })));
   ok('its own ticks and hand-offs read back', ticked['blast.deal'].open === 0 && ticked['blast.copy'].owner === 'Sky');
 }
