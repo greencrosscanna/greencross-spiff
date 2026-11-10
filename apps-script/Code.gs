@@ -330,7 +330,7 @@ var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses
                       'sweepOrphanProgress', 'publishToCore', 'backfillPayPeriods',
                       'publishKioskTokens', 'seedBrands', 'recordActuals', 'auditPayouts', 'calendarSync',
                       'publishToWix', 'propsReport', 'setSwitch', 'deleteOrphanProp', 'adoptSite',
-                      'giftCardEmail'];
+                      'giftCardEmail', 'publishLive'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -472,6 +472,9 @@ function doGet(e) {
          the periods and row counts it would send without writing to Core, so the shape can be
          checked before a consumer is pointed at it. `apply=1` publishes. */
       case 'publishToCore': out = publishToCore_(p);                                break;
+      /* The kiosk's live-count lists (THE LIVE COUNT). Secret-gated and DRY BY DEFAULT; `apply=1`
+         publishes. The hourly trigger does this on its own, straight after publishToCore. */
+      case 'publishLive':   out = publishLiveWeb_(p);                               break;
       /* Record a closed program's actuals from its close-out measurement. Secret-gated and DRY BY
          DEFAULT; `apply=1` writes. The hourly trigger does this on its own — see RECORDING ACTUALS. */
       case 'recordActuals': out = recordActualsWeb_(p);                             break;
@@ -2585,7 +2588,7 @@ function refreshSpiffProgress_(only, onlyStore, opts) {
     return !only || String(p.program_id) === String(only);
   });
   var now = nowStamp_();
-  var written = [], failures = [], skipped = [];
+  var written = [], failures = [], skipped = [], readTimes = Object.create(null);
 
   /* ── STOP ON THE CLOCK (2026-09-16) ──────────────────────────────────────────────────────────
      Each store below is one HTTP call to GX Core, made one at a time, and the sweep does nothing
@@ -2622,7 +2625,7 @@ function refreshSpiffProgress_(only, onlyStore, opts) {
         skipped.push({ program_id: prog.program_id, store: slug });
         return;
       }
-      var r;
+      var r, readStart = Date.now();
       try { r = sellthrough_({ id: prog.program_id, store: slug }); }
       catch (e) { r = { ok: false, error: scrubSecrets_((e && e.message) || e) }; }
       if (!r || r.ok === false) {
@@ -2631,6 +2634,9 @@ function refreshSpiffProgress_(only, onlyStore, opts) {
         failures.push({ program_id: prog.program_id, store: slug, error: (r && r.error) || 'failed' });
         return;
       }
+      /* WHEN THIS STORE'S NUMBER WAS TAKEN, for the kiosk's live count (THE LIVE COUNT). Only on
+         success: a failed store keeps last hour's rows, so it must keep last hour's time too. */
+      readTimes[prog.program_id + '|' + slug] = readStart;
       (r.rows || []).forEach(function (row) {
         written.push([prog.program_id, prog.pay_period || '', slug,
                       row.employee_id || '', row.name || '',
@@ -2655,6 +2661,10 @@ function refreshSpiffProgress_(only, onlyStore, opts) {
     sh.getRange(sh.getLastRow() + 1, 1, written.length, PROGRESS_HEADERS.length).setValues(written);
     forceProgressTextDates_(sh);        // pay_period AND the program window stay TEXT
   }
+  /* AFTER the rows land, never before: a read time must not claim numbers that are not in the cache
+     yet. A failure here costs the live count one hour, never the refresh. */
+  try { saveLiveReadTimes_(readTimes); }
+  catch (e) { console.warn('[spiff] live read times not saved: ' + ((e && e.message) || e)); }
   /* WHY a sweep found nothing, not just that it did. `programs: 0` on its own cannot tell a
      genuinely quiet week from a program sitting in `draft`, or from one whose stores_json is empty
      — and those need completely different fixes. The counts make the answer one call instead of a
@@ -3771,6 +3781,181 @@ function publishNoProgramHeartbeat_(secret, notes) {
   }
 }
 
+/* ══════════════════════ THE LIVE COUNT ══════════════════════
+ * Sky, 2026-11-09 ("Yes, build it"), after TJ at River Rd asked for faster kiosk numbers. SPIFF
+ * measures hourly; Leaderboard's kiosk already polls Dutchie every 60 seconds. So SPIFF publishes, per
+ * running program and store, the exact Dutchie product ids that count and the moment its number was
+ * taken. The kiosk adds matching sales after that moment on top of SPIFF's last number, FOR DISPLAY
+ * ONLY, and the next hourly publish replaces it. That is the reconcile.
+ *
+ * NOTHING THAT PAYS READS THIS. Crew's approve/send read SPIFF live, and the money publication is
+ * untouched. This is its own producer (`spiff-live`), never a scope on the `spiff` rows: a
+ * "<pp>:live" scope would sort as the NEWEST spiff scope, and any reader that omits the scope would
+ * be handed a product list instead of progress.
+ *
+ * ONE DEFINITION OF "COUNTS". The ids come from GX Core's `spiff_match_ids`, which runs the same
+ * filter `sales_by_employee` runs on the same catalog. Neither SPIFF nor Leaderboard re-implements it.
+ *
+ * counted_through IS THE START OF THE STORE'S READ, MINUS CORE'S CACHE (3 min for an open window).
+ * Early on purpose: the kiosk may count a sale twice for under an hour, but it can never miss one.
+ * A store whose read failed keeps last hour's time, because it keeps last hour's rows.
+ *
+ * A MISSING STORE MEANS "ADD NOTHING THERE", never zero: a store with no read time or no id list
+ * is left out of the payload, not sent empty.
+ */
+var LIVE_READ_PROP     = 'LIVE_READ_AT';            // { "<program_id>|<store>": epoch ms }
+var LIVE_CORE_CACHE_MS = 3 * 60 * 1000;             // GX_SBE_CACHE_OPEN_S in gx_dutchie.gs
+var LIVE_READ_KEEP_MS  = 3 * 24 * 60 * 60 * 1000;   // drop entries older than this
+var LIVE_MAX_BYTES     = 45000;                     // one sheet cell holds 50,000 characters
+var LIVE_UNIT_RULE     = 'retail only; skip isVoid and isReturn transactions and isReturned lines; '
+                       + 'units = quantity (default 1); credit the Dutchie employeeId; only sales after '
+                       + 'the store\'s counted_through and inside from..to (Los Angeles days)';
+
+/* Merge this run's read times into the stored map, dropping old entries. Pure on its inputs. */
+function mergeLiveReadTimes_(stored, fresh, nowMs) {
+  var out = {};
+  Object.keys(stored || {}).forEach(function (k) {
+    var t = Number(stored[k]);
+    if (t && nowMs - t <= LIVE_READ_KEEP_MS) out[k] = t;
+  });
+  Object.keys(fresh || {}).forEach(function (k) { out[k] = Number(fresh[k]); });
+  return out;
+}
+
+function loadLiveReadTimes_() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(LIVE_READ_PROP) || '{}') || {}; }
+  catch (e) { return {}; }
+}
+
+function saveLiveReadTimes_(fresh) {
+  if (!fresh || !Object.keys(fresh).length) return;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) throw new Error('could not take the lock');
+  try {
+    var merged = mergeLiveReadTimes_(loadLiveReadTimes_(), fresh, Date.now());
+    PropertiesService.getScriptProperties().setProperty(LIVE_READ_PROP, JSON.stringify(merged));
+  } finally { lock.releaseLock(); }
+}
+
+/* The program's filter, in the exact form gxSalesByEmployee_ sends it, so the hash changes when and
+   only when what counts changes. */
+function liveMatchOf_(prog) {
+  var m = prog.match_json || {};
+  return { brand: String(m.brand || '').trim().toLowerCase(),
+           category: String(m.category || '').trim().toLowerCase(),
+           filter_text: String(m.filter_text || '').trim().toLowerCase(),
+           products: (m.products || []).map(function (s) { return String(s).trim().toLowerCase(); })
+                                       .filter(Boolean) };
+}
+
+function liveRulesHash_(prog) {
+  var d = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(liveMatchOf_(prog)));
+  var hex = '';
+  for (var i = 0; i < 8; i++) hex += ('0' + (d[i] & 0xFF).toString(16)).slice(-2);
+  return hex;
+}
+
+/* Ask GX Core which product ids count at one store. Same parameters gxSalesByEmployee_ sends. */
+function gxMatchIds_(secret, store, match) {
+  var url = GXCORE_URL + '?action=spiff_match_ids'
+    + '&secret='  + encodeURIComponent(secret)
+    + '&stores='  + encodeURIComponent(store)
+    + (match.brand       ? '&brand='       + encodeURIComponent(match.brand)       : '')
+    + (match.category    ? '&category='    + encodeURIComponent(match.category)    : '')
+    + (match.filter_text ? '&filter_text=' + encodeURIComponent(match.filter_text) : '')
+    + ((match.products && match.products.length) ? '&products=' + encodeURIComponent(match.products.join(',')) : '');
+  var r = gxCoreFetchJson_(url, 'match ids for ' + store);
+  if (!r.ok) return { ok: false, error: scrubSecrets_(r.error) };
+  var d = r.data || {};
+  if (d.ok !== true) return { ok: false, error: scrubSecrets_(d.error || 'GX Core refused') };
+  var s = (d.stores || {})[store];
+  if (!s || !Array.isArray(s.product_ids)) {
+    return { ok: false, error: 'GX Core gave no id list for ' + store
+                               + ((d.errors && d.errors.length) ? ': ' + d.errors.join('; ') : '') };
+  }
+  return { ok: true, product_ids: s.product_ids.map(String) };
+}
+
+/* Build one payload per pay period. PURE: the program list, the read times, the id lists and the
+   hash function come in, so a test runs it without Apps Script. `idsFor(prog, store)` returns
+   { ok, product_ids } or { ok:false, error }. */
+function buildLivePayloads_(programs, readTimes, idsFor, hashOf, nowIso) {
+  var byScope = Object.create(null), skipped = [];
+  (programs || []).forEach(function (prog) {
+    if (String(prog.status || '').toLowerCase() !== 'active') return;
+    var from = textDate_(prog.start_date), to = textDate_(prog.end_date);
+    var scope = periodStartFor_(from);
+    if (!from || !to || !scope) { skipped.push({ program_id: prog.program_id, why: 'no usable window' }); return; }
+    var stores = {};
+    (prog.stores_json || []).forEach(function (raw) {
+      var slug = slug_(raw && raw.store_id ? raw.store_id : raw);
+      if (!slug) return;
+      var at = Number((readTimes || {})[prog.program_id + '|' + slug]);
+      if (!at) { skipped.push({ program_id: prog.program_id, store: slug, why: 'no successful read yet' }); return; }
+      var ids = idsFor(prog, slug);
+      if (!ids || !ids.ok) { skipped.push({ program_id: prog.program_id, store: slug, why: (ids && ids.error) || 'no id list' }); return; }
+      stores[slug] = { counted_through: new Date(at - LIVE_CORE_CACHE_MS).toISOString(),
+                       product_ids: ids.product_ids };
+    });
+    if (!Object.keys(stores).length) return;
+    var b = byScope[scope] || (byScope[scope] = { pay_period: scope, programs: [], unit_rule: LIVE_UNIT_RULE,
+                                                  published_by: 'spiff', published_at: nowIso });
+    b.programs.push({ program_id: prog.program_id, from: from, to: to,
+                      rules_hash: hashOf(prog), stores: stores });
+  });
+  return { payloads: byScope, skipped: skipped };
+}
+
+function publishSpiffLive_(opts) {
+  opts = opts || {};
+  var secret = PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP);
+  if (!secret) return { ok: false, error: 'GX_DEPLOY_SECRET is not set on this script' };
+  /* Checked FIRST, so an old pin costs no match-id calls at all. */
+  if (!opts.dry && typeof GXCore.publishSpiffLive !== 'function') {
+    return { ok: true, sent: [], skipped_all: 'pinned GXCore predates publishSpiffLive' };
+  }
+  var programs;
+  try { programs = listPrograms_('active'); }
+  catch (e) { return { ok: false, error: 'program list unreadable: ' + scrubSecrets_(e && e.message || e) }; }
+
+  var built = buildLivePayloads_(programs, loadLiveReadTimes_(),
+    function (prog, store) { return gxMatchIds_(secret, store, liveMatchOf_(prog)); },
+    liveRulesHash_, new Date().toISOString());
+
+  var scopes = Object.keys(built.payloads).sort(), sent = [], failed = [], preview = [];
+  scopes.forEach(function (scope) {
+    var payload = built.payloads[scope], raw = JSON.stringify(payload);
+    var summary = { scope: scope, programs: payload.programs.length, bytes: raw.length,
+                    stores: payload.programs.reduce(function (n, p) { return n + Object.keys(p.stores).length; }, 0) };
+    /* Too big for one cell: refuse loudly rather than send a truncated list that would undercount. */
+    if (raw.length > LIVE_MAX_BYTES) { failed.push({ scope: scope, error: 'payload is ' + raw.length + ' bytes, over ' + LIVE_MAX_BYTES }); return; }
+    if (opts.dry) { preview.push(summary); return; }
+    try {
+      var r = GXCore.publishSpiffLive(secret, scope, payload, { by: 'spiff', notes: opts.notes || 'hourly refresh' });
+      if (r && r.ok) sent.push(summary);
+      else failed.push({ scope: scope, error: (r && r.error) || 'unknown' });
+    } catch (e) {
+      failed.push({ scope: scope, error: scrubSecrets_(e && e.message || e) });
+    }
+  });
+  var out = { ok: !failed.length, failed: failed, skipped: built.skipped };
+  if (opts.dry) out.would_publish = preview; else out.sent = sent;
+  return out;
+}
+
+/* The manual entry point. DRY BY DEFAULT: the dry run still asks Core for the id lists, so it shows
+   exactly what would go out. */
+function publishLiveWeb_(p) {
+  if (String(p.secret || '') !== PropertiesService.getScriptProperties().getProperty(GX_SECRET_PROP)) {
+    return { ok: false, error: 'Unauthorized' };
+  }
+  var dry = String(p.apply || '') !== '1';
+  var r = publishSpiffLive_({ dry: dry, notes: String(p.notes || 'manual publish') });
+  r.dry = dry;
+  if (dry) r.note = 'Nothing was published. Re-run with apply=1 to send these to Core.';
+  return r;
+}
+
 /* ── THE PROGRAM SIDECAR — what a row cannot say about the program it belongs to ─────────────────
  * Asked for by Leaderboard 2026-09-11, Sky's call: the kiosk popup stops framing SPIFF's store page
  * and gets drawn natively, so Leaderboard needs the four things only the `programs` tab holds —
@@ -4017,6 +4202,15 @@ function refreshSpiffProgressTrigger() {
                      + (pub.error || JSON.stringify(pub.failed || [])));
       }
     } catch (e) { console.warn('[spiff] publish to Core threw: ' + ((e && e.message) || e)); }
+    /* THE KIOSK'S LIVE-COUNT LISTS, straight after the money publish so both carry this hour's read.
+       Its own try/catch: it is display-only, and nothing above may wait on it or fail because of it. */
+    try {
+      var live = publishSpiffLive_({ notes: 'hourly refresh' });
+      if (live.skipped_all) console.log('[spiff] live count not published: ' + live.skipped_all);
+      else if (!live.ok) console.warn('[spiff] live count publish FAILED: ' + JSON.stringify(live.failed || live.error));
+      else console.log('[spiff] live count published: ' + (live.sent || []).map(function (x) {
+        return x.scope + ' (' + x.programs + ' program(s), ' + x.stores + ' store list(s))'; }).join(', '));
+    } catch (e) { console.warn('[spiff] live count publish threw: ' + ((e && e.message) || e)); }
     /* THE CALENDAR IS LAST and its own try/catch: it writes only to Google Calendar, and nothing
        above may wait on it or fail because of it. */
     try { runCalendarSyncHourly_(); }

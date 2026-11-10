@@ -432,6 +432,19 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
     **live**, because they freeze vendor money into `crew_incentive_history` where it can never be
     recomputed — a stale figure frozen there is silent and permanent, where a live read that fails
     is loud and recoverable in front of the person who just clicked Approve. Not an oversight to tidy.
+- **The kiosk's live count is display-only, and is its own publication** (Sky, 2026-11-09, after TJ
+  at River Rd asked for faster numbers). Hourly, straight after the money publish,
+  `publishSpiffLive_` sends per running program and store the Dutchie product ids that count and a
+  `counted_through` time, as producer **`spiff-live`** (`GXCore.publishSpiffLive`, scope = pay period
+  start), never as a scope on the `spiff` rows: a `"<pp>:live"` scope would sort as the newest and a
+  reader that omits the scope would get ids instead of progress. Leaderboard adds sales after that
+  time on top of SPIFF's last number; the next hour replaces it. **The ids come from GX Core's
+  `spiff_match_ids`**, which runs `sales_by_employee`'s own filter, so no app re-implements what
+  counts. `counted_through` = the store's read START minus Core's 3-minute cache (may double-count
+  briefly, never misses), kept per store in the `LIVE_READ_AT` property and only on a successful
+  read. A store with no read or no id list is left OUT, never sent empty. An old GXCore pin skips
+  with no Core calls. `?action=publishLive` (secret, dry unless `apply=1`). Nothing that pays reads
+  it. Pinned by `tests/live_count_test.js`.
 - **Do not document or assume a contract that does not exist.** There is no `spiff_payouts` tab — not
   in `GX_TABS`, nothing writes or reads it. A documented contract that does not exist invites a future
   session to "maintain" it.
