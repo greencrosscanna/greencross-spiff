@@ -6426,11 +6426,11 @@ function storeReportPlan_(prog, sections) {
   catch (e) { err = 'Could not read the managers from GX Core: ' + scrubSecrets_(e && e.message || e); }
   var units = [], missing = [];
   sections.forEach(function (sec) {
-    /* MANAGERS ONLY (Sky, 2026-11-03): an Assistant Manager does not get the sheet unless Tawny asks
-       for it. GX Core's "manager" match is a substring, so assistants arrive in the list and are
-       filtered out here, by title. */
+    /* MANAGERS AND ASSISTANT MANAGERS (bug 2026-11-13, reversing the 2026-11-03 managers-only rule
+       now that Tawny asked for it). GX Core's "manager" match is a substring of role_title, so
+       "Assistant Manager" arrives in the list already; nothing is filtered out here by title. */
     var mine = contacts.filter(function (c) {
-      return slug_(c.home_store) === slug_(sec.store_id) && !/assistant|asst/i.test(String(c.role_title || ''));
+      return slug_(c.home_store) === slug_(sec.store_id);
     });
     var withMail = mine.filter(function (c) { return c.contactable && /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(c.email || '').trim()); });
     if (withMail.length) {
