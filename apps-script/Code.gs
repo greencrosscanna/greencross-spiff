@@ -330,7 +330,7 @@ var SECRET_ACTIONS = ['refreshProgress', 'installProgressTrigger', 'rollStatuses
                       'sweepOrphanProgress', 'publishToCore', 'backfillPayPeriods',
                       'publishKioskTokens', 'seedBrands', 'recordActuals', 'auditPayouts', 'calendarSync',
                       'publishToWix', 'propsReport', 'setSwitch', 'deleteOrphanProp', 'adoptSite',
-                      'giftCardEmail', 'publishLive'];
+                      'giftCardEmail', 'publishLive', 'setBrandMailer'];
 
 function guard_(action, p) {
   if (PUBLIC_ACTIONS.indexOf(action) >= 0) return null;
@@ -498,6 +498,8 @@ function doGet(e) {
       case 'propsReport': out = propsReportWeb_(p);                                 break;
       case 'setSwitch':   out = setSwitchWeb_(p);                                   break;
       case 'deleteOrphanProp': out = deleteOrphanPropWeb_(p);                       break;
+      /* Connect "Send to brand" to Tawny's own mailer (TAWNY'S MAILER). Secret-gated, dry unless apply=1. */
+      case 'setBrandMailer': out = setBrandMailerWeb_(p);                           break;
       /* The deals page's weekly lines and brands (THE DEALS PAGE, PART 2). A signed-in read and
          editor-only writes in their own tab; approval is signed by the session. None hedged on the
          client: the writes are writes, and siteImportLogo imports into Wix Media. adoptSite takes over
@@ -7529,6 +7531,90 @@ function brandFromAddress_() {
   return String(PropertiesService.getScriptProperties().getProperty(BRAND_FROM_PROP) || BRAND_FROM_DEFAULT).trim();
 }
 
+/* ── TAWNY'S MAILER (Sky, 2026-11-16) ─────────────────────────────────────────────────────────────
+ * "Send to brand" used to send from Sky's account with tawny@ as a Send-As alias, which needed Sky
+ * as a delegate on her mailbox and filled his inbox with hers. tawny-mailer/ in this repo is a tiny
+ * web app Tawny deploys herself ("Execute as: Me"), so the vendor email really leaves from her Gmail.
+ * The engine still builds the whole email; the mailer only sends it, refuses unless it runs as
+ * BRAND_FROM, and checks a shared secret.
+ *
+ * Two script properties, both written by ?action=setBrandMailer and never by hand:
+ *   BRAND_MAILER_URL     the mailer's /exec
+ *   BRAND_MAILER_SECRET  minted here, handed to the mailer once by its `pair` action
+ * With both set, sending goes ONLY through the mailer. With neither, the legacy alias path runs.
+ *
+ * ?action=setBrandMailer (deploy secret): url=<mailer /exec>. Dry unless apply=1: pairs with the
+ * mailer, stores both properties only if pairing worked, then pings it and reports who it sends as.
+ * clear=1&apply=1 removes both, which puts sending back on the alias path. */
+var BRAND_MAILER_URL_PROP = 'BRAND_MAILER_URL';
+var BRAND_MAILER_SECRET_PROP = 'BRAND_MAILER_SECRET';
+
+function brandMailer_() {
+  var props = PropertiesService.getScriptProperties();
+  var url = String(props.getProperty(BRAND_MAILER_URL_PROP) || '').trim();
+  var secret = String(props.getProperty(BRAND_MAILER_SECRET_PROP) || '');
+  return url && secret ? { url: url, secret: secret } : null;
+}
+
+/* POSTs to the mailer and returns its answer. `unsure: true` means the request may have arrived
+   (a timeout or dropped connection), so a send might have gone out; the caller says so. */
+function callBrandMailer_(mailer, body) {
+  var payload = JSON.stringify(Object.assign({}, body, { secret: mailer.secret }));
+  var resp;
+  try {
+    resp = UrlFetchApp.fetch(mailer.url, { method: 'post', contentType: 'application/json',
+      payload: payload, muteHttpExceptions: true, followRedirects: true });
+  } catch (e) {
+    return { ok: false, unsure: true, error: 'Could not reach Tawny\'s mailer: ' + scrubSecrets_((e && e.message) || e) };
+  }
+  var code = resp.getResponseCode(), txt = String(resp.getContentText() || '');
+  try { var out = JSON.parse(txt); if (out && typeof out === 'object') return out; } catch (e) {}
+  return { ok: false, unsure: code >= 500,
+           error: 'Tawny\'s mailer answered HTTP ' + code + ' instead of a result'
+             + (/<html/i.test(txt) ? ' (a Google page: check it is deployed with "Who has access: Anyone")' : '') };
+}
+
+function setBrandMailerWeb_(p) {
+  var URL_RE = /^https:\/\/script\.google\.com\/(a\/[^\/]+\/)?macros\/s\/[A-Za-z0-9_-]+\/exec$/;
+  var props = PropertiesService.getScriptProperties();
+  var want = props.getProperty(GX_SECRET_PROP);
+  if (!want || String(p.secret || '') !== want) return { ok: false, error: 'Unauthorized' };
+  var apply = String(p.apply || '') === '1';
+  var cur = brandMailer_();
+
+  if (String(p.clear || '') === '1') {
+    if (!apply) return { ok: true, dry: true, connected: !!cur, note: 'dry run: send apply=1 to disconnect the mailer.' };
+    props.deleteProperty(BRAND_MAILER_URL_PROP);
+    props.deleteProperty(BRAND_MAILER_SECRET_PROP);
+    return { ok: true, cleared: true, note: 'Send to brand is back on the Send-As alias path.' };
+  }
+
+  var url = String(p.url || '').trim();
+  if (!url) {   // no url: report and ping what is connected now
+    if (!cur) return { ok: true, connected: false };
+    var ping = callBrandMailer_(cur, { action: 'ping' });
+    return { ok: !!ping.ok, connected: true, url: cur.url, sends_as: ping.from || null,
+             expected: brandFromAddress_(), quota_left: ping.quota_left, error: ping.ok ? undefined : ping.error };
+  }
+  if (!URL_RE.test(url)) return { ok: false, error: 'That is not an Apps Script web app /exec address.' };
+  if (!apply) return { ok: true, dry: true, url: url, replaces: cur ? cur.url : null,
+                       note: 'dry run: send apply=1 to pair with this mailer.' };
+
+  var secret = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+  var pair = callBrandMailer_({ url: url, secret: secret }, { action: 'pair' });
+  if (!pair.ok) return { ok: false, error: 'Pairing failed: ' + (pair.error || 'no answer') + '. Nothing was saved.' };
+  props.setProperty(BRAND_MAILER_URL_PROP, url);
+  props.setProperty(BRAND_MAILER_SECRET_PROP, secret);
+  var check = callBrandMailer_({ url: url, secret: secret }, { action: 'ping' });
+  var expected = brandFromAddress_().toLowerCase();
+  var sendsAs = String(check.from || '').toLowerCase();
+  return { ok: !!check.ok && sendsAs === expected, connected: true, url: url, sends_as: sendsAs || null,
+           expected: expected, quota_left: check.quota_left,
+           error: !check.ok ? check.error
+             : sendsAs !== expected ? 'Paired, but the mailer runs as ' + sendsAs + ', not ' + expected
+               + '. It will refuse every send until Tawny deploys it herself.' : undefined };
+}
+
 function sendBrandEmail_(p) {
   var auth = gxAuth_(p.token);
   if (!auth.ok) return { ok: false, error: auth.error || 'Not signed in', needsAuth: true };
@@ -7562,18 +7648,38 @@ function sendBrandEmail_(p) {
     var pdf  = brandPdfBlob_(prog, measured);
     var html = brandPaperHtml_(prog, measured, { greeting: String(p.first_name || '').trim(), closing: 'Tawny' });
     var text = emailDraft_({ id: prog.program_id }).body;
-    try {
-      GmailApp.sendEmail(to, subject, text, {
-        htmlBody: html, attachments: [pdf], from: from, replyTo: from, bcc: from,
-        name: 'Green Cross Cannabis Emporium'
+    var via;
+    var mailer = brandMailer_();
+    if (mailer) {
+      /* Tawny's own mailer (see TAWNY'S MAILER below). Once it is connected this is the ONLY path:
+         a mailer failure is reported, never retried through the old alias. */
+      var r = callBrandMailer_(mailer, {
+        action: 'send', expect_from: from, to: to, subject: subject, text: text, html: html,
+        name: 'Green Cross Cannabis Emporium',
+        attachment: { name: pdf.getName(), base64: Utilities.base64Encode(pdf.getBytes()) }
       });
-    } catch (e) {
-      return { ok: false, error: 'Could not send: ' + scrubSecrets_(e && e.message || e)
-        + ' (the sender address must be a Send-As alias on the account this app runs as)' };
+      if (!r || r.ok !== true) {
+        return { ok: false, error: 'Could not send: ' + ((r && r.error) || 'no answer from Tawny\'s mailer')
+          + (r && r.unsure ? ' It may have gone out anyway: check Tawny\'s Sent folder before sending again.' : '') };
+      }
+      via = 'tawny-mailer';
+    } else {
+      /* LEGACY, until the mailer is connected: Sky's account sending as a Send-As alias. Retire it
+         (and the mail.google.com scope) once BRAND_MAILER_URL is set on the live engine. */
+      try {
+        GmailApp.sendEmail(to, subject, text, {
+          htmlBody: html, attachments: [pdf], from: from, replyTo: from, bcc: from,
+          name: 'Green Cross Cannabis Emporium'
+        });
+      } catch (e) {
+        return { ok: false, error: 'Could not send: ' + scrubSecrets_(e && e.message || e)
+          + ' (the sender address must be a Send-As alias on the account this app runs as)' };
+      }
+      via = 'alias';
     }
     sent[to] = nowStamp_();
     props.setProperty(key, JSON.stringify(sent));
-    return { ok: true, to: to, from: from, attachment: pdf.getName(), by: auth.user, sent_at: sent[to] };
+    return { ok: true, to: to, from: from, via: via, attachment: pdf.getName(), by: auth.user, sent_at: sent[to] };
   } finally {
     lock.releaseLock();
   }

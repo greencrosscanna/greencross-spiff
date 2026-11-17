@@ -410,7 +410,14 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   `flat` and `blended`.
 - **Nothing goes to a vendor without a human.** The app sends only on a person's click —
   `sendBrandEmail_` (Code.gs) runs only from the "Send to brand" button after a confirmation naming
-  the recipient, never from a trigger. It goes out AS the Send-As alias `tawny@greencrosscanna.com`
+  the recipient, never from a trigger. **It is moving to Tawny's own mailer** (Sky, 2026-11-16: the
+  delegate on her mailbox filled his inbox): `tawny-mailer/` is a send-only web app Tawny deploys
+  as herself; `?action=setBrandMailer` (secret, dry unless `apply=1`) pairs with it and stores
+  `BRAND_MAILER_URL` / `BRAND_MAILER_SECRET`. With those set, the mailer is the ONLY path: it
+  refuses unless it runs as the expected sender, and a failure never falls back to the alias. Until
+  then the legacy path below runs; retire it, and the `mail.google.com` scope, once the mailer is
+  live. Setup in `tawny-mailer/README.md`; pinned by `tests/closeout_money_test.js` sections 6–7.
+  Legacy: it goes out AS the Send-As alias `tawny@greencrosscanna.com`
   (`BRAND_FROM_DEFAULT`; script property `BRAND_EMAIL_FROM` overrides it; replies and a blind copy go
   there too). If Gmail does not know that alias the send FAILS loudly — it never falls back to sending
   from the account the script runs as. It refuses a second send of the same program to the same

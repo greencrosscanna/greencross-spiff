@@ -97,15 +97,19 @@ ok('an unimplemented model resolves to flat rather than to zero',
 const PROPS = G.makeProps({ GX_DEPLOY_SECRET: 'SEKRET' });
 const SENT = [];
 let GMAIL_FAIL = '', LOCK_OK = true;
+const FETCHED = [];
+let MAILER = () => ({ ok: true, from: 'tawny@greencrosscanna.com' });
 const DOC = G.load({
   real: ['reportHtml_', 'emailDraft_', 'giftCardList_', 'giftCardListFor_', 'buildReport_', 'measuredRowsFor_',
          'payoutFactsOf_', 'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_',
          'friendlyName_', 'userKey_', 'scrubSecrets_', 'today_',
          'brandPaperHtml_', 'unitLiftOf_', 'brandProgramLabel_', 'prettyDay_', 'brandPdfBlob_',
          'brandFromAddress_', 'sendBrandEmail_', 'brandSignatureHtml_',
-         'storeSectionsOf_', 'storeBlockHtml_'],
+         'storeSectionsOf_', 'storeBlockHtml_',
+         'brandMailer_', 'callBrandMailer_', 'setBrandMailerWeb_'],
   vars: ['EDIT_ROLES', 'LOGO_ONLIGHT', 'GX_SECRET_PROP', 'BTS_PER_STORE',
          'BRAND_FROM_PROP', 'BRAND_SENT_PREFIX', 'BRAND_FROM_DEFAULT',
+         'BRAND_MAILER_URL_PROP', 'BRAND_MAILER_SECRET_PROP',
          'BRAND_SIGNER_NAME', 'BRAND_SIGNER_TITLE', 'BRAND_SIG_LOGO', 'BRAND_SIG_LOCATIONS'],
   stubs: {
     getProgram_: (id) => (id === PH.program_id ? { ok: true, program: PH }
@@ -140,8 +144,19 @@ const DOC = G.load({
        can read the document that was actually filed, rather than trusting that the call happened. */
     Utilities: Object.assign({}, G.Utilities, {
       newBlob: (html) => ({ html: html,
-        getAs: () => ({ setName: (n) => ({ html: html, name: n, getName: () => n }) }) }),
+        getAs: () => ({ setName: (n) => ({ html: html, name: n, getName: () => n,
+                                           getBytes: () => Buffer.from(html, 'utf8') }) }) }),
+      base64Encode: (b) => Buffer.from(b).toString('base64'),
     }),
+    /* Tawny's mailer, captured: every POST the engine made, answered by MAILER(body). */
+    UrlFetchApp: { fetch: (url, opts) => {
+      const body = JSON.parse(opts.payload);
+      FETCHED.push({ url, opts, body });
+      const a = MAILER(body, url);
+      if (a instanceof Error) throw a;
+      return { getResponseCode: () => a.code || 200,
+               getContentText: () => (typeof a.text === 'string' ? a.text : JSON.stringify(a)) };
+    } },
     DriveApp: { getFolderById: (id) => ({ createFile: (blob) => { FILED.push({ folder: id, blob: blob });
       return { getId: () => 'file-1', getUrl: () => 'https://drive/file-1' }; } }) },
     REPORT_FOLDER_ID: 'folder-1',
@@ -441,6 +456,141 @@ ok('  …and the draft says what to attach rather than attaching it itself',
      (() => { const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8');
               const hits = src.match(/GmailApp\.sendEmail/g) || [];
               return hits.length === 1 && /GmailApp\.sendEmail/.test(G.grab('sendBrandEmail_')); })());
+}
+
+/* ══════════════════ 6. SENDING THROUGH TAWNY'S OWN MAILER ══════════════════
+   Sky, 2026-11-16: no more delegate on her mailbox. tawny-mailer/ runs as Tawny; the engine pairs
+   with it once, then every "Send to brand" goes through it. What matters: nothing is saved unless
+   pairing worked, a mailer running as the wrong person is flagged, a connected mailer is the ONLY
+   path (no quiet fallback to Sky's alias), and a send that may have gone out says so. */
+{
+  const URL_ = 'https://script.google.com/macros/s/AKfyc-abc_123/exec';
+  const P = PROPS.props;
+  const ARG = { token: 't', id: PH.program_id, to: 'Rep@Brand.com', subject: 'SPIFF results', resend: '1' };
+  P.BRAND_EMAIL_FROM = 'tawny@greencrosscanna.com';
+  delete P.BRAND_MAILER_URL; delete P.BRAND_MAILER_SECRET;
+  let r;
+
+  ok('connecting needs the deploy secret',
+     DOC.setBrandMailerWeb_({ url: URL_, apply: '1' }).error === 'Unauthorized' && FETCHED.length === 0);
+  ok('only an Apps Script /exec address is accepted',
+     DOC.setBrandMailerWeb_({ secret: 'SEKRET', url: 'https://evil.example.com/exec', apply: '1' }).ok === false
+     && FETCHED.length === 0);
+  r = DOC.setBrandMailerWeb_({ secret: 'SEKRET', url: URL_ });
+  ok('without apply=1 it is a dry run: nothing called, nothing saved',
+     r.dry === true && FETCHED.length === 0 && !P.BRAND_MAILER_URL);
+
+  MAILER = (b) => (b.action === 'pair' ? { ok: false, already_paired: true, error: 'Already paired.' } : { ok: true });
+  r = DOC.setBrandMailerWeb_({ secret: 'SEKRET', url: URL_, apply: '1' });
+  ok('a failed pairing saves nothing', r.ok === false && /Pairing failed/.test(r.error)
+     && !P.BRAND_MAILER_URL && !P.BRAND_MAILER_SECRET);
+
+  FETCHED.length = 0;
+  MAILER = (b) => ({ ok: true, from: 'sky@greencrosscanna.com', paired: b.action === 'pair' });
+  r = DOC.setBrandMailerWeb_({ secret: 'SEKRET', url: URL_, apply: '1' });
+  ok('a mailer deployed by the wrong person is flagged by name',
+     r.ok === false && r.sends_as === 'sky@greencrosscanna.com' && /not tawny@greencrosscanna\.com/.test(r.error));
+
+  FETCHED.length = 0; delete P.BRAND_MAILER_URL; delete P.BRAND_MAILER_SECRET;
+  MAILER = () => ({ ok: true, from: 'tawny@greencrosscanna.com', quota_left: 1500 });
+  r = DOC.setBrandMailerWeb_({ secret: 'SEKRET', url: URL_, apply: '1' });
+  ok('pairing hands the mailer the secret it then stores, and confirms it sends as Tawny',
+     r.ok === true && r.sends_as === 'tawny@greencrosscanna.com'
+     && FETCHED[0].body.action === 'pair' && FETCHED[0].body.secret === P.BRAND_MAILER_SECRET
+     && P.BRAND_MAILER_URL === URL_ && FETCHED[1].body.action === 'ping');
+
+  FETCHED.length = 0;
+  const gmailBefore = SENT.length;
+  r = DOC.sendBrandEmail_(ARG);
+  const sent = (FETCHED[0] || {}).body || {};
+  ok('once connected, Send to brand goes through the mailer and NOT through Sky\'s Gmail',
+     r.ok === true && r.via === 'tawny-mailer' && SENT.length === gmailBefore && FETCHED.length === 1);
+  ok('  …to the lowercased address, asking the mailer to prove it is Tawny',
+     sent.action === 'send' && sent.to === 'rep@brand.com' && sent.expect_from === 'tawny@greencrosscanna.com'
+     && sent.secret === P.BRAND_MAILER_SECRET);
+  ok('  …with the same brand page: the credit, and no budtender named',
+     /\$181\.50/.test(sent.html) && !/SKYLER|TAWNY R|JO B|NOBODY/i.test(sent.html));
+  ok('  …and the brand PDF attached, named for the brand',
+     /^Green Cross SPIFF Results - Green Cross - \d{6}\.pdf$/.test(sent.attachment.name)
+     && !/SKYLER|TAWNY R|JO B|NOBODY/i.test(Buffer.from(sent.attachment.base64, 'base64').toString('utf8')));
+
+  MAILER = () => ({ ok: false, error: 'This mailer runs as sky@greencrosscanna.com, not tawny@greencrosscanna.com. Nothing was sent.' });
+  r = DOC.sendBrandEmail_(Object.assign({}, ARG, { to: 'new1@brand.com', resend: '' }));
+  ok('a mailer refusal is reported, not recorded, and never falls back to Sky\'s alias',
+     r.ok === false && /runs as sky/.test(r.error) && SENT.length === gmailBefore
+     && !/new1@brand\.com/.test(P[DOC.BRAND_SENT_PREFIX + PH.program_id] || ''));
+
+  MAILER = () => new Error('Timeout: ' + URL_);
+  r = DOC.sendBrandEmail_(Object.assign({}, ARG, { to: 'new2@brand.com' }));
+  ok('a timeout says it may have gone out, so check Tawny\'s Sent folder first',
+     r.ok === false && /check Tawny's Sent folder/.test(r.error));
+
+  MAILER = () => ({ code: 200, text: '<html><body>Google Drive: You need access</body></html>' });
+  r = DOC.sendBrandEmail_(Object.assign({}, ARG, { to: 'new3@brand.com' }));
+  ok('a Google sign-in page instead of an answer points at the deployment access setting',
+     r.ok === false && /Who has access: Anyone/.test(r.error));
+
+  r = DOC.setBrandMailerWeb_({ secret: 'SEKRET', clear: '1', apply: '1' });
+  ok('clear=1 disconnects it, putting sending back on the alias path',
+     r.cleared === true && !P.BRAND_MAILER_URL && !P.BRAND_MAILER_SECRET && DOC.brandMailer_() === null);
+  MAILER = () => ({ ok: true, from: 'tawny@greencrosscanna.com' });
+}
+
+/* ══════════════════ 7. THE MAILER ITSELF (tawny-mailer/Code.gs) ══════════════════
+   Runs the real mailer with Google's services stubbed. It sends as whoever deployed it, so the
+   claims are about what it refuses. */
+{
+  const vm = require('vm');
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'tawny-mailer', 'Code.gs'), 'utf8');
+  const store = {};
+  const MAILED = [];
+  let ME = 'tawny@greencrosscanna.com';
+  const ctx = {
+    PropertiesService: { getScriptProperties: () => ({
+      getProperty: (k) => (k in store ? store[k] : null),
+      setProperty: (k, v) => { store[k] = String(v); } }) },
+    Session: { getEffectiveUser: () => ({ getEmail: () => ME }) },
+    LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
+    MailApp: { sendEmail: (o) => MAILED.push(o), getRemainingDailyQuota: () => 1500 },
+    Utilities: Object.assign({}, G.Utilities, {
+      base64Decode: (s) => Array.from(Buffer.from(s, 'base64')),
+      newBlob: (bytes, type, name) => ({ bytes, type, name }) }),
+    ContentService: { MimeType: { JSON: 'json' },
+      createTextOutput: (s) => ({ text: s, setMimeType() { return this; } }) },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(src, ctx);
+  const call = (b) => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(b) } }).text);
+  const S = 'x'.repeat(64);
+  const SEND = { secret: S, action: 'send', expect_from: 'tawny@greencrosscanna.com', to: 'Rep@Brand.com',
+                 subject: 'SPIFF results', text: 'hi', html: '<p>hi</p>',
+                 attachment: { name: 'r.pdf', base64: Buffer.from('%PDF').toString('base64') } };
+
+  ok('mailer: nothing is sent before it is paired', call(SEND).ok === false && MAILED.length === 0);
+  ok('mailer: a short secret cannot pair it', call({ action: 'pair', secret: 'short' }).ok === false && !store.MAILER_SECRET);
+  ok('mailer: the first pairing sticks', call({ action: 'pair', secret: S }).ok === true && store.MAILER_SECRET === S);
+  ok('mailer: a second pairing is refused, so nobody can take it over',
+     call({ action: 'pair', secret: 'y'.repeat(64) }).already_paired === true && store.MAILER_SECRET === S);
+  ok('mailer: a wrong secret sends nothing',
+     call(Object.assign({}, SEND, { secret: 'z'.repeat(64) })).ok === false && MAILED.length === 0);
+  ok('mailer: more than one address is refused',
+     call(Object.assign({}, SEND, { to: 'a@b.com, c@d.com' })).ok === false && MAILED.length === 0);
+  ok('mailer: no PDF, no send',
+     call(Object.assign({}, SEND, { attachment: { name: 'r.exe', base64: 'AAAA' } })).ok === false && MAILED.length === 0);
+  ME = 'sky@greencrosscanna.com';
+  ok('mailer: deployed by anyone but Tawny, it refuses and says who it runs as',
+     /runs as sky@/.test(call(SEND).error) && MAILED.length === 0);
+  ME = 'tawny@greencrosscanna.com';
+  const good = call(SEND);
+  ok('mailer: a good request sends one email, to the lowercased address, with the PDF',
+     good.ok === true && good.from === 'tawny@greencrosscanna.com' && MAILED.length === 1
+     && MAILED[0].to === 'rep@brand.com' && MAILED[0].attachments[0].type === 'application/pdf');
+  ok('mailer: it cannot read her mailbox (MailApp only, no GmailApp) and asks only to send',
+     !/GmailApp/.test(src.replace(/\/\*[\s\S]*?\*\//g, ''))
+     && JSON.stringify(require('../tawny-mailer/appsscript.json').oauthScopes)
+        === JSON.stringify(['https://www.googleapis.com/auth/script.send_mail', 'https://www.googleapis.com/auth/userinfo.email']));
+  store.SENT_ON = G.Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd'); store.SENT_COUNT = '40';
+  ok('mailer: the daily cap holds', /daily limit/.test(call(SEND).error) && MAILED.length === 1);
 }
 
 console.log(fail ? '\n' + fail + ' FAILED' : '\ncloseout money: all passed');
