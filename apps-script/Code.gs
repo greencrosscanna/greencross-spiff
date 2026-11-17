@@ -410,6 +410,8 @@ function doGet(e) {
       case 'postmortemImages':  out = postmortemImages_(p);                         break;
       /* The program's Dutchie blasts, read from the Dutchie Connector's capture file. A read. */
       case 'postmortemBlasts':  out = postmortemBlasts_(p);                         break;
+      /* One blast's saved email (connector 1.9.0), pictures inlined, for the report's panels. A read. */
+      case 'postmortemBlastEmail': out = postmortemBlastEmail_(p);                  break;
       /* What one text blast costs: list size and Dutchie's two rates, set in Settings. See TEXT
          BLAST PRICING. Read by the Text blast card only; nothing that pays anybody reads it. */
       case 'smsPricing':      out = smsPricingRead_(p);                             break;
@@ -2398,7 +2400,8 @@ function normalizePostmortem_(d) {
     PM_STATS_.forEach(function (k) { var n = pmNum_(src[k]); if (n !== null) stats[k] = n; });
     return { id: id, kind: PM_KINDS_.indexOf(it.kind) >= 0 ? it.kind : 'ig', name: pmText_(it.name, 80),
              date: /^\d{4}-\d{2}-\d{2}$/.test(String(it.date || '')) ? String(it.date) : '',
-             words: pmText_(it.words, 1500), images: pmIds_(it.images, 6), stats: stats, ref: pmText_(it.ref, 200) };
+             words: pmText_(it.words, 1500), images: pmIds_(it.images, 6), stats: stats, ref: pmText_(it.ref, 200),
+             email_id: /^\d{1,10}$/.test(String(it.email_id || '')) ? String(it.email_id) : '' };
   }).filter(function (it, i, a) {
     return it && a.map(function (x) { return x && x.id; }).indexOf(it.id) === i;
   }).slice(0, PM_MAX_ITEMS_);
@@ -2700,6 +2703,59 @@ function pmBlastSummary_(c) {
   };
 }
 
+/* ── THE BLAST'S OWN EMAIL (Sky, 2026-11-16) ──────────────────────────────────────────────────
+ * Connector 1.9.0 keeps each recent blast's sent email as GX Claude Exports/blast-emails/<id>.html
+ * (cleaned there: nothing that can run). postmortemBlastEmail serves one, with its pictures fetched
+ * and inlined as data so the browser can draw it into the report as panels. Only a numeric campaign
+ * id is accepted, only that folder is read, and the HTML is cleaned again here. */
+var PM_BLAST_EMAIL_FOLDER_ = 'blast-emails';
+var PM_BLAST_EMAIL_MAX_IMAGES_ = 16;
+var PM_BLAST_EMAIL_IMAGE_BYTES_ = 2500000;
+
+function pmBlastEmailFile_(id) {
+  if (!/^\d{1,10}$/.test(String(id || ''))) return null;
+  var folders = DriveApp.getFoldersByName(PM_BLAST_FOLDER_);
+  while (folders.hasNext()) {
+    var subs = folders.next().getFoldersByName(PM_BLAST_EMAIL_FOLDER_);
+    while (subs.hasNext()) {
+      var files = subs.next().getFilesByName(String(id) + '.html');
+      if (files.hasNext()) return files.next();
+    }
+  }
+  return null;
+}
+function pmEmailClean_(html) {
+  return String(html || '')
+    .replace(/<(script|iframe|object|embed|form|noscript)\b[\s\S]*?<\/\1\s*>/gi, '')
+    .replace(/<(script|iframe|object|embed|form|base|link)\b[^>]*>/gi, '')
+    .replace(/<meta\b[^>]*http-equiv[^>]*>/gi, '')
+    .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/(href|src)\s*=\s*(["'])\s*javascript:[^"']*\2/gi, '$1=$2#$2');
+}
+function postmortemBlastEmail_(p) {
+  var who = mktEditor_(p, 'build media post-mortems');
+  if (who.fail) return who.fail;
+  var file = null;
+  try { file = pmBlastEmailFile_(p.blast); } catch (e) { return { ok: false, error: 'Could not open the saved blast email: ' + scrubSecrets_((e && e.message) || e) }; }
+  if (!file) return { ok: false, error: 'This blast\'s email has not been saved yet. It is saved by the nightly Dutchie capture.' };
+  var html = pmEmailClean_(file.getBlob().getDataAsString());
+  var seen = Object.create(null), failed = 0, inlined = 0;
+  var urls = (html.match(/<img\b[^>]*\bsrc\s*=\s*["'](https:\/\/[^"']+)["']/gi) || []).map(function (tag) {
+    return tag.replace(/^[\s\S]*\bsrc\s*=\s*["']/i, '').replace(/["'][\s\S]*$/, '');
+  }).filter(function (u) { if (seen[u]) return false; seen[u] = true; return true; }).slice(0, PM_BLAST_EMAIL_MAX_IMAGES_);
+  urls.forEach(function (u) {
+    try {
+      var r = UrlFetchApp.fetch(u, { muteHttpExceptions: true, followRedirects: true });
+      var blob = r.getBlob(), type = String(blob.getContentType() || '');
+      if (r.getResponseCode() >= 300 || !/^image\//.test(type) || blob.getBytes().length > PM_BLAST_EMAIL_IMAGE_BYTES_) { failed++; return; }
+      var data = 'data:' + type + ';base64,' + Utilities.base64Encode(blob.getBytes());
+      html = html.split(u).join(data);
+      inlined++;
+    } catch (e) { failed++; }
+  });
+  return { ok: true, blast: String(p.blast), html: html, images: inlined, failed: failed };
+}
+
 function postmortemBlasts_(p) {
   var who = mktEditor_(p, 'build media post-mortems');
   if (who.fail) return who.fail;
@@ -2727,6 +2783,10 @@ function postmortemBlasts_(p) {
   });
   var newest = function (a, b) { return a.send_utc < b.send_utc ? 1 : -1; };
   mine.sort(newest); others.sort(newest);
+  /* Whether the capture has saved each one's email (connector 1.9.0). */
+  mine.concat(others).forEach(function (b) {
+    try { b.has_email = !!(b.email && pmBlastEmailFile_(b.id)); } catch (e) { b.has_email = false; }
+  });
   var at = String(data.received_at || data.captured_at || '');
   var age = at ? Math.round((Date.now() - new Date(at.slice(0, 19) + 'Z').getTime()) / 36e5) : null;
   return { ok: true, captured_at: at, age_hours: age, stale: age === null || age > PM_BLAST_STALE_HOURS_,

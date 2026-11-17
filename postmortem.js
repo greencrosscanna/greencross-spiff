@@ -69,7 +69,8 @@
       STATS.forEach(function (k) { var n = num(src[k]); if (n !== null) stats[k] = n; });
       return { id: id, kind: KINDS[it.kind] ? it.kind : 'ig', name: text(it.name, 80),
                date: /^\d{4}-\d{2}-\d{2}$/.test(String(it.date || '')) ? String(it.date) : '',
-               words: text(it.words, 1500), images: ids(it.images, 6), stats: stats, ref: text(it.ref, 200) };
+               words: text(it.words, 1500), images: ids(it.images, 6), stats: stats, ref: text(it.ref, 200),
+               email_id: /^\d{1,10}$/.test(String(it.email_id || '')) ? String(it.email_id) : '' };
     }).filter(function (it, i, a) {
       return it && a.map(function (x) { return x && x.id; }).indexOf(it.id) === i;
     }).slice(0, MAX_ITEMS);
@@ -452,6 +453,8 @@
     if (b.send_date) next.date = b.send_date;
     if (typeof b.sent_total === 'number') next.stats.reach = b.sent_total;
     next.ref = ('Dutchie: ' + (b.name || '') + (b.send_date ? ' (' + b.send_date + ')' : '')).slice(0, 200);
+    /* The blast's own email, drawn as the creative while Mike has picked no images (connector 1.9.0). */
+    next.email_id = b.has_email && /^\d{1,10}$/.test(String(b.id || '')) ? String(b.id) : '';
     var ops = [['item', itemId, next]];
     var e = b.email, s = b.sms, n = function (v) { return typeof v === 'number' ? fmtK(v) : ''; };
     if (e) ops.push(['chan', 'email', { sent: n(e.sent), delivered: pct(e.delivered, e.sent), open: pct(e.opens, e.delivered),
@@ -480,6 +483,7 @@
     var row = function (b, i, group) {
       var line = [b.send_date];
       if (typeof b.sent_total === 'number') line.push(fmtK(b.sent_total) + ' sent' + (typeof b.listed_audience === 'number' ? ' of ' + fmtK(b.listed_audience) : ''));
+      if (b.has_email) line.push('email saved');
       return '<li><button type="button" class="gx-btn" data-pm-useblast="' + esc(itemId + '|' + group + '|' + i) + '">Use this</button> '
         + '<b>' + esc(b.name || 'Unnamed blast') + '</b> <span class="mk-sub">' + esc(line.join(' · ')) + '</span></li>';
     };
@@ -550,7 +554,7 @@
     '.pmr-big b{font-family:var(--disp);font-weight:900;font-size:4.6em;line-height:1}',
     '.pmr-big span{font-family:var(--disp);font-weight:900;text-transform:uppercase;font-size:1.5em;color:var(--at)}',
     '.pmr-blast{display:grid;grid-template-columns:repeat(4,1fr);gap:1.6em;flex:1;min-height:0}',
-    '.pmr-blast.n1{grid-template-columns:1fr 1fr 1fr 1fr}',
+    '.pmr-blast.n1{grid-template-columns:1fr}.pmr-blast.n2{grid-template-columns:repeat(2,1fr)}.pmr-blast.n3{grid-template-columns:repeat(3,1fr)}',
     '.pmr-blast figure{margin:0;display:flex;flex-direction:column;min-height:0}',
     '.pmr-blast figure>div{flex:1;min-height:0;background:var(--w);display:flex;align-items:center;justify-content:center;overflow:hidden;padding:.6em}',
     '.pmr-blast img{max-width:100%;max-height:100%;display:block}',
@@ -633,6 +637,65 @@
     }
   }
 
+  /* ── THE BLAST'S OWN EMAIL, AS PANELS ─────────────────────────────────────────────────────────
+     A loyalty entry pulled from Dutchie carries email_id; while Mike has picked no images, the report
+     shows that email cut into up to four panels in reading order, as he laid it out by hand. The
+     panels are drawn on demand and never stored: what is stored is only which blast. */
+  var PANEL_PREFIX = 'emailpanel-';
+  function panelKey(emailId, k) { return PANEL_PREFIX + emailId + '-' + k; }
+  /* A copy of the data for drawing, with the panels standing in as images, plus their image map. */
+  function withEmailPanels(data, panels) {
+    var d = normalize(data), map = {};
+    d.items.forEach(function (it) {
+      var urls = it.kind === 'loyalty' && !it.images.length && it.email_id && (panels || {})[it.email_id];
+      if (!urls || !urls.length) return;
+      it.images = urls.slice(0, LOYALTY_IMAGES).map(function (u, k) { map[panelKey(it.email_id, k)] = u; return panelKey(it.email_id, k); });
+    });
+    return { data: d, images: map };
+  }
+  /* How many panels: whichever count (1 to 4) shows the email biggest in the loyalty page's image row
+     (about 1140 × 515 px, columns 20 px apart). A tall email gets four narrow panels, as Mike laid
+     out Grön's; a short one gets fewer, larger ones. */
+  function panelCount(w, h) {
+    var r = h / Math.max(w, 1), best = 1, bestScale = 0;
+    for (var n = 1; n <= LOYALTY_IMAGES; n++) {
+      var scale = Math.min((1140 - (n - 1) * 20) / n, 515 / (r / n));
+      if (scale > bestScale) { bestScale = scale; best = n; }
+    }
+    return best;
+  }
+
+  async function emailToPanels(html) {
+    await loadLibs();
+    var W = 600;
+    var frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', 'allow-same-origin');   // no scripts run inside it
+    frame.setAttribute('aria-hidden', 'true');
+    frame.style.cssText = 'position:fixed;left:-20000px;top:0;width:' + W + 'px;height:1200px;border:0';
+    document.body.appendChild(frame);
+    try {
+      await new Promise(function (ok) { frame.onload = ok; setTimeout(ok, 10000); frame.srcdoc = html; });
+      var doc = frame.contentDocument;
+      if (!doc || !doc.body) throw new Error('the email would not open');
+      await Promise.all(Array.prototype.slice.call(doc.images).map(function (im) {
+        return im.complete ? null : new Promise(function (ok) { im.onload = im.onerror = ok; setTimeout(ok, 8000); });
+      }));
+      var H = Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight, 1);
+      frame.style.height = H + 'px';
+      var canvas = await root.html2canvas(doc.body, { scale: 2, backgroundColor: '#ffffff', logging: false, width: W, height: H, windowWidth: W, windowHeight: H });
+      var n = panelCount(canvas.width, canvas.height), step = Math.ceil(canvas.height / n), out = [];
+      for (var k = 0; k < n; k++) {
+        var part = document.createElement('canvas');
+        part.width = canvas.width; part.height = Math.min(step, canvas.height - k * step);
+        part.getContext('2d').drawImage(canvas, 0, k * step, canvas.width, part.height, 0, 0, canvas.width, part.height);
+        out.push(part.toDataURL('image/jpeg', 0.9));
+      }
+      return out;
+    } finally {
+      frame.remove();
+    }
+  }
+
   function blobToBase64(blob) {
     return new Promise(function (ok, no) {
       var r = new FileReader();
@@ -683,7 +746,9 @@
       + '<div class="mk-fld">' + (it.kind === 'loyalty' ? 'Blast images, in reading order (up to 4 show)' : 'Image') + thumbsHtml('item:' + it.id, it.images, maxImgs, ro) + '</div>'
       + (it.kind === 'loyalty'
         ? '<div class="pm-pull">' + (ro ? '' : '<button type="button" class="gx-btn" data-pm-blasts="' + esc(it.id) + '">Pull the numbers from Dutchie</button> ')
-          + (it.ref ? '<span class="mk-sub">From ' + esc(it.ref) + '</span>' : '') + '<div data-pm-blastbox="' + esc(it.id) + '"></div></div>'
+          + (it.ref ? '<span class="mk-sub">From ' + esc(it.ref) + '</span>' : '')
+          + (it.email_id && !it.images.length ? '<p class="mk-sub">The report shows this blast\'s own email from Dutchie, in panels. Pick images above to use your own instead.</p>' : '')
+          + '<div data-pm-blastbox="' + esc(it.id) + '"></div></div>'
         : '')
       + statFields(it, ro) + '</div>';
   }
@@ -907,6 +972,32 @@
       return failed;
     }
 
+    /* Each blast whose email stands in for its images, drawn once per open program. */
+    async function ensurePanels() {
+      st.emailPanels = st.emailPanels || {};
+      var notes = [];
+      var want = st.data.items.filter(function (it) {
+        return it.kind === 'loyalty' && it.email_id && !it.images.length && !st.emailPanels[it.email_id];
+      });
+      for (var i = 0; i < want.length; i++) {
+        var id = want[i].email_id;
+        try {
+          var r = await api.jsonp('postmortemBlastEmail', { id: st.pid, blast: id }, { timeoutMs: 60000, retries: 1 });
+          if (!r || !r.ok) throw new Error((r && r.error) || 'could not read it');
+          st.emailPanels[id] = await emailToPanels(r.html);
+          if (r.failed) notes.push(plural(r.failed, 'picture') + ' in the blast email could not be loaded.');
+        } catch (e) {
+          st.emailPanels[id] = [];
+          notes.push('The blast email could not be drawn: ' + String((e && e.message) || e) + '.');
+        }
+      }
+      return notes;
+    }
+    function view() {
+      var v = withEmailPanels(st.data, st.emailPanels);
+      return { data: v.data, images: Object.assign({}, st.images, v.images) };
+    }
+
     function progOf() {
       var p = api.program() || {};
       return { vendor: p.vendor, program_name: p.program_name || p.title, start_date: p.start_date, end_date: p.end_date };
@@ -920,7 +1011,9 @@
       status('Building the preview…');
       try {
         var failed = await fetchImages(version);
-        var html = reportHtml(st.data, progOf(), version, st.images, { logo: api.logo });
+        var notes = await ensurePanels();
+        var v = view();
+        var html = reportHtml(v.data, progOf(), version, v.images, { logo: api.logo });
         if (!html) { status('Add a post or blast first.', true); return; }
         box.dataset.shown = version;
         box.innerHTML = '<div class="pm-scale">' + html + '</div>';
@@ -928,7 +1021,8 @@
         var inner = box.firstChild;
         inner.style.transform = 'scale(' + scale + ')';
         inner.style.height = (inner.scrollHeight * scale) + 'px';
-        status(failed.length ? plural(failed.length, 'image') + ' could not be read and show as black boxes.' : '', !!failed.length);
+        var warn = (failed.length ? [plural(failed.length, 'image') + ' could not be read and show as black boxes.'] : []).concat(notes);
+        status(warn.join(' '), !!warn.length);
       } catch (e) {
         status('Could not build the preview: ' + String((e && e.message) || e), true);
       }
@@ -946,7 +1040,10 @@
           status('Not made.'); return;
         }
         status('Drawing the pages…');
-        var html = reportHtml(st.data, progOf(), version, st.images, { logo: api.logo });
+        var notes = await ensurePanels();
+        if (notes.length && !root.confirm(notes.join(' ') + ' Make the PDF anyway?')) { status('Not made.'); return; }
+        var v = view();
+        var html = reportHtml(v.data, progOf(), version, v.images, { logo: api.logo });
         var blob = await htmlToPdf(html);
         var name = fileName(progOf(), version);
         var a = document.createElement('a');
@@ -1048,7 +1145,8 @@
     PAGE_W: PAGE_W, PAGE_H: PAGE_H, REPORT_CSS: REPORT_CSS, LIBS: LIBS,
     normalize: normalize, applyOps: applyOps, fmtK: fmtK, summary: summary, leadLine: leadLine, dateRange: dateRange,
     pagesOf: pagesOf, reportHtml: reportHtml, imageIds: imageIds, fileName: fileName, formHtml: formHtml, gridHtml: gridHtml,
-    blastOps: blastOps, blastListHtml: blastListHtml, toPdf: htmlToPdf, mount: mount
+    blastOps: blastOps, blastListHtml: blastListHtml, withEmailPanels: withEmailPanels, panelCount: panelCount,
+    emailToPanels: emailToPanels, toPdf: htmlToPdf, mount: mount
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SpiffPostmortem = api;

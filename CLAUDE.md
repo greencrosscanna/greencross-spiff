@@ -378,6 +378,11 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   ignored). Using one fills the entry's reach and the internal Email & SMS and send-review numbers;
   notes and names Mike typed are never overwritten. A capture over 48 hours old is flagged. Instagram
   is still typed by hand until Sky and Mike connect a Meta app.
+  The pull also brings orders by day (the send review's chart, v2.025) and, from connector 1.9.0,
+  the blast's own sent email: `GX Claude Exports/blast-emails/<id>.html` (`postmortemBlastEmail`,
+  numeric id only, cleaned again, pictures inlined). While Mike has picked no blast images, the
+  report draws that email as 1-4 panels (`withEmailPanels`); panels are drawn, never stored, and
+  images he picks win.
 
 - **The deals page's weekly lines and brand logos are edited here, not in Wix** (Sky, 2026-11-02;
   Code.gs "THE DEALS PAGE, PART 2"). The Programs tab's **Deals page** view (`site.js`, behind the
