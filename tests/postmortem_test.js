@@ -162,7 +162,10 @@ console.log('\n4. uploads and saved PDFs');
   const s = e.api.postmortemSave_({ token: 'good', id: PROG.program_id, version: 'internal', pdf, nonce: 'n-1' });
   const REPORTS = G.grabVar('REPORT_FOLDER_ID');
   ok('a PDF is filed in SPIFF Reports', s.ok && e.drive.created[1].folder === REPORTS);
-  ok('  …named for the vendor and version', s.report.name === 'Green Cross SPIFF Media Postmortem (Internal) - Grön - 111626.pdf');
+  // The engine stamps the save with today's LA date (real clock), so the expected name does too.
+  const laToday = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', month: '2-digit', day: '2-digit', year: '2-digit' })
+    .format(new Date()).replace(/\//g, '');
+  ok('  …named for the vendor and version', s.report.name === 'Green Cross SPIFF Media Postmortem (Internal) - Grön - ' + laToday + '.pdf');
   ok('  …and recorded once', tab(e, 'postmortem_reports').length === 1 && tab(e, 'postmortem_reports')[0][2] === 'internal');
   const again = e.api.postmortemSave_({ token: 'good', id: PROG.program_id, version: 'internal', pdf, nonce: 'n-1' });
   ok('a retried POST is a replay, not a second report or file', again.replay === true && tab(e, 'postmortem_reports').length === 1 && e.drive.created.length === 2);

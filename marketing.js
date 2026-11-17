@@ -1017,6 +1017,16 @@
       + open + '</div>';
   }
 
+  /* A date box whose year is still being typed. Chrome fires `change` on every keystroke in the year
+     once the date is valid, so typing 2026 sends 0002, 0020, 0202 first; saving one re-draws the box
+     and loses the rest (Mike, 2026-11-17: post dates stuck at year 0002). An empty box is a real
+     clear and still saves; a typed year below 1900 waits for the next keystroke. */
+  function halfTypedDate(t) {
+    if (!t || t.type !== 'date' || !t.value) return false;
+    var y = Number(String(t.value).slice(0, 4));
+    return !(y >= 1900);
+  }
+
   /* An item's list: a date per row, a line of text per row, or a line plus the stores it is at. */
   function listHtml(p, id, ctx, on) {
     var L = ITEMS[id].list, ro = ctx.canEdit ? '' : ' disabled';
@@ -1178,6 +1188,7 @@
     host.addEventListener('change', function (e) {
       var t = e.target, p = api.program();
       if (!p || !t.dataset) return;
+      if (halfTypedDate(t)) return;
       if (t.dataset.mkAssign) return api.assign ? api.assign(t.dataset.mkAssign, t.value) : api.apply(assignOp(p, t.dataset.mkAssign, t.value));
       if (t.dataset.mkRfield) return api.apply(setRowOp(p, t.dataset.mkRitem, t.dataset.mkRow, t.dataset.mkRfield, t.value));
       if (t.dataset.mkVday) return api.apply(setVdayOp(p, t.dataset.mkVday, t.dataset.mkVfield, t.value));
@@ -1712,7 +1723,7 @@
     vdaysOf: vdaysOf, addVdayOp: addVdayOp, removeVdayOp: removeVdayOp, setVdayOp: setVdayOp,
     PEOPLE: PEOPLE, assignOp: assignOp,
     rowsOf: rowsOf, addRowOp: addRowOp, removeRowOp: removeRowOp, setRowOp: setRowOp, toggleRowStoreOp: toggleRowStoreOp,
-    makeSaver: makeSaver, listLine: listLine, foldNote: foldNote, sectionHtml: sectionHtml, wire: wire,
+    makeSaver: makeSaver, halfTypedDate: halfTypedDate, listLine: listLine, foldNote: foldNote, sectionHtml: sectionHtml, wire: wire,
     FEATURED_SPEC: FEATURED_SPEC, imageShapeProblem: imageShapeProblem, driveFileId: driveFileId,
     heroPrompt: heroPrompt, autoAlt: autoAlt, webDetailOp: webDetailOp, imageFieldHtml: imageFieldHtml, imageGridHtml: imageGridHtml,
     wixImagePreview: wixImagePreview,
