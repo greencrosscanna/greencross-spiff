@@ -245,5 +245,92 @@ console.log('\n6. the screen');
      && /case 'postmortemImages':/.test(gs) && /case 'postmortemUpload':\s+out = postmortemUpload_\(body\)/.test(gs) && /case 'postmortemSave':/.test(gs));
 }
 
+console.log('\n7. the loyalty blast, pulled from the Dutchie capture');
+{
+  /* The capture file as the Dutchie Connector writes it (CampaignResults.gs), holding the Grön blast
+     with the numbers its campaign_results tool reported on 2026-11-16, another vendor's blast in the
+     window and one long before it. */
+  const day = (d, e, s) => ({ d, e: Object.assign({ rec: 0, del: 0, fail: 0, open: 0, click: 0, unsub: 0, ord: 0, rev: 0, on_ord: 0, on_rev: 0 }, e),
+                                 s: Object.assign({ rec: 0, del: 0, fail: 0, click: 0, verified: 0, unsub: 0, ord: 0, rev: 0, on_ord: 0, on_rev: 0 }, s),
+                                 p: { rec: 0, open: 0, ord: 0, rev: 0, on_ord: 0, on_rev: 0 }, direct: { ord: 0, rev: 0 } });
+  const gron = { id: 101, name: 'Gron SPIFF blast Oct 26: $4 Pearls Tuesdays', send_utc: '2026-10-26T22:54:02', waterfall: false,
+                 channels: { e: { to_send: 1948, sent: 950 }, s: { to_send: 4802, sent: 4802 } },
+                 days: [day(0, { rec: 937, del: 925, fail: 12, open: 242, click: 7, unsub: 3, ord: 100, rev: 3000 }, { rec: 4802, del: 4717, fail: 41, click: 1223, unsub: 91, ord: 257, rev: 9045.96 }),
+                        day(6, {}, {}), day(8, { ord: 40, rev: 1000 }, {})] };
+  const other = { id: 102, name: 'Wyld weekend', send_utc: '2026-10-30T18:00:00', channels: { s: { to_send: 100, sent: 100 } }, days: [day(0, {}, { rec: 100, del: 99, click: 5 })] };
+  const old = { id: 103, name: 'Gron summer', send_utc: '2026-07-01T18:00:00', channels: { s: { to_send: 9, sent: 9 } }, days: [] };
+  const fileOf = (capturedAt) => JSON.stringify({ kind: 'gx_campaign_results', schema: 1, captured_at: capturedAt, received_at: capturedAt, campaigns: [gron, other, old] });
+
+  function blastEngine(opts) {
+    const o = opts || {};
+    const opened = [];
+    const mk = (id, name, content) => ({ getId: () => id, getName: () => name, isTrashed: () => false,
+      getBlob: () => { opened.push(name); if (name !== 'gx-campaign-results.json') throw new Error('opened ' + name); return { getDataAsString: () => content }; } });
+    const files = o.noFile ? [] : [mk('KEYFILE', 'gx-campaign-ingest-key.txt', 'secret'), mk('RESULTS', 'gx-campaign-results.json', fileOf(o.capturedAt || new Date().toISOString().slice(0, 19)))];
+    const props = G.makeProps(o.props || {});
+    const api = G.load({
+      real: ['pmBlastFile_', 'pmFold_', 'pmShiftDay_', 'pmBlastDay_', 'pmBlastSummary_', 'postmortemBlasts_', 'mktEditor_'],
+      vars: ['PM_BLAST_FOLDER_', 'PM_BLAST_FILE_', 'PM_BLAST_FILE_PROP', 'PM_BLAST_STALE_HOURS_', 'PM_BLAST_LEAD_DAYS_', 'PM_BLAST_ATTRIB_DAYS_', 'EDIT_ROLES'],
+      stubs: {
+        gxAuth_: (t) => (t === 'good' ? { ok: true, user: 'mike', role: o.role || 'editor' } : { ok: false, error: 'bad token' }),
+        getProgram_: () => ({ ok: true, program: JSON.parse(JSON.stringify(PROG)) }),
+        scrubSecrets_: (x) => String(x),
+      },
+      globals: {
+        PropertiesService: props.PropertiesService, console: { warn() {}, log() {} },
+        GXCore: { roleCanEdit: (r) => ['editor', 'admin', 'director', 'manager'].indexOf(r) >= 0 },
+        DriveApp: {
+          getFileById: (id) => { const f = files.filter((x) => x.getId() === id)[0]; if (!f) throw new Error('no file'); return f; },
+          getFoldersByName: (n) => { let done = n !== 'GX Claude Exports'; return { hasNext: () => !done, next: () => { done = true; return {
+            getFilesByName: (fn) => { const hit = files.filter((x) => x.getName() === fn); let i = 0; return { hasNext: () => i < hit.length, next: () => hit[i++] }; } }; } }; },
+        },
+      },
+    });
+    return { api, opened, props: props.props };
+  }
+
+  ok('a viewer is refused', blastEngine({ role: 'viewer' }).api.postmortemBlasts_({ token: 'good', id: PROG.program_id }).ok === false);
+  const e = blastEngine();
+  const r = e.api.postmortemBlasts_({ token: 'good', id: PROG.program_id });
+  ok('it finds the Grön blast for vendor "Grön" (accents ignored)', r.ok && r.blasts.length === 1 && r.blasts[0].name === gron.name);
+  ok('  …another vendor\'s blast in the window is offered separately', r.others.length === 1 && r.others[0].name === 'Wyld weekend');
+  ok('  …and a blast from months before is not offered', JSON.stringify(r).indexOf('Gron summer') < 0);
+  const b = r.blasts[0];
+  ok('the totals match the connector\'s: 6,750 listed, 5,752 sent, 998 not sent', b.listed_audience === 6750 && b.sent_total === 5752 && b.not_sent === 998);
+  ok('  …email 925 delivered, 242 opens; text 4,717 delivered, 1,223 clicks', b.email.delivered === 925 && b.email.opens === 242 && b.sms.delivered === 4717 && b.sms.clicks === 1223);
+  ok('  …357 orders ($12,045.96) in the first 7 days, not the later ones', b.attributed.orders === 357 && b.attributed.revenue === 12045.96 && b.attributed.complete === true);
+  ok('  …read in Oregon time: sent Oct 26', b.send_date === '2026-10-26');
+  ok('only the results file is ever opened, never the ingest key', e.opened.length === 1 && e.opened[0] === 'gx-campaign-results.json');
+  ok('  …and its id is remembered', e.props.PM_BLAST_FILE_ID === 'RESULTS');
+  const trap = blastEngine({ props: { PM_BLAST_FILE_ID: 'KEYFILE' } });
+  ok('a remembered id that names another file is not trusted', trap.api.postmortemBlasts_({ token: 'good', id: PROG.program_id }).ok && trap.opened.indexOf('gx-campaign-ingest-key.txt') < 0);
+  ok('an old capture is flagged as stale', blastEngine({ capturedAt: '2026-10-01T00:00:00' }).api.postmortemBlasts_({ token: 'good', id: PROG.program_id }).stale === true);
+  ok('  …a fresh one is not', r.stale === false);
+  ok('no capture file says so, plainly', /No Dutchie blast results have been captured/.test(blastEngine({ noFile: true }).api.postmortemBlasts_({ token: 'good', id: PROG.program_id }).error));
+
+  /* The screen: using that blast fills the entry and the internal pages. */
+  const start = PM.applyOps({}, [['item', 'loy-1', { kind: 'loyalty', name: '', images: [IMG(1)], stats: {} }]]);
+  const filled = PM.applyOps(start, PM.blastOps(start, 'loy-1', b));
+  const it = filled.items[0];
+  ok('the entry gets the reach (5,752 sent), the date and the blast name', it.stats.reach === 5752 && it.date === '2026-10-26' && it.name === gron.name.slice(0, 80));
+  ok('  …says where it came from, and keeps the images Mike picked', /^Dutchie: Gron SPIFF blast/.test(it.ref) && it.images[0] === IMG(1));
+  ok('the Email row: 950 sent, 97.4% delivered, 26.2% opened, 0.8% clicked, 3 unsubscribes',
+     JSON.stringify(filled.channels.email) === JSON.stringify({ sent: '950', delivered: '97.4%', open: '26.2%', ctr: '0.8%', unsubs: '3' }));
+  ok('the SMS row: 4.8K sent, 98.2% delivered, 25.9% clicked, 91 unsubscribes',
+     JSON.stringify(filled.channels.sms) === JSON.stringify({ sent: '4.8K', delivered: '98.2%', ctr: '25.9%', unsubs: '91' }));
+  ok('the send review: 5,752 of 6,750', filled.send.record_count === 5752 && filled.send.audience === 6750 && /Gron SPIFF blast/.test(filled.send.title));
+  ok('  …with a reconciliation line and the orders line, while those notes are blank',
+     filled.notes.reconcile === 'Dutchie sent 5.75K of the 6.75K listed (998 not sent).' && /357 orders \(\$12,045\.96\) in the 7 days after the send/.test(filled.notes.standout));
+  const typed = PM.applyOps(start, [['note', 'reconcile', 'Mike wrote this.'], ['item', 'loy-1', { kind: 'loyalty', name: 'Mike named it', stats: {} }]]);
+  const kept = PM.applyOps(typed, PM.blastOps(typed, 'loy-1', b));
+  ok('a note or a name Mike typed is never overwritten', kept.notes.reconcile === 'Mike wrote this.' && kept.items[0].name === 'Mike named it');
+  const html = PM.reportHtml(filled, PROG, 'internal', {}, {});
+  ok('the internal report shows the pulled numbers and a 998 gap', /<b>998<\/b><span>Gap in displayed counts/.test(html) && /<td>Delivered<\/td><td>97\.4%<\/td><td>98\.2%<\/td>/.test(html));
+  const form = PM.formHtml({ data: filled, reports: [] }, { canEdit: true });
+  ok('the blast entry offers "Pull the numbers from Dutchie" and says where its numbers came from', /data-pm-blasts="loy-1"/.test(form) && /From Dutchie: Gron SPIFF blast/.test(form));
+  ok('a stale capture is said out loud in the list', /more than two days old/.test(PM.blastListHtml({ ok: true, stale: true, captured_at: '2026-10-01T00:00:00', blasts: [], others: [], window: { from: 'a', to: 'b' } }, 'loy-1')));
+  ok('the route is wired', /case 'postmortemBlasts':\s+out = postmortemBlasts_/.test(G.GS));
+}
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nall passed');
 process.exit(fail ? 1 : 0);

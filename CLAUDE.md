@@ -369,6 +369,15 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   the program's own entries name. `normalize`/`applyOps` in postmortem.js are twins of
   `normalizePostmortem_`/`applyPostmortemOps_`. Pinned by `tests/postmortem_test.js` and the
   isolation test's section 5b3.
+  **The loyalty blast's numbers are pulled from Dutchie** (Sky, 2026-11-16): "Pull the numbers from
+  Dutchie" reads the Claude Dutchie Connector's nightly capture, the ONE file
+  `GX Claude Exports/gx-campaign-results.json` in Sky's Drive (`postmortemBlasts`, a read). Sky chose a
+  direct read over routing through GX Core: the connector is not a GX app and SPIFF never writes it.
+  Never open anything else in that folder: it also holds the connector's ingest key. A blast belongs to
+  a program when sent from 14 days before its start to its end and named for the vendor (accents
+  ignored). Using one fills the entry's reach and the internal Email & SMS and send-review numbers;
+  notes and names Mike typed are never overwritten. A capture over 48 hours old is flagged. Instagram
+  is still typed by hand until Sky and Mike connect a Meta app.
 
 - **The deals page's weekly lines and brand logos are edited here, not in Wix** (Sky, 2026-11-02;
   Code.gs "THE DEALS PAGE, PART 2"). The Programs tab's **Deals page** view (`site.js`, behind the
