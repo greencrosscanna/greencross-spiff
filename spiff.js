@@ -1279,6 +1279,7 @@
       state.record = null;
       renderRecordSummary(null);
       syncMarketing(null);
+      syncPostmortem(null);
       return;
     }
     state.record = p;
@@ -1288,6 +1289,7 @@
        rather than by whoever happens to collapse the section. */
     renderRecordSummary(p);
     syncMarketing(p);
+    syncPostmortem(p);
   }
 
   /* ── THE MARKETING SECTION (SPIFF 2.0) ─────────────────────────────────────────────────────────
@@ -1435,6 +1437,54 @@
         mkApply(MK.doneOp(key, on, (session() || {}).user || '', new Date().toISOString()));
       }
     });
+  }
+
+  /* ── THE MEDIA POST-MORTEM (Mike, 2026-11-10) ──────────────────────────────────────────────────
+     Everything is in postmortem.js; this is the join. Behind the Marketing switch, loaded only when
+     its fold is opened. None of its routes is hedged: savePostmortem is a write, and the uploads and
+     the PDF go by POST (too big for a URL) as text/plain, so the browser sends them without a CORS
+     preflight. A POST reply Apps Script will not let us read comes back as null, and postmortem.js
+     then checks what was filed by reading it back. */
+  var PM = window.SpiffPostmortem || null;
+  var pmCtl = null;
+  function syncPostmortem(p) {
+    var fold = $('#calcPostmortemFold'), host = $('#calcPostmortemBody');
+    if (!fold || !host) return;
+    /* Mounted once per page: the host keeps its listeners, so a second mount would answer every click twice. */
+    if (!p || !PM || !mkOn()) { fold.hidden = true; return; }
+    fold.hidden = false;
+    if (!pmCtl) {
+      pmCtl = PM.mount(host, {
+        program: function () { return state.record; },
+        canEdit: canEdit,
+        logo: 'pm-logo.png',
+        jsonp: async function (action, params, opts) {
+          var r = await ENG.jsonp(action, Object.assign({ token: (session() || {}).token }, params), opts);
+          if (r && r.needsAuth) { clearSession(); openSignIn(); }
+          return r;
+        },
+        post: async function (body) {
+          var res;
+          try {
+            res = await fetch(ENGINE, { method: 'POST', body: JSON.stringify(Object.assign({ token: (session() || {}).token }, body)) });
+          } catch (e) {
+            return null;      // sent, reply unreadable: the caller checks what was filed
+          }
+          try { return await res.json(); } catch (e) { return null; }
+        },
+        folderImages: async function (prog) {
+          var r = await ENG.jsonp('webImages', { token: (session() || {}).token, id: prog.program_id }, { timeoutMs: 30000, retries: 1 });
+          if (r && r.needsAuth) { clearSession(); openSignIn(); }
+          return r;
+        }
+      });
+    }
+    /* Read only once the fold is open, so opening a program costs the engine nothing extra. */
+    if (fold.open) pmCtl.show();
+    if (!fold.dataset.pmWired) {
+      fold.dataset.pmWired = '1';
+      fold.addEventListener('toggle', function () { if (fold.open && pmCtl) pmCtl.show(); });
+    }
   }
 
   /* ── PHASE 3: THE VENDOR PLAN AND THE TEAM EMAIL ───────────────────────────────────────────────
@@ -5716,9 +5766,9 @@
      happened to be higher up would be a second answer. appendChild MOVES a node, so this is a
      reorder and not a rebuild: the per-store table keeps its focus, the goal slider keeps a drag
      in progress, and not one listener is dropped. */
-  var STAGE = { draft:   ['calcModelFold', 'calcLive', 'calcActuals', 'calcResults', 'calcRecordFold', 'calcMarketingFold'],
-                running: ['calcLive', 'calcModelFold', 'calcActuals', 'calcResults', 'calcRecordFold', 'calcMarketingFold'],
-                settled: ['calcActuals', 'calcResults', 'calcLive', 'calcModelFold', 'calcRecordFold', 'calcMarketingFold'] };
+  var STAGE = { draft:   ['calcModelFold', 'calcLive', 'calcActuals', 'calcResults', 'calcRecordFold', 'calcMarketingFold', 'calcPostmortemFold'],
+                running: ['calcLive', 'calcModelFold', 'calcActuals', 'calcResults', 'calcRecordFold', 'calcMarketingFold', 'calcPostmortemFold'],
+                settled: ['calcActuals', 'calcResults', 'calcLive', 'calcModelFold', 'calcRecordFold', 'calcMarketingFold', 'calcPostmortemFold'] };
 
   function stageSections(which) {
     var panel = $('#panel-calculator');

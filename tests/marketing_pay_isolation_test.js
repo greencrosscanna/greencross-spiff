@@ -266,6 +266,35 @@ ok('no route above reached for the vendor_days tab', VDAY_TOUCHES === 0);
   ok('no standalone vendor day route is hedged on the client', !/vday|vendorday/i.test(hedge));
 }
 
+console.log('\n5b3. media post-mortems (Mike, 2026-11-10)');
+{
+  const NAMES = ['spiffProgress_', 'publishSpiffToCore_', 'publishToCore_', 'refreshSpiffProgress_', 'refreshProgressPlan_',
+                 'rollProgramStatuses_', 'listPrograms_', 'listProgramsCached_', 'rowToProgram_', 'programToRow_',
+                 'storeView_', 'lastProgramsByStore_', 'recordMeasuredActuals_', 'recordActualsWeb_', 'bootAll_',
+                 'byEmployee_', 'progEarned_', 'programRunsAt_', 'noProgramHeartbeatPayload_', 'publishNoProgramHeartbeat_',
+                 'sweepOrphanProgress_', 'dropProgressRows_', 'auditClosedPayouts_', 'clientView_', 'payoutFactsOf_',
+                 'sendBrandEmail_', 'buildReport_', 'giftCardList_', 'createProgram_', 'editProgram_', 'deleteProgram_',
+                 'renameProgramId_', 'publishSpiffLive_', 'wixPublish_', 'calendarSource_'];
+  const named = [];
+  NAMES.forEach((n) => { try { named.push([n, G.grab(n)]); } catch (e) { /* not in the engine, nothing to leak */ } });
+  ok('the functions checked are really there (' + named.length + ' of ' + NAMES.length + ')', named.length >= 26);
+  const leaks = named.filter(([n, src]) => /postmortem|PM_TAB|PM_REPORTS_TAB|pmSheet_|pmReportsSheet_/i.test(src)).map(([n]) => n);
+  ok('  …and none of them reads a post-mortem: ' + (leaks.join(', ') || 'none'), leaks.length === 0);
+  /* Only the post-mortem routes themselves use the two tabs. */
+  const users = ['pmSheet_(', 'pmReportsSheet_(', 'pmRead_(', 'pmReports_('];
+  const owners = ['pmTab_', 'pmSheet_', 'pmReportsSheet_', 'pmFindRow_', 'pmRead_', 'pmReports_', 'postmortemRead_',
+                  'savePostmortem_', 'postmortemImages_', 'postmortemUpload_', 'postmortemSave_'];
+  let rest = G.GS;
+  owners.forEach((n) => { rest = rest.replace(G.grab(n), ''); });
+  ok('  …and nothing else in the engine calls the post-mortem tabs', users.every((u) => rest.indexOf(u) < 0));
+  const writes = ['savePostmortem_', 'postmortemUpload_', 'postmortemSave_'].map((n) => G.grab(n)).join('\n');
+  ok('  …and its writes never touch programs, progress or Core',
+     !/dataSheet_\(\)\.(append|getRange)|progressSheet_|saveProgram_|createProgram_|editProgram_|GXCore\.publish|invalidatePrograms_/.test(writes));
+  const js = require('fs').readFileSync(require('path').join(__dirname, '..', 'spiff.js'), 'utf8');
+  const hedge = (js.match(/var ENGINE_HEDGE_READS = \{([\s\S]*?)\};/) || [])[1] || '';
+  ok('no post-mortem route is hedged on the client', !/postmortem/i.test(hedge));
+}
+
 console.log('\n5c. the Marketing Calendar sync');
 {
   const NAMES = ['spiffProgress_', 'publishSpiffToCore_', 'publishToCore_', 'refreshSpiffProgress_', 'refreshProgressPlan_',

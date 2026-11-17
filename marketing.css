@@ -214,3 +214,33 @@ select.mk-own { border: 0; font: inherit; font-size: 11px; font-weight: 700; cur
 .mk-dlg .mk-warn { margin: 0 0 12px; }
 /* The author rules above set a display, which beats the browser's own [hidden]. */
 .mk-seg[hidden], .mk-view[hidden], #panel-programs [hidden] { display: none !important; }
+
+/* ── Media post-mortem entry form (postmortem.js). pm-* only; the report itself styles itself (pmr-*). */
+.pm-item { background: var(--mk-bg); border: 1px solid var(--mk-line); border-radius: 12px; padding: 14px 16px; margin: 12px 0 0; }
+.pm-item-h { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin: 0 0 10px; color: var(--mk-txt); }
+.pm-item-tools { display: flex; gap: 6px; }
+.pm-row { display: flex; flex-wrap: wrap; gap: 0 10px; }
+.pm-row > .mk-fld { flex: 0 1 180px; min-width: 0; }
+.pm-row > .pm-grow { flex: 1 1 240px; }
+.mk-fld textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 3px; background: var(--mk-bg); border: 1px solid var(--mk-line); border-radius: 6px; color: var(--mk-txt); padding: 6px 8px; font: inherit; font-size: 13px; resize: vertical; }
+.pm-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0 10px; }
+.pm-imgs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+.pm-thumb { position: relative; display: inline-block; }
+.pm-thumb img { width: 72px; height: 72px; object-fit: contain; background: #fff; border-radius: 4px; display: block; }
+.pm-x { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--mk-line); background: var(--mk-in); color: var(--mk-txt); cursor: pointer; line-height: 1; }
+.pm-upl { cursor: pointer; }
+.pm-grid:empty { display: none; }
+.pm-grid { margin-top: 8px; }
+.pm-add { margin: 12px 0 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--mk-mut); font-size: 13px; }
+.pm-h { font-family: var(--sp-display, inherit); font-size: 15px; font-weight: 800; margin: 18px 0 8px; color: var(--mk-txt); }
+.pm-internal { margin: 16px 0 0; border: 1px solid var(--mk-line); border-radius: 12px; padding: 10px 14px; }
+.pm-internal > summary { cursor: pointer; color: var(--mk-txt); font-weight: 600; }
+.pm-chan { display: grid; grid-template-columns: minmax(120px, 1.4fr) 1fr 1fr; gap: 6px 10px; align-items: center; font-size: 13px; color: var(--mk-txt); margin: 0 0 10px; }
+.pm-chan input { width: 100%; box-sizing: border-box; background: var(--mk-bg); border: 1px solid var(--mk-line); border-radius: 6px; color: var(--mk-txt); padding: 5px 8px; font: inherit; }
+.pm-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0 0; }
+.pm-actions .is-bad { color: var(--mk-red); }
+.pm-preview { margin-top: 12px; overflow: hidden; }
+.pm-preview:empty { display: none; }
+.pm-scale { transform-origin: 0 0; width: 1250px; }
+.pm-reports { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; }
+.pm-reports a { color: var(--mk-green); }
