@@ -358,5 +358,66 @@ console.log('\n7. the loyalty blast, pulled from the Dutchie capture');
   ok('the route is wired', /case 'postmortemBlasts':\s+out = postmortemBlasts_/.test(G.GS));
 }
 
+console.log('\n8. the blast\'s own email, as panels (connector 1.9.0)');
+{
+  const EMAIL = '<html><body onload="x()"><script>steal()</script><table><tr><td><img src="https://d15k2d11r6t6rl.cloudfront.net/a.png">'
+    + '<img src="https://d15k2d11r6t6rl.cloudfront.net/not-an-image"><a href="javascript:alert(1)">x</a>Pearls</td></tr></table></body></html>';
+  function emailEngine(role) {
+    const opened = [], fetched = [];
+    const file = (name, content) => ({ getName: () => name, getBlob: () => { opened.push(name); return { getDataAsString: () => content }; } });
+    const iter = (list) => { let i = 0; return { hasNext: () => i < list.length, next: () => list[i++] }; };
+    const emails = { getFilesByName: (n) => iter(n === '209.html' ? [file('209.html', EMAIL)] : []) };
+    const exportsFolder = { getFoldersByName: (n) => iter(n === 'blast-emails' ? [emails] : []), getFilesByName: () => iter([]) };
+    const api = G.load({
+      real: ['pmBlastEmailFile_', 'pmEmailClean_', 'postmortemBlastEmail_', 'mktEditor_'],
+      vars: ['PM_BLAST_FOLDER_', 'PM_BLAST_EMAIL_FOLDER_', 'PM_BLAST_EMAIL_MAX_IMAGES_', 'PM_BLAST_EMAIL_IMAGE_BYTES_', 'EDIT_ROLES'],
+      stubs: {
+        gxAuth_: (t) => (t === 'good' ? { ok: true, user: 'mike', role: role || 'editor' } : { ok: false, error: 'bad token' }),
+        scrubSecrets_: (x) => String(x),
+      },
+      globals: {
+        Utilities: Object.assign({}, G.Utilities, { base64Encode: (b) => Buffer.from(b).toString('base64') }),
+        console: { warn() {}, log() {} },
+        GXCore: { roleCanEdit: (r) => ['editor', 'admin', 'director', 'manager'].indexOf(r) >= 0 },
+        DriveApp: { getFoldersByName: (n) => iter(n === 'GX Claude Exports' ? [exportsFolder] : []) },
+        UrlFetchApp: { fetch: (u) => { fetched.push(u); const img = /a\.png$/.test(u);
+          return { getResponseCode: () => 200, getBlob: () => ({ getContentType: () => (img ? 'image/png' : 'text/html'), getBytes: () => [1, 2, 3] }) }; } },
+      },
+    });
+    return { api, opened, fetched };
+  }
+  ok('a viewer is refused', emailEngine('viewer').api.postmortemBlastEmail_({ token: 'good', blast: '209' }).ok === false);
+  const e = emailEngine();
+  ok('a blast id that is not a number opens nothing', e.api.postmortemBlastEmail_({ token: 'good', blast: '../key' }).ok === false && e.opened.length === 0);
+  ok('a blast with no saved email says how it gets saved', /nightly Dutchie capture/.test(e.api.postmortemBlastEmail_({ token: 'good', blast: '210' }).error));
+  const r = e.api.postmortemBlastEmail_({ token: 'good', blast: '209' });
+  ok('the saved email comes back, opened from blast-emails/209.html only', r.ok && e.opened.join() === '209.html');
+  ok('  …cleaned again: no script, no handlers, no javascript: links', !/<script|onload|javascript:/i.test(r.html) && /Pearls/.test(r.html));
+  ok('  …its picture inlined as data so the browser can draw it', /<img src="data:image\/png;base64,AQID">/.test(r.html) && r.images === 1);
+  ok('  …and a link that is not a picture is counted, not inlined', r.failed === 1 && /not-an-image/.test(r.html));
+
+  /* The screen. */
+  const blast = { id: '209', name: 'Gron SPIFF blast Oct 26', send_date: '2026-10-26', sent_total: 5752, listed_audience: 6750, has_email: true, daily: [] };
+  const start = PM.applyOps({}, [['item', 'loy-1', { kind: 'loyalty', name: '', images: [], stats: {} }]]);
+  const pulled = PM.applyOps(start, PM.blastOps(start, 'loy-1', blast));
+  ok('pulling a blast whose email is saved remembers which email', pulled.items[0].email_id === '209');
+  ok('  …and one without a saved email does not', PM.applyOps(start, PM.blastOps(start, 'loy-1', Object.assign({}, blast, { has_email: false }))).items[0].email_id === '');
+  ok('the engine and the screen keep the same email id (digits only)', JSON.stringify(engine().api.normalizePostmortem_({ items: [{ id: 'a1', email_id: '209' }, { id: 'a2', email_id: '../x' }] }))
+     === JSON.stringify(PM.normalize({ items: [{ id: 'a1', email_id: '209' }, { id: 'a2', email_id: '../x' }] })));
+  const panels = ['data:image/jpeg;base64,AA', 'data:image/jpeg;base64,BB', 'data:image/jpeg;base64,CC'];
+  const v = PM.withEmailPanels(pulled, { '209': panels });
+  ok('the panels stand in for the blast images while none are picked', v.data.items[0].images.length === 3 && v.images[v.data.items[0].images[0]] === panels[0]);
+  ok('  …and the stored entry still has no images (panels are drawn, never stored)', pulled.items[0].images.length === 0);
+  const html = PM.reportHtml(v.data, PROG, 'vendor', v.images, {});
+  ok('  …so the blast page prints the email, three panels across', /The loyalty blast\./.test(html) && /pmr-blast n3/.test(html) && /src="data:image\/jpeg;base64,CC"/.test(html));
+  const mine = PM.applyOps(pulled, [['item', 'loy-1', Object.assign({}, pulled.items[0], { images: [IMG(1)] })]]);
+  ok('images Mike picks win over the email', PM.withEmailPanels(mine, { '209': panels }).data.items[0].images.join() === IMG(1));
+  ok('panel count: a tall email (Grön, about 11 times as tall as wide) gets four', PM.panelCount(600, 6400) === 4);
+  ok('  …a medium one three, a short one one', PM.panelCount(600, 2500) === 3 && PM.panelCount(600, 500) === 1);
+  ok('the form says the email will be shown', /this blast's own email from Dutchie/.test(PM.formHtml({ data: pulled, reports: [] }, { canEdit: true })));
+  ok('the blast list says which blasts have their email saved', /email saved/.test(PM.blastListHtml({ ok: true, stale: false, blasts: [blast], others: [], window: { from: 'a', to: 'b' } }, 'loy-1')));
+  ok('the route is wired', /case 'postmortemBlastEmail':\s+out = postmortemBlastEmail_/.test(G.GS));
+}
+
 console.log(fail ? '\n' + fail + ' FAILED' : '\nall passed');
 process.exit(fail ? 1 : 0);
