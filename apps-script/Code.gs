@@ -403,6 +403,11 @@ function doGet(e) {
       case 'standaloneVdays':      out = standaloneVdaysRead_(p);                   break;
       case 'saveStandaloneVday':   out = saveStandaloneVday_(p);                    break;
       case 'cancelStandaloneVday': out = cancelStandaloneVday_(p);                  break;
+      /* Media post-mortems: their own two tabs, read by nothing that pays anybody or feeds a kiosk;
+         none hedged on the client. Uploads and the finished PDF ride doPost. See MEDIA POST-MORTEMS. */
+      case 'postmortem':        out = postmortemRead_(p);                           break;
+      case 'savePostmortem':    out = savePostmortem_(p);                           break;
+      case 'postmortemImages':  out = postmortemImages_(p);                         break;
       /* What one text blast costs: list size and Dutchie's two rates, set in Settings. See TEXT
          BLAST PRICING. Read by the Text blast card only; nothing that pays anybody reads it. */
       case 'smsPricing':      out = smsPricingRead_(p);                             break;
@@ -624,6 +629,10 @@ function doPost(e) {
       case 'buildReport':   out = buildReport_(body);                 break;
       case 'draftEmail':    out = emailDraft_(body);                   break;
       case 'pushPayouts':   out = notImplemented_('pushPayouts');     break;
+      /* Too big for a URL: an image into the vendor folder, and the finished post-mortem PDF. The
+         browser sends them as text/plain so no CORS preflight is needed. See MEDIA POST-MORTEMS. */
+      case 'postmortemUpload': out = postmortemUpload_(body);         break;
+      case 'postmortemSave':   out = postmortemSave_(body);           break;
       default:              out = { ok: false, error: 'Unknown action: ' + (body.action || '(none)') };
     }
   } catch (err) {
@@ -2313,6 +2322,282 @@ function cancelStandaloneVday_(p) {
   v.status = 'canceled'; v.closed_by = String(who.auth.user || '').toLowerCase(); v.closed_at = nowStamp_();
   got.sh.getRange(got.rowNo, 1, 1, VDAY_HEADERS.length).setValues([standaloneVdayToRow_(v)]);
   return { ok: true, vday_id: v.vday_id, canceled: true };
+}
+
+/* ── MEDIA POST-MORTEMS (Mike, 2026-11-10; Sky approved the mockup 2026-11-16) ───────────────────
+ * After a program, Mike reports to the vendor how its posts and blasts did. He used to build that PDF
+ * by hand (the Grön one). Here he enters each Instagram post / loyalty blast once: its name, wording,
+ * images (from the vendor folder, or uploaded into it) and its numbers; the screen (postmortem.js)
+ * builds the vendor and internal versions from those entries and draws the PDF in the browser, which
+ * is the only place the landscape layout renders faithfully. The engine stores the entries, serves
+ * the chosen images as data the browser can draw, takes uploads into the vendor folder, and files
+ * each finished PDF in SPIFF Reports with a row in `postmortem_reports`, so past reports stay listed.
+ *
+ * ITS OWN TWO TABS, NEVER `programs`: `postmortems` (one row per program, the entries as JSON) and
+ * `postmortem_reports` (one row per PDF made, never deleted). Nothing that pays, publishes to Core or
+ * feeds a kiosk reads either; tests/marketing_pay_isolation_test.js pins that. No route here goes on
+ * the client's ENGINE_HEDGE_READS.
+ *
+ * SAVES SEND ONLY WHAT CHANGED (the ~10,000-character URL limit): [op, …] lists applied by
+ * applyPostmortemOps_, twin of applyOps in postmortem.js, under the script lock. What is kept is
+ * decided by normalizePostmortem_ from a list, so a stray field is never stored.
+ *
+ * The images route serves only files the program's own entries name: it is not a way to read any
+ * Drive file by id. Uploads and the PDF ride POST (too big for a URL) and are editor-only. */
+var PM_TAB = 'postmortems';
+var PM_HEADERS = ['program_id', 'data_json', 'updated_by', 'updated_at'];
+var PM_REPORTS_TAB = 'postmortem_reports';
+var PM_REPORT_HEADERS = ['report_id', 'program_id', 'version', 'file_id', 'url', 'name', 'made_by', 'made_at', 'nonce'];
+var PM_KINDS_ = ['ig', 'loyalty', 'other'];
+var PM_STATS_ = ['views', 'viewers', 'interactions', 'likes', 'comments', 'saves', 'shares', 'home', 'profile', 'accounts', 'reach'];
+var PM_NOTES_ = ['overview', 'posts', 'loyalty', 'standout', 'reconcile', 'sources'];
+var PM_CHAN_FIELDS_ = ['sent', 'delivered', 'open', 'ctr', 'revenue', 'unsubs', 'roi'];
+var PM_MAX_ITEMS_ = 30;
+var PM_MAX_CELL_ = 45000;          // a Sheets cell holds 50,000 characters
+var PM_UPLOAD_MAX_ = 10 * 1024 * 1024;
+var PM_PDF_MAX_ = 30 * 1024 * 1024;
+var PM_IMAGE_BYTES_ = 1500000;     // larger files are served as Drive's 1600-px rendition instead
+
+function pmTab_(name, headers) {
+  var book = dataSheet_().getParent();
+  var sh = book.getSheetByName(name);
+  if (!sh) {
+    sh = book.insertSheet(name);
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    /* Every column is text at rest: ids, JSON and stamps must never be reformatted by Sheets. */
+    var rows = Math.max(sh.getMaxRows() - 1, 1);
+    for (var c = 1; c <= headers.length; c++) sh.getRange(2, c, rows, 1).setNumberFormat('@');
+  }
+  return sh;
+}
+function pmSheet_() { return pmTab_(PM_TAB, PM_HEADERS); }
+function pmReportsSheet_() { return pmTab_(PM_REPORTS_TAB, PM_REPORT_HEADERS); }
+
+function pmText_(v, n) { return String(v == null ? '' : v).replace(/\r\n?/g, '\n').trim().slice(0, n); }
+function pmNum_(v) {
+  if (v === null || v === undefined || v === '') return null;
+  var n = Number(String(v).replace(/[,\s]/g, ''));
+  return isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
+}
+function pmIds_(list, max) {
+  return (Array.isArray(list) ? list : []).map(function (x) { return String(x || '').trim(); })
+    .filter(function (x, i, a) { return /^[A-Za-z0-9_-]{10,80}$/.test(x) && a.indexOf(x) === i; }).slice(0, max);
+}
+
+/* What may be stored, and nothing else. Twin: normalize in postmortem.js. */
+function normalizePostmortem_(d) {
+  d = d && typeof d === 'object' ? d : {};
+  var items = (Array.isArray(d.items) ? d.items : []).map(function (it) {
+    it = it && typeof it === 'object' ? it : {};
+    var id = String(it.id || '');
+    if (!/^[a-z0-9-]{1,40}$/.test(id)) return null;
+    var stats = {}, src = it.stats && typeof it.stats === 'object' ? it.stats : {};
+    PM_STATS_.forEach(function (k) { var n = pmNum_(src[k]); if (n !== null) stats[k] = n; });
+    return { id: id, kind: PM_KINDS_.indexOf(it.kind) >= 0 ? it.kind : 'ig', name: pmText_(it.name, 80),
+             date: /^\d{4}-\d{2}-\d{2}$/.test(String(it.date || '')) ? String(it.date) : '',
+             words: pmText_(it.words, 1500), images: pmIds_(it.images, 6), stats: stats };
+  }).filter(function (it, i, a) {
+    return it && a.map(function (x) { return x && x.id; }).indexOf(it.id) === i;
+  }).slice(0, PM_MAX_ITEMS_);
+  var notes = {}, n = d.notes && typeof d.notes === 'object' ? d.notes : {};
+  PM_NOTES_.forEach(function (k) { var t = pmText_(n[k], 600); if (t) notes[k] = t; });
+  var chans = {}, c = d.channels && typeof d.channels === 'object' ? d.channels : {};
+  ['email', 'sms'].forEach(function (ch) {
+    var row = {}, s = c[ch] && typeof c[ch] === 'object' ? c[ch] : {};
+    PM_CHAN_FIELDS_.forEach(function (k) { var t = pmText_(s[k], 24); if (t) row[k] = t; });
+    if (Object.keys(row).length) chans[ch] = row;
+  });
+  var s0 = d.send && typeof d.send === 'object' ? d.send : {}, send = {};
+  var title = pmText_(s0.title, 120); if (title) send.title = title;
+  var rc = pmNum_(s0.record_count); if (rc !== null) send.record_count = rc;
+  var au = pmNum_(s0.audience); if (au !== null) send.audience = au;
+  var si = pmIds_(s0.images, 2); if (si.length) send.images = si;
+  return { v: 1, items: items, notes: notes, channels: chans, send: send };
+}
+
+/* The save path's operations. Twin: applyOps in postmortem.js.
+     ['item', id, obj]   add or replace one entry (null removes it)
+     ['move', id, -1|1]  move it up or down
+     ['note', key, text] ['chan', 'email'|'sms', obj] ['send', obj] */
+function applyPostmortemOps_(data, ops) {
+  var d = JSON.parse(JSON.stringify(normalizePostmortem_(data)));
+  (Array.isArray(ops) ? ops : []).forEach(function (op) {
+    if (!Array.isArray(op)) return;
+    var at = d.items.map(function (x) { return x.id; }).indexOf(String(op[1]));
+    if (op[0] === 'item') {
+      if (op[2] === null) { if (at >= 0) d.items.splice(at, 1); return; }
+      var it = Object.assign({}, op[2] || {}, { id: String(op[1]) });
+      if (at >= 0) d.items[at] = it; else d.items.push(it);
+    } else if (op[0] === 'move' && at >= 0) {
+      var to = at + (Number(op[2]) < 0 ? -1 : 1);
+      if (to >= 0 && to < d.items.length) { var x = d.items.splice(at, 1)[0]; d.items.splice(to, 0, x); }
+    } else if (op[0] === 'note' && PM_NOTES_.indexOf(op[1]) >= 0) {
+      d.notes[op[1]] = op[2];
+    } else if (op[0] === 'chan' && (op[1] === 'email' || op[1] === 'sms')) {
+      d.channels[op[1]] = op[2];
+    } else if (op[0] === 'send') {
+      d.send = op[1];
+    }
+  });
+  return normalizePostmortem_(d);
+}
+
+function pmFindRow_(sh, programId) {
+  var last = sh.getLastRow();
+  if (last < 2 || !programId) return 0;
+  var ids = sh.getRange(2, 1, last - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) if (String(ids[i][0]) === String(programId)) return i + 2;
+  return 0;
+}
+function pmRead_(programId) {
+  var sh = pmSheet_(), rowNo = pmFindRow_(sh, programId);
+  if (!rowNo) return { data: normalizePostmortem_({}), updated_by: '', updated_at: '' };
+  var r = sh.getRange(rowNo, 1, 1, PM_HEADERS.length).getValues()[0];
+  return { data: normalizePostmortem_(parseJson_(r[1], {})), updated_by: String(r[2] || ''), updated_at: String(r[3] || '') };
+}
+function pmReports_(programId) {
+  var sh = pmReportsSheet_(), last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, PM_REPORT_HEADERS.length).getValues()
+    .filter(function (r) { return String(r[1]) === String(programId); })
+    .map(function (r) {
+      var o = {}; PM_REPORT_HEADERS.forEach(function (k, i) { o[k] = String(r[i] == null ? '' : r[i]); }); return o;
+    }).reverse();
+}
+
+/* The folder uploads go into and the picker lists: the program's vendor files link, else the
+   vendor's folder under Marketing ▸ Vendors (made if missing only when `make`). */
+function pmFolderOf_(prog, make) {
+  var id = mktVendorFolderId_(prog);
+  if (id) return { id: id, url: 'https://drive.google.com/drive/folders/' + id };
+  var v = null;
+  try { v = vendorFolderFor_(prog.vendor, !!make); } catch (e) { v = null; }
+  return v && v.id ? { id: v.id, url: v.url } : null;
+}
+
+function postmortemRead_(p) {
+  var who = mktEditor_(p, 'see media post-mortems');
+  if (who.fail) return who.fail;
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var prog = res.program, got = pmRead_(prog.program_id);
+  var folder = null;
+  try { folder = pmFolderOf_(prog, false); } catch (e) { folder = null; }
+  return { ok: true, program_id: prog.program_id, data: got.data, updated_by: got.updated_by, updated_at: got.updated_at,
+           reports: pmReports_(prog.program_id), folder_url: folder ? folder.url : '' };
+}
+
+function savePostmortem_(p) {
+  var who = mktEditor_(p, 'change media post-mortems');
+  if (who.fail) return who.fail;
+  var patch = parseJson_(p.patch, {});
+  var ops = patch && Array.isArray(patch.ops) ? patch.ops : null;
+  if (!ops || !ops.length) return { ok: false, error: 'Nothing to save.' };
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return { ok: false, error: 'Another save is in progress. Try again in a moment.' };
+  try {
+    var sh = pmSheet_(), pid = res.program.program_id, rowNo = pmFindRow_(sh, pid);
+    var data = applyPostmortemOps_(pmRead_(pid).data, ops);
+    var json = JSON.stringify(data);
+    if (json.length > PM_MAX_CELL_) return { ok: false, error: 'That is more than one report can hold. Shorten the wording or remove an entry.' };
+    var row = [pid, json, String(who.auth.user || ''), nowStamp_()];
+    if (rowNo) sh.getRange(rowNo, 1, 1, PM_HEADERS.length).setValues([row]);
+    else sh.appendRow(row);
+    return { ok: true, program_id: pid, data: data, updated_by: row[2], updated_at: row[3] };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* The images the report draws, as data URIs. Only ids the program's own entries name are served. */
+function postmortemImages_(p) {
+  var who = mktEditor_(p, 'build media post-mortems');
+  if (who.fail) return who.fail;
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var data = pmRead_(res.program.program_id).data;
+  var allowed = [];
+  data.items.forEach(function (it) { allowed = allowed.concat(it.images); });
+  allowed = allowed.concat(data.send.images || []);
+  var want = pmIds_(String(p.ids || '').split(','), 8).filter(function (id) { return allowed.indexOf(id) >= 0; });
+  var images = {}, failed = [];
+  want.forEach(function (id) {
+    try { images[id] = pmImageData_(id); }
+    catch (e) { failed.push({ id: id, error: scrubSecrets_((e && e.message) || e) }); }
+  });
+  return { ok: true, images: images, failed: failed };
+}
+function pmImageData_(id) {
+  var meta = driveApi_('get', id + '?supportsAllDrives=true&fields=mimeType,size,thumbnailLink');
+  if (!/^image\//.test(String(meta.mimeType || ''))) throw new Error('is not an image');
+  var blob;
+  if (Number(meta.size) <= PM_IMAGE_BYTES_ || !meta.thumbnailLink) {
+    blob = DriveApp.getFileById(id).getBlob();
+  } else {
+    var r = UrlFetchApp.fetch(String(meta.thumbnailLink).replace(/=s\d+$/, '') + '=s1600',
+      { muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() } });
+    if (r.getResponseCode() >= 300) throw new Error('Drive would not render it (' + r.getResponseCode() + ')');
+    blob = r.getBlob();
+  }
+  return 'data:' + (blob.getContentType() || meta.mimeType) + ';base64,' + Utilities.base64Encode(blob.getBytes());
+}
+
+/* POST: an image into the vendor folder, so the picker lists it. */
+function postmortemUpload_(b) {
+  var who = mktEditor_(b, 'upload post-mortem images');
+  if (who.fail) return who.fail;
+  var res = getProgram_(b.id);
+  if (!res.ok) return res;
+  var mime = String(b.mime || '');
+  if (['image/png', 'image/jpeg', 'image/webp', 'image/gif'].indexOf(mime) < 0) return { ok: false, error: 'Upload a PNG, JPG, WebP or GIF image.' };
+  var bytes;
+  try { bytes = Utilities.base64Decode(String(b.data || '')); } catch (e) { return { ok: false, error: 'The file did not arrive whole. Try again.' }; }
+  if (!bytes.length) return { ok: false, error: 'The file was empty.' };
+  if (bytes.length > PM_UPLOAD_MAX_) return { ok: false, error: 'That image is over 10 MB.' };
+  var folder = pmFolderOf_(res.program, true);
+  if (!folder) return { ok: false, error: 'This program has no vendor, so there is no vendor folder to upload into.' };
+  var name = pmText_(b.name, 120).replace(/[\\/]/g, '-') || 'post-mortem image';
+  var file = DriveApp.getFolderById(folder.id).createFile(Utilities.newBlob(bytes, mime, name));
+  return { ok: true, file_id: file.getId(), name: name, folder_url: folder.url };
+}
+
+/* POST: the finished PDF, filed in SPIFF Reports and recorded so past reports stay listed. */
+function postmortemSave_(b) {
+  var who = mktEditor_(b, 'save media post-mortems');
+  if (who.fail) return who.fail;
+  var res = getProgram_(b.id);
+  if (!res.ok) return res;
+  var version = String(b.version || '') === 'internal' ? 'internal' : 'vendor';
+  var bytes;
+  try { bytes = Utilities.base64Decode(String(b.pdf || '')); } catch (e) { return { ok: false, error: 'The PDF did not arrive whole. Try again.' }; }
+  if (bytes.length < 5 || String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]) !== '%PDF') return { ok: false, error: 'That is not a PDF.' };
+  if (bytes.length > PM_PDF_MAX_) return { ok: false, error: 'That PDF is over 30 MB.' };
+  var prog = res.program;
+  var stamp = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'MMddyy');
+  var name = 'Green Cross SPIFF Media Postmortem' + (version === 'internal' ? ' (Internal)' : '') + ' - '
+    + pmText_(prog.vendor || prog.program_name || 'Brand', 60).replace(/[\\/]/g, '-') + ' - ' + stamp + '.pdf';
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return { ok: false, error: 'Another save is in progress. Try again in a moment.' };
+  try {
+    /* A retried POST is not a second report: the browser names each click once (`nonce`), and a
+       nonce already on file answers with the report it made. */
+    var nonce = String(b.nonce || '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 40);
+    if (nonce) {
+      var before = pmReports_(prog.program_id).filter(function (r) { return r.nonce === nonce; })[0];
+      if (before) return { ok: true, replay: true, report: before };
+    }
+    var file = DriveApp.getFolderById(REPORT_FOLDER_ID).createFile(Utilities.newBlob(bytes, 'application/pdf', name));
+    var row = { report_id: 'pmr-' + Date.now().toString(36) + '-' + Math.floor(Math.random() * 1296).toString(36),
+                program_id: prog.program_id, version: version, file_id: file.getId(), url: file.getUrl(), name: name,
+                made_by: String(who.auth.user || ''), made_at: nowStamp_(), nonce: nonce };
+    pmReportsSheet_().appendRow(PM_REPORT_HEADERS.map(function (k) { return row[k]; }));
+    return { ok: true, report: row };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /* Validate a GX Core session token and resolve this user's role on `spiff`.

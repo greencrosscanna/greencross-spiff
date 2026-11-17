@@ -355,6 +355,21 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   only while blank or still its own text, so typed text is never overwritten (`webDetailOp`). Pinned by
   `tests/web_image_picker_test.js`.
 
+- **The media post-mortem is built from Mike's entries, and drawn in the browser** (Mike 2026-11-10,
+  Sky approved the mockup 2026-11-16: https://claude.ai/artifact/2L3qgHDYkWQGg9TBZLhxGJ). A fold under
+  Marketing, behind the same switch (`postmortem.js`). Mike enters each Instagram post / loyalty blast
+  (name, wording, images from or uploaded into the vendor folder, numbers); totals, the "led in views"
+  line and which pages appear are computed, never stored. Two versions: **vendor** (Overview, posts,
+  loyalty blast) and **internal** (adds Email & SMS and Campaign send review). Google's HTML-to-PDF
+  cannot do landscape or this layout, so the browser draws each 1250 × 917 page with html2canvas +
+  jsPDF (cdnjs, loaded on click), downloads it, and POSTs it to `postmortemSave` (text/plain, no
+  preflight; a nonce makes a retry a replay), which files it in SPIFF Reports with a row in
+  `postmortem_reports`. Entries live in **`postmortems`**, one row per program; both tabs are their
+  own, **never `programs`**, and nothing that pays reads them. `postmortemImages` serves only images
+  the program's own entries name. `normalize`/`applyOps` in postmortem.js are twins of
+  `normalizePostmortem_`/`applyPostmortemOps_`. Pinned by `tests/postmortem_test.js` and the
+  isolation test's section 5b3.
+
 - **The deals page's weekly lines and brand logos are edited here, not in Wix** (Sky, 2026-11-02;
   Code.gs "THE DEALS PAGE, PART 2"). The Programs tab's **Deals page** view (`site.js`, behind the
   marketing switch) edits the Tue–Sat schedule (Wix `Import1`, keyed `weekKey`) and the brands
