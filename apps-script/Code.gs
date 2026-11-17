@@ -408,6 +408,8 @@ function doGet(e) {
       case 'postmortem':        out = postmortemRead_(p);                           break;
       case 'savePostmortem':    out = savePostmortem_(p);                           break;
       case 'postmortemImages':  out = postmortemImages_(p);                         break;
+      /* The program's Dutchie blasts, read from the Dutchie Connector's capture file. A read. */
+      case 'postmortemBlasts':  out = postmortemBlasts_(p);                         break;
       /* What one text blast costs: list size and Dutchie's two rates, set in Settings. See TEXT
          BLAST PRICING. Read by the Text blast card only; nothing that pays anybody reads it. */
       case 'smsPricing':      out = smsPricingRead_(p);                             break;
@@ -2396,7 +2398,7 @@ function normalizePostmortem_(d) {
     PM_STATS_.forEach(function (k) { var n = pmNum_(src[k]); if (n !== null) stats[k] = n; });
     return { id: id, kind: PM_KINDS_.indexOf(it.kind) >= 0 ? it.kind : 'ig', name: pmText_(it.name, 80),
              date: /^\d{4}-\d{2}-\d{2}$/.test(String(it.date || '')) ? String(it.date) : '',
-             words: pmText_(it.words, 1500), images: pmIds_(it.images, 6), stats: stats };
+             words: pmText_(it.words, 1500), images: pmIds_(it.images, 6), stats: stats, ref: pmText_(it.ref, 200) };
   }).filter(function (it, i, a) {
     return it && a.map(function (x) { return x && x.id; }).indexOf(it.id) === i;
   }).slice(0, PM_MAX_ITEMS_);
@@ -2598,6 +2600,121 @@ function postmortemSave_(b) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/* ── THE LOYALTY BLAST, PULLED FROM DUTCHIE (Sky, 2026-11-16: "Mike doesn't have to hand enter it") ──
+ * The Claude Dutchie Connector captures every sent Dutchie email/SMS blast nightly from the Backoffice
+ * and keeps the counts in ONE Drive file, `GX Claude Exports/gx-campaign-results.json`, in Sky's Drive.
+ * This engine runs as the same account, so it reads that file directly. Sky chose that over routing it
+ * through GX Core (2026-11-16): the connector is not a GX app and SPIFF only ever READS the file.
+ *
+ * What may be read is exactly that one file, by name, in that one folder. The folder also holds the
+ * connector's ingest key (`gx-campaign-ingest-key.txt`); nothing here opens any other file, and
+ * pmBlastFile_ checks the name of a remembered id before trusting it. Counts only: the capture holds
+ * no customer data. The summary arithmetic follows the connector's campaignSummary_ (CampaignResults.gs)
+ * so the post-mortem and the connector's campaign_results tool give the same numbers.
+ *
+ * A blast belongs to a program when it was sent from 14 days before the start to the end date and its
+ * name contains the vendor (accents and punctuation ignored: "Gron" matches "Grön"). Other blasts in
+ * that window come back as `others`, so a blast named without the vendor can still be picked. */
+var PM_BLAST_FOLDER_ = 'GX Claude Exports';
+var PM_BLAST_FILE_ = 'gx-campaign-results.json';
+var PM_BLAST_FILE_PROP = 'PM_BLAST_FILE_ID';
+var PM_BLAST_STALE_HOURS_ = 48;
+var PM_BLAST_LEAD_DAYS_ = 14;
+var PM_BLAST_ATTRIB_DAYS_ = 7;
+
+function pmBlastFile_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty(PM_BLAST_FILE_PROP);
+  if (id) {
+    try {
+      var f = DriveApp.getFileById(id);
+      if (!f.isTrashed() && f.getName() === PM_BLAST_FILE_) return f;
+    } catch (e) { /* gone: look it up again */ }
+  }
+  var folders = DriveApp.getFoldersByName(PM_BLAST_FOLDER_);
+  while (folders.hasNext()) {
+    var files = folders.next().getFilesByName(PM_BLAST_FILE_);
+    if (files.hasNext()) {
+      var file = files.next();
+      props.setProperty(PM_BLAST_FILE_PROP, file.getId());
+      return file;
+    }
+  }
+  return null;
+}
+
+function pmFold_(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+function pmShiftDay_(day, n) {
+  var d = new Date(day + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+function pmBlastDay_(utc) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(utc || ''))) return '';
+  return Utilities.formatDate(new Date(String(utc).slice(0, 19) + 'Z'), 'America/Los_Angeles', 'yyyy-MM-dd');
+}
+
+/* One captured campaign, summed the way the connector's campaign_results tool sums it. */
+function pmBlastSummary_(c) {
+  var n = function (v) { var x = Number(v); return isFinite(x) ? x : 0; };
+  var r2 = function (v) { return Math.round(v * 100) / 100; };
+  var days = Array.isArray(c.days) ? c.days : [];
+  var tot = function (grp, f, maxDay) {
+    return r2(days.reduce(function (s, d) { return (maxDay == null || n(d.d) < maxDay) ? s + n(d[grp] && d[grp][f]) : s; }, 0));
+  };
+  var ch = c.channels || {};
+  var email = ch.e ? { to_send: n(ch.e.to_send), sent: n(ch.e.sent), recipients: tot('e', 'rec'), delivered: tot('e', 'del'),
+                       failed: tot('e', 'fail'), opens: tot('e', 'open'), clicks: tot('e', 'click'), unsubscribes: tot('e', 'unsub') } : null;
+  var sms = ch.s ? { to_send: n(ch.s.to_send), sent: n(ch.s.sent), recipients: tot('s', 'rec'), delivered: tot('s', 'del'),
+                     failed: tot('s', 'fail'), clicks: tot('s', 'click'), unsubscribes: tot('s', 'unsub') } : null;
+  var listed = (email ? email.to_send : 0) + (sms ? sms.to_send : 0);
+  var sent = (email ? email.sent : 0) + (sms ? sms.sent : 0);
+  var w = PM_BLAST_ATTRIB_DAYS_;
+  var orders = tot('e', 'ord', w) + tot('s', 'ord', w) + tot('p', 'ord', w);
+  var seen = days.length ? n(days[days.length - 1].d) + 1 : 0;
+  return {
+    id: String(c.id || ''), name: String(c.name || ''), send_date: pmBlastDay_(c.send_utc), send_utc: String(c.send_utc || ''),
+    listed_audience: listed || null, sent_total: sent || null, not_sent: listed && sent ? listed - sent : null,
+    email: email, sms: sms,
+    attributed: { days: w, orders: orders, revenue: r2(tot('e', 'rev', w) + tot('s', 'rev', w) + tot('p', 'rev', w)), complete: seen >= w }
+  };
+}
+
+function postmortemBlasts_(p) {
+  var who = mktEditor_(p, 'build media post-mortems');
+  if (who.fail) return who.fail;
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var prog = res.program;
+  var file = null;
+  try { file = pmBlastFile_(); } catch (e) { return { ok: false, error: 'Could not open the Dutchie blast results: ' + scrubSecrets_((e && e.message) || e) }; }
+  if (!file) return { ok: false, error: 'No Dutchie blast results have been captured yet. The capture runs from the Dutchie Backoffice in the Green Cross Chrome.' };
+  var data;
+  try { data = JSON.parse(file.getBlob().getDataAsString() || '{}'); } catch (e2) { data = null; }
+  if (!data || data.kind !== 'gx_campaign_results' || !Array.isArray(data.campaigns)) {
+    return { ok: false, error: 'The Dutchie blast results file could not be read.' };
+  }
+  var today = Utilities.formatDate(new Date(), 'America/Los_Angeles', 'yyyy-MM-dd');
+  var start = /^\d{4}-\d{2}-\d{2}$/.test(String(prog.start_date || '')) ? String(prog.start_date) : pmShiftDay_(today, -120);
+  var end = /^\d{4}-\d{2}-\d{2}$/.test(String(prog.end_date || '')) ? String(prog.end_date) : today;
+  var from = pmShiftDay_(start, -PM_BLAST_LEAD_DAYS_);
+  var vendor = pmFold_(prog.vendor);
+  var mine = [], others = [];
+  data.campaigns.forEach(function (c) {
+    var s = pmBlastSummary_(c);
+    if (!s.send_date || s.send_date < from || s.send_date > end) return;
+    (vendor && pmFold_(s.name).indexOf(vendor) >= 0 ? mine : others).push(s);
+  });
+  var newest = function (a, b) { return a.send_utc < b.send_utc ? 1 : -1; };
+  mine.sort(newest); others.sort(newest);
+  var at = String(data.received_at || data.captured_at || '');
+  var age = at ? Math.round((Date.now() - new Date(at.slice(0, 19) + 'Z').getTime()) / 36e5) : null;
+  return { ok: true, captured_at: at, age_hours: age, stale: age === null || age > PM_BLAST_STALE_HOURS_,
+           window: { from: from, to: end }, blasts: mine, others: others };
 }
 
 /* Validate a GX Core session token and resolve this user's role on `spiff`.

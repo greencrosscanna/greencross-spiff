@@ -69,7 +69,7 @@
       STATS.forEach(function (k) { var n = num(src[k]); if (n !== null) stats[k] = n; });
       return { id: id, kind: KINDS[it.kind] ? it.kind : 'ig', name: text(it.name, 80),
                date: /^\d{4}-\d{2}-\d{2}$/.test(String(it.date || '')) ? String(it.date) : '',
-               words: text(it.words, 1500), images: ids(it.images, 6), stats: stats };
+               words: text(it.words, 1500), images: ids(it.images, 6), stats: stats, ref: text(it.ref, 200) };
     }).filter(function (it, i, a) {
       return it && a.map(function (x) { return x && x.id; }).indexOf(it.id) === i;
     }).slice(0, MAX_ITEMS);
@@ -355,6 +355,69 @@
     return out.filter(function (x, i, a) { return a.indexOf(x) === i; });
   }
 
+  /* ── PULLING A BLAST FROM DUTCHIE ─────────────────────────────────────────────────────────────
+     `blast` is one row of the engine's postmortemBlasts (the connector's capture, summed). Picking it
+     fills the loyalty entry's reach, and the internal pages' Email & SMS table and send counts from the
+     same blast. Images, the summary note and anything Mike typed in the notes are left as they are;
+     the two notes are written only while they are blank. */
+  function pct(a, b) {
+    if (!b || a === null || a === undefined) return '';
+    return String(Math.round(a / b * 1000) / 10).replace(/\.0$/, '') + '%';
+  }
+  function money(v) { return '$' + Number(v || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  function blastOps(data, itemId, blast) {
+    var d = normalize(data), b = blast || {};
+    var it = d.items.filter(function (x) { return x.id === itemId; })[0];
+    if (!it) return [];
+    var next = JSON.parse(JSON.stringify(it));
+    next.kind = 'loyalty';
+    if (!next.name) next.name = String(b.name || '').slice(0, 80);
+    if (b.send_date) next.date = b.send_date;
+    if (typeof b.sent_total === 'number') next.stats.reach = b.sent_total;
+    next.ref = ('Dutchie: ' + (b.name || '') + (b.send_date ? ' (' + b.send_date + ')' : '')).slice(0, 200);
+    var ops = [['item', itemId, next]];
+    var e = b.email, s = b.sms, n = function (v) { return typeof v === 'number' ? fmtK(v) : ''; };
+    if (e) ops.push(['chan', 'email', { sent: n(e.sent), delivered: pct(e.delivered, e.sent), open: pct(e.opens, e.delivered),
+                                        ctr: pct(e.clicks, e.delivered), unsubs: n(e.unsubscribes) }]);
+    if (s) ops.push(['chan', 'sms', { sent: n(s.sent), delivered: pct(s.delivered, s.sent), ctr: pct(s.clicks, s.delivered),
+                                      unsubs: n(s.unsubscribes) }]);
+    var send = Object.assign({}, d.send, { title: String(b.name || '').slice(0, 120) });
+    if (typeof b.sent_total === 'number') send.record_count = b.sent_total;
+    if (typeof b.listed_audience === 'number') send.audience = b.listed_audience;
+    ops.push(['send', send]);
+    if (!d.notes.reconcile && b.not_sent > 0 && typeof b.sent_total === 'number' && typeof b.listed_audience === 'number') {
+      ops.push(['note', 'reconcile', 'Dutchie sent ' + fmtK(b.sent_total) + ' of the ' + fmtK(b.listed_audience) + ' listed (' + fmtK(b.not_sent) + ' not sent).']);
+    }
+    var a = b.attributed;
+    if (!d.notes.standout && a && a.orders > 0) {
+      ops.push(['note', 'standout', 'Recipients placed ' + fmtK(a.orders) + ' orders (' + money(a.revenue) + ') in the ' + a.days
+        + ' days after the send, as Dutchie counts it. That is any purchase by a recipient, not lift.'
+        + (a.complete ? '' : ' The ' + a.days + ' days are not over yet.')]);
+    }
+    return ops;
+  }
+
+  function blastListHtml(r, itemId) {
+    if (!r) return '<p class="mk-sub" role="status">Reading the Dutchie blast results&hellip;</p>';
+    if (!r.ok) return '<div class="mk-warn">' + esc(r.error || 'Could not read the Dutchie blast results.') + '</div>';
+    var row = function (b, i, group) {
+      var line = [b.send_date];
+      if (typeof b.sent_total === 'number') line.push(fmtK(b.sent_total) + ' sent' + (typeof b.listed_audience === 'number' ? ' of ' + fmtK(b.listed_audience) : ''));
+      return '<li><button type="button" class="gx-btn" data-pm-useblast="' + esc(itemId + '|' + group + '|' + i) + '">Use this</button> '
+        + '<b>' + esc(b.name || 'Unnamed blast') + '</b> <span class="mk-sub">' + esc(line.join(' · ')) + '</span></li>';
+    };
+    var when = r.captured_at ? 'Dutchie numbers captured ' + String(r.captured_at).slice(0, 16).replace('T', ' ') + ' UTC.' : '';
+    var h = (r.stale ? '<div class="mk-warn">These Dutchie numbers are more than two days old: the nightly capture may have stopped. ' + esc(when) + '</div>'
+                     : '<p class="mk-sub">' + esc(when) + '</p>');
+    if (r.blasts.length) h += '<ul class="pm-blasts">' + r.blasts.map(function (b, i) { return row(b, i, 'blasts'); }).join('') + '</ul>';
+    else h += '<p class="mk-sub">No blast named for this vendor was sent between ' + esc(r.window.from) + ' and ' + esc(r.window.to) + '.</p>';
+    if (r.others.length) {
+      h += '<details><summary class="mk-sub">Other blasts sent in that time (' + r.others.length + ')</summary><ul class="pm-blasts">'
+        + r.others.map(function (b, i) { return row(b, i, 'others'); }).join('') + '</ul></details>';
+    }
+    return h + '<p class="mk-sub">Using one fills this blast\'s reach and the internal Email &amp; SMS and send-review numbers. Pick the blast images yourself.</p>';
+  }
+
   function fileName(prog, version, now) {
     var t = now || new Date();
     var mm = ('0' + (t.getMonth() + 1)).slice(-2), dd = ('0' + t.getDate()).slice(-2), yy = String(t.getFullYear()).slice(2);
@@ -529,6 +592,10 @@
       + '<label class="mk-fld">Posted<input type="date" data-pm-f="date" value="' + esc(it.date) + '"' + ro + '></label></div>'
       + '<label class="mk-fld">Wording (the caption or blast copy, kept for the record)<textarea rows="3" maxlength="1500" data-pm-f="words"' + ro + '>' + esc(it.words) + '</textarea></label>'
       + '<div class="mk-fld">' + (it.kind === 'loyalty' ? 'Blast images, in reading order (up to 4 show)' : 'Image') + thumbsHtml('item:' + it.id, it.images, maxImgs, ro) + '</div>'
+      + (it.kind === 'loyalty'
+        ? '<div class="pm-pull">' + (ro ? '' : '<button type="button" class="gx-btn" data-pm-blasts="' + esc(it.id) + '">Pull the numbers from Dutchie</button> ')
+          + (it.ref ? '<span class="mk-sub">From ' + esc(it.ref) + '</span>' : '') + '<div data-pm-blastbox="' + esc(it.id) + '"></div></div>'
+        : '')
       + statFields(it, ro) + '</div>';
   }
 
@@ -604,7 +671,7 @@
      api (from spiff.js): program(), canEdit(), jsonp(action, params, opts), post(body),
      folderImages(program), logo. One mount per host; show(program) when the open program changes. */
   function mount(host, api) {
-    var st = { pid: '', data: null, reports: [], error: '', status: '', grids: {}, queue: [], busy: false, images: {} };
+    var st = { pid: '', data: null, reports: [], error: '', status: '', grids: {}, blastLists: {}, queue: [], busy: false, images: {} };
     var stale = function (pid) { return pid !== st.pid; };
 
     function paint() { host.innerHTML = formHtml(st, { canEdit: api.canEdit() }); }
@@ -619,7 +686,7 @@
       if (!p) return;
       if (p.program_id === st.pid && st.data && !force) return;
       var pid = p.program_id;
-      if (pid !== st.pid) { st = { pid: pid, data: null, reports: [], error: '', status: '', grids: {}, queue: [], busy: false, images: {} }; paint(); }
+      if (pid !== st.pid) { st = { pid: pid, data: null, reports: [], error: '', status: '', grids: {}, blastLists: {}, queue: [], busy: false, images: {} }; paint(); }
       try {
         var r = await api.jsonp('postmortem', { id: pid }, { timeoutMs: 30000, retries: 1 });
         if (stale(pid)) return;
@@ -696,6 +763,21 @@
       st.grids[target] = r;
       box = host.querySelector('[data-pm-grid="' + target + '"]');
       if (box) box.innerHTML = gridHtml(r, targetList(target));
+    }
+
+    async function openBlasts(itemId, btn) {
+      var pid = st.pid, box = host.querySelector('[data-pm-blastbox="' + itemId + '"]');
+      if (!box) return;
+      box.innerHTML = blastListHtml(null, itemId);
+      if (btn) btn.disabled = true;
+      var r;
+      try { r = await api.jsonp('postmortemBlasts', { id: pid }, { timeoutMs: 45000, retries: 1 }); }
+      catch (e) { r = { ok: false, error: 'Could not read the Dutchie blast results: ' + String((e && e.message) || e) }; }
+      if (stale(pid)) return;
+      st.blastLists[itemId] = r;
+      box = host.querySelector('[data-pm-blastbox="' + itemId + '"]');
+      if (box) box.innerHTML = blastListHtml(r, itemId);
+      if (btn) btn.disabled = false;
     }
 
     async function upload(target, file) {
@@ -820,6 +902,14 @@
       if (ds.pmUp) return save([['move', ds.pmUp, -1]], true);
       if (ds.pmDown) return save([['move', ds.pmDown, 1]], true);
       if (ds.pmPick) return openGrid(ds.pmPick);
+      if (ds.pmBlasts) return openBlasts(ds.pmBlasts, t);
+      if (ds.pmUseblast) {
+        var parts = ds.pmUseblast.split('|'), list = st.blastLists[parts[0]];
+        var blast = list && list.ok && (list[parts[1]] || [])[Number(parts[2])];
+        if (!blast) return;
+        save(blastOps(st.data, parts[0], blast), true);
+        return status('Filled from Dutchie: ' + (blast.name || 'the blast') + '. Check the numbers, then pick the blast images.');
+      }
       if (ds.pmUnimg) {
         var bar = ds.pmUnimg.lastIndexOf('|');
         var target = ds.pmUnimg.slice(0, bar), fid = ds.pmUnimg.slice(bar + 1);
@@ -869,7 +959,7 @@
     PAGE_W: PAGE_W, PAGE_H: PAGE_H, REPORT_CSS: REPORT_CSS, LIBS: LIBS,
     normalize: normalize, applyOps: applyOps, fmtK: fmtK, summary: summary, leadLine: leadLine, dateRange: dateRange,
     pagesOf: pagesOf, reportHtml: reportHtml, imageIds: imageIds, fileName: fileName, formHtml: formHtml, gridHtml: gridHtml,
-    toPdf: htmlToPdf, mount: mount
+    blastOps: blastOps, blastListHtml: blastListHtml, toPdf: htmlToPdf, mount: mount
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SpiffPostmortem = api;
