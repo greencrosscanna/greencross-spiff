@@ -193,7 +193,11 @@
     if (internal && Object.keys(d.channels).length) pages.push({ kind: 'channels' });
     if (internal && Object.keys(d.send).length) pages.push({ kind: 'send' });
     chunk(s.posts, POSTS_PER_PAGE).forEach(function (list, i) { pages.push({ kind: 'posts', list: list, first: i === 0 }); });
-    s.loyalty.forEach(function (it, i) { pages.push({ kind: 'loyalty', item: it, first: i === 0 }); });
+    /* A blast page shows its creative; with no images (and no summary on the first) it would be one
+       number on an empty page, and that number is already on the Overview. */
+    s.loyalty.forEach(function (it, i) {
+      if (it.images.length || (i === 0 && d.notes.loyalty)) pages.push({ kind: 'loyalty', item: it, first: i === 0 });
+    });
     return pages;
   }
 
@@ -263,18 +267,26 @@
         }
         h += '</div>';
       } else if (pg.kind === 'channels') {
-        h += head(n, 'Dutchie', 'Email & SMS performance.', 'Dutchie channel dashboards' + (range ? ' / ' + range : ''));
+        /* Numbers pulled from a Dutchie blast are that blast's own; typed ones are dashboard totals. */
+        var pulled = d.items.some(function (it) { return it.kind === 'loyalty' && /^Dutchie: /.test(it.ref); });
+        h += head(n, 'Dutchie', 'Email & SMS performance.',
+          pulled ? 'Dutchie campaign results' + (d.send.title ? ' / ' + d.send.title : '')
+                 : 'Dutchie channel dashboards' + (range ? ' / ' + range : ''));
         var em = d.channels.email || {}, sm = d.channels.sms || {};
-        h += '<div class="pmr-bd"><table class="pmr-chan"><thead><tr><th>Dashboard metric</th><th>Email</th><th>SMS</th></tr></thead><tbody>'
-          + CHAN_FIELDS.map(function (k) {
+        var shown = CHAN_FIELDS.filter(function (k) { return em[k] || sm[k]; });
+        h += '<div class="pmr-bd"><table class="pmr-chan"><thead><tr><th>' + (pulled ? 'Campaign metric' : 'Dashboard metric') + '</th><th>Email</th><th>SMS</th></tr></thead><tbody>'
+          + shown.map(function (k) {
             return '<tr><td>' + esc(CHAN_LABELS[k]) + '</td><td>' + esc(em[k] || 'Not shown') + '</td><td>' + esc(sm[k] || 'Not shown') + '</td></tr>';
           }).join('') + '</tbody></table>';
         if (d.notes.standout) {
           h += '<div class="pmr-h3">What stood out</div>';
           paras(d.notes.standout).forEach(function (t) { h += '<p class="pmr-body">' + esc(t) + '</p>'; });
         }
-        h += '<p class="pmr-note">Scope / These are dashboard totals for the date window. Campaign-only engagement and revenue require a campaign export.</p>'
-          + '<p class="pmr-note">ROI / Dutchie displays dollar values. Verify its calculation before comparing ROI or using it as revenue.</p></div>';
+        h += pulled
+          ? '<p class="pmr-note">Scope / This blast\'s own numbers from Dutchie. Delivered is a share of what was sent; open and click rates are shares of what was delivered.</p>'
+          : '<p class="pmr-note">Scope / These are dashboard totals for the date window. Campaign-only engagement and revenue require a campaign export.</p>';
+        if (em.roi || sm.roi) h += '<p class="pmr-note">ROI / Dutchie displays dollar values. Verify its calculation before comparing ROI or using it as revenue.</p>';
+        h += '</div>';
       } else if (pg.kind === 'send') {
         var sd = d.send;
         h += head(n, 'Send review', 'Campaign send review.', sd.title || '');
