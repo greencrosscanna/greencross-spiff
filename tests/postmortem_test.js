@@ -47,7 +47,7 @@ function engine(role) {
     newBlob: (bytes, mime, name) => ({ bytes, mime, name, getContentType: () => mime, getBytes: () => bytes }),
   });
   const api = G.load({
-    real: ['pmTab_', 'pmSheet_', 'pmReportsSheet_', 'pmText_', 'pmNum_', 'pmIds_', 'normalizePostmortem_', 'applyPostmortemOps_',
+    real: ['pmTab_', 'pmSheet_', 'pmReportsSheet_', 'pmText_', 'pmNum_', 'pmIds_', 'pmDays_', 'normalizePostmortem_', 'applyPostmortemOps_',
            'pmFindRow_', 'pmRead_', 'pmReports_', 'pmFolderOf_', 'postmortemRead_', 'savePostmortem_', 'postmortemImages_',
            'postmortemUpload_', 'postmortemSave_', 'mktEditor_', 'mktVendorFolderId_', 'parseJson_'],
     vars: ['PM_TAB', 'PM_HEADERS', 'PM_REPORTS_TAB', 'PM_REPORT_HEADERS', 'PM_KINDS_', 'PM_STATS_', 'PM_NOTES_', 'PM_CHAN_FIELDS_',
@@ -329,6 +329,22 @@ console.log('\n7. the loyalty blast, pulled from the Dutchie capture');
   ok('pulled numbers are labeled as the blast\'s own, not dashboard totals', /Dutchie campaign results \/ Gron SPIFF blast/.test(html)
      && /This blast's own numbers from Dutchie/.test(html) && !/dashboard totals/.test(html) && /Campaign metric/.test(html));
   ok('  …and rows neither channel has (revenue, ROI) are left out, with no ROI note', !/Direct revenue|ROI as displayed|ROI \//.test(html));
+  ok('the pull carries orders day by day (send day first), and the send date', JSON.stringify(b.daily) === JSON.stringify([{ d: 0, o: 357 }, { d: 6, o: 0 }, { d: 8, o: 40 }])
+     && JSON.stringify(filled.send.days) === JSON.stringify(b.daily) && filled.send.date === '2026-10-26');
+  ok('  …the engine and the screen keep the same day list', JSON.stringify(engine().api.normalizePostmortem_({ send: { days: [{ d: 3, o: 2 }, { d: 3, o: 9 }, { d: 20, o: 1 }, { d: -1, o: 1 }, { d: 1, o: 'x' }, { d: 0, o: 5 }] } }))
+     === JSON.stringify(PM.normalize({ send: { days: [{ d: 3, o: 2 }, { d: 3, o: 9 }, { d: 20, o: 1 }, { d: -1, o: 1 }, { d: 1, o: 'x' }, { d: 0, o: 5 }] } })));
+  ok('the send review draws the orders chart in place of screenshots', /Orders by blast recipients, day by day/.test(html) && !/Dashboard screenshot/.test(html));
+  /* Grön's real orders by day (connector, include_days, 2026-11-16): week 1 averages 51, week 2 50.6. */
+  const real = PM.applyOps({}, [['send', { title: 'Gron', date: '2026-10-26', days: [7, 60, 60, 42, 79, 58, 51, 49, 45, 44, 54, 58, 59, 45].map((o, d) => ({ d, o })) }]]);
+  const rh = PM.reportHtml(PM.applyOps(real, [['item', 'x', { kind: 'ig', name: 'p' }]]), PROG, 'internal', {}, {});
+  ok('  …fourteen bars dated 10/26 to 11/8, only the tallest (79) labeled', (rh.match(/class="pmr-bar"/g) || []).length === 14
+     && />10\/26</.test(rh) && />11\/8</.test(rh) && (rh.match(/class="pmr-val"/g) || []).length === 1 && /pmr-val[^>]*>79</.test(rh));
+  ok('  …a 0 / 50 / 100 axis', /<span>100<\/span><span>50<\/span><span>0<\/span>/.test(rh));
+  ok('  …and says plainly that the two weeks were about the same', /Week 1 averaged 51 orders a day; week 2 averaged 50\.6\. About the same both weeks/.test(rh));
+  const half = PM.reportHtml(PM.applyOps({}, [['item', 'x', { kind: 'ig', name: 'p' }], ['send', { title: 'G', days: [5, 6, 7, 8, 9, 10, 11, 12].map((o, d) => ({ d, o })) }]]), PROG, 'internal', {}, {});
+  ok('  …and that week 2 is not over when it is not', /Week 2 is not over yet/.test(half));
+  const shots = PM.reportHtml(PM.applyOps({}, [['item', 'x', { kind: 'ig', name: 'p' }], ['send', { title: 'G', images: [IMG(11)] }]]), PROG, 'internal', {}, {});
+  ok('screenshots still print when nothing was pulled', /Dashboard screenshot/.test(shots) && !/pmr-chart/.test(shots));
   const typedChan = PM.reportHtml(PM.applyOps({}, GRON_OPS.concat(INTERNAL_OPS)), PROG, 'internal', {}, {});
   ok('typed dashboard numbers keep the dashboard labels and the ROI note', /Dutchie channel dashboards/.test(typedChan) && /ROI \/ Dutchie displays/.test(typedChan) && /<td>Direct revenue<\/td>/.test(typedChan));
   const bare = PM.applyOps(filled, [['item', 'loy-1', Object.assign({}, filled.items[0], { images: [] })]]);

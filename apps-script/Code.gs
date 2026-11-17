@@ -2415,7 +2415,18 @@ function normalizePostmortem_(d) {
   var rc = pmNum_(s0.record_count); if (rc !== null) send.record_count = rc;
   var au = pmNum_(s0.audience); if (au !== null) send.audience = au;
   var si = pmIds_(s0.images, 2); if (si.length) send.images = si;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(s0.date || ''))) send.date = String(s0.date);
+  var sd = pmDays_(s0.days); if (sd.length) send.days = sd;
   return { v: 1, items: items, notes: notes, channels: chans, send: send };
+}
+/* [{d: day after send 0-13, o: orders}], one per day, in day order. Twin: days() in postmortem.js. */
+function pmDays_(list) {
+  var seen = {};
+  return (Array.isArray(list) ? list : []).map(function (x) {
+    var d = Math.floor(Number(x && x.d)), o = pmNum_(x && x.o);
+    return d >= 0 && d < 14 && o !== null ? { d: d, o: o } : null;
+  }).filter(function (x) { if (!x || seen[x.d]) return false; seen[x.d] = true; return true; })
+    .sort(function (a, b) { return a.d - b.d; });
 }
 
 /* The save path's operations. Twin: applyOps in postmortem.js.
@@ -2680,7 +2691,12 @@ function pmBlastSummary_(c) {
     id: String(c.id || ''), name: String(c.name || ''), send_date: pmBlastDay_(c.send_utc), send_utc: String(c.send_utc || ''),
     listed_audience: listed || null, sent_total: sent || null, not_sent: listed && sent ? listed - sent : null,
     email: email, sms: sms,
-    attributed: { days: w, orders: orders, revenue: r2(tot('e', 'rev', w) + tot('s', 'rev', w) + tot('p', 'rev', w)), complete: seen >= w }
+    attributed: { days: w, orders: orders, revenue: r2(tot('e', 'rev', w) + tot('s', 'rev', w) + tot('p', 'rev', w)), complete: seen >= w },
+    /* Orders by recipients on each of the first 14 days after the send (day 0 = send day), for the
+       report's chart. A day the capture has not reached yet is left out, not shown as zero. */
+    daily: days.filter(function (d) { return n(d.d) < 14; }).map(function (d) {
+      return { d: n(d.d), o: n(d.e && d.e.ord) + n(d.s && d.s.ord) + n(d.p && d.p.ord) };
+    })
   };
 }
 

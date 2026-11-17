@@ -86,7 +86,18 @@
     var rc = num(s0.record_count); if (rc !== null) send.record_count = rc;
     var au = num(s0.audience); if (au !== null) send.audience = au;
     var si = ids(s0.images, 2); if (si.length) send.images = si;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(s0.date || ''))) send.date = String(s0.date);
+    var sd = days(s0.days); if (sd.length) send.days = sd;
     return { v: 1, items: items, notes: notes, channels: chans, send: send };
+  }
+  /* Twin of the engine's pmDays_. */
+  function days(list) {
+    var seen = {};
+    return (Array.isArray(list) ? list : []).map(function (x) {
+      var d = Math.floor(Number(x && x.d)), o = num(x && x.o);
+      return d >= 0 && d < 14 && o !== null ? { d: d, o: o } : null;
+    }).filter(function (x) { if (!x || seen[x.d]) return false; seen[x.d] = true; return true; })
+      .sort(function (a, b) { return a.d - b.d; });
   }
 
   /* Twin of the engine's applyPostmortemOps_. */
@@ -302,7 +313,11 @@
           h += '<div class="pmr-h3">Send reconciliation</div>';
           paras(d.notes.reconcile).forEach(function (t) { h += '<p class="pmr-body">' + esc(t) + '</p>'; });
         }
-        if ((sd.images || []).length) {
+        /* Pulled from Dutchie: the day-by-day chart takes the screenshots' place (it is the same
+           blast's own numbers, where a dashboard screenshot is the whole date window). */
+        if ((sd.days || []).length) {
+          h += chartHtml(sd);
+        } else if ((sd.images || []).length) {
           h += '<div class="pmr-shots">' + sd.images.map(function (id) {
             return '<figure><figcaption>Dashboard screenshot</figcaption>' + img(id, 'Dashboard screenshot') + '</figure>';
           }).join('') + '</div>';
@@ -356,6 +371,56 @@
     return '<div class="pmr">' + body + '</div>';
   }
 
+  /* ── THE ORDERS CHART (send review) ──────────────────────────────────────────────────────────
+     One series, so no legend: the title names it. Green bars on the report's black panel, square
+     except a small rounded top, one recessive axis with three ticks, only the tallest bar labeled.
+     Plain HTML, not SVG, because html2canvas draws boxes faithfully. */
+  function niceMax(m) {
+    if (!(m > 0)) return 1;
+    var p = Math.pow(10, Math.floor(Math.log10(m))), steps = [1, 2, 2.5, 5, 10];
+    for (var i = 0; i < steps.length; i++) if (steps[i] * p >= m) return steps[i] * p;
+    return 10 * p;
+  }
+  function weekLine(list) {
+    var at = {}; list.forEach(function (x) { at[x.d] = x.o; });
+    var avg = function (lo) {
+      var s = 0;
+      for (var d = lo; d < lo + 7; d++) { if (!(d in at)) return null; s += at[d]; }
+      return Math.round(s / 7 * 10) / 10;
+    };
+    var a = avg(0), b = avg(7);
+    if (a === null) return '';
+    if (b === null) return 'Week 1 averaged ' + fmtK(a) + ' orders a day. Week 2 is not over yet.';
+    var line = 'Week 1 averaged ' + fmtK(a) + ' orders a day; week 2 averaged ' + fmtK(b) + '.';
+    if (b > 0 && Math.abs(a - b) / b < 0.1) return line + ' About the same both weeks, so most of these orders are members\' regular buying.';
+    if (b > 0 && a > b) return line + ' Week 1 ran ' + Math.round((a - b) / b * 100) + '% above week 2.';
+    return line;
+  }
+  function chartHtml(send) {
+    var list = days(send.days);
+    if (!list.length) return '';
+    var top = niceMax(Math.max.apply(null, list.map(function (x) { return x.o; })));
+    var best = list.reduce(function (m, x) { return x.o > m.o ? x : m; }, list[0]);
+    var label = function (d) {
+      var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(send.date || ''));
+      if (!m) return 'Day ' + d;
+      var t = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + d));
+      return (t.getUTCMonth() + 1) + '/' + t.getUTCDate();
+    };
+    var bars = list.map(function (x) {
+      var pct = Math.max(0, Math.min(100, x.o / top * 100));
+      return '<div class="pmr-col"><div class="pmr-barbox">'
+        + (x === best ? '<span class="pmr-val" style="bottom:' + pct + '%">' + esc(fmtK(x.o)) + '</span>' : '')
+        + '<div class="pmr-bar" style="height:' + pct + '%"></div></div><span class="pmr-day">' + esc(label(x.d)) + '</span></div>';
+    }).join('');
+    var ticks = [top, top / 2, 0].map(function (v) { return '<span>' + esc(fmtK(v)) + '</span>'; }).join('');
+    var wl = weekLine(list);
+    return '<div class="pmr-chart"><div class="pmr-chart-h">Orders by blast recipients, day by day</div>'
+      + '<div class="pmr-chart-s">The first bar is the send day. Any purchase by a recipient counts, as Dutchie counts it, so this is not lift.</div>'
+      + '<div class="pmr-plot"><div class="pmr-ticks">' + ticks + '</div><div class="pmr-bars">' + bars + '</div></div>'
+      + (wl ? '<div class="pmr-chart-s pmr-weeks">' + esc(wl) + '</div>' : '') + '</div>';
+  }
+
   /* Every image id the report will draw, so the engine is asked for those and no others. */
   function imageIds(data, version) {
     var d = normalize(data), out = [];
@@ -393,7 +458,7 @@
                                         ctr: pct(e.clicks, e.delivered), unsubs: n(e.unsubscribes) }]);
     if (s) ops.push(['chan', 'sms', { sent: n(s.sent), delivered: pct(s.delivered, s.sent), ctr: pct(s.clicks, s.delivered),
                                       unsubs: n(s.unsubscribes) }]);
-    var send = Object.assign({}, d.send, { title: String(b.name || '').slice(0, 120) });
+    var send = Object.assign({}, d.send, { title: String(b.name || '').slice(0, 120), date: b.send_date || '', days: b.daily || [] });
     if (typeof b.sent_total === 'number') send.record_count = b.sent_total;
     if (typeof b.listed_audience === 'number') send.audience = b.listed_audience;
     ops.push(['send', send]);
@@ -493,7 +558,19 @@
     '.pmr-shots{display:grid;grid-template-columns:1fr 1fr;gap:1.6em;flex:1;min-height:0}',
     '.pmr-shots figure{margin:0;display:flex;flex-direction:column-reverse;justify-content:flex-end;min-height:0}',
     '.pmr-shots img{max-width:100%;max-height:22em;display:block;background:var(--w)}',
-    '.pmr-shots i{height:18em}'
+    '.pmr-shots i{height:18em}',
+    '.pmr-chart{background:var(--k);color:var(--w);padding:1.3em 1.6em 1.2em;flex:1;min-height:0;display:flex;flex-direction:column}',
+    '.pmr-chart-h{font-family:var(--disp);font-weight:900;text-transform:uppercase;font-size:1.25em;letter-spacing:.04em}',
+    '.pmr-chart-s{color:#c9cdd1;font-size:1.05em;font-weight:400;margin-top:.3em}',
+    '.pmr-weeks{color:var(--w);font-weight:500;font-size:1.15em;margin-top:.7em}',
+    '.pmr-plot{flex:1;min-height:12em;display:flex;gap:.8em;margin-top:1em}',
+    '.pmr-ticks{display:flex;flex-direction:column;justify-content:space-between;color:#8b9196;font-size:.95em;text-align:right;padding-bottom:1.6em;font-variant-numeric:tabular-nums}',
+    '.pmr-bars{flex:1;display:flex;gap:2px;align-items:stretch;border-bottom:.75px solid #4a5056}',
+    '.pmr-col{flex:1;display:flex;flex-direction:column;min-width:0}',
+    '.pmr-barbox{flex:1;position:relative;display:flex;align-items:flex-end;justify-content:center}',
+    '.pmr-bar{width:72%;background:var(--g);border-radius:4px 4px 0 0}',
+    '.pmr-val{position:absolute;left:0;right:0;text-align:center;font-family:var(--disp);font-weight:900;font-size:1.05em;margin-bottom:.3em;transform:translateY(-.2em)}',
+    '.pmr-day{text-align:center;color:#8b9196;font-size:.9em;padding-top:.5em;height:1.6em}'
   ].join('\n');
 
   /* ── THE PDF ─────────────────────────────────────────────────────────────────────────────── */
