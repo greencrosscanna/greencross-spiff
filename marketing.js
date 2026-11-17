@@ -103,7 +103,7 @@
       f: [['text', 'prize', 'Prize and how it is won']],
       c: 'Prizes are not cannabis.',
       k: [['prizes.confirm', 'INV', 'Confirm the extra prize with vendor', 's', -14],
-          ['prizes.award', 'DIR', 'Announce winner and present the prize', 'e', 2]] },
+          ['prizes.award', 'INV', 'Announce winner and present the prize', 'e', 2]] },
     /* Sky approves all customer copy, so the proof tasks are Mike's to send and tick once Sky has
        approved at the Friday L10; there is no separate Sky task. A blank "who makes the creative"
        keeps the creative task, which is how every plan saved before the field read. */
@@ -129,7 +129,7 @@
       k: [['social.media', 'DIR', 'Receive vendor media, handles and tags', 's', -10],
           ['social.draft', 'DIR', 'Draft posts and get vendor approval', 's', -5],
           ['social.publish', 'DIR', 'Publish posts', 's', 0, { byDate: 1 }],
-          ['social.links', 'DIR', 'Send post links to vendor', 'e', 2]] },
+          ['social.links', 'DIR', 'Tag vendor in posts', 'e', 2]] },
     ecom: { t: 'Online menu feature', s: 'Featured placement on the online menu', sec: 'mkt',
       f: [],
       c: 'Review the placement and any offer shown with it.',
