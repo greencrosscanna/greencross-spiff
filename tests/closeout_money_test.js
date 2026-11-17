@@ -95,8 +95,7 @@ ok('an unimplemented model resolves to flat rather than to zero',
    a frozen snapshot of 38 budtenders across six stores. The wrong answer this file exists to catch
    is $28.50. */
 const PROPS = G.makeProps({ GX_DEPLOY_SECRET: 'SEKRET' });
-const SENT = [];
-let GMAIL_FAIL = '', LOCK_OK = true;
+let LOCK_OK = true;
 const FETCHED = [];
 let MAILER = () => ({ ok: true, from: 'tawny@greencrosscanna.com' });
 const DOC = G.load({
@@ -135,9 +134,6 @@ const DOC = G.load({
   },
   globals: {
     PropertiesService: PROPS.PropertiesService,
-    /* The send, captured: every message the engine tried to put on the wire. */
-    GmailApp: { sendEmail: (to, subject, text, opts) => { if (GMAIL_FAIL) throw new Error(GMAIL_FAIL);
-                                                          SENT.push({ to, subject, text, opts }); } },
     LockService: { getScriptLock: () => ({ tryLock: () => LOCK_OK, releaseLock() {} }) },
     console: { warn() {}, log() {} },
     /* Utilities.newBlob is where the HTML becomes a PDF. Kept as a pass-through so the assertions
@@ -377,69 +373,83 @@ ok('  …and the draft says what to attach rather than attaching it itself',
    /Attach the PDF saved to the SPIFF close-out folder/.test(DOC.emailDraft_({ id: PH.program_id }).attach_hint));
 
 /* ══════════════════ 5. SENDING THE BRAND EMAIL FROM THE APP ══════════════════
-   Sky, 2026-09-30. These run the real route with Gmail captured, because the claims that matter
-   are about what goes on the wire and what is refused: who it is FROM, what is attached, that no
-   budtender is named, and that nothing is sent when it should not be. */
+   Sky, 2026-09-30; through Tawny's mailer only since 2026-11-17. These run the real route with the
+   mailer captured, because the claims that matter are about what goes on the wire and what is
+   refused: who it must come FROM, what is attached, that no budtender is named, and that nothing
+   is sent when it should not be. */
 {
   const ARG = { token: 't', id: PH.program_id, to: 'Rep@Brand.com', subject: 'SPIFF results' };
+  const P = PROPS.props;
+  const sends = () => FETCHED.filter((f) => f.body.action === 'send').map((f) => f.body);
+  const attHtml = (b) => Buffer.from(b.attachment.base64, 'base64').toString('utf8');
 
-  PROPS.props.BRAND_EMAIL_FROM = '';
+  P.BRAND_EMAIL_FROM = '';
   ok('with no property set the sender is Tawny\'s address, never the account itself',
      DOC.brandFromAddress_() === 'tawny@greencrosscanna.com');
-  PROPS.props.BRAND_EMAIL_FROM = 'other@greencrosscanna.com';
+  P.BRAND_EMAIL_FROM = 'other@greencrosscanna.com';
   ok('the script property overrides the default', DOC.brandFromAddress_() === 'other@greencrosscanna.com');
   let r;
 
-  PROPS.props.BRAND_EMAIL_FROM = 'tawny@greencrosscanna.com';
+  P.BRAND_EMAIL_FROM = 'tawny@greencrosscanna.com';
+  delete P.BRAND_MAILER_URL; delete P.BRAND_MAILER_SECRET;
+  FETCHED.length = 0;
+  r = DOC.sendBrandEmail_(ARG);
+  ok('with no mailer connected nothing is sent, and it says to copy the email instead',
+     r.ok === false && /mailer is not connected/.test(r.error) && FETCHED.length === 0);
+  ok('  …and the draft does not offer Send to brand',
+     DOC.emailDraft_({ id: PH.program_id }).send_ready === false);
+
+  P.BRAND_MAILER_URL = 'https://script.google.com/macros/s/AKfyc-abc_123/exec';
+  P.BRAND_MAILER_SECRET = 'S'.repeat(64);
+  MAILER = () => ({ ok: true, from: 'tawny@greencrosscanna.com' });
+
   AUTH = { ok: true, user: 'viewer1', role: 'viewer' };
   r = DOC.sendBrandEmail_(ARG);
-  ok('a read-only role cannot send', r.ok === false && SENT.length === 0);
+  ok('a read-only role cannot send', r.ok === false && sends().length === 0);
   AUTH = { ok: true, user: 'tawny', role: 'editor' };
 
   ok('a bad address is refused',
      DOC.sendBrandEmail_(Object.assign({}, ARG, { to: 'not-an-email' })).ok === false
      && DOC.sendBrandEmail_(Object.assign({}, ARG, { to: 'a@b.com, c@d.com' })).ok === false
-     && SENT.length === 0);
+     && sends().length === 0);
 
   r = DOC.sendBrandEmail_(ARG);
-  const m = SENT[0] || {};
+  const m = sends()[0] || {};
   ok('an editor can send, to the lowercased address', r.ok === true && m.to === 'rep@brand.com');
-  ok('it goes out AS the configured alias, replies to it, and copies it',
-     m.opts && m.opts.from === 'tawny@greencrosscanna.com'
-     && m.opts.replyTo === 'tawny@greencrosscanna.com' && m.opts.bcc === 'tawny@greencrosscanna.com');
+  ok('it asks the mailer to prove it runs as Tawny, and reports that it went through her mailer',
+     m.expect_from === 'tawny@greencrosscanna.com' && r.via === 'tawny-mailer');
   ok('the HTML body carries the credit and the BTs column',
-     /\$181\.50/.test(m.opts.htmlBody) && />BTs</.test(m.opts.htmlBody));
+     /\$181\.50/.test(m.html) && />BTs</.test(m.html));
   ok('  …and NO budtender is named in what the brand receives',
-     !/SKYLER|TAWNY R|JO B|NOBODY/i.test(m.opts.htmlBody)
-     && !/SKYLER|TAWNY R|JO B|NOBODY/i.test(m.opts.attachments[0].html));
+     !/SKYLER|TAWNY R|JO B|NOBODY/i.test(m.html) && !/SKYLER|TAWNY R|JO B|NOBODY/i.test(attHtml(m)));
   ok('the email ends with Tawny\'s signature: name, title, website and the LOCATIONS button',
-     /Tawny Vierra/.test(m.opts.htmlBody) && /<br>Inventory Manager</.test(m.opts.htmlBody)
-     && /GreenCrossCanna\.com/.test(m.opts.htmlBody) && /alt="Locations"/.test(m.opts.htmlBody)
-     && /greencrosscanna\.com\/#locations/.test(m.opts.htmlBody));
+     /Tawny Vierra/.test(m.html) && /<br>Inventory Manager</.test(m.html)
+     && /GreenCrossCanna\.com/.test(m.html) && /alt="Locations"/.test(m.html)
+     && /greencrosscanna\.com\/#locations/.test(m.html));
   ok('  …with her own logo at its real proportions (width only, never a forced height) and no phone number',
-     /alt="Green Cross" width="125" style/.test(m.opts.htmlBody) && !/tel:|646-8914/.test(m.opts.htmlBody));
+     /alt="Green Cross" width="125" style/.test(m.html) && !/tel:|646-8914/.test(m.html));
   ok('  …and the plain-text fallback is signed the same way',
      /Tawny Vierra\nInventory Manager/.test(m.text));
   ok('  …and the attached PDF carries no signature (it is the report alone)',
-     !/Locations/.test(m.opts.attachments[0].html));
+     !/Locations/.test(attHtml(m)));
   ok('one PDF attached, the brand copy, named for the brand',
-     m.opts.attachments.length === 1 && /^Green Cross SPIFF Results - Green Cross - \d{6}\.pdf$/.test(m.opts.attachments[0].name));
+     /^Green Cross SPIFF Results - Green Cross - \d{6}\.pdf$/.test(m.attachment.name));
 
-  const before = SENT.length;
+  const before = sends().length;
   r = DOC.sendBrandEmail_(ARG);
   ok('the same program to the same address is refused the second time',
-     r.ok === false && r.already === true && SENT.length === before);
+     r.ok === false && r.already === true && sends().length === before);
   ok('  …unless resend is asked for on purpose',
-     DOC.sendBrandEmail_(Object.assign({}, ARG, { resend: '1' })).ok === true && SENT.length === before + 1);
+     DOC.sendBrandEmail_(Object.assign({}, ARG, { resend: '1' })).ok === true && sends().length === before + 1);
   ok('  …and a different address is not blocked by it',
      DOC.sendBrandEmail_(Object.assign({}, ARG, { to: 'other@brand.com' })).ok === true);
 
-  GMAIL_FAIL = 'Invalid from address';
-  const beforeFail = SENT.length;
+  MAILER = () => ({ ok: false, error: 'The daily limit of 40 vendor emails is reached. Try tomorrow.' });
   r = DOC.sendBrandEmail_(Object.assign({}, ARG, { to: 'fresh@brand.com' }));
-  ok('a Gmail failure is reported, not swallowed, and is not recorded as sent',
-     r.ok === false && /Could not send/.test(r.error) && SENT.length === beforeFail);
-  GMAIL_FAIL = '';
+  ok('a mailer failure is reported, not swallowed, and is not recorded as sent',
+     r.ok === false && /Could not send: The daily limit/.test(r.error)
+     && !/fresh@brand\.com/.test(P[DOC.BRAND_SENT_PREFIX + PH.program_id] || ''));
+  MAILER = () => ({ ok: true, from: 'tawny@greencrosscanna.com' });
   ok('  …so a retry after the failure is allowed',
      DOC.sendBrandEmail_(Object.assign({}, ARG, { to: 'fresh@brand.com' })).ok === true);
 
@@ -452,10 +462,14 @@ ok('  …and the draft says what to attach rather than attaching it itself',
      (() => { const d = DOC.emailDraft_({ id: PH.program_id });
               return d.send_ready === true && /Credit requested/.test(d.html) && !/SKYLER/.test(d.html); })());
 
-  ok('nothing in the engine sends except the one route (no stray send call)',
-     (() => { const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8');
-              const hits = src.match(/GmailApp\.sendEmail/g) || [];
-              return hits.length === 1 && /GmailApp\.sendEmail/.test(G.grab('sendBrandEmail_')); })());
+  ok('the engine has no Gmail path at all: no GmailApp, no full-Gmail permission',
+     (() => { const fs = require('fs'), path = require('path');
+              const src = fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8')
+                .replace(/\/\*[\s\S]*?\*\//g, '');
+              const man = fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'appsscript.json'), 'utf8');
+              return !/GmailApp/.test(src) && !/mail\.google\.com/.test(man); })());
+  ok('  …and Send to brand sends only through the mailer, never MailApp from this account',
+     !/MailApp\./.test(G.grab('sendBrandEmail_')) && /callBrandMailer_/.test(G.grab('sendBrandEmail_')));
 }
 
 /* ══════════════════ 6. SENDING THROUGH TAWNY'S OWN MAILER ══════════════════
@@ -469,6 +483,7 @@ ok('  …and the draft says what to attach rather than attaching it itself',
   const ARG = { token: 't', id: PH.program_id, to: 'Rep@Brand.com', subject: 'SPIFF results', resend: '1' };
   P.BRAND_EMAIL_FROM = 'tawny@greencrosscanna.com';
   delete P.BRAND_MAILER_URL; delete P.BRAND_MAILER_SECRET;
+  FETCHED.length = 0;
   let r;
 
   ok('connecting needs the deploy secret',
@@ -500,11 +515,10 @@ ok('  …and the draft says what to attach rather than attaching it itself',
      && P.BRAND_MAILER_URL === URL_ && FETCHED[1].body.action === 'ping');
 
   FETCHED.length = 0;
-  const gmailBefore = SENT.length;
   r = DOC.sendBrandEmail_(ARG);
   const sent = (FETCHED[0] || {}).body || {};
   ok('once connected, Send to brand goes through the mailer and NOT through Sky\'s Gmail',
-     r.ok === true && r.via === 'tawny-mailer' && SENT.length === gmailBefore && FETCHED.length === 1);
+     r.ok === true && r.via === 'tawny-mailer' && FETCHED.length === 1);
   ok('  …to the lowercased address, asking the mailer to prove it is Tawny',
      sent.action === 'send' && sent.to === 'rep@brand.com' && sent.expect_from === 'tawny@greencrosscanna.com'
      && sent.secret === P.BRAND_MAILER_SECRET);
@@ -517,7 +531,7 @@ ok('  …and the draft says what to attach rather than attaching it itself',
   MAILER = () => ({ ok: false, error: 'This mailer runs as sky@greencrosscanna.com, not tawny@greencrosscanna.com. Nothing was sent.' });
   r = DOC.sendBrandEmail_(Object.assign({}, ARG, { to: 'new1@brand.com', resend: '' }));
   ok('a mailer refusal is reported, not recorded, and never falls back to Sky\'s alias',
-     r.ok === false && /runs as sky/.test(r.error) && SENT.length === gmailBefore
+     r.ok === false && /runs as sky/.test(r.error)
      && !/new1@brand\.com/.test(P[DOC.BRAND_SENT_PREFIX + PH.program_id] || ''));
 
   MAILER = () => new Error('Timeout: ' + URL_);
@@ -531,8 +545,9 @@ ok('  …and the draft says what to attach rather than attaching it itself',
      r.ok === false && /Who has access: Anyone/.test(r.error));
 
   r = DOC.setBrandMailerWeb_({ secret: 'SEKRET', clear: '1', apply: '1' });
-  ok('clear=1 disconnects it, putting sending back on the alias path',
-     r.cleared === true && !P.BRAND_MAILER_URL && !P.BRAND_MAILER_SECRET && DOC.brandMailer_() === null);
+  ok('clear=1 disconnects it, after which Send to brand refuses',
+     r.cleared === true && !P.BRAND_MAILER_URL && !P.BRAND_MAILER_SECRET && DOC.brandMailer_() === null
+     && /not connected/.test(DOC.sendBrandEmail_(Object.assign({}, ARG, { to: 'after@brand.com' })).error));
   MAILER = () => ({ ok: true, from: 'tawny@greencrosscanna.com' });
 }
 

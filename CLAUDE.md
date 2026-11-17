@@ -410,24 +410,20 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   `flat` and `blended`.
 - **Nothing goes to a vendor without a human.** The app sends only on a person's click —
   `sendBrandEmail_` (Code.gs) runs only from the "Send to brand" button after a confirmation naming
-  the recipient, never from a trigger. **It is moving to Tawny's own mailer** (Sky, 2026-11-16: the
-  delegate on her mailbox filled his inbox): `tawny-mailer/` is a send-only web app Tawny deploys
-  as herself; `?action=setBrandMailer` (secret, dry unless `apply=1`) pairs with it and stores
-  `BRAND_MAILER_URL` / `BRAND_MAILER_SECRET`. With those set, the mailer is the ONLY path: it
-  refuses unless it runs as the expected sender, and a failure never falls back to the alias. Until
-  then the legacy path below runs; retire it, and the `mail.google.com` scope, once the mailer is
-  live. Setup in `tawny-mailer/README.md`; pinned by `tests/closeout_money_test.js` sections 6–7.
-  Legacy: it goes out AS the Send-As alias `tawny@greencrosscanna.com`
-  (`BRAND_FROM_DEFAULT`; script property `BRAND_EMAIL_FROM` overrides it; replies and a blind copy go
-  there too). If Gmail does not know that alias the send FAILS loudly — it never falls back to sending
-  from the account the script runs as. It refuses a second send of the same program to the same
+  the recipient, never from a trigger. **It goes out through Tawny's own mailer, and only that**
+  (Sky, 2026-11-16/17: the delegate on her mailbox filled his inbox): `tawny-mailer/` is a
+  send-only web app Tawny deployed as herself; `?action=setBrandMailer` (secret, dry unless
+  `apply=1`) pairs with it and stores `BRAND_MAILER_URL` / `BRAND_MAILER_SECRET`. The mailer
+  refuses unless it runs as `BRAND_FROM_DEFAULT` (`tawny@greencrosscanna.com`; script property
+  `BRAND_EMAIL_FROM` overrides it). With no mailer connected the route refuses and the Reports step
+  hides the button. **The old path is gone** (2026-11-17): Sky's account sending as a Send-As
+  alias, `GmailApp` and the `https://mail.google.com/` scope. Do not bring them back; Sky is no
+  longer a delegate on her mailbox. It refuses a second send of the same program to the same
   address unless `resend=1`, because writes ride on GET and a URL can be re-fetched. **What the
   brand gets is the brand page — no budtender names** (one builder, `brandPaperHtml_`, feeds the
   preview, the email body and the attached PDF); the staff copy with names stays the Drive save.
-  Needs the `https://mail.google.com/` scope (GmailApp's `from` option needs it; `script.send_mail`
-  cannot set a sender) — a scope change means the owner must run `authorize()` in the editor right
-  after the deploy, or every route returns consent HTML. Pinned by `tests/closeout_money_test.js`
-  section 5. Hist: "Nothing goes to a vendor without a human".
+  Setup and re-pairing in `tawny-mailer/README.md`. Pinned by `tests/closeout_money_test.js`
+  sections 5–7. Hist: "Nothing goes to a vendor without a human".
 
 ### Cross-app contracts
 

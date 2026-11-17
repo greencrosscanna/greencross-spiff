@@ -3,7 +3,7 @@
 #   sh scripts/brand-mailer.sh                     what is connected now, and who it sends as
 #   sh scripts/brand-mailer.sh <exec-url>          dry run of connecting that mailer
 #   sh scripts/brand-mailer.sh <exec-url> apply    pair with it and save it
-#   sh scripts/brand-mailer.sh clear apply         disconnect (back to the old Send-As path)
+#   sh scripts/brand-mailer.sh clear apply         disconnect (Send to brand then refuses until reconnected)
 # Reads the deploy secret from .gx_deploy_secret; never prints it.
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 EXEC="https://script.google.com/macros/s/AKfycbw0JUgI01c7iaJRnuQgHdjUazDPtyEiEHZvlYkjflLSIVMY7qs-0Bkv4gPoxt8o2e6JZw/exec"

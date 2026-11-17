@@ -7258,7 +7258,7 @@ function emailDraft_(p) {
       catch (e) { return ''; }
     })(),
     send_from: brandFromAddress_(),
-    send_ready: !!brandFromAddress_(),
+    send_ready: !!(brandFromAddress_() && brandMailer_()),
     /* Surfaced, not buried in the body. Nothing sends from here — a human does — so the warning
        belongs where the UI can refuse to present the draft as ready. */
     warning: f.mismatch
@@ -7276,11 +7276,11 @@ function emailDraft_(p) {
  * to the same address unless `resend=1`, because writes ride on GET here and a pasted URL gets
  * re-fetched.
  *
- * WHO IT COMES FROM. The script runs as the deploying account (Sky), so the message goes out
- * "as" the Send-As alias in script property BRAND_EMAIL_FROM (Tawny's address), configured in that
- * account's Gmail. Replies and a blind copy go to the same address, so the thread lives in Tawny's
- * inbox. With the property unset or the alias missing, the route refuses — it never falls back to
- * sending from the account itself, which is the thing this was built to avoid.
+ * WHO IT COMES FROM. Tawny, really: since 2026-11-17 the email goes out through her own mailer
+ * (TAWNY'S MAILER, below), which refuses unless it runs as BRAND_EMAIL_FROM. The old path (Sky's
+ * account sending as a Send-As alias, with Sky a delegate on her mailbox) is gone, and so is the
+ * full-Gmail scope it needed. With no mailer connected the route refuses; it never sends from the
+ * account this script runs as.
  *
  * WHAT THE BRAND GETS is the brand page, not the staff record: no budtender names. That is the
  * document attached, and it is the same layout as the email body — one builder, brandPaperHtml_,
@@ -7523,8 +7523,8 @@ function progressSnapshot_(p) {
 }
 
 /* Tawny's address is the default (Sky, 2026-09-30); the BRAND_EMAIL_FROM script property overrides
-   it without a deploy. It is an address, not a secret, so it lives in the repo. It is still only
-   ever used as a Send-As alias — if Gmail does not know it, the send fails loudly. */
+   it without a deploy. It is an address, not a secret, so it lives in the repo. Tawny's mailer
+   must run as this address or it refuses to send. */
 var BRAND_FROM_DEFAULT = 'tawny@greencrosscanna.com';
 
 function brandFromAddress_() {
@@ -7541,11 +7541,13 @@ function brandFromAddress_() {
  * Two script properties, both written by ?action=setBrandMailer and never by hand:
  *   BRAND_MAILER_URL     the mailer's /exec
  *   BRAND_MAILER_SECRET  minted here, handed to the mailer once by its `pair` action
- * With both set, sending goes ONLY through the mailer. With neither, the legacy alias path runs.
+ * Sending goes ONLY through the mailer. With either property missing, "Send to brand" refuses and
+ * the Reports step offers Copy / Open in mail instead.
  *
  * ?action=setBrandMailer (deploy secret): url=<mailer /exec>. Dry unless apply=1: pairs with the
  * mailer, stores both properties only if pairing worked, then pings it and reports who it sends as.
- * clear=1&apply=1 removes both, which puts sending back on the alias path. */
+ * clear=1&apply=1 removes both, after which "Send to brand" refuses until a mailer is connected
+ * again (the old alias path was removed 2026-11-17). */
 var BRAND_MAILER_URL_PROP = 'BRAND_MAILER_URL';
 var BRAND_MAILER_SECRET_PROP = 'BRAND_MAILER_SECRET';
 
@@ -7622,6 +7624,8 @@ function sendBrandEmail_(p) {
 
   var from = brandFromAddress_();
   if (!from) return { ok: false, error: 'Sending is not set up yet: the sender address (BRAND_EMAIL_FROM) is not configured.' };
+  var mailer = brandMailer_();
+  if (!mailer) return { ok: false, error: 'Sending is not set up: Tawny\'s mailer is not connected. Use Copy email or Open in mail instead.' };
 
   var to = String(p.to || '').trim().toLowerCase();
   if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(to)) return { ok: false, error: 'Enter one valid email address to send to.' };
@@ -7648,38 +7652,20 @@ function sendBrandEmail_(p) {
     var pdf  = brandPdfBlob_(prog, measured);
     var html = brandPaperHtml_(prog, measured, { greeting: String(p.first_name || '').trim(), closing: 'Tawny' });
     var text = emailDraft_({ id: prog.program_id }).body;
-    var via;
-    var mailer = brandMailer_();
-    if (mailer) {
-      /* Tawny's own mailer (see TAWNY'S MAILER below). Once it is connected this is the ONLY path:
-         a mailer failure is reported, never retried through the old alias. */
-      var r = callBrandMailer_(mailer, {
-        action: 'send', expect_from: from, to: to, subject: subject, text: text, html: html,
-        name: 'Green Cross Cannabis Emporium',
-        attachment: { name: pdf.getName(), base64: Utilities.base64Encode(pdf.getBytes()) }
-      });
-      if (!r || r.ok !== true) {
-        return { ok: false, error: 'Could not send: ' + ((r && r.error) || 'no answer from Tawny\'s mailer')
-          + (r && r.unsure ? ' It may have gone out anyway: check Tawny\'s Sent folder before sending again.' : '') };
-      }
-      via = 'tawny-mailer';
-    } else {
-      /* LEGACY, until the mailer is connected: Sky's account sending as a Send-As alias. Retire it
-         (and the mail.google.com scope) once BRAND_MAILER_URL is set on the live engine. */
-      try {
-        GmailApp.sendEmail(to, subject, text, {
-          htmlBody: html, attachments: [pdf], from: from, replyTo: from, bcc: from,
-          name: 'Green Cross Cannabis Emporium'
-        });
-      } catch (e) {
-        return { ok: false, error: 'Could not send: ' + scrubSecrets_(e && e.message || e)
-          + ' (the sender address must be a Send-As alias on the account this app runs as)' };
-      }
-      via = 'alias';
+    /* Tawny's own mailer (see TAWNY'S MAILER below) is the ONLY path. A failure is reported, never
+       retried some other way. */
+    var r = callBrandMailer_(mailer, {
+      action: 'send', expect_from: from, to: to, subject: subject, text: text, html: html,
+      name: 'Green Cross Cannabis Emporium',
+      attachment: { name: pdf.getName(), base64: Utilities.base64Encode(pdf.getBytes()) }
+    });
+    if (!r || r.ok !== true) {
+      return { ok: false, error: 'Could not send: ' + ((r && r.error) || 'no answer from Tawny\'s mailer')
+        + (r && r.unsure ? ' It may have gone out anyway: check Tawny\'s Sent folder before sending again.' : '') };
     }
     sent[to] = nowStamp_();
     props.setProperty(key, JSON.stringify(sent));
-    return { ok: true, to: to, from: from, via: via, attachment: pdf.getName(), by: auth.user, sent_at: sent[to] };
+    return { ok: true, to: to, from: from, via: 'tawny-mailer', attachment: pdf.getName(), by: auth.user, sent_at: sent[to] };
   } finally {
     lock.releaseLock();
   }
@@ -9069,15 +9055,12 @@ function authorize() {
   catch (e) { report.reportFolder = 'ERR ' + e.message; }
   try { report.stores = gxStores_().length + ' stores'; }
   catch (e) { report.stores = 'ERR ' + e.message; }
-  /* TOUCHES GMAIL ON PURPOSE. Running this is what makes Google ask for the mail permission that
-     "Send to brand" needs — an authorize() that never calls a Gmail service finished without asking
-     (2026-09-30), so the send failed with "does not have permission". A read only: it lists the
-     Send-As addresses, which also shows whether BRAND_FROM_DEFAULT is usable before anyone sends. */
-  try { report.sendAs = GmailApp.getAliases(); report.brandFrom = brandFromAddress_();
-        report.brandFromUsable = report.sendAs.indexOf(report.brandFrom) >= 0; }
-  catch (e) { report.sendAs = 'ERR ' + e.message; }
-  /* TOUCHES CALENDAR ON PURPOSE, for the same reason as Gmail above: this is what makes Google ask
-     for the calendar permission the Marketing Calendar sync needs. A read only. */
+  /* "Send to brand" goes through Tawny's mailer (2026-11-17), so this engine needs no Gmail
+     permission; it only says whether a mailer is connected. */
+  report.brandMailer = brandMailer_() ? 'connected' : 'not connected';
+  /* TOUCHES CALENDAR ON PURPOSE: an authorize() that never calls a service finishes without asking
+     for its permission (learned with Gmail, 2026-09-30). This is what makes Google ask for the
+     calendar permission the Marketing Calendar sync needs. A read only. */
   try { report.calendar = CalendarApp.getCalendarById(MKT_CALENDAR_ID_).getName(); }
   catch (e) { report.calendar = 'ERR ' + e.message; }
   Logger.log('Authorized. ' + JSON.stringify(report));

@@ -36,7 +36,8 @@ With the URL from Tawny, connect it (deploy secret; dry run first, then `apply=1
 
 This pairs with the mailer (hands it a fresh secret, once), saves the URL, and checks that it sends
 as tawny@. `?action=setBrandMailer&secret=…` with no URL re-checks it later. `clear=1&apply=1`
-disconnects it and puts sending back on the old Send-As path.
+disconnects it; "Send to brand" then refuses until a mailer is connected again (the old Send-As
+path was removed 2026-11-17).
 
 Then send one real "Send to brand" to an internal address to confirm. After that, Sky can remove
 himself as Tawny's delegate and delete tawny@ from his Gmail "Send mail as" list.
