@@ -1095,6 +1095,12 @@
     } catch (e) { return null; }
   }
   function setSession(s) { try { sessionStorage.setItem('spiff_session', JSON.stringify(s)); } catch (e) {} }
+  // A GX Core sign-in result → the stored session. ONE shape, shared by the sign-in form and the portal
+  // hand-off, so the two can never store different things.
+  function sessionFromLogin(r) {
+    return { user: r.user, name: r.displayName || r.user, avatar: r.avatarConfig || null,
+             role: r.role, token: r.token, expiresAt: r.expiresAt };
+  }
   function clearSession() { try { sessionStorage.removeItem('spiff_session'); } catch (e) {} }
   function canEdit() {
     var s = session();
@@ -8037,8 +8043,7 @@
         // a password that can never work.
         if (r && r.code === 'no_access') { wrap.remove(); renderNoAccess(u); return; }
         if (!r || !r.ok) throw new Error((r && r.error) || 'Sign-in failed');
-        setSession({ user: r.user, name: r.displayName || r.user, avatar: r.avatarConfig || null,
-                     role: r.role, token: r.token, expiresAt: r.expiresAt });
+        setSession(sessionFromLogin(r));
         wrap.remove();
         document.body.classList.remove('is-gated');
         start();
@@ -8296,6 +8301,15 @@
       if (pgRun) paintProgress();
     });
   }
+
+  /* Opened from a staff-portal tile (#gxcode=, already wiped from the address bar by gx-handoff.js):
+     trade it once for this person's normal SPIFF session and reload signed in. Any refusal leaves the
+     sign-in gate as it is. Nested in Inventory there is never a code, so this does nothing there. */
+  if (window.GXHandoff && GXHandoff.code) GXHandoff.run({
+    app: 'spiff',
+    save: function (r) { setSession(sessionFromLogin(r)); },
+    current: function () { var s = session(); return s && s.token ? s.user : null; },
+  });
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
