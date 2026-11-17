@@ -326,6 +326,16 @@ console.log('\n7. the loyalty blast, pulled from the Dutchie capture');
   ok('a note or a name Mike typed is never overwritten', kept.notes.reconcile === 'Mike wrote this.' && kept.items[0].name === 'Mike named it');
   const html = PM.reportHtml(filled, PROG, 'internal', {}, {});
   ok('the internal report shows the pulled numbers and a 998 gap', /<b>998<\/b><span>Gap in displayed counts/.test(html) && /<td>Delivered<\/td><td>97\.4%<\/td><td>98\.2%<\/td>/.test(html));
+  ok('pulled numbers are labeled as the blast\'s own, not dashboard totals', /Dutchie campaign results \/ Gron SPIFF blast/.test(html)
+     && /This blast's own numbers from Dutchie/.test(html) && !/dashboard totals/.test(html) && /Campaign metric/.test(html));
+  ok('  …and rows neither channel has (revenue, ROI) are left out, with no ROI note', !/Direct revenue|ROI as displayed|ROI \//.test(html));
+  const typedChan = PM.reportHtml(PM.applyOps({}, GRON_OPS.concat(INTERNAL_OPS)), PROG, 'internal', {}, {});
+  ok('typed dashboard numbers keep the dashboard labels and the ROI note', /Dutchie channel dashboards/.test(typedChan) && /ROI \/ Dutchie displays/.test(typedChan) && /<td>Direct revenue<\/td>/.test(typedChan));
+  const bare = PM.applyOps(filled, [['item', 'loy-1', Object.assign({}, filled.items[0], { images: [] })]]);
+  const bareHtml = PM.reportHtml(bare, PROG, 'internal', {}, {});
+  ok('a blast with no images and no summary gets no empty page of its own', !/The loyalty blast\./.test(bareHtml)
+     && (bareHtml.split('<article').length - 1) === 3 && /<b>5\.75K<\/b><span>Loyalty customers reached/.test(bareHtml));
+  ok('  …but it does once it has a summary to show', /The loyalty blast\./.test(PM.reportHtml(PM.applyOps(bare, [['note', 'loyalty', 'It featured Pearls.']]), PROG, 'vendor', {}, {})));
   const form = PM.formHtml({ data: filled, reports: [] }, { canEdit: true });
   ok('the blast entry offers "Pull the numbers from Dutchie" and says where its numbers came from', /data-pm-blasts="loy-1"/.test(form) && /From Dutchie: Gron SPIFF blast/.test(form));
   ok('a stale capture is said out loud in the list', /more than two days old/.test(PM.blastListHtml({ ok: true, stale: true, captured_at: '2026-10-01T00:00:00', blasts: [], others: [], window: { from: 'a', to: 'b' } }, 'loy-1')));
