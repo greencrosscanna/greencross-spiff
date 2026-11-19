@@ -50,7 +50,7 @@ function runRef(totals, errors) {
       const d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n));
       return d.toISOString().slice(0, 10);
     },
-    gxSalesByEmployee_: () => ({ ok: true, totals, rows: [], errors }),
+    gxSalesForMatch_: () => ({ ok: true, totals, rows: [], errors }),
     /* THE REAL ONE, not a stub. refUnits_ delegates its window to refWindow_ as of 2026-09-09
        (the baseline is now the 28 days before the PROGRAM, not before today), and this harness
        runs refUnits_ for real — so it needs the real collaborator. Stubbing it here would leave

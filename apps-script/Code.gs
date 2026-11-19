@@ -1188,6 +1188,14 @@ function dropProgressRows_(programId) {
 function brandMatchCheck_(matchJson) {
   var match = matchJson;
   if (typeof match === 'string') { try { match = JSON.parse(match || 'null'); } catch (e) { match = null; } }
+  /* Every brand the program counts gets the same check, main first; the first problem is the
+     one reported (Tawny, 2026-11-19: one SPIFF over Meraki Gardens AND Vibes). */
+  var extras = (match && String(match.brand || '').trim() && Array.isArray(match.also_brands)
+                && match.also_brands.length) ? alsoBrandsOf_(match) : [];
+  for (var i = 0; i < extras.length; i++) {
+    var one = brandMatchCheck_({ brand: extras[i] });
+    if (one.checked && !one.ok) return one;
+  }
   var brand = String((match && match.brand) || '').trim();
   if (!brand) return { checked: false };            // no brand — other filters carry the match
 
@@ -1228,6 +1236,13 @@ function saveProgram_(p, opts) {
 
   /* An import is a replay of records that already exist; re-litigating their brands would block a
      restore over history nobody is editing. Only a human save is checked. */
+  /* Two brands that could both claim one sale are refused outright — confirm_brand does not
+     pass this, because saying yes to it means paying a sale twice. */
+  if (!opts.fromImport && /also_brands/.test(typeof p.match_json === 'string'
+                                               ? p.match_json : JSON.stringify(p.match_json || {}))) {
+    var ov = brandOverlapCheck_(p.match_json);
+    if (!ov.ok) return { ok: false, code: 'brand_overlap', error: ov.error };
+  }
   if (!opts.fromImport && !opts.confirmBrand) {
     var bm = brandMatchCheck_(p.match_json);
     if (bm.checked && !bm.ok && bm.code === 'brand_ambiguous') {
@@ -3437,14 +3452,17 @@ function snapshotFingerprint_(prog) {
      produce the same fingerprint. The cost of that collision is a program silently still counted
      as unmeasurable after its filter was fixed, which is the exact failure this memory exists to
      avoid. Caught by tests/snapshot_queue_test.js on the first run. */
-  return JSON.stringify([
+  var fp = [
     String(m.brand || ''), String(m.category || ''), String(m.filter_text || ''),
     (m.products || []).map(String),
     textDate_(prog.start_date), textDate_(prog.end_date),
     (prog.stores_json || []).map(function (x) {
       return slug_(x && x.store_id ? x.store_id : x);
     })
-  ]);
+  ];
+  /* Appended only when set, so every one-brand program keeps the fingerprint it already has. */
+  if (Array.isArray(m.also_brands) && m.also_brands.length) fp.push(m.also_brands.map(String));
+  return JSON.stringify(fp);
 }
 
 function snapshotRefusals_() {
@@ -4321,11 +4339,16 @@ function saveLiveReadTimes_(fresh) {
    only when what counts changes. */
 function liveMatchOf_(prog) {
   var m = prog.match_json || {};
-  return { brand: String(m.brand || '').trim().toLowerCase(),
-           category: String(m.category || '').trim().toLowerCase(),
-           filter_text: String(m.filter_text || '').trim().toLowerCase(),
-           products: (m.products || []).map(function (s) { return String(s).trim().toLowerCase(); })
-                                       .filter(Boolean) };
+  var out = { brand: String(m.brand || '').trim().toLowerCase(),
+              category: String(m.category || '').trim().toLowerCase(),
+              filter_text: String(m.filter_text || '').trim().toLowerCase(),
+              products: (m.products || []).map(function (s) { return String(s).trim().toLowerCase(); })
+                                          .filter(Boolean) };
+  /* Only when there are any, so a one-brand program's hash is the same as it always was. */
+  var also = (out.brand && Array.isArray(m.also_brands) && m.also_brands.length)
+    ? alsoBrandsOf_(m).map(function (b) { return b.toLowerCase(); }) : [];
+  if (also.length) out.also_brands = also;
+  return out;
 }
 
 function liveRulesHash_(prog) {
@@ -4335,8 +4358,22 @@ function liveRulesHash_(prog) {
   return hex;
 }
 
-/* Ask GX Core which product ids count at one store. Same parameters gxSalesByEmployee_ sends. */
+/* Ask GX Core which product ids count at one store: one ask per brand (see matchParts_), ids
+   unioned. Any brand refused refuses the store — it is then left out, never sent short. */
 function gxMatchIds_(secret, store, match) {
+  var parts = matchParts_(match || {});
+  if (parts.length === 1) return gxMatchIdsOne_(secret, store, parts[0]);
+  var seen = Object.create(null);
+  for (var i = 0; i < parts.length; i++) {
+    var r = gxMatchIdsOne_(secret, store, parts[i]);
+    if (!r.ok) return { ok: false, error: 'Brand "' + parts[i].brand + '": ' + r.error };
+    r.product_ids.forEach(function (id) { seen[id] = 1; });
+  }
+  return { ok: true, product_ids: Object.keys(seen).sort() };
+}
+
+/* One filter, one store. Same parameters gxSalesByEmployee_ sends. */
+function gxMatchIdsOne_(secret, store, match) {
   var url = GXCORE_URL + '?action=spiff_match_ids'
     + '&secret='  + encodeURIComponent(secret)
     + '&stores='  + encodeURIComponent(store)
@@ -5284,7 +5321,7 @@ function sellthrough_(p) {
   var store = slug_(p.store || '');
   if (!store) return { ok: false, error: 'store required' };
 
-  var r = gxSalesByEmployee_(secret, from, to, store, prog.match_json || {});
+  var r = gxSalesForMatch_(secret, from, to, store, prog.match_json || {});
   if (!r.ok) return { ok: false, error: r.error || 'sell-through fetch failed', store: store };
 
   var t     = prog.target_json || {};
@@ -5563,6 +5600,119 @@ function gxCoreFetchJson_(url, label) {
          + 'endpoint intermittently drops requests. Nothing is misconfigured; try again in a '
          + 'minute. Last failure: ' + scrubSecrets_(last),
   };
+}
+
+/* ── MORE THAN ONE BRAND IN ONE SPIFF (Tawny, 2026-11-19: Meraki Gardens + Vibes) ──────────────
+ * match_json.also_brands = ['Vibes', …] adds whole brands to the program: every product of each
+ * one counts, alongside whatever the main brand's filter picks. GX Core's filter takes ONE brand,
+ * so the engine asks once per brand and adds the answers up — no Core change, and each brand is
+ * measured by exactly the rule that pays it.
+ *
+ * ADDING IS ONLY HONEST IF NO PRODUCT IS IN TWO ANSWERS. A product matches a brand by substring,
+ * so "Mule" and "Mule Extracts" would both count a Mule Extracts sale. brandOverlapCheck_ refuses
+ * to SAVE a list like that (not confirmable: it is a double payout, not a widening), and
+ * matchParts_ drops an extra equal to the main brand or to an earlier extra.
+ *
+ * A REFUSED BRAND REFUSES THE WHOLE PULL. Half a program's units is not a smaller true number. */
+var MAX_ALSO_BRANDS = 4;
+
+function alsoBrandsOf_(m) {
+  m = m || {};
+  var main = String(m.brand || '').trim().toLowerCase();
+  var seen = Object.create(null), out = [];
+  if (main) seen[main] = 1;
+  (Array.isArray(m.also_brands) ? m.also_brands : []).forEach(function (b) {
+    var s = String(b == null ? '' : b).trim().slice(0, 80), k = s.toLowerCase();
+    if (!s || seen[k]) return;
+    seen[k] = 1; out.push(s);
+  });
+  return out.slice(0, MAX_ALSO_BRANDS);
+}
+
+/* The filters to ask GX Core for, one per brand. The main brand keeps its own filter; an extra
+ * brand is the whole brand. With no main brand the extras are ignored, never promoted. */
+function matchParts_(m) {
+  m = m || {};
+  var extras = String(m.brand || '').trim() ? alsoBrandsOf_(m) : [];
+  return [m].concat(extras.map(function (b) {
+    return { brand: b, category: '', filter_text: '', products: [] };
+  }));
+}
+
+/* Pure: string overlap alone, plus — when a catalog brand list is given — any brand we carry
+ * whose name contains two of them (one product, two answers). Returns {ok} or {ok:false,error}. */
+function brandOverlapProblem_(m, catalogNames) {
+  var main = String((m && m.brand) || '').trim();
+  var extras = alsoBrandsOf_(m);
+  if (!extras.length) return { ok: true };
+  if (!main) return { ok: false, error: 'Pick the main brand before adding other brands.' };
+  var all = [main].concat(extras), low = all.map(function (x) { return x.toLowerCase(); });
+  for (var i = 0; i < low.length; i++) {
+    for (var j = i + 1; j < low.length; j++) {
+      if (low[i].indexOf(low[j]) >= 0 || low[j].indexOf(low[i]) >= 0) {
+        return { ok: false, error: '"' + all[i] + '" and "' + all[j] + '" overlap, so a sale could '
+          + 'count twice. Use brand names that do not contain each other.' };
+      }
+    }
+  }
+  var names = catalogNames || [];
+  for (var n = 0; n < names.length; n++) {
+    var nm = String(names[n] || '').toLowerCase();
+    var hit = all.filter(function (x, k) { return nm.indexOf(low[k]) >= 0; });
+    if (hit.length > 1) {
+      return { ok: false, error: 'The brand "' + names[n] + '" matches both "' + hit.join('" and "')
+        + '", so its sales would count twice. Remove one of them.' };
+    }
+  }
+  return { ok: true };
+}
+
+/* Fails open on the catalog (Dutchie goes down) but never on the string check, which needs nothing. */
+function brandOverlapCheck_(matchJson) {
+  var m = matchJson;
+  if (typeof m === 'string') { try { m = JSON.parse(m || 'null'); } catch (e) { m = null; } }
+  if (!alsoBrandsOf_(m).length) return { ok: true };
+  var bare = brandOverlapProblem_(m, null);
+  if (!bare.ok) return bare;
+  var names = [];
+  try {
+    var cat = catalog_({});
+    if (cat && cat.ok) names = (cat.brands || []).map(function (b) { return typeof b === 'string' ? b : String(b && b.name || ''); });
+  } catch (e) {}
+  return brandOverlapProblem_(m, names);
+}
+
+/* Add per-brand answers into one, the shape sellthrough_ and refUnits_ already read. Pure. */
+function mergeSalesAnswers_(parts, answers) {
+  var rows = [], errors = [], totals = {};
+  for (var i = 0; i < answers.length; i++) {
+    var r = answers[i];
+    if (!r || r.ok !== true) {
+      return { ok: false, attempts: r && r.attempts,
+               error: 'Brand "' + parts[i].brand + '": ' + ((r && r.error) || 'GX Core refused') };
+    }
+    rows = rows.concat(r.rows || []);
+    errors = errors.concat(r.errors || []);
+    var t = r.totals || {};
+    Object.keys(t).forEach(function (k) {
+      if (typeof t[k] === 'number') totals[k] = (totals[k] || 0) + t[k];
+    });
+  }
+  return { ok: true, rows: rows, errors: errors, totals: totals,
+           brands: parts.map(function (p) { return p.brand; }) };
+}
+
+/* What every program measurement calls. gxSalesByEmployee_ below stays the one-filter fetch. */
+function gxSalesForMatch_(secret, from, to, store, match) {
+  var parts = matchParts_(match || {});
+  if (parts.length === 1) return gxSalesByEmployee_(secret, from, to, store, parts[0]);
+  var answers = [];
+  for (var i = 0; i < parts.length; i++) {
+    var r = gxSalesByEmployee_(secret, from, to, store, parts[i]);
+    answers.push(r);
+    if (!r || r.ok !== true) break;              // the merge refuses on the first failure anyway
+  }
+  return mergeSalesAnswers_(parts, answers);
 }
 
 function gxSalesByEmployee_(secret, from, to, store, match) {
@@ -6420,9 +6570,11 @@ function lastProgramsByStore_(rows, programs, today) {
 function productLabelOf_(pr) {
   var m = pr.match_json || {};
   var prods = (m.products || []).filter(Boolean);
-  if (prods.length) return prods.join(' + ');
-  if (m.filter_text) return (m.brand ? m.brand + ' ' : '') + m.filter_text;
-  if (m.brand) return 'All ' + m.brand + ' products';
+  var extra = (m.brand && Array.isArray(m.also_brands) && m.also_brands.length) ? alsoBrandsOf_(m) : [];
+  var tail = extra.length ? ' + all ' + extra.join(' + all ') : '';
+  if (prods.length) return prods.join(' + ') + tail;
+  if (m.filter_text) return (m.brand ? m.brand + ' ' : '') + m.filter_text + tail;
+  if (m.brand) return 'All ' + [m.brand].concat(extra).join(' + ') + ' products';
   return '';
 }
 
@@ -9467,6 +9619,10 @@ function refUnits_(p) {
     filter_text: String(p.filter_text || '').trim(),
     products:    String(p.products || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean)
   };
+  /* Other brands the program counts whole (comma-separated). A brand name with a comma would
+     split here; none of the brands we carry has one. */
+  var also = String(p.also_brands || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+  if (also.length) match.also_brands = also;
   if (!match.brand && !match.filter_text && !match.products.length && !match.category) {
     return { ok: false, error: 'pick a product first — an unfiltered reference is the whole store' };
   }
@@ -9496,7 +9652,7 @@ function refUnits_(p) {
   var win = refWindow_(p.before, days, today_());
   var anchored = win.anchored, from = win.from, to = win.to;
 
-  var r = gxSalesByEmployee_(secret, from, to, store, match);
+  var r = gxSalesForMatch_(secret, from, to, store, match);
   if (!r || !r.ok) return { ok: false, error: (r && r.error) || 'sell-through fetch failed', store: store };
 
   var units = Number((r.totals || {}).units) || 0;

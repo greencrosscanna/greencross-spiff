@@ -405,6 +405,15 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   normally sit. The Calculator flattened it, which is why the imported history looked uniformly flat.
   `tiered` remains schema'd and unimplemented. Read the payout model off the doc rather than
   assuming. Hist: "Payout model".
+- **One SPIFF can count more than one brand** (Tawny, 2026-11-19: Meraki Gardens owns Vibes).
+  `match_json.also_brands` = whole brands counted on top of the main brand's filter (max 4; the
+  key is absent on a one-brand program, so its fingerprint and live hash never moved). GX Core's
+  filter takes one brand, so `gxSalesForMatch_` asks once per brand and adds the answers, and
+  `gxMatchIds_` unions the kiosk id lists; **one brand refused refuses the whole pull**. Two
+  brands whose names contain each other (or that one catalog brand contains) would count a sale
+  twice, so `saveProgram_` refuses them as `brand_overlap`, **and `confirm_brand` does not pass
+  it**. The Calculator's "Also count these brands" box writes it. Wix Shop Now, the brand
+  registry and vendor folders still key on the main brand only. Pinned by `tests/multi_brand_test.js`.
 - **Cost, not payout, is where programs vary.** Multi-SKU programs blend it — the sheet's
   `Combined WS Cost` / `Average Cost` / `Combined Total for 20pc & 2pc`. `cost_json` supports
   `flat` and `blended`.
