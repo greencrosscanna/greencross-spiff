@@ -607,7 +607,8 @@
     /* Leaving these behind is how a "new" program inherits the last one's product and, worse,
        its editingId — which would make Save overwrite the program you thought you had left. */
     calc.product = null; calc.editingId = null; calc.window = null; calc.refRun = null;
-    calc.locked = false;                     // a new model is never somebody else's settled one
+    calc.alsoBrands = []; renderAlso();
+    calc.locked = false;                   // a new model is never somebody else's settled one
     /* Reference units reset to 0; headcount is the fixed norm (BTS_PER_STORE) for every store. */
     calc.stores = state.stores.map(function (st) {
       return { store_id: st.store_id, name: st.display_name || st.store_id,
@@ -3604,11 +3605,16 @@
              category: mj.category || '', price: 0 };
   }
 
-  function matchOf(chosen) {
-    return chosen
+  /* `also` = whole brands counted on top (match_json.also_brands). Left off entirely when empty,
+     so a one-brand program saves exactly the shape it always did. */
+  function matchOf(chosen, also) {
+    var m = chosen
       ? { brand: chosen.brand || '', category: '', filter_text: chosen.filter_text || '',
           products: chosen.products || [] }
       : { brand: '', category: '', filter_text: '', products: [] };
+    var extra = (also || []).filter(Boolean);
+    if (m.brand && extra.length) m.also_brands = extra.slice();
+    return m;
   }
 
   /* Live actuals. Fans out one sell-through request per store over the program's OWN window and
@@ -4304,6 +4310,7 @@
         token: (session() || {}).token, store: st.store_id,
         brand: p.brand, filter_text: p.filter_text,
         products: (p.products || []).join(','),
+        also_brands: (calc.alsoBrands || []).join(','),
         /* ANCHOR THE REFERENCE TO THE PROGRAM, not to today. The 28 days are counted back from
            the day before the window starts, so reconciling February measures February's run-up
            rather than the last four weeks. Empty on a program with no window yet — a fresh
@@ -4516,7 +4523,7 @@
       vendor: '#cVendor', vendorMenu: '#cVendorMenu',
       product: '#cProduct', productMenu: '#cProductMenu',
       chosen: '#cChosen', hint: '#cProductHint',
-      onVendor: function (name) { calc.vendor = name; },
+      onVendor: function (name) { calc.vendor = name; renderAlso(); },
       onProduct: function (chosen, cost) {
         calc.product = chosen;
         /* ON A CLOSED PROGRAM, THE FILTER MOVES AND NOTHING ELSE DOES. Picking a product
@@ -4532,20 +4539,118 @@
       }
     });
 
+    mountAlso();
+
     $('#calcSave').addEventListener('click', saveEverything);
     var pres = $('#calcPresent');
     if (pres) pres.addEventListener('click', enterPitch);
   }
 
+  /* ── ALSO COUNT THESE BRANDS (Tawny, 2026-11-19: Meraki Gardens + Vibes in one SPIFF) ───────
+     Whole brands added on top of the featured product, saved as match_json.also_brands. The
+     engine pulls each brand's sales separately and adds them, and refuses to save two brands
+     whose names contain each other — the same check runs here first so the box says why.
+     Four is the cap, mirrored from MAX_ALSO_BRANDS in Code.gs. */
+  var MAX_ALSO = 4;
+
+  function alsoProblem(name) {
+    var n = String(name || '').trim().toLowerCase();
+    if (!n) return 'Type a brand name.';
+    var all = [calc.vendor].concat(calc.alsoBrands || []).filter(Boolean);
+    for (var i = 0; i < all.length; i++) {
+      var a = String(all[i]).trim().toLowerCase();
+      if (a === n) return '“' + name + '” is already counted.';
+      if (a.indexOf(n) >= 0 || n.indexOf(a) >= 0) {
+        return '“' + name + '” and “' + all[i] + '” overlap, so a sale could count twice.';
+      }
+    }
+    if ((calc.alsoBrands || []).length >= MAX_ALSO) return 'Four extra brands is the limit.';
+    return '';
+  }
+
+  function renderAlso(note) {
+    var chips = $('#cAlsoChips'), inp = $('#cAlso'), hint = $('#cAlsoHint');
+    if (!chips || !inp) return;
+    var list = calc.alsoBrands || (calc.alsoBrands = []);
+    chips.innerHTML = list.map(function (b, i) {
+      return '<span class="sp-chip">All ' + esc(b) + ' products'
+        + '<button type="button" data-also-drop="' + i + '" aria-label="Remove ' + esc(b) + '">&#10005;</button></span>';
+    }).join('');
+    inp.disabled = !calc.vendor;
+    inp.placeholder = calc.vendor ? 'Add another brand…' : 'Pick the main brand first';
+    if (hint) {
+      hint.textContent = note || (list.length
+        ? 'Every product from ' + list.join(' and ') + ' counts toward the same goal as ' + (calc.vendor || 'the main brand') + '.'
+        : 'Optional. Every product from each brand added here counts toward the same goal.');
+      hint.classList.toggle('is-warn', !!note);
+    }
+  }
+
+  function alsoChanged() {
+    renderAlso();
+    renderProgramBar();
+    if (!calc.locked) pullReference();
+  }
+
+  function mountAlso() {
+    var inp = $('#cAlso'), menu = $('#cAlsoMenu'), chips = $('#cAlsoChips');
+    if (!inp || !menu) return;
+    function paint() {
+      var q = inp.value.trim().toLowerCase();
+      var list = pick.brands.filter(function (b) {
+        return (!q || b.name.toLowerCase().indexOf(q) >= 0) && !alsoProblem(b.name);
+      }).slice(0, 40);
+      menu.hidden = false;
+      inp.setAttribute('aria-expanded', 'true');
+      menu.innerHTML = list.length
+        ? list.map(function (b) {
+            return '<div class="sp-pick-row" data-also="' + esc(b.name) + '" role="option">'
+              + '<span class="sp-pick-spacer"></span><div class="sp-pick-body">'
+              + '<div class="sp-pick-1"><span class="sp-pick-name">' + esc(b.name) + '</span></div></div>'
+              + '<span class="sp-pick-cost">' + b.count + '</span></div>';
+          }).join('')
+        : '<div class="sp-pick-empty">' + (pick.loading ? 'Loading the product list from Dutchie&hellip;'
+                                                          : 'No other brand in stock matches that.') + '</div>';
+    }
+    inp.addEventListener('focus', async function () { paint(); await loadBrands(); paint(); });
+    inp.addEventListener('input', paint);
+    menu.addEventListener('mousedown', function (e) {
+      var row = e.target.closest('[data-also]');
+      if (!row) return;
+      e.preventDefault();
+      var name = row.dataset.also, why = alsoProblem(name);
+      if (why) { renderAlso(why); return; }
+      calc.alsoBrands = (calc.alsoBrands || []).concat([name]);
+      inp.value = '';
+      menu.hidden = true;
+      alsoChanged();
+    });
+    if (chips) chips.addEventListener('click', function (e) {
+      var d = e.target.closest('[data-also-drop]');
+      if (!d) return;
+      calc.alsoBrands = (calc.alsoBrands || []).slice();
+      calc.alsoBrands.splice(Number(d.dataset.alsoDrop), 1);
+      alsoChanged();
+    });
+    renderAlso();
+  }
+
   /* One document-level dismissal for every picker on the page, registered once rather than
      per mount — two mounts each adding their own listener would close the other's menu. */
+  function closeAlso() {
+    var m = $('#cAlsoMenu'), i = $('#cAlso');
+    if (m) m.hidden = true;
+    if (i) i.setAttribute('aria-expanded', 'false');
+  }
   document.addEventListener('mousedown', function (e) {
     if (e.target.closest('.sp-pick')) return;
     if (calcPicker) calcPicker.close();
+    closeAlso();
   });
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
     if (calcPicker) calcPicker.close();
+    closeAlso();
   });
 
   function driving(sel) {
@@ -5290,6 +5395,7 @@
 
     var mj = merged.match_json || {};
     calc.product = productFromMatch(mj);
+    calc.alsoBrands = Array.isArray(mj.also_brands) ? mj.also_brands.filter(Boolean).slice() : [];
 
     var base = merged.baseline_json || {};
     /* The registry is preferred, but the PROGRAM knows which stores it ran in. When GX Core's
@@ -5322,6 +5428,7 @@
       calcPicker.setVendorSilently(calc.vendor);
       calcPicker.setChosen(calc.product);
     }
+    renderAlso();
     calc.locked = String(merged.status || '').toLowerCase() === 'closed';
     closeSignIn();                     // in case the program was opened from behind the dialog
     showTab('calculator');
@@ -5444,6 +5551,7 @@
         bits.push(away === 1 ? 'starts tomorrow' : 'starts in ' + away + ' days');
       }
       if (calc.product && calc.product.label) bits.push(calc.product.label);
+      (calc.alsoBrands || []).forEach(function (b) { bits.push('all ' + b); });
     }
 
     var m = calcModel();
@@ -6233,7 +6341,7 @@
          imported history came to look uniformly flat. */
       payout_type: calc.model,
       payout_json: { amount: Number(calc.spiff) || 0, model: calc.model },
-      match_json:  matchOf(calc.product),
+      match_json:  matchOf(calc.product, calc.alsoBrands),
       stores_json: m.on.map(function (x) { return x.store_id; }),
       baseline_json: { units: m.baseUnits, revenue: m.baseRev, by_store: baseByStore, per_bt: basePerBt },
       /* budtenders is what Programs divides the payout by; without it the hero showed

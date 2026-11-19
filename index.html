@@ -327,6 +327,18 @@
                   <span class="sp-hint" id="cCostHint">What we pay for one, wholesale.</span>
                 </label>
               </div>
+              <!-- ── OTHER BRANDS IN THE SAME SPIFF (Tawny, 2026-11-19) ────────────────────
+                   Meraki Gardens owns Vibes, so one program counts both. Each brand added here
+                   counts ALL its products, on top of the featured product above. The engine
+                   refuses two brands whose names contain each other (a sale counted twice). -->
+              <div class="sp-fld is-wide sp-pick" id="cAlsoField"><span>Also count these brands</span>
+                <div id="cAlsoChips" class="sp-chosen-chips"></div>
+                <div class="sp-pick-input">
+                  <input id="cAlso" placeholder="Add another brand&hellip;" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="cAlsoMenu" disabled>
+                  <div class="sp-pick-menu" id="cAlsoMenu" role="listbox" hidden></div>
+                </div>
+                <span class="sp-hint" id="cAlsoHint">Optional. Every product from each brand added here counts toward the same goal.</span>
+              </div>
               <div class="sp-fld is-wide"><span>Payout</span>
                 <div class="sp-payout">
                   <!-- per_unit is REAL and implemented in the engine (Hapy Kitchen paid $1/unit).
@@ -697,9 +709,9 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="postmortem.js?v=2.030"></script>
-<script src="marketing.js?v=2.030"></script>
-<script src="site.js?v=2.030"></script>
-<script src="spiff.js?v=2.030"></script>
+<script src="postmortem.js?v=2.031"></script>
+<script src="marketing.js?v=2.031"></script>
+<script src="site.js?v=2.031"></script>
+<script src="spiff.js?v=2.031"></script>
 </body>
 </html>
