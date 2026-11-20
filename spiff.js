@@ -608,6 +608,7 @@
        its editingId — which would make Save overwrite the program you thought you had left. */
     calc.product = null; calc.editingId = null; calc.window = null; calc.refRun = null;
     calc.alsoBrands = []; renderAlso();
+    calc.categories = []; renderCats();
     calc.locked = false;                   // a new model is never somebody else's settled one
     /* Reference units reset to 0; headcount is the fixed norm (BTS_PER_STORE) for every store. */
     calc.stores = state.stores.map(function (st) {
@@ -3607,13 +3608,18 @@
 
   /* `also` = whole brands counted on top (match_json.also_brands). Left off entirely when empty,
      so a one-brand program saves exactly the shape it always did. */
-  function matchOf(chosen, also) {
+  /* `cats` = the categories that qualify (Tawny, 2026-11-19): the first is match_json.category,
+     the rest match_json.also_categories, which is left off unless there are two or more. */
+  function matchOf(chosen, also, cats) {
     var m = chosen
       ? { brand: chosen.brand || '', category: '', filter_text: chosen.filter_text || '',
           products: chosen.products || [] }
       : { brand: '', category: '', filter_text: '', products: [] };
     var extra = (also || []).filter(Boolean);
     if (m.brand && extra.length) m.also_brands = extra.slice();
+    var c = (cats || []).filter(Boolean);
+    m.category = c[0] || '';
+    if (c.length > 1) m.also_categories = c.slice(1);
     return m;
   }
 
@@ -4311,6 +4317,9 @@
         brand: p.brand, filter_text: p.filter_text,
         products: (p.products || []).join(','),
         also_brands: (calc.alsoBrands || []).join(','),
+        /* The picked categories narrow the reference exactly as they narrow the payout. */
+        category: (calc.categories || [])[0] || '',
+        also_categories: (calc.categories || []).slice(1).join(','),
         /* ANCHOR THE REFERENCE TO THE PROGRAM, not to today. The 28 days are counted back from
            the day before the window starts, so reconciling February measures February's run-up
            rather than the last four weeks. Empty on a program with no window yet — a fresh
@@ -4523,7 +4532,7 @@
       vendor: '#cVendor', vendorMenu: '#cVendorMenu',
       product: '#cProduct', productMenu: '#cProductMenu',
       chosen: '#cChosen', hint: '#cProductHint',
-      onVendor: function (name) { calc.vendor = name; renderAlso(); },
+      onVendor: function (name) { calc.vendor = name; renderAlso(); renderCats(); },
       onProduct: function (chosen, cost) {
         calc.product = chosen;
         /* ON A CLOSED PROGRAM, THE FILTER MOVES AND NOTHING ELSE DOES. Picking a product
@@ -4540,6 +4549,7 @@
     });
 
     mountAlso();
+    mountCats();
 
     $('#calcSave').addEventListener('click', saveEverything);
     var pres = $('#calcPresent');
@@ -4588,6 +4598,7 @@
 
   function alsoChanged() {
     renderAlso();
+    renderCats();                         // the brands × categories cap depends on both
     renderProgramBar();
     if (!calc.locked) pullReference();
   }
@@ -4635,12 +4646,164 @@
     renderAlso();
   }
 
+  /* ── WHICH CATEGORIES COUNT (Tawny, 2026-11-19: "choose what categories qualify") ────────────
+     Saved as match_json.category (the first pick) + match_json.also_categories (the rest). They
+     narrow the WHOLE program — the featured product and every extra brand. None picked = every
+     category, which is how every program worked before. Names come only from Dutchie's own list,
+     because GX Core matches them by substring and a typed near-miss ("Extracts" for "Extract
+     (Liquid)") counts nothing at all. The engine runs the same checks at save (categoryProblem_
+     in Code.gs); these say why before the click. Limits mirror MAX_CATEGORIES / MAX_MATCH_PARTS. */
+  var MAX_CATS = 4, MAX_PARTS = 8;
+
+  /* Pure: why `name` cannot be added to `picked`, or ''. `dutchie` = Dutchie's category names;
+     `brandCount` = how many brands the program counts (main + extras). */
+  function categoryPickProblem(name, picked, dutchie, brandCount) {
+    var n = String(name || '').trim().toLowerCase();
+    if (!n) return 'Pick a category.';
+    picked = picked || [];
+    for (var i = 0; i < picked.length; i++) {
+      var a = String(picked[i]).trim().toLowerCase();
+      if (a === n) return '“' + name + '” is already picked.';
+      if (a.indexOf(n) >= 0 || n.indexOf(a) >= 0) {
+        return '“' + name + '” and “' + picked[i] + '” overlap, so a sale could count twice.';
+      }
+    }
+    var both = (dutchie || []).filter(function (d) {
+      var dl = String(d).toLowerCase();
+      return dl.indexOf(n) >= 0 && picked.some(function (p) { return dl.indexOf(String(p).toLowerCase()) >= 0; });
+    });
+    if (both.length) return '“' + both[0] + '” would count under two picks. Pick only one of them.';
+    if (picked.length >= MAX_CATS) return 'Four categories is the limit.';
+    if ((picked.length + 1) * Math.max(1, brandCount || 1) > MAX_PARTS) {
+      return 'That is too many brand-and-category combinations to measure. Drop a brand or a category.';
+    }
+    return '';
+  }
+
+  /* Pure: other Dutchie categories a pick also counts, because GX Core matches by substring
+     ("Paraphernalia" also counts "Paraphernalia Pipe"). Shown, never hidden. */
+  function categoryAlsoCounts(name, dutchie) {
+    var n = String(name || '').toLowerCase();
+    return (dutchie || []).filter(function (d) {
+      var dl = String(d).toLowerCase();
+      return dl !== n && dl.indexOf(n) >= 0;
+    });
+  }
+
+  function dutchieCategoryNames() {
+    return (pick.categories || []).map(function (c) { return c.name; });
+  }
+
+  /* How many of the main brand's in-stock products sit in each category, when its products are
+     loaded — so the brand's own categories list first. Empty when they are not loaded yet. */
+  function vendorCategoryCounts() {
+    var out = {};
+    if (!calc.vendor || String(pick.brand || '').toLowerCase() !== String(calc.vendor).toLowerCase()) return out;
+    (pick.products || []).forEach(function (x) { if (x && x.c) out[x.c] = (out[x.c] || 0) + 1; });
+    return out;
+  }
+
+  function renderCats(note) {
+    var chips = $('#cCatChips'), inp = $('#cCat'), hint = $('#cCatHint');
+    if (!chips || !inp) return;
+    var list = calc.categories || (calc.categories = []);
+    var known = dutchieCategoryNames(), lowKnown = known.map(function (x) { return x.toLowerCase(); });
+    chips.innerHTML = list.map(function (c, i) {
+      var odd = known.length && lowKnown.indexOf(String(c).toLowerCase()) < 0;
+      return '<span class="sp-chip' + (odd ? ' is-warn' : '') + '"'
+        + (odd ? ' title="Not one of Dutchie’s categories, so it counts nothing"' : '') + '>' + esc(c)
+        + (odd ? ' (not in Dutchie)' : '')
+        + '<button type="button" data-cat-drop="' + i + '" aria-label="Remove ' + esc(c) + '">&#10005;</button></span>';
+    }).join('');
+    inp.placeholder = list.length ? 'Add another category…' : 'All categories count';
+    if (!hint) return;
+    var text = note;
+    if (!text) {
+      if (!list.length) {
+        text = 'Optional. Leave empty and every category counts. Pick categories to count only those.';
+      } else {
+        var extra = [];
+        list.forEach(function (c) { extra = extra.concat(categoryAlsoCounts(c, known)); });
+        text = 'Only ' + list.join(', ') + ' sales count'
+          + ((calc.alsoBrands || []).length ? ', for every brand above' : '') + '.'
+          + (extra.length ? ' This also counts ' + extra.join(', ') + '.' : '');
+      }
+    }
+    hint.textContent = text;
+    hint.classList.toggle('is-warn', !!note);
+  }
+
+  function catsChanged() {
+    renderCats();
+    renderProgramBar();
+    if (!calc.locked) pullReference();
+  }
+
+  function mountCats() {
+    var inp = $('#cCat'), menu = $('#cCatMenu'), chips = $('#cCatChips');
+    if (!inp || !menu) return;
+    function brandCount() { return 1 + (calc.alsoBrands || []).length; }
+    function paint() {
+      var q = inp.value.trim().toLowerCase();
+      var mine = vendorCategoryCounts(), known = dutchieCategoryNames();
+      var list = (pick.categories || []).filter(function (c) {
+        return (!q || c.name.toLowerCase().indexOf(q) >= 0)
+          && !categoryPickProblem(c.name, calc.categories, known, brandCount());
+      }).sort(function (a, b) {
+        return ((mine[b.name] || 0) - (mine[a.name] || 0)) || a.name.localeCompare(b.name);
+      });
+      menu.hidden = false;
+      inp.setAttribute('aria-expanded', 'true');
+      menu.innerHTML = list.length
+        ? list.map(function (c) {
+            var n = mine[c.name];
+            return '<div class="sp-pick-row" data-cat="' + esc(c.name) + '" role="option">'
+              + '<span class="sp-pick-spacer"></span><div class="sp-pick-body">'
+              + '<div class="sp-pick-1"><span class="sp-pick-name">' + esc(c.name) + '</span></div>'
+              + (n ? '<div class="sp-pick-2">' + n + ' ' + esc(calc.vendor) + ' product' + (n === 1 ? '' : 's') + '</div>' : '')
+              + '</div><span class="sp-pick-cost">' + c.count + '</span></div>';
+          }).join('')
+        : '<div class="sp-pick-empty">' + (pick.loading ? 'Loading the category list from Dutchie&hellip;'
+            : (pick.catErr ? 'The category list could not be read.'
+            : (!(pick.categories || []).length ? 'No category list came back from Dutchie.'
+            : 'No other category can be added.'))) + '</div>';
+    }
+    inp.addEventListener('focus', async function () {
+      /* Both sit inside .sp-pick, which the page-level dismissal skips, so close them here. */
+      if (calcPicker) calcPicker.close();
+      var am = $('#cAlsoMenu'); if (am) am.hidden = true;
+      paint();
+      await loadBrands();
+      if (calc.vendor) await loadBrandProducts(calc.vendor);
+      paint(); renderCats();
+    });
+    inp.addEventListener('input', paint);
+    menu.addEventListener('mousedown', function (e) {
+      var row = e.target.closest('[data-cat]');
+      if (!row) return;
+      e.preventDefault();
+      var name = row.dataset.cat, why = categoryPickProblem(name, calc.categories, dutchieCategoryNames(), brandCount());
+      if (why) { renderCats(why); return; }
+      calc.categories = (calc.categories || []).concat([name]);
+      inp.value = '';
+      menu.hidden = true;
+      catsChanged();
+    });
+    if (chips) chips.addEventListener('click', function (e) {
+      var d = e.target.closest('[data-cat-drop]');
+      if (!d) return;
+      calc.categories = (calc.categories || []).slice();
+      calc.categories.splice(Number(d.dataset.catDrop), 1);
+      catsChanged();
+    });
+    renderCats();
+  }
+
   /* One document-level dismissal for every picker on the page, registered once rather than
      per mount — two mounts each adding their own listener would close the other's menu. */
   function closeAlso() {
-    var m = $('#cAlsoMenu'), i = $('#cAlso');
-    if (m) m.hidden = true;
-    if (i) i.setAttribute('aria-expanded', 'false');
+    ['#cAlsoMenu', '#cCatMenu'].forEach(function (s) { var m = $(s); if (m) m.hidden = true; });
+    ['#cAlso', '#cCat'].forEach(function (s) { var i = $(s); if (i) i.setAttribute('aria-expanded', 'false'); });
   }
   document.addEventListener('mousedown', function (e) {
     if (e.target.closest('.sp-pick')) return;
@@ -4790,7 +4953,8 @@
   var pick = {
     loading: false,    // the catalog fetch is in flight — NOT the same as "nothing matched"
     brands: [],        // [{name, count}] from live in-stock Dutchie
-    products: [],      // this vendor's in-stock products
+    categories: [],    // [{name, count}] — Dutchie's own category names, same catalog read
+    products: [],     // this vendor's in-stock products
     brand: '',         // the loaded brand, so we don't refetch per keystroke
     loading: false
   };
@@ -5229,6 +5393,7 @@
          observed doing exactly that on 2026-09-08 while the route answered 137 brands in 2s. */
       if (!r) throw new Error('the product list came back empty');
       if (r && r.ok) pick.brands = r.brands || [];
+      if (r && r.ok) pick.categories = r.categories || [];
       /* `stale` means the engine kept the last catalog that read cleanly because the rebuild
          reached no store at all. The list is real but may be out of date, and a vendor picker
          that is quietly out of date is worse than one that says so. */
@@ -5396,6 +5561,11 @@
     var mj = merged.match_json || {};
     calc.product = productFromMatch(mj);
     calc.alsoBrands = Array.isArray(mj.also_brands) ? mj.also_brands.filter(Boolean).slice() : [];
+    /* What is stored is kept, even an older free-typed category Dutchie does not use: the
+       picker shows it flagged rather than dropping it, so opening a program never changes it. */
+    calc.categories = String(mj.category || '').trim()
+      ? [String(mj.category).trim()].concat(Array.isArray(mj.also_categories) ? mj.also_categories.filter(Boolean) : [])
+      : [];
 
     var base = merged.baseline_json || {};
     /* The registry is preferred, but the PROGRAM knows which stores it ran in. When GX Core's
@@ -5429,6 +5599,7 @@
       calcPicker.setChosen(calc.product);
     }
     renderAlso();
+    renderCats();
     calc.locked = String(merged.status || '').toLowerCase() === 'closed';
     closeSignIn();                     // in case the program was opened from behind the dialog
     showTab('calculator');
@@ -5552,6 +5723,7 @@
       }
       if (calc.product && calc.product.label) bits.push(calc.product.label);
       (calc.alsoBrands || []).forEach(function (b) { bits.push('all ' + b); });
+      if ((calc.categories || []).length) bits.push('only ' + calc.categories.join(', '));
     }
 
     var m = calcModel();
@@ -6341,7 +6513,7 @@
          imported history came to look uniformly flat. */
       payout_type: calc.model,
       payout_json: { amount: Number(calc.spiff) || 0, model: calc.model },
-      match_json:  matchOf(calc.product, calc.alsoBrands),
+      match_json:  matchOf(calc.product, calc.alsoBrands, calc.categories),
       stores_json: m.on.map(function (x) { return x.store_id; }),
       baseline_json: { units: m.baseUnits, revenue: m.baseRev, by_store: baseByStore, per_bt: basePerBt },
       /* budtenders is what Programs divides the payout by; without it the hero showed

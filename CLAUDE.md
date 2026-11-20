@@ -414,6 +414,16 @@ Every `Hist:` in this section is under history § "The rules that matter" unless
   twice, so `saveProgram_` refuses them as `brand_overlap`, **and `confirm_brand` does not pass
   it**. The Calculator's "Also count these brands" box writes it. Wix Shop Now, the brand
   registry and vendor folders still key on the main brand only. Pinned by `tests/multi_brand_test.js`.
+- **A SPIFF can count only some categories** (Tawny, 2026-11-19, bug board "Add Category Option").
+  `match_json.category` = first pick, `match_json.also_categories` = the rest (max 4; absent unless
+  two or more, so fingerprints and live hashes did not move). None picked = every category, as
+  before. The picks narrow the **whole** program, extra brands included: `matchParts_` asks GX Core
+  once per brand per category and the answers are added, so **brands × categories is capped at 8**
+  (`too_many_filters`). Names come only from Dutchie's own list (`catalog` answers `categories`;
+  the inventory's `category` is what Core's filter matches). Core matches by substring, so two
+  picks where one contains the other, or a Dutchie category under two picks, are refused at save
+  as `category_overlap`, outside the confirm gate. A stored older free-typed category is kept and
+  shown "(not in Dutchie)". Pinned by `tests/multi_category_test.js`.
 - **Cost, not payout, is where programs vary.** Multi-SKU programs blend it — the sheet's
   `Combined WS Cost` / `Average Cost` / `Combined Total for 20pc & 2pc`. `cost_json` supports
   `flat` and `blended`.

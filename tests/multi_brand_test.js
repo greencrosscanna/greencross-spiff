@@ -27,8 +27,8 @@ const MERAKI = { brand: 'Meraki Gardens', category: '', filter_text: '', product
 function salesApi(answerFor) {
   const calls = [];
   const api = G.load({
-    real: ['alsoBrandsOf_', 'matchParts_', 'mergeSalesAnswers_', 'gxSalesForMatch_'],
-    vars: ['MAX_ALSO_BRANDS'],
+    real: ['alsoBrandsOf_', 'categoriesOf_', 'matchParts_', 'partLabel_', 'mergeSalesAnswers_', 'gxSalesForMatch_'],
+    vars: ['MAX_ALSO_BRANDS', 'MAX_CATEGORIES'],
     stubs: { gxSalesByEmployee_: (s, f, t, st, m) => { calls.push(m); return answerFor(m); } },
   });
   return { api, calls };
@@ -92,7 +92,7 @@ function salesApi(answerFor) {
 /* ── 5. live count ids ─────────────────────────────────────────────────────────────────────────── */
 {
   const api = G.load({
-    real: ['alsoBrandsOf_', 'matchParts_', 'gxMatchIds_'], vars: ['MAX_ALSO_BRANDS'],
+    real: ['alsoBrandsOf_', 'categoriesOf_', 'matchParts_', 'partLabel_', 'gxMatchIds_'], vars: ['MAX_ALSO_BRANDS', 'MAX_CATEGORIES'],
     stubs: { gxMatchIdsOne_: (s, st, m) => m.brand === 'Vibes'
       ? { ok: true, product_ids: ['9', '2'] } : { ok: true, product_ids: ['1', '2'] } },
   });
@@ -100,7 +100,7 @@ function salesApi(answerFor) {
   ok('id lists are unioned across brands', r.ok && JSON.stringify(r.product_ids) === '["1","2","9"]',
      JSON.stringify(r));
   const bad = G.load({
-    real: ['alsoBrandsOf_', 'matchParts_', 'gxMatchIds_'], vars: ['MAX_ALSO_BRANDS'],
+    real: ['alsoBrandsOf_', 'categoriesOf_', 'matchParts_', 'partLabel_', 'gxMatchIds_'], vars: ['MAX_ALSO_BRANDS', 'MAX_CATEGORIES'],
     stubs: { gxMatchIdsOne_: (s, st, m) => m.brand === 'Vibes' ? { ok: false, error: 'no catalog' }
                                                                : { ok: true, product_ids: ['1'] } },
   }).gxMatchIds_('s', 'bend', MERAKI);

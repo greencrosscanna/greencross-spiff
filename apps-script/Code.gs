@@ -1243,6 +1243,13 @@ function saveProgram_(p, opts) {
     var ov = brandOverlapCheck_(p.match_json);
     if (!ov.ok) return { ok: false, code: 'brand_overlap', error: ov.error };
   }
+  /* Same rule for categories (Tawny, 2026-11-19), and also not confirmable. The brands × categories
+     cap rides here too, so it is checked whenever either list is present. */
+  if (!opts.fromImport && /also_(categories|brands)/.test(typeof p.match_json === 'string'
+                                               ? p.match_json : JSON.stringify(p.match_json || {}))) {
+    var cv = categoryCheck_(p.match_json);
+    if (!cv.ok) return { ok: false, code: cv.code, error: cv.error };
+  }
   if (!opts.fromImport && !opts.confirmBrand) {
     var bm = brandMatchCheck_(p.match_json);
     if (bm.checked && !bm.ok && bm.code === 'brand_ambiguous') {
@@ -3462,6 +3469,11 @@ function snapshotFingerprint_(prog) {
   ];
   /* Appended only when set, so every one-brand program keeps the fingerprint it already has. */
   if (Array.isArray(m.also_brands) && m.also_brands.length) fp.push(m.also_brands.map(String));
+  /* Same for extra categories; wrapped in an object so a category list can never read as a
+     brand list in the slot above. */
+  if (Array.isArray(m.also_categories) && m.also_categories.length) {
+    fp.push({ also_categories: m.also_categories.map(String) });
+  }
   return JSON.stringify(fp);
 }
 
@@ -4348,6 +4360,11 @@ function liveMatchOf_(prog) {
   var also = (out.brand && Array.isArray(m.also_brands) && m.also_brands.length)
     ? alsoBrandsOf_(m).map(function (b) { return b.toLowerCase(); }) : [];
   if (also.length) out.also_brands = also;
+  /* Extra categories, same rule: absent unless set. gxMatchIds_ reads this object through
+     matchParts_, so leaving them off here would publish ids for the first category only. */
+  var cats = (out.category && Array.isArray(m.also_categories) && m.also_categories.length)
+    ? categoriesOf_(m).slice(1).map(function (c) { return c.toLowerCase(); }) : [];
+  if (cats.length) out.also_categories = cats;
   return out;
 }
 
@@ -4366,7 +4383,7 @@ function gxMatchIds_(secret, store, match) {
   var seen = Object.create(null);
   for (var i = 0; i < parts.length; i++) {
     var r = gxMatchIdsOne_(secret, store, parts[i]);
-    if (!r.ok) return { ok: false, error: 'Brand "' + parts[i].brand + '": ' + r.error };
+    if (!r.ok) return { ok: false, error: partLabel_(parts[i], parts) + ': ' + r.error };
     r.product_ids.forEach(function (id) { seen[id] = 1; });
   }
   return { ok: true, product_ids: Object.keys(seen).sort() };
@@ -5629,14 +5646,122 @@ function alsoBrandsOf_(m) {
   return out.slice(0, MAX_ALSO_BRANDS);
 }
 
-/* The filters to ask GX Core for, one per brand. The main brand keeps its own filter; an extra
- * brand is the whole brand. With no main brand the extras are ignored, never promoted. */
+/* ── WHICH CATEGORIES COUNT (Tawny, 2026-11-19: "choose what categories qualify for the SPIFF") ──
+ * match_json.category is the first category picked; match_json.also_categories holds the rest.
+ * Same split as brand / also_brands, for the same reason: the key is absent on a program with one
+ * category or none, so every existing fingerprint and live hash stays what it was.
+ *
+ * The categories apply to the WHOLE program — the main brand's filter and every extra brand —
+ * because that is what "qualifies for the SPIFF" means. GX Core's filter takes ONE category, so a
+ * program with several asks once per brand per category and adds the answers, exactly as it
+ * already does for brands. Names are Dutchie's own (the picker offers only those), and GX Core
+ * matches them as a case-insensitive SUBSTRING — so two picks where one contains the other, or a
+ * Dutchie category containing two picks, would count one sale twice. Refused at save.
+ *
+ * With no first category, extras are ignored, never promoted (the brand rule). */
+var MAX_CATEGORIES  = 4;
+/* Brands × categories is how many GX Core reads one store's measurement costs. Eight keeps the
+   hourly sweep inside its time budget; a program needing more is refused at save, not slowed. */
+var MAX_MATCH_PARTS = 8;
+
+function categoriesOf_(m) {
+  m = m || {};
+  var first = String(m.category || '').trim();
+  if (!first) return [];
+  var seen = Object.create(null), out = [];
+  [first].concat(Array.isArray(m.also_categories) ? m.also_categories : []).forEach(function (c) {
+    var s = String(c == null ? '' : c).trim().slice(0, 80), k = s.toLowerCase();
+    if (!s || seen[k]) return;
+    seen[k] = 1; out.push(s);
+  });
+  return out.slice(0, MAX_CATEGORIES);
+}
+
+/* The filters to ask GX Core for: one per brand, times one per category when there are several.
+ * The main brand keeps its own filter; an extra brand is the whole brand. With no main brand the
+ * extras are ignored, never promoted. With one category (or none) the main part is `m` itself, so
+ * a one-brand, one-category program asks exactly what it always did. */
 function matchParts_(m) {
   m = m || {};
   var extras = String(m.brand || '').trim() ? alsoBrandsOf_(m) : [];
-  return [m].concat(extras.map(function (b) {
-    return { brand: b, category: '', filter_text: '', products: [] };
-  }));
+  var cats = categoriesOf_(m);
+  if (cats.length <= 1) {
+    return [m].concat(extras.map(function (b) {
+      return { brand: b, category: cats[0] || '', filter_text: '', products: [] };
+    }));
+  }
+  var out = [];
+  [null].concat(extras).forEach(function (b) {
+    cats.forEach(function (c) {
+      out.push(b == null
+        ? { brand: m.brand || '', category: c, filter_text: m.filter_text || '', products: m.products || [] }
+        : { brand: b, category: c, filter_text: '', products: [] });
+    });
+  });
+  return out;
+}
+
+/* How a part is named in an error: 'Brand "X"', plus its category when the program has several. */
+function partLabel_(part, parts) {
+  var multiCat = (parts || []).some(function (q) { return q.category !== (parts[0] || {}).category; });
+  return 'Brand "' + (part.brand || '') + '"'
+    + (multiCat && part.category ? ', category "' + part.category + '"' : '');
+}
+
+/* Pure. String overlap among the picks, plus — when Dutchie's category names are given — any
+ * category that contains two picks, or a pick that is not one of Dutchie's names (it would count
+ * nothing, silently). Also the brands × categories cap. Returns {ok} or {ok:false,code,error}. */
+function categoryProblem_(m, catalogCategories) {
+  m = m || {};
+  var extras = (Array.isArray(m.also_categories) ? m.also_categories : [])
+    .map(function (c) { return String(c == null ? '' : c).trim(); }).filter(Boolean);
+  if (extras.length && !String(m.category || '').trim()) {
+    return { ok: false, code: 'category_overlap', error: 'Pick the first category before adding more.' };
+  }
+  var cats = categoriesOf_(m);
+  if (cats.length < 2) return { ok: true };
+  if (extras.length + 1 > MAX_CATEGORIES) {
+    return { ok: false, code: 'category_overlap', error: 'Four categories is the limit.' };
+  }
+  var low = cats.map(function (x) { return x.toLowerCase(); });
+  for (var i = 0; i < low.length; i++) {
+    for (var j = i + 1; j < low.length; j++) {
+      if (low[i].indexOf(low[j]) >= 0 || low[j].indexOf(low[i]) >= 0) {
+        return { ok: false, code: 'category_overlap', error: 'The categories "' + cats[i] + '" and "'
+          + cats[j] + '" overlap, so a sale could count twice. Pick only one of them.' };
+      }
+    }
+  }
+  var names = catalogCategories || [];
+  for (var n = 0; n < names.length; n++) {
+    var nm = String(names[n] || '').toLowerCase();
+    var hit = cats.filter(function (x, k) { return nm.indexOf(low[k]) >= 0; });
+    if (hit.length > 1) {
+      return { ok: false, code: 'category_overlap', error: 'The category "' + names[n] + '" matches both "'
+        + hit.join('" and "') + '", so its sales would count twice. Remove one of them.' };
+    }
+  }
+  var parts = matchParts_(m).length;
+  if (parts > MAX_MATCH_PARTS) {
+    return { ok: false, code: 'too_many_filters', error: 'That is ' + parts + ' brand-and-category '
+      + 'combinations; the most one SPIFF can measure is ' + MAX_MATCH_PARTS + '. Drop a brand or a category.' };
+  }
+  return { ok: true };
+}
+
+/* Fails open on the catalog (Dutchie goes down) but never on the string check, which needs nothing. */
+function categoryCheck_(matchJson) {
+  var m = matchJson;
+  if (typeof m === 'string') { try { m = JSON.parse(m || 'null'); } catch (e) { m = null; } }
+  if (!m || (!Array.isArray(m.also_categories) || !m.also_categories.length)) return { ok: true };
+  var bare = categoryProblem_(m, null);
+  if (!bare.ok) return bare;
+  var names = [];
+  try {
+    var cat = catalog_({});
+    if (cat && cat.ok) names = (cat.categories || []).map(function (c) { return String(c && c.name || ''); });
+  } catch (e) {}
+  return categoryProblem_(m, names);
 }
 
 /* Pure: string overlap alone, plus — when a catalog brand list is given — any brand we carry
@@ -5689,7 +5814,7 @@ function mergeSalesAnswers_(parts, answers) {
     var r = answers[i];
     if (!r || r.ok !== true) {
       return { ok: false, attempts: r && r.attempts,
-               error: 'Brand "' + parts[i].brand + '": ' + ((r && r.error) || 'GX Core refused') };
+               error: partLabel_(parts[i], parts) + ': ' + ((r && r.error) || 'GX Core refused') };
     }
     rows = rows.concat(r.rows || []);
     errors = errors.concat(r.errors || []);
@@ -6572,9 +6697,13 @@ function productLabelOf_(pr) {
   var prods = (m.products || []).filter(Boolean);
   var extra = (m.brand && Array.isArray(m.also_brands) && m.also_brands.length) ? alsoBrandsOf_(m) : [];
   var tail = extra.length ? ' + all ' + extra.join(' + all ') : '';
-  if (prods.length) return prods.join(' + ') + tail;
-  if (m.filter_text) return (m.brand ? m.brand + ' ' : '') + m.filter_text + tail;
-  if (m.brand) return 'All ' + [m.brand].concat(extra).join(' + ') + ' products';
+  /* Picked categories narrow everything above, so they close the line: "All Grön products
+     (Edible (Solid), Tincture)". Without them a kiosk would say "all" over a narrower count. */
+  var cats = String(m.category || '').trim() ? categoriesOf_(m) : [];
+  var catTail = cats.length ? ' (' + cats.join(', ') + ')' : '';
+  if (prods.length) return prods.join(' + ') + tail + catTail;
+  if (m.filter_text) return (m.brand ? m.brand + ' ' : '') + m.filter_text + tail + catTail;
+  if (m.brand) return 'All ' + [m.brand].concat(extra).join(' + ') + ' products' + catTail;
   return '';
 }
 
@@ -9487,6 +9616,17 @@ function buildCatalog_() {
            stores_read: stores.length, rows_seen: seen, errors: errs, built_at: nowStamp_() };
 }
 
+/* Every category we have in stock, with how many products sit in it — what the Calculator's
+   category picker offers (Tawny, 2026-11-19). Computed from the cached catalog on each read
+   rather than stored in it, so a catalog cached before this existed still answers. The names are
+   Dutchie's own, which are exactly what GX Core's category filter matches (checked live: the
+   inventory's masterCategory and category agree for every in-stock row). Pure. */
+function catalogCategories_(products) {
+  var n = Object.create(null);
+  (products || []).forEach(function (x) { var c = String((x && x.c) || '').trim(); if (c) n[c] = (n[c] || 0) + 1; });
+  return Object.keys(n).sort().map(function (c) { return { name: c, count: n[c] }; });
+}
+
 function catalog_(p) {
   var cat = null;
   if (String(p && p.refresh) !== '1') cat = catalogGet_();
@@ -9538,7 +9678,8 @@ function catalog_(p) {
        of date, and the caller should say which. */
     stale: stale,
     stores_read: cat.stores_read, rows_seen: cat.rows_seen, errors: cat.errors,
-    brands: cat.brands
+    brands: cat.brands,
+    categories: catalogCategories_(cat.products)
   };
 
   if (String(p && p.all) === '1') { out.products = cat.products; return out; }
@@ -9623,6 +9764,9 @@ function refUnits_(p) {
      split here; none of the brands we carry has one. */
   var also = String(p.also_brands || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
   if (also.length) match.also_brands = also;
+  /* Extra categories, comma-separated the same way. No Dutchie category name has a comma. */
+  var alsoCats = String(p.also_categories || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+  if (alsoCats.length) match.also_categories = alsoCats;
   if (!match.brand && !match.filter_text && !match.products.length && !match.category) {
     return { ok: false, error: 'pick a product first — an unfiltered reference is the whole store' };
   }
