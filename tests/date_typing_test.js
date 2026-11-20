@@ -45,5 +45,23 @@ console.log('\n3. a text box is untouched');
   ok('a text field is never held', MK.halfTypedDate({ type: 'text', value: '0002' }) === false);
 }
 
+/* 4. A year saved half-typed BEFORE the box was held (Mike, 2026-11-20, Freshy: "Publish posts ...
+   45302 days late"). Date.UTC reads year 2 as 1902, so the stored row read as 124 years overdue.
+   It must read as no date at all: the task falls back to the plan's own date. */
+console.log('\n4. a half-typed year already stored is not a date');
+{
+  const plan = { sel: { social: true, email: true },
+                 d: { email: { date: '0002-11-09' } },
+                 rows: { social: [{ date: '0002-11-20' }, { date: '2026-11-12' }] } };
+  const prog = { program_id: 'freshy', start_date: '2026-11-09', end_date: '2026-11-22', stores_json: ['bend'],
+                 marketing_json: plan };
+  const tasks = MK.tasksOf(prog, { stores: ['bend'] });
+  const pub = tasks.filter((t) => t.id === 'social.publish');
+  ok('only the real post date makes a Publish posts task', pub.length === 1 && pub[0].due === '2026-11-12');
+  const send = tasks.find((t) => t.id === 'email.send');
+  ok('an email send date of year 0002 falls back to the start date', send && send.due === '2026-11-09');
+  ok('no task is due before this century', tasks.every((t) => !t.due || t.due >= '2000-01-01'));
+}
+
 console.log(fails ? '\n' + fails + ' FAILED' : '\nall passed');
 process.exit(fails ? 1 : 0);

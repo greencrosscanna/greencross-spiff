@@ -226,7 +226,10 @@
   };
 
   /* ── Dates are TEXT, counted in whole days. UTC arithmetic only so a clock change cannot move one. */
-  var ISO = /^\d{4}-\d{2}-\d{2}$/;
+  /* A real day is this century. A year typed half-way (0002-11-09, saved before v2.029 held the box)
+     is not a date: Date.UTC reads years 0-99 as 1900-1999, so it showed as "45302 days late"
+     (Mike, 2026-11-20, Freshy). Read as no date, it falls back to the plan's own date. */
+  var ISO = /^20\d{2}-\d{2}-\d{2}$/;
   function toUtc(s) { var a = String(s).split('-'); return Date.UTC(+a[0], +a[1] - 1, +a[2]); }
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function addDays(s, n) {

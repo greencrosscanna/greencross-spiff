@@ -755,7 +755,8 @@ function normalizeMarketing_(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
   /* Keys are store slugs, item ids and `task@store`. The leading letter also refuses __proto__. */
   var KEY = /^[a-z][a-z0-9_.@-]{0,80}$/;
-  var ISO = /^\d{4}-\d{2}-\d{2}$/;
+  /* This century only: a half-typed year (0002-11-09) is dropped, not stored (Freshy, 2026-11-20). */
+  var ISO = /^20\d{2}-\d{2}-\d{2}$/;
   var text = function (x, max) { return String(x == null ? '' : x).trim().slice(0, max); };
   var flags = function (src) {
     var o = {};
