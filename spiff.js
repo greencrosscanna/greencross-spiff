@@ -8282,6 +8282,7 @@
      Price Cards did -- so it should behave like the apps it will live beside, not like a public page
      with an optional login. Uses the shared .gx-login, so it is the same sign-in as everywhere else. */
   function renderGate(errMsg) {
+    hideJointLoader(false);
     document.body.classList.add('is-gated');
     var wrap = document.getElementById('authGate');
     if (!wrap) { wrap = document.createElement('div'); wrap.id = 'authGate'; document.body.appendChild(wrap); }
@@ -8343,6 +8344,7 @@
      gap. GX Core now returns code:"no_access" for exactly this case, so we can say the true
      thing instead: your sign-in worked, the grant is missing, here is who fixes it. */
   function renderNoAccess(who) {
+    hideJointLoader(false);
     document.body.classList.add('is-gated');
     var gate = document.getElementById('authGate');
     if (gate) gate.remove();
@@ -8369,6 +8371,24 @@
       wrap.remove();
       renderGate();
     });
+  }
+
+  /* The shared burning-joint loading screen (gx-jointloader.js, gx-theme). Standalone only: nested in
+     Inventory the host page is what the user is looking at, and a full-screen cover would hide it.
+     done=true burns to 100% (ready), false drops it at once (a gate or no-access panel is about to
+     explain). The 45s cancel is a backstop so a hung call can never leave the cover up forever. */
+  var _jl = null, _jlTimer = null;
+  function showJointLoader() {
+    if (_jl || !window.GXJointLoader || GXTopNavEmbedded()) return;
+    try { _jl = GXJointLoader.screen({ appName: 'SPIFF', logo: 'https://greencrosscanna.github.io/greencross-gx-theme/gx-logo.png' }); }
+    catch (e) { _jl = null; return; }
+    _jlTimer = setTimeout(function () { hideJointLoader(false); }, 45000);
+  }
+  function hideJointLoader(finish) {
+    var l = _jl; _jl = null;
+    if (_jlTimer) { clearTimeout(_jlTimer); _jlTimer = null; }
+    if (!l) return;
+    try { if (finish) l.done(); else l.cancel(); } catch (e) {}
   }
 
   function GXTopNavEmbedded() {
@@ -8509,6 +8529,7 @@
   function start() {
     if (_started) return;   // never re-enter: a second pass would rewire every handler
     _started = true;
+    showJointLoader();
     wireAuthChip();     // first: every write path depends on it
     renderAuthChip();
     wireTabs();
@@ -8546,6 +8567,7 @@
     var programsP = loadPrograms().then(function () {
       fillProgramPickers();
     });
+    programsP.then(function () { hideJointLoader(true); });   // programs are on screen: really ready
     /* Not awaited either: the brand list only decides the rep section and the "needs a rep" hints,
        so a slow Core must never hold up the program list. It repaints what it touches when it lands. */
     var brandsP   = loadBrandReps();
