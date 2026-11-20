@@ -32,7 +32,7 @@
 <!-- Shared GX suite theme (tokens + .gx-* primitives) -->
 <link rel="stylesheet" href="https://greencrosscanna.github.io/greencross-gx-theme/gx-theme.css"/>
 <link rel="stylesheet" href="spiff-tokens.css?v=2.011"/>
-<link rel="stylesheet" href="spiff.css?v=2.015"/>
+<link rel="stylesheet" href="spiff.css?v=2.032"/>
 <link rel="stylesheet" href="marketing.css?v=2.023"/>
 </head>
 <body>
@@ -338,6 +338,17 @@
                   <div class="sp-pick-menu" id="cAlsoMenu" role="listbox" hidden></div>
                 </div>
                 <span class="sp-hint" id="cAlsoHint">Optional. Every product from each brand added here counts toward the same goal.</span>
+              </div>
+              <!-- ── WHICH CATEGORIES COUNT (Tawny, 2026-11-19) ──────────────────────────────
+                   Empty = every category counts, as before. Picks narrow the whole program,
+                   extra brands included. Only Dutchie's own category names are offered. -->
+              <div class="sp-fld is-wide sp-pick" id="cCatField"><span>Categories that count</span>
+                <div id="cCatChips" class="sp-chosen-chips"></div>
+                <div class="sp-pick-input">
+                  <input id="cCat" placeholder="All categories count" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="cCatMenu">
+                  <div class="sp-pick-menu" id="cCatMenu" role="listbox" hidden></div>
+                </div>
+                <span class="sp-hint" id="cCatHint">Optional. Leave empty and every category counts. Pick categories to count only those.</span>
               </div>
               <div class="sp-fld is-wide"><span>Payout</span>
                 <div class="sp-payout">
@@ -709,9 +720,9 @@
 <script>
   GXMaintenance.init({ app: 'spiff', appName: 'SPIFF', gxcore: 'https://script.google.com/macros/s/AKfycbx9mjeCBbDpxNYaqBv2hyZaO1hpbGG6PZM9AebFdwl0UwkdtRCGSWrH-8ohEtdF1K_6/exec' });
 </script>
-<script src="postmortem.js?v=2.031"></script>
-<script src="marketing.js?v=2.031"></script>
-<script src="site.js?v=2.031"></script>
-<script src="spiff.js?v=2.031"></script>
+<script src="postmortem.js?v=2.032"></script>
+<script src="marketing.js?v=2.032"></script>
+<script src="site.js?v=2.032"></script>
+<script src="spiff.js?v=2.032"></script>
 </body>
 </html>

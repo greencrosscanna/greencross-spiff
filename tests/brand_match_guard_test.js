@@ -169,7 +169,7 @@ const EDIT = (brand) => ({ program_id: 'p1', program_name: 'Mule August', status
 console.log('\n6. the PICKER now uses the payout rule too, so the two cannot disagree');
 {
   const run = (brand, products) => new Function('catalogGet_', 'catalogPut_', 'buildCatalog_',
-    grab('catalog_') + '\nreturn catalog_;')(() => ({ products, brands: [], built_at: 'x' }), () => {}, () => null)({ brand });
+    grab('catalogCategories_') + '\n' + grab('catalog_') + '\nreturn catalog_;')(() => ({ products, brands: [], built_at: 'x' }), () => {}, () => null)({ brand });
   const prods = [{ b: 'National Cannabis Co.', n: 'Tincture' }, { b: 'Mule Extracts', n: 'Dank Tank' }, { b: 'Wyld', n: 'Gummy' }];
   ok('"National Cannabis Co" now finds the products branded "National Cannabis Co." (was zero)',
      run('National Cannabis Co', prods).products.length === 1);
