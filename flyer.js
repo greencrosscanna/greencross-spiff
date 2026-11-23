@@ -38,14 +38,25 @@
     return MON[Number(m[2]) - 1] + ' ' + Number(m[3]);
   }
 
-  /* Same sessionStorage key and reasoning as the operator app: a credentialed session on a
-     machine that may not be this person's own, so it dies with the tab. */
+  /* Same localStorage key and reasoning as the operator app: the sign-in lasts the 30 days GX Core
+     issues and survives closing the tab (Sky, 2026-11-23). A session still in sessionStorage from
+     before is copied across once. */
   function session() {
-    try { return JSON.parse(sessionStorage.getItem('spiff_session') || 'null'); }
+    try {
+      var raw = localStorage.getItem('spiff_session');
+      if (!raw) {
+        var old = sessionStorage.getItem('spiff_session');
+        if (old) { localStorage.setItem('spiff_session', old); raw = old; }
+      }
+      return JSON.parse(raw || 'null');
+    }
     catch (e) { return null; }
   }
-  function setSession(s) { try { sessionStorage.setItem('spiff_session', JSON.stringify(s)); } catch (e) {} }
-  function clearSession() { try { sessionStorage.removeItem('spiff_session'); } catch (e) {} }
+  function setSession(s) { try { localStorage.setItem('spiff_session', JSON.stringify(s)); } catch (e) {} }
+  function clearSession() {
+    try { localStorage.removeItem('spiff_session'); } catch (e) {}
+    try { sessionStorage.removeItem('spiff_session'); } catch (e) {}
+  }
 
   /* ------------------------------------------------------------------ gate */
   function renderGate(errMsg) {

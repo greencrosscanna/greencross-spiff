@@ -1087,23 +1087,32 @@
 
   /* ------------------------------------------------------------- the record */
 
-  // Session lives in sessionStorage, not localStorage: this is a credentialed admin
-  // session and the machine may not be Tawny's own.
+  // Session lives in localStorage so it survives closing the tab, for the 30 days GX Core issues
+  // (Sky, 2026-11-23: "my computers are private, 30 days is okay"). Before that it was
+  // sessionStorage; anyone still signed in there is copied across once so the change logs nobody out.
   function session() {
     try {
-      var s = JSON.parse(sessionStorage.getItem('spiff_session') || 'null');
+      var raw = localStorage.getItem('spiff_session');
+      if (!raw) {
+        var old = sessionStorage.getItem('spiff_session');
+        if (old) { localStorage.setItem('spiff_session', old); raw = old; }
+      }
+      var s = JSON.parse(raw || 'null');
       if (s && s.expiresAt && new Date(s.expiresAt) < new Date()) { clearSession(); return null; }
       return s;
     } catch (e) { return null; }
   }
-  function setSession(s) { try { sessionStorage.setItem('spiff_session', JSON.stringify(s)); } catch (e) {} }
+  function setSession(s) { try { localStorage.setItem('spiff_session', JSON.stringify(s)); } catch (e) {} }
   // A GX Core sign-in result → the stored session. ONE shape, shared by the sign-in form and the portal
   // hand-off, so the two can never store different things.
   function sessionFromLogin(r) {
     return { user: r.user, name: r.displayName || r.user, avatar: r.avatarConfig || null,
              role: r.role, token: r.token, expiresAt: r.expiresAt };
   }
-  function clearSession() { try { sessionStorage.removeItem('spiff_session'); } catch (e) {} }
+  function clearSession() {
+    try { localStorage.removeItem('spiff_session'); } catch (e) {}
+    try { sessionStorage.removeItem('spiff_session'); } catch (e) {}
+  }
   function canEdit() {
     var s = session();
     return !!(s && ['admin', 'editor', 'director'].indexOf(s.role) >= 0);
