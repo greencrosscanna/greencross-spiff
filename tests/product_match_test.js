@@ -131,7 +131,7 @@ const paint = grab('paintProgress');
 ok('Progress knows a per-unit program when it sees one',
    /normalModel\(\(prog\.payout_json \|\| \{\}\)\.model \|\| prog\.payout_type\) === 'per_unit'/.test(paint));
 ok('earned so far is UNITS × rate for per-unit, not hit × rate',
-   /var earned  = perUnit \? units \* rate : hit \* rate/.test(paint));
+   /var earned  = gated \? unitsAtGoal \* rate : perUnit \? units \* rate : hit \* rate/.test(paint));
 /* paintProgress still does the ARITHMETIC; the captions moved to the program bar's rail with the
    figures they describe (liveRail), so the two cannot drift apart into a number and a caption that
    disagree. Both halves are still checked — the sums here, the words there. */
@@ -166,7 +166,7 @@ ok('flat programs still report hit against target',
    /r\.hit \+ ' of ' \+ all\.length \+ ' hit<\/span>'/.test(card) &&
    /budtenders at their target/.test(live));
 ok('  …and still price the ceiling as everyone landing it',
-   /committed: perUnit \? 0 : btsAll \* rate/.test(paint)
+   /committed: perUnit \|\| gated \? 0 : btsAll \* rate/.test(paint)
    && /if everyone lands it/.test(live));
 
 /* ══════════════ "IT SCALES WITH SUCCESS" SCALED BACKWARDS ══════════════
@@ -237,10 +237,10 @@ ok('  …and nothing is read out of the record form any more',
    !/REC\.body \+ ' \[data-key="cost_json/.test(pull) &&
    !/REC\.body \+ ' \[data-key="baseline_json/.test(pull));
 
-ok('per-unit investment is rate × UNITS, not rate × hit',
-   /var invest  = perUnit \? rate \* units : rate \* hit/.test(pull));
-ok('  …and the people credited are everyone who SOLD, not everyone who hit a target',
-   /var earners = perUnit \? sellers : hit/.test(pull));
+ok('per-unit investment is rate × UNITS, not rate × hit (after-goal: units of those at goal)',
+   /var invest  = gated \? rate \* unitsAtGoal : perUnit \? rate \* units : rate \* hit/.test(pull));
+ok('  …and the people credited are everyone who SOLD, not everyone who hit a target (unless after-goal)',
+   /var earners = perUnit && !gated \? sellers : hit/.test(pull));
 ok('  …counted from the rows themselves',
    /sellers \+= \(r\.rows \|\| \[\]\)\.filter/.test(pull));
 ok('flat programs still pay per budtender who hit', /: rate \* hit/.test(pull));

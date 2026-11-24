@@ -89,8 +89,9 @@ ok('  …and a snapshot with no store at all refuses outright',
    from a store that genuinely sold nothing. */
 ok('earnings come from the shared payout helper, not a second formula',
    /progEarned_\(prog, e\.units, e\.hit\)/.test(snap));
-ok('per-unit counts everyone who SOLD as an earner, flat counts who hit',
-   /perUnit \? x\.units > 0 : x\.hit/.test(snap));
+/* Who counts as earning has one home, progEarns_ — run for real in tests/per_unit_after_goal_test.js. */
+ok('earners are counted by the shared helper (per unit: sold; flat or after-goal: hit)',
+   /progEarns_\(prog, x\.units, x\.hit\)/.test(snap));
 ok('the rate and model are recorded with the numbers, so a later rate change cannot rewrite history',
    /rate: rate/.test(snap) && /model: perUnit \? 'per_unit' : 'flat'/.test(snap));
 
@@ -196,7 +197,7 @@ function measurer(answers, opts) {
     written,
     api: G.load({
       real: ['snapshotStore_', 'snapshotProgram_', 'progEarned_', 'payoutRateOf_', 'payoutModelOf_',
-             'textDate_', 'slug_'],
+             'payoutAfterGoal_', 'progEarns_', 'textDate_', 'slug_'],
       stubs: {
         sellthrough_: (q) => {
           const a = answers[q.store];

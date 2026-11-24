@@ -85,7 +85,7 @@ function load() {
        NEWEST row's stamp from the OLDEST one. Defaults to the fixed stamp every other assertion
        in this file is written against. */
     function nowStamp_() { return NOW(); }
-    ${grab('payoutModelOf_')} ${grab('payoutRateOf_')}
+    ${grab('payoutModelOf_')} ${grab('payoutRateOf_')} ${grab('payoutAfterGoal_')}
     ${grab('progEarned_')} ${grab('stampOf_')} ${grab('textDate_')} ${grab('payPeriodMatches_')}
     ${grab('forceProgressTextDates_')} ${grab('refreshSpiffProgress_')}
     ${grab('userKey_')} ${grab('displayNameMap_')} ${grab('friendlyName_')}

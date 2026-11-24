@@ -39,7 +39,7 @@ function grab(name) {
 
 /* ══════════════════ 1. THE RULE, ACTUALLY RUN ══════════════════ */
 const F = new Function([
-  grab('moneyStr_'), grab('payoutModelOf_'), grab('payoutRateOf_'), grab('payoutFactsOf_'),
+  grab('moneyStr_'), grab('payoutModelOf_'), grab('payoutAfterGoal_'), grab('payoutRateOf_'), grab('payoutFactsOf_'),
   'return payoutFactsOf_;'
 ].join('\n'))();
 
@@ -100,7 +100,7 @@ const FETCHED = [];
 let MAILER = () => ({ ok: true, from: 'tawny@greencrosscanna.com' });
 const DOC = G.load({
   real: ['reportHtml_', 'emailDraft_', 'giftCardList_', 'giftCardListFor_', 'buildReport_', 'measuredRowsFor_',
-         'payoutFactsOf_', 'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_',
+         'payoutFactsOf_', 'payoutModelOf_', 'payoutAfterGoal_', 'payoutRateOf_', 'moneyStr_', 'slug_',
          'friendlyName_', 'userKey_', 'scrubSecrets_', 'today_',
          'brandPaperHtml_', 'unitLiftOf_', 'brandProgramLabel_', 'prettyDay_', 'brandPdfBlob_',
          'brandFromAddress_', 'sendBrandEmail_', 'brandSignatureHtml_',

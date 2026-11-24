@@ -358,6 +358,9 @@
                   <div class="sp-seg-sm" id="cModel" role="group" aria-label="Payout model">
                     <button type="button" class="is-on" data-model="flat">Flat</button>
                     <button type="button" data-model="per_unit">Per unit</button>
+                    <!-- Per unit, but only once the budtender reaches their store's goal (Sky,
+                         2026-11-24). Saved as model per_unit + payout_json.after_goal. -->
+                    <button type="button" data-model="per_unit_goal">Per unit at goal</button>
                   </div>
                   <span class="sp-prefixed">
                     <i>$</i>
@@ -724,6 +727,6 @@
 <script src="postmortem.js?v=2.034"></script>
 <script src="marketing.js?v=2.034"></script>
 <script src="site.js?v=2.034"></script>
-<script src="spiff.js?v=2.036"></script>
+<script src="spiff.js?v=2.037"></script>
 </body>
 </html>

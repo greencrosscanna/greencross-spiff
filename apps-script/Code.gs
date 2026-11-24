@@ -3069,8 +3069,30 @@ function payoutRateOf_(prog) {
   return Number(pay.amount) || 0;
 }
 
+/* ── PER UNIT, ONCE THE GOAL IS REACHED (Sky, 2026-11-24, Tawny's Green Cross 10pk program) ──
+ * A per-unit program can carry `payout_json.after_goal: true`: a budtender earns the rate on
+ * EVERY unit they sold — the first ones included — but only once they reach their store's
+ * per-budtender goal. Below the goal they earn $0. The goal is the same per-store `per_bt`
+ * figure a flat program pays against, so `hit` means exactly what it means there.
+ * Stored as a flag on the per_unit model rather than a third model, so every consumer that only
+ * knows flat | per_unit (Core's publication, the kiosks, Crew) still reads "per unit" and takes
+ * the EARNED figure this engine computed, which is where the gate lives. */
+function payoutAfterGoal_(prog) {
+  if (payoutModelOf_(prog) !== 'per_unit') return false;
+  var g = (prog.payout_json || {}).after_goal;
+  return g === true || String(g).toLowerCase() === 'true' || g === 1 || g === '1';
+}
+
+/* Who counts as EARNING: on a plain per-unit program, anyone who sold; otherwise (flat, or per
+   unit after the goal) only those who reached their goal. */
+function progEarns_(prog, units, hit) {
+  if (payoutModelOf_(prog) === 'per_unit' && !payoutAfterGoal_(prog)) return (Number(units) || 0) > 0;
+  return !!hit;
+}
+
 function progEarned_(prog, units, hit) {
   if (payoutModelOf_(prog) === 'per_unit') {
+    if (payoutAfterGoal_(prog) && !hit) return 0;
     return (Number(units) || 0) * payoutRateOf_(prog);
   }
   return hit ? payoutRateOf_(prog) : 0;
@@ -3242,7 +3264,7 @@ function snapshotProgram_(prog) {
 
   var rate = payoutRateOf_(prog), perUnit = payoutModelOf_(prog) === 'per_unit';
   var out = { at: nowStamp_(), from: from, to: to, rate: rate,
-              model: perUnit ? 'per_unit' : 'flat',
+              model: perUnit ? 'per_unit' : 'flat', after_goal: payoutAfterGoal_(prog),
               units: 0, earners: 0, earned: 0, stores: [], partial: [] };
 
   stores.forEach(function (raw) {
@@ -3264,8 +3286,9 @@ function snapshotProgram_(prog) {
     out.units   += Number(r.units) || 0;
     out.earned  += rows.reduce(function (n, x) { return n + x.earned; }, 0);
     /* Who EARNED, which is not who hit: a per-unit program pays from the first unit and sets no
-       individual target, so `hit` is false for everyone however much was sold. */
-    out.earners += rows.filter(function (x) { return perUnit ? x.units > 0 : x.hit; }).length;
+       individual target, so `hit` is false for everyone however much was sold. Unless it pays
+       only after the goal — then earning IS hitting (progEarns_). */
+    out.earners += rows.filter(function (x) { return progEarns_(prog, x.units, x.hit); }).length;
   });
 
   out.earned = Math.round(out.earned * 100) / 100;
@@ -3320,6 +3343,7 @@ function snapshotStore_(prog, slug) {
   snap.from = from; snap.to = to;
   snap.rate = payoutRateOf_(prog);
   snap.model = perUnit ? 'per_unit' : 'flat';
+  snap.after_goal = payoutAfterGoal_(prog);
   snap.at = nowStamp_();
 
   snap.stores = (snap.stores || []).filter(function (x) { return x.store_id !== slug; });
@@ -3336,7 +3360,7 @@ function snapshotStore_(prog, slug) {
     return n + (x.rows || []).reduce(function (m, e) { return m + (Number(e.earned) || 0); }, 0);
   }, 0) * 100) / 100;
   snap.earners = snap.stores.reduce(function (n, x) {
-    return n + (x.rows || []).filter(function (e) { return perUnit ? e.units > 0 : e.hit; }).length;
+    return n + (x.rows || []).filter(function (e) { return progEarns_(prog, e.units, e.hit); }).length;
   }, 0);
 
   /* ── A ZERO THAT CONTRADICTS THE RECORD IS NOT A MEASUREMENT ──────────────────────────────
@@ -5231,10 +5255,12 @@ function computePayouts_(rows, targets, payout) {
     if (made) hit++;
 
     // per_unit pays on volume, so there is no target to clear — everyone who sold earns.
-    var earned = type === 'per_unit' ? units * perUnit : (made ? amount : 0);
+    // Unless it pays only once the goal is reached (after_goal): then every unit, but only if made.
+    var gated  = type === 'per_unit' && payout.after_goal === true;
+    var earned = type === 'per_unit' ? (gated && !made ? 0 : units * perUnit) : (made ? amount : 0);
     lines.push({
       employee_id: r.employee_id, name: r.name, store_id: r.store_id,
-      units: units, target: target, hit: type === 'per_unit' ? units > 0 : made, earned: earned
+      units: units, target: target, hit: type === 'per_unit' && !gated ? units > 0 : made, earned: earned
     });
   }
   var owed = lines.reduce(function (n, l) { return n + l.earned; }, 0);
@@ -5487,7 +5513,7 @@ function flyer_(p) {
   /* per_unit is REAL and implemented -- Hapy Kitchen paid $1 a unit. Assuming flat here
      would quietly under-report what a budtender is owed on those programs. */
   var payout = String(prog.payout_type || 'flat').toLowerCase() === 'per_unit'
-    ? units * (Number(st.rate) || 0)
+    ? (payoutAfterGoal_(prog) && !hit ? 0 : units * (Number(st.rate) || 0))
     : (hit ? (Number(st.rate) || 0) : 0);
 
   return {
@@ -7332,25 +7358,33 @@ function payoutFactsOf_(prog) {
      per-unit program sets none — everyone who sold anything earned — so rate × earners is not a
      smaller version of the right answer, it is a different quantity. */
   var computed = perUnit ? rate * units : rate * earners;
+  /* PER UNIT AFTER THE GOAL pays only the units of those who reached it, and actual_json does not
+     say how many of the units sold were theirs. So the model cannot reproduce the total from the
+     record: the recorded investment (measured, sum of what each budtender earned) is the figure,
+     and there is no second computation to disagree with it. */
+  var afterGoal = payoutAfterGoal_(prog);
 
   var hasStored = a.investment != null && a.investment !== '';
   var stored = Number(a.investment) || 0;
   var owed = hasStored ? stored : computed;
 
   return {
-    per_unit: perUnit, rate: rate, units: units, earners: earners, owed: owed,
+    per_unit: perUnit, after_goal: afterGoal, rate: rate, units: units, earners: earners, owed: owed,
     /* HOW the total was arrived at, in words, so a vendor document can show its working and a
        reader can check it without knowing the payout model. */
-    basis: perUnit
+    basis: afterGoal
+      ? moneyStr_(rate) + ' a unit to the ' + earners + ' budtender' + (earners === 1 ? '' : 's')
+        + ' who reached their goal'
+      : perUnit
       ? units.toLocaleString() + ' units × ' + moneyStr_(rate) + ' a unit'
       : earners + ' budtender' + (earners === 1 ? '' : 's') + ' × ' + moneyStr_(rate),
     /* Labels follow the model. "SPIFF per budtender" on a per-unit program is wrong twice over:
        it is per unit, and there is no per-budtender bonus to name. */
-    rate_label:   perUnit ? 'SPIFF per unit sold' : 'SPIFF per budtender',
-    earner_label: perUnit ? 'Budtenders who earned' : 'Budtenders who hit their target',
+    rate_label:   afterGoal ? 'SPIFF per unit, once at goal' : perUnit ? 'SPIFF per unit sold' : 'SPIFF per budtender',
+    earner_label: perUnit && !afterGoal ? 'Budtenders who earned' : 'Budtenders who hit their target',
     /* Rounded to the cent before comparing — floating point makes 181.5 and 181.49999 the same
        number in every sense a vendor cares about. */
-    mismatch: hasStored && Math.round(stored * 100) !== Math.round(computed * 100)
+    mismatch: !afterGoal && hasStored && Math.round(stored * 100) !== Math.round(computed * 100)
       ? { stored: stored, computed: computed } : null
   };
 }
