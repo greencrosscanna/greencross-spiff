@@ -43,7 +43,7 @@ function setup(programs, extraProps) {
   let mailFails = false;
   const api = G.load({
     real: ['sendGiftCardEmails_', 'giftMailDueDay_', 'giftMailIsDue_', 'giftMailText_', 'giftMailHtml_', 'prettyDay_', 'giftCardListFor_', 'rowToProgram_',
-           'measuredRowsFor_', 'payoutFactsOf_', 'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_',
+           'measuredRowsFor_', 'payoutFactsOf_', 'payoutModelOf_', 'payoutAfterGoal_', 'payoutRateOf_', 'moneyStr_', 'slug_',
            'friendlyName_', 'userKey_', 'scrubSecrets_', 'brandProgramLabel_', 'sendMail_',
            'textDate_', 'parseJson_', 'normalizePitch_', 'normalizeMarketing_'],
     vars: ['PROGRAM_HEADERS', 'PITCH_MAX_TIPS', 'PITCH_MAX_LEN', 'GX_SECRET_PROP', 'GIFTMAIL_PREFIX',

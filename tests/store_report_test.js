@@ -56,7 +56,7 @@ const BY_ID = { [CLOSED.program_id]: CLOSED, [RUNNING.program_id]: RUNNING, [PER
 const D = G.load({
   real: ['storeSectionsOf_', 'storeBlockHtml_', 'storeReportHtml_', 'storeReport_', 'programDayInfo_',
          'reportHtml_', 'brandPaperHtml_', 'brandProgramLabel_', 'prettyDay_', 'unitLiftOf_',
-         'measuredRowsFor_', 'payoutFactsOf_', 'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_',
+         'measuredRowsFor_', 'payoutFactsOf_', 'payoutModelOf_', 'payoutAfterGoal_', 'payoutRateOf_', 'moneyStr_', 'slug_',
          'friendlyName_', 'today_', 'storeReportPlan_', 'sendStoreReports_', 'weekStartOf_', 'storeReportSubject_',
          'scrubSecrets_', 'nowStamp_'],
   vars: ['LOGO_ONLIGHT', 'BTS_PER_STORE', 'GX_SECRET_PROP', 'MKT_PEOPLE_', 'EDIT_ROLES'],

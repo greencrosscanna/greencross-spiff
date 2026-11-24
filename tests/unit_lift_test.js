@@ -15,7 +15,7 @@ const ok = (l, c) => c ? console.log('  ✓ ' + l) : (fail++, console.log('  ✗
 
 const D = G.load({
   real: ['unitLiftOf_', 'brandPaperHtml_', 'brandProgramLabel_', 'prettyDay_', 'payoutFactsOf_',
-         'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_', 'measuredRowsFor_'],
+         'payoutModelOf_', 'payoutAfterGoal_', 'payoutRateOf_', 'moneyStr_', 'slug_', 'measuredRowsFor_'],
   vars: ['LOGO_ONLIGHT', 'BTS_PER_STORE'],
   stubs: { displayNameMap_: () => ({}), friendlyName_: (m, id, n) => n,
            gxStores_: () => [{ store_id: 'river-rd', display_name: 'River Rd' },

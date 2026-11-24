@@ -603,7 +603,7 @@
 
   function newProgram() {
     calc.name = ''; calc.vendor = ''; calc.cost = 10; calc.spiff = 25;
-    calc.target = 0; calc.model = 'flat';
+    calc.target = 0; calc.model = 'flat'; calc.afterGoal = false;
     /* Leaving these behind is how a "new" program inherits the last one's product and, worse,
        its editingId — which would make Save overwrite the program you thought you had left. */
     calc.product = null; calc.editingId = null; calc.window = null; calc.refRun = null;
@@ -666,8 +666,11 @@
       var by = Object.create(null);
       r.rows.forEach(function (row) {
         var g = by[row.program_id] || (by[row.program_id] = {
-          units: 0, hit: 0, bts: 0, stores: Object.create(null), rows: [], refreshed_at: row.refreshed_at
+          units: 0, hit: 0, bts: 0, earned: 0, stores: Object.create(null), rows: [], refreshed_at: row.refreshed_at
         });
+        /* The engine's own figure for what this person earned (progEarned_), so the hero never
+           re-derives a per-unit or at-goal payout with the flat formula. */
+        g.earned += Number(row.earned) || 0;
         /* Kept per program so Reports can name the budtenders on the gift-card list. That list
            used to say "per-budtender names need sell-through detail, which arrives with the
            Progress tab" — the detail is here now, and a buy list without names is a list
@@ -692,22 +695,31 @@
     var g = progCache && progCache[programId];
     if (!g) return null;
     var n = Object.keys(g.stores).length;
-    return { units: g.units, hit: g.hit, bts: g.bts, back: n, pending: 0,
+    return { units: g.units, hit: g.hit, bts: g.bts, earned: g.earned, back: n, pending: 0,
              stores: storeCount || n, cached: true, at: g.refreshed_at };
   }
 
   function liveTotals(programId) {
     if (!pgRun || pgRun.id !== programId) return null;
-    var units = 0, hit = 0, bts = 0, back = 0, pending = 0;
+    var prog = pgRun.prog || {};
+    var rate = Number((prog.payout_json || {}).amount) || 0;
+    var perUnit = normalModel((prog.payout_json || {}).model || prog.payout_type) === 'per_unit';
+    var gated = afterGoal(prog);
+    var units = 0, hit = 0, bts = 0, back = 0, pending = 0, earned = 0;
     pgRun.stores.forEach(function (st) {
       if (pgRun.pulling[st]) pending++;
       var r = pgRun.results[st];
       if (!r) return;
       units += r.units; hit += r.hit; bts += r.budtenders;
+      /* Same rule as the engine's progEarned_: flat = rate per hit; per unit = every unit;
+         per unit at goal = every unit, only for those at goal. */
+      earned += perUnit
+        ? (r.rows || []).reduce(function (n, x) { return n + ((gated && !x.hit) ? 0 : (Number(x.units) || 0) * rate); }, 0)
+        : (Number(r.hit) || 0) * rate;
       if (!pgRun.pulling[st] && !pgRun.failed[st]) back++;
     });
     if (!back && !pending) return null;
-    return { units: units, hit: hit, bts: bts, back: back, pending: pending,
+    return { units: units, hit: hit, bts: bts, earned: earned, back: back, pending: pending,
              stores: pgRun.stores.length };
   }
 
@@ -721,6 +733,7 @@
     var pace = paceOf(p, live);
     var bts = t.budtenders || 0;
     var hit = live ? live.hit : (a.bts_hit || 0);
+    var heroPerUnit = normalModel((p.payout_json || {}).model || p.payout_type) === 'per_unit';
     /* Shimmer only while NOTHING has come back. Once even one store has answered the figures
        are real, just partial — and the verdict line says how partial. Holding them back until
        all six land would blank the hero for ten seconds on every load. */
@@ -771,7 +784,12 @@
       +     '<div class="sp-hero-figs">'
       +       fig('Sold', waiting ? null : (live ? live.units : (a.units_sold || 0)).toLocaleString(), 'of ' + (pace.target || 0).toLocaleString(), '')
       +       fig('Budtenders', waiting ? null : hit, 'of ' + bts + ' hit', '')
-      +       fig('Earned so far', waiting ? null : money(pay * hit), money(pay * bts) + ' if all ' + bts + ' land it', 'is-pos')
+      /* Per unit (and per unit at goal) pays on units, so pay × hit is the wrong figure for them —
+         it read $1 on a $1-a-unit program that owed ~$20. Use what the measurement says was earned. */
+      +       fig('Earned so far', waiting ? null
+                  : money(heroPerUnit && live && live.earned != null ? live.earned : pay * hit),
+                  heroPerUnit ? money(pay) + ' a unit' + (afterGoal(p) ? ', once at goal' : '')
+                              : money(pay * bts) + ' if all ' + bts + ' land it', 'is-pos')
       +     '</div>'
       +   '</div>'
       +   '<div class="sp-hero-bar">' + paceBar(pace) + '</div>'
@@ -884,8 +902,18 @@
     return m === 'per_unit' ? 'per_unit' : 'flat';
   }
 
+  /* PER UNIT, ONCE THE GOAL IS REACHED (Sky, 2026-11-24). A per-unit program with
+     payout_json.after_goal pays the rate on every unit a budtender sold, but only once they reach
+     their store's per-budtender goal; below it they earn $0. Twin of payoutAfterGoal_ in Code.gs. */
+  function afterGoal(p) {
+    if (!p || normalModel((p.payout_json || {}).model || p.payout_type) !== 'per_unit') return false;
+    var g = (p.payout_json || {}).after_goal;
+    return g === true || String(g).toLowerCase() === 'true' || g === 1 || g === '1';
+  }
+
   function payoutLabel(p) {
     var m = (p.payout_json && p.payout_json.model) || 'flat';
+    if (m === 'per_unit' && afterGoal(p)) return 'per unit, once at goal';
     return m === 'per_unit' ? 'per unit' : (m === 'tiered' ? 'tiered' : 'flat per budtender');
   }
 
@@ -3715,11 +3743,12 @@
     /* `sellers` is everyone who sold at least one unit. On a per-unit program that IS the number
        who earned, because there is no target to clear — `hit` counts against a threshold the
        program never set and is therefore always zero. */
-    var units = 0, hit = 0, bts = 0, sellers = 0;
+    var units = 0, hit = 0, bts = 0, sellers = 0, unitsAtGoal = 0;
     stores.forEach(function (st) {
       var r = done[st];
       units += r.units; hit += r.hit; bts += r.budtenders;
       sellers += (r.rows || []).filter(function (x) { return (x.units || 0) > 0; }).length;
+      unitsAtGoal += (r.rows || []).reduce(function (n, x) { return n + (x.hit ? (x.units || 0) : 0); }, 0);
     });
 
     /* THE RATE, THE COST AND THE BASELINE COME FROM THE PROGRAM, not from fields in this form.
@@ -3736,8 +3765,10 @@
        per-unit program sets none — so investment as rate × hit is zero however much was sold.
        What the program actually owes is rate × units, and everyone who sold anything earned. */
     var perUnit = normalModel((p.payout_json || {}).model || p.payout_type) === 'per_unit';
-    var invest  = perUnit ? rate * units : rate * hit;
-    var earners = perUnit ? sellers : hit;
+    /* Per unit AFTER THE GOAL pays only the units of those who reached it — see afterGoal. */
+    var gated   = afterGoal(p);
+    var invest  = gated ? rate * unitsAtGoal : perUnit ? rate * units : rate * hit;
+    var earners = perUnit && !gated ? sellers : hit;
     var roi     = (units - base) * cost - invest;    // same identity the Calculator models on
 
     setRecField('actual_json.units_sold', units);
@@ -3791,6 +3822,7 @@
   var calc = {
     name: '', vendor: '', cost: 10, spiff: 25, target: 0,
     model: 'flat',   // 'flat' | 'per_unit' — per_unit is real; see payoutLabel/CLAUDE.md
+    afterGoal: false, // per_unit only: pay every unit, but only once the budtender reaches their goal
     editingId: null, // set when the Calculator is updating an EXISTING program, not modeling a new one
     locked: false,   // a CLOSED program opens read-only — see applyCalcLock
     window: null,    // that program's dates, carried for display only — the record owns them
@@ -4258,7 +4290,10 @@
     }
 
     var hint = $('#cPayoutHint');
-    if (hint) hint.textContent = calc.model === 'per_unit'
+    if (hint) hint.textContent = calc.model === 'per_unit' && calc.afterGoal
+      ? 'You pay ' + money(calc.spiff) + ' on every unit a budtender sells — but only once they reach '
+        + 'their store’s goal. Below the goal they earn nothing.'
+      : calc.model === 'per_unit'
       ? 'You pay ' + money(calc.spiff) + ' on every unit that budtender sells, from the first one.'
       : 'You pay ' + money(calc.spiff) + ' to each budtender who reaches their own target — and nothing for one who doesn’t.';
 
@@ -4448,7 +4483,9 @@
     if (seg) seg.addEventListener('click', function (e) {
       var b = e.target.closest('button[data-model]');
       if (!b) return;
-      calc.model = b.dataset.model;
+      /* "Per unit at goal" is the per_unit model plus a flag, not a third model — see afterGoal. */
+      calc.afterGoal = b.dataset.model === 'per_unit_goal';
+      calc.model = calc.afterGoal ? 'per_unit' : b.dataset.model;
       $$('#cModel button').forEach(function (x) { x.classList.toggle('is-on', x === b); });
       recalc(PULSE_ALL);
     });
@@ -5564,6 +5601,7 @@
     calc.cost   = (merged.cost_json || {}).per_unit || 0;
     calc.spiff  = (merged.payout_json || {}).amount || 0;
     calc.model  = normalModel((merged.payout_json || {}).model || merged.payout_type);
+    calc.afterGoal = afterGoal(merged);
     calc.target = (merged.target_json || {}).units || 0;
     calc.window = { start: merged.start_date || '', end: merged.end_date || '' };
 
@@ -5602,7 +5640,9 @@
     $('#cCost').value = calc.cost;
     $('#cSpiff').value = calc.spiff;
     $('#cTarget').value = calc.target;
-    $$('#cModel button').forEach(function (x) { x.classList.toggle('is-on', x.dataset.model === calc.model); });
+    $$('#cModel button').forEach(function (x) {
+      x.classList.toggle('is-on', x.dataset.model === (calc.afterGoal ? 'per_unit_goal' : calc.model));
+    });
     if (calcPicker) {
       calcPicker.setVendorSilently(calc.vendor);
       calcPicker.setChosen(calc.product);
@@ -5737,7 +5777,7 @@
 
     var m = calcModel();
     if (!running && !v.settled) {
-      bits.push(calc.model === 'per_unit' ? money(calc.spiff) + ' per unit' : money(calc.spiff) + ' flat');
+      bits.push(calc.model === 'per_unit' ? money(calc.spiff) + ' per unit' + (calc.afterGoal ? ' at goal' : '') : money(calc.spiff) + ' flat');
       bits.push(m.plan.length + ' stores, ' + m.bts + ' budtenders');
     }
     return bits.map(esc).join(' &middot; ');
@@ -5801,7 +5841,9 @@
           : brail('At target', t.hit + ' <small>/ ' + t.btsAll + '</small>',
                   'budtenders at their target', '', t.btsAll ? t.hit / t.btsAll : null))
       + brail('Earned', money(t.earned),
-              t.perUnit ? 'so far, ' + t.units.toLocaleString() + ' × ' + money(t.rate)
+              t.afterGoal ? 'so far, ' + (t.unitsAtGoal || 0).toLocaleString() + ' units × ' + money(t.rate)
+                + ' from budtenders at their goal'
+              : t.perUnit ? 'so far, ' + t.units.toLocaleString() + ' × ' + money(t.rate)
                 : t.committed ? 'of ' + money(t.committed) + ' if everyone lands it' : '', 'is-pos')
       + paceRail(t);
   }
@@ -5853,7 +5895,8 @@
         + brail('Unit lift', '—', '', '');
     }
     return brail('They funded', money(sInv),
-                 sPer ? money(sRate) + ' on each of ' + sUnits.toLocaleString() + ' units'
+                 afterGoal(rec) ? money(sRate) + ' a unit to ' + (act.bts_hit || 0) + ' budtenders at goal'
+                 : sPer ? money(sRate) + ' on each of ' + sUnits.toLocaleString() + ' units'
                       : (act.bts_hit || 0) + ' budtenders at ' + money(sRate), '')
       + brail('Revenue it earned', money(sGross),
               sBase ? sLift.toLocaleString() + ' units over last month' : 'against last month', '')
@@ -6087,7 +6130,7 @@
     var prod = calc.product && calc.product.label;
     if (prod) bits.push(prod);
     if (Number(calc.cost)) bits.push(money(calc.cost) + '/unit');
-    bits.push(calc.model === 'per_unit' ? money(calc.spiff) + ' per unit' : money(calc.spiff) + ' flat');
+    bits.push(calc.model === 'per_unit' ? money(calc.spiff) + ' per unit' + (calc.afterGoal ? ' at goal' : '') : money(calc.spiff) + ' flat');
     var target = (rec && (rec.target_json || {}).units) || Number(calc.target) || 0;
     if (target) {
       bits.push('target ' + target.toLocaleString()
@@ -6239,14 +6282,17 @@
   /* The frozen grid. Same shape as Progress, and deliberately so — it is the same information,
      just no longer moving. */
   function renderFrozen(rec, snap) {
-    var perUnit = snap.model === 'per_unit';
+    /* A per-unit-after-goal program counts earners like flat: only those at their goal earned. */
+    var perUnit = snap.model === 'per_unit' && !(snap.after_goal || afterGoal(rec));
     var rate = Number(snap.rate) || 0;
 
     var title = $('#resTitle'), note = $('#resNote'), stamp = $('#resStamp');
     if (title) title.textContent = 'What sold';
     if (note) note.textContent = snap.units.toLocaleString() + ' units · ' + snap.earners
       + ' budtender' + (snap.earners === 1 ? '' : 's') + ' earning · ' + money(snap.earned)
-      + (perUnit ? ' at ' + money(rate) + ' a unit' : ' at ' + money(rate) + ' each');
+      + (snap.model === 'per_unit'
+          ? ' at ' + money(rate) + ' a unit' + (perUnit ? '' : ', once at goal')
+          : ' at ' + money(rate) + ' each');
     if (stamp) {
       /* WHEN it was measured, always. These numbers are frozen, and a reader has to be able to
          tell a settled figure from a stale one without opening anything. */
@@ -6521,7 +6567,11 @@
          paid $1/unit) came back out of the datastore looking flat — which is exactly how the
          imported history came to look uniformly flat. */
       payout_type: calc.model,
-      payout_json: { amount: Number(calc.spiff) || 0, model: calc.model },
+      /* after_goal only when set, so a plain per-unit or flat program's payout_json is unchanged
+         and an Update that did not touch the payout sends no payout patch. */
+      payout_json: calc.model === 'per_unit' && calc.afterGoal
+        ? { amount: Number(calc.spiff) || 0, model: calc.model, after_goal: true }
+        : { amount: Number(calc.spiff) || 0, model: calc.model },
       match_json:  matchOf(calc.product, calc.alsoBrands, calc.categories),
       stores_json: m.on.map(function (x) { return x.store_id; }),
       baseline_json: { units: m.baseUnits, revenue: m.baseRev, by_store: baseByStore, per_bt: basePerBt },
@@ -7967,12 +8017,22 @@
        Portland Heights, 2026-09-02: $0.75 a unit across 242 units, and this strip would have
        shown $0 earned and 0 of 38 at target while the payout was $181.50. */
     var perUnit = normalModel((prog.payout_json || {}).model || prog.payout_type) === 'per_unit';
-    var earned  = perUnit ? units * rate : hit * rate;
+    /* PER UNIT, ONCE AT GOAL (Tawny's bug, 2026-11-24): every unit pays, but only for budtenders
+       who reached their store's goal. Shown like flat — "at target" is the real question again —
+       with the money counted per unit over the people who are there. */
+    var gated   = afterGoal(prog);
+    var unitsAtGoal = 0;
+    if (gated) stores.forEach(function (st) {
+      var r = run.results[st];
+      if (r) unitsAtGoal += (r.rows || []).reduce(function (n, x) { return n + (x.hit ? x.units : 0); }, 0);
+    });
+    var earned  = gated ? unitsAtGoal * rate : perUnit ? units * rate : hit * rate;
     var sellers = 0;
     if (perUnit) stores.forEach(function (st) {
       var r = run.results[st];
       if (r) sellers += (r.rows || []).filter(function (x) { return x.units > 0; }).length;
     });
+    if (gated) perUnit = false;     // from here on it reads as a goal program, see liveRail/pgCard
 
     var missing = stores.length - back;
     var win = dayOfWindow(prog.start_date, prog.end_date);
@@ -7989,8 +8049,8 @@
        nobody sold. */
     pgRun.tot = {
       units: units, target: target, hit: hit, btsAll: btsAll,
-      earned: earned, committed: perUnit ? 0 : btsAll * rate,
-      perUnit: perUnit, sellers: sellers, rate: rate,
+      earned: earned, committed: perUnit || gated ? 0 : btsAll * rate,
+      perUnit: perUnit, afterGoal: gated, unitsAtGoal: unitsAtGoal, sellers: sellers, rate: rate,
       back: back, missing: missing,
       day: win ? win.day : 0, days: win ? win.days : 0
     };
@@ -8081,9 +8141,12 @@
     var ahead = goal ? r.units >= goal : false;
     /* A per-unit program has no individual target, so "0 of 6 hit" and a bar against a goal of
        zero describe a threshold nobody was ever set. The card shows what it is paying instead. */
-    var cardPerUnit = normalModel((run.prog.payout_json || {}).model || run.prog.payout_type) === 'per_unit';
+    var cardGated   = afterGoal(run.prog);
+    var cardPerUnit = !cardGated && normalModel((run.prog.payout_json || {}).model || run.prog.payout_type) === 'per_unit';
     var cardRate    = (run.prog.payout_json || {}).amount || 0;
     var earning     = (r.rows || []).filter(function (e) { return e.units > 0; }).length;
+    /* Per unit once at goal: the goal card, plus what those at goal are owed (every unit × rate). */
+    var gatedOwed   = (r.rows || []).reduce(function (n, e) { return n + (e.hit ? e.units * cardRate : 0); }, 0);
 
     var rows = all.length
       ? all.map(function (e) {
@@ -8096,6 +8159,8 @@
             + '<span class="sp-bt-n" title="' + esc(e.name) + '">' + esc(personName(e)) + '</span>'
             + (cardPerUnit
                 ? (earns ? '<span class="sp-bt-d is-earn">' + money(e.units * cardRate) + '</span>' : '')
+                : cardGated && e.hit
+                ? '<span class="sp-bt-d is-earn">' + money(e.units * cardRate) + '</span>'
                 : (!e.hit && short > 0 ? '<span class="sp-bt-d">&minus;' + short + '</span>' : ''))
             + '<span class="sp-bt-u">' + e.units.toLocaleString() + '</span>'
             + '</div>';
@@ -8115,7 +8180,8 @@
               + '<span>' + money(r.units * cardRate) + '</span>'
             : '<span class="' + (r.hit === all.length && all.length ? 'done' : '') + '">'
               + r.hit + ' of ' + all.length + ' hit</span>'
-              + '<span>' + (per ? per + ' each' : '') + '</span>')
+              + '<span>' + (cardGated ? money(gatedOwed) + (per ? ' · goal ' + per : '')
+                            : (per ? per + ' each' : '')) + '</span>')
       +   '</div></div>'
       + '<div class="sp-pgcard-b">' + rows + '</div>'
       + '</div>';

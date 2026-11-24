@@ -37,7 +37,7 @@ let AUTH = { ok: true, user: 'tawny', role: 'editor' };
 let saved = 0, sent = 0, spiffCalls = 0;
 const api = G.load({
   real: ['progressSnapshot_', 'snapshotProgramOf_', 'measuredRowsFor_', 'brandPaperHtml_', 'payoutFactsOf_',
-         'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_', 'friendlyName_', 'userKey_', 'unitLiftOf_',
+         'payoutModelOf_', 'payoutAfterGoal_', 'payoutRateOf_', 'moneyStr_', 'slug_', 'friendlyName_', 'userKey_', 'unitLiftOf_',
          'brandProgramLabel_', 'prettyDay_', 'brandSignatureHtml_'],
   vars: ['EDIT_ROLES', 'LOGO_ONLIGHT', 'GX_SECRET_PROP', 'BTS_PER_STORE', 'BRAND_SIGNER_NAME',
          'BRAND_SIGNER_TITLE', 'BRAND_SIG_LOGO', 'BRAND_SIG_LOCATIONS'],
@@ -89,7 +89,7 @@ console.log('nothing measured yet');
 const EMPTY = { ok: true, refreshed_at: '', rows: [] };
 const none = G.load({
   real: ['progressSnapshot_', 'snapshotProgramOf_', 'measuredRowsFor_', 'brandPaperHtml_', 'payoutFactsOf_',
-         'payoutModelOf_', 'payoutRateOf_', 'moneyStr_', 'slug_', 'friendlyName_', 'userKey_', 'unitLiftOf_',
+         'payoutModelOf_', 'payoutAfterGoal_', 'payoutRateOf_', 'moneyStr_', 'slug_', 'friendlyName_', 'userKey_', 'unitLiftOf_',
          'brandProgramLabel_', 'prettyDay_', 'brandSignatureHtml_'],
   vars: ['EDIT_ROLES', 'LOGO_ONLIGHT', 'GX_SECRET_PROP', 'BTS_PER_STORE', 'BRAND_SIGNER_NAME',
          'BRAND_SIGNER_TITLE', 'BRAND_SIG_LOGO', 'BRAND_SIG_LOCATIONS'],
