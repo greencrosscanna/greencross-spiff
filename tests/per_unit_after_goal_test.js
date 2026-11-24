@@ -66,5 +66,19 @@ const cp = api.computePayouts_(
   { bend: 5 }, { type: 'per_unit', per_unit: 1, after_goal: true });
 ok('computePayouts_ applies the same gate', cp.total_owed === 7 && cp.lines[1].earned === 0);
 
+/* ── the open screen follows a save ──
+ * SOURCE-SHAPED on purpose: this is screen wiring, which cannot run here. Sky, 2026-11-24: after
+ * switching Green Cross to "per unit at goal" and pressing Update, the store cards kept painting
+ * the old rule until a reload, because the Progress grid holds its own copy of the program. */
+{
+  const fs = require('fs');
+  const JS = fs.readFileSync(require('path').join(__dirname, '..', 'spiff.js'), 'utf8');
+  ok('after a save, the open Progress grid takes the saved program and repaints',
+     /if \(fresh\) \{ pgRun\.prog = fresh; try \{ paintProgress\(\); \}/.test(JS));
+  ok('  …and it runs after the program list is re-read',
+     JS.indexOf('await loadPrograms();\n    renderPrograms();') > -1
+     && JS.indexOf('pgRun.prog = fresh') > JS.indexOf('await loadPrograms();\n    renderPrograms();'));
+}
+
 console.log(failed ? '\n' + failed + ' FAILED' : '\nper unit after goal: all passed');
 process.exit(failed ? 1 : 0);

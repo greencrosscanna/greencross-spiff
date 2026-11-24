@@ -6702,6 +6702,15 @@
        AFTER loadPrograms, because recalc reads the settled actuals back out of state.programs.
        PULSE_ALL is exactly this strip, so the cards that changed say so. */
     recalc(PULSE_ALL);
+    /* THE OPEN PROGRESS GRID HOLDS ITS OWN COPY OF THE PROGRAM, taken when its stores were
+       pulled. Without swapping in the saved one, a payout change (Green Cross, 2026-11-24:
+       per unit -> per unit at goal) kept painting the store cards under the OLD rule until a
+       reload, which reads as a save that did not take. Same units, new rule: repaint only. */
+    if (pgRun) {
+      var fresh = (state.programs || []).filter(function (x) { return x.program_id === pgRun.id; })[0];
+      /* A repaint that throws must never swallow the "Saved" message below. */
+      if (fresh) { pgRun.prog = fresh; try { paintProgress(); } catch (e) { console.warn('[spiff] repaint after save', e); } }
+    }
     syncRecordMount();
     applyStatusView();
 
