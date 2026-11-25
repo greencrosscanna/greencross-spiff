@@ -633,7 +633,14 @@
         <button class="gx-btn" id="signInClose" aria-label="Close">&times;</button>
       </header>
       <div class="modal-body">
-        <div class="signin">
+        <!-- GOOGLE ONLY (Sky, 2026-11-24): GX Core refuses every password sign-in, so the fields are
+             hidden and the staff portal signs editors in with Google, handing back here with a
+             one-time code. The inputs stay in the page (hidden) so spiff.js binds exactly as before.
+             target=_top because SPIFF also runs inside Inventory's frame. -->
+        <a class="gx-btn gx-btn-green gx-login-submit" href="https://apps.greencrosscanna.com/?open=spiff" target="_top"
+           style="display:block;text-align:center;text-decoration:none;">Sign in with Google</a>
+        <p class="modal-sub" style="margin:10px 0 0;">Use your Green Cross Google account. Password sign-in is turned off.</p>
+        <div class="signin" style="display:none">
           <label class="gx-login-field"><span>User</span>
             <input class="gx-input" id="siUser" autocomplete="username"></label>
           <label class="gx-login-field"><span>Password</span>
@@ -644,7 +651,7 @@
         <span class="modal-msg" id="siMsg"></span>
         <span class="modal-foot-actions">
           <button class="gx-btn" id="siCancel">Cancel</button>
-          <button class="gx-btn gx-btn-green" id="siGo">Sign in</button>
+          <button class="gx-btn gx-btn-green" id="siGo" style="display:none">Sign in</button>
         </span>
       </footer>
     </div>
