@@ -4,8 +4,8 @@
  *   RUN:  node tests/make_square_test.js
  *
  * Sky, 2026-11-24: vendor art arrives 1122 × 1232 and the picker greys it out. A greyed tile now has
- * a "Make square" button: the browser pads the picture to a square with its own edge color (never
- * cropped), sizes it to 1200 × 1200, and the engine files the copy beside the original and the screen
+ * a "Make square" button: the browser pushes the picture left and pads it to a square with the deal
+ * box's off-black (never cropped; Sky, 2026-11-24), sizes it to 1200 × 1200, and the engine files the copy beside the original and the screen
  * picks it. This RUNS the engine's webImageSource_ / webSquareSave_ against a fake Drive, and
  * marketing.js's layout, edge color, grid markup and click wiring:
  *   · both routes serve or write only a file in THIS program's vendor folder listing; a viewer is refused
@@ -131,23 +131,20 @@ ok('SOURCE-SHAPED: neither route is hedged (a hedged write runs twice)',
 console.log('\n3. the square is laid out with nothing cut off');
 {
   const t = MK.squareLayout(1122, 1232);
-  ok('a tall picture: its height becomes 1200 and it is centered left to right', t.side === 1200 && t.dh === 1200 && t.dy === 0
-     && t.dw === Math.round(1122 * 1200 / 1232) && t.dx === Math.floor((1200 - t.dw) / 2) && t.pad === 'x');
+  ok('a tall picture: its height becomes 1200 and it is pushed to the left (Sky, 2026-11-24)', t.side === 1200 && t.dh === 1200 && t.dy === 0
+     && t.dw === Math.round(1122 * 1200 / 1232) && t.dx === 0 && t.pad === 'x');
   const w = MK.squareLayout(1536, 815);
-  ok('a wide picture: its width becomes 1200 and it is centered top to bottom', w.dw === 1200 && w.dx === 0 && w.dh === Math.round(815 * 1200 / 1536) && w.pad === 'y');
+  ok('a wide picture: its width becomes 1200 and it is centered top to bottom', w.dw === 1200 && w.dx === 0
+     && w.dh === Math.round(815 * 1200 / 1536) && w.dy === Math.floor((1200 - w.dh) / 2) && w.pad === 'y');
   const s = MK.squareLayout(600, 600);
   ok('a small square one is sized up to 1200', s.dw === 1200 && s.dh === 1200 && s.dx === 0 && s.dy === 0);
   ok('every layout fits inside the square', [t, w, s].every(L => L.dx >= 0 && L.dy >= 0 && L.dx + L.dw <= 1200 && L.dy + L.dh <= 1200));
   ok('1200 is inside the Featured spec', 1200 >= MK.FEATURED_SPEC.min && 1200 <= MK.FEATURED_SPEC.max);
 }
 {
-  /* 4 × 2 picture: left column red, right column blue, middle green. A tall pad samples the side
-     columns only, so green never leaks into the fill. */
-  const px = [];
-  for (let y = 0; y < 2; y++) for (let x = 0; x < 4; x++) px.push(...(x === 0 ? [200, 0, 0, 255] : x === 3 ? [0, 0, 100, 255] : [0, 255, 0, 255]));
-  ok('the fill is the average of the edges being padded', MK.edgeColor(px, 4, 2, 'x') === 'rgb(100,0,50)');
-  const clear = new Array(4 * 2 * 4).fill(0);
-  ok('a see-through edge falls back to white', MK.edgeColor(clear, 4, 2, 'x') === 'rgb(255,255,255)');
+  const deals = fs.readFileSync(path.join(__dirname, '..', 'wix', 'gc-deals.js'), 'utf8');
+  const card = (deals.match(/\.gcd-feat\{background:(#[0-9A-Fa-f]{6})/) || [])[1];
+  ok('the fill is the Featured card\'s own off-black, read from the deals page code', card && MK.SQUARE_FILL.toLowerCase() === card.toLowerCase());
 }
 
 console.log('\n4. the button on the tile');
