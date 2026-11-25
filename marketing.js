@@ -759,9 +759,9 @@
   }
 
   /* MAKE SQUARE (Sky, 2026-11-24). A greyed image whose size Drive reports can be fixed in one click:
-     the picture is padded out to a square with its own edge color (never cropped, so a headline near
-     an edge survives), sized to 1200 × 1200, filed beside the original as "<name> (square)" and
-     picked. The engine serves and files only images in this program's vendor folder. */
+     the picture is pushed left and padded out to a square with the deal box's off-black (never
+     cropped, so a headline near an edge survives), sized to 1200 × 1200, filed beside the original
+     as "<name> (square)" and picked. The engine serves and files only images in this program's vendor folder. */
   var SQUARE_SIDE = 1200;
   /* The copy's file name. The engine's webSquareSave_ names it the same way. */
   function squareName(name, mime) {
@@ -772,24 +772,18 @@
     if (!f || !f.problem || !f.width || !f.height) return '';
     return f.width !== f.height ? 'Make square' : 'Resize to fit';
   }
-  /* Where the picture goes on the square: scaled so its long side is the square's side, centered. */
+  /* Where the picture goes on the square: scaled so its long side is the square's side, pushed to
+     the LEFT and centered top to bottom (Sky, 2026-11-24). On /deals the image sits left of the deal
+     box, so the strip lands on the box's side and the fill below runs straight into it. */
   function squareLayout(w, h, side) {
     side = side || SQUARE_SIDE;
     var s = side / Math.max(w, h), dw = Math.round(w * s), dh = Math.round(h * s);
-    return { side: side, dw: dw, dh: dh, dx: Math.floor((side - dw) / 2), dy: Math.floor((side - dh) / 2),
+    return { side: side, dw: dw, dh: dh, dx: 0, dy: Math.floor((side - dh) / 2),
              pad: w > h ? 'y' : h > w ? 'x' : '' };
   }
-  /* The average color of the edges that get padded: left and right for a tall picture, top and
-     bottom for a wide one, all four for a square one. `px` is RGBA bytes, w × h. */
-  function edgeColor(px, w, h, pad) {
-    var r = 0, g = 0, b = 0, n = 0;
-    var add = function (x, y) { var i = (y * w + x) * 4; if (px[i + 3] < 16) return; r += px[i]; g += px[i + 1]; b += px[i + 2]; n++; };
-    var x, y;
-    if (pad !== 'y') for (y = 0; y < h; y++) { add(0, y); add(w - 1, y); }
-    if (pad !== 'x') for (x = 0; x < w; x++) { add(x, 0); add(x, h - 1); }
-    if (!n) return 'rgb(255,255,255)';
-    return 'rgb(' + Math.round(r / n) + ',' + Math.round(g / n) + ',' + Math.round(b / n) + ')';
-  }
+  /* The fill is the Featured card's own off-black (wix/gc-deals.js, .gcd-feat background), so the
+     strip reads as part of the deal box. Change one, change the other. */
+  var SQUARE_FILL = '#14181D';
   /* Browser only: a data: URI in, {mime, data (base64), name} out, under the 2 MB limit. */
   function squareImage(dataUri, srcMime) {
     return new Promise(function (resolve, reject) {
@@ -799,15 +793,10 @@
         var w = img.naturalWidth, h = img.naturalHeight;
         if (!w || !h) return reject(new Error('The picture has no size.'));
         var L = squareLayout(w, h);
-        var probe = document.createElement('canvas');
-        probe.width = w; probe.height = h;
-        var pc = probe.getContext('2d');
-        pc.drawImage(img, 0, 0);
-        var bg = edgeColor(pc.getImageData(0, 0, w, h).data, w, h, L.pad);
         var c = document.createElement('canvas');
         c.width = c.height = L.side;
         var cx = c.getContext('2d');
-        cx.fillStyle = bg;
+        cx.fillStyle = SQUARE_FILL;
         cx.fillRect(0, 0, L.side, L.side);
         cx.imageSmoothingQuality = 'high';
         cx.drawImage(img, L.dx, L.dy, L.dw, L.dh);
@@ -1843,7 +1832,7 @@
     makeSaver: makeSaver, halfTypedDate: halfTypedDate, listLine: listLine, foldNote: foldNote, sectionHtml: sectionHtml, wire: wire,
     FEATURED_SPEC: FEATURED_SPEC, imageShapeProblem: imageShapeProblem, driveFileId: driveFileId,
     heroPrompt: heroPrompt, autoAlt: autoAlt, webDetailOp: webDetailOp, imageFieldHtml: imageFieldHtml, imageGridHtml: imageGridHtml,
-    fixLabel: fixLabel, squareLayout: squareLayout, edgeColor: edgeColor, squareName: squareName, squareImage: squareImage,
+    fixLabel: fixLabel, squareLayout: squareLayout, SQUARE_FILL: SQUARE_FILL, squareName: squareName, squareImage: squareImage,
     wixImagePreview: wixImagePreview,
     COPY_RULES: COPY_RULES, copyProblem: copyProblem, COPY_LIMITS: COPY_LIMITS, lengthProblem: lengthProblem,
     smsCostLine: smsCostLine, smsCostHtml: smsCostHtml,

@@ -11342,12 +11342,14 @@ function webImages_(p) {
 }
 
 /* MAKE SQUARE (Sky, 2026-11-24: vendor art arrives 1122 × 1232 and the picker greys it out). The
-   browser draws the square: it fetches the picture through webImageSource, pads the short sides with
-   the picture's own edge color (nothing is cropped, so text near an edge survives), sizes it to
+   browser draws the square: it fetches the picture through webImageSource, pushes it left and fills
+   the rest with the deal box's off-black (nothing is cropped, so text near an edge survives), sizes it to
    1200 × 1200 and posts it to webSquareSave, which files the copy beside the original. The original
    is never changed. Both routes serve or write only a file that is in THIS program's vendor folder
    listing, the same list the picker shows, so neither can read or write anywhere else in Drive. */
-var WEB_SQUARE_TAG_ = 'spiff-square-of:';
+/* v2 (2026-11-24): picture pushed left, off-black fill. Bumped so a copy made the old way (centered,
+   edge-color fill) is not answered as the copy already made. */
+var WEB_SQUARE_TAG_ = 'spiff-square-v2-of:';
 function webPickerFile_(p) {
   var who = mktEditor_(p, 'edit the deals page');
   if (who.fail) return who.fail;
