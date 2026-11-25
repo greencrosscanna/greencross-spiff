@@ -113,6 +113,8 @@
     '.gcd-row+.gcd-row{border-top:1px solid #E2E2DF}',
     '.gcd-wlogo{flex:0 0 150px;min-height:104px;display:flex;align-items:center;justify-content:center}',
     '.gcd-wlogo img{width:150px;height:auto;max-height:100%;object-fit:contain;display:block}',
+    // Good Tide and Kaprikorn tiles carry wide padding, so their marks read small; zoom just those two (crop stays inside the cell).
+    '.gcd-wlogo{overflow:hidden}.gcd-wlogo img[alt="Good Tide"],.gcd-wlogo img[alt="Kaprikorn"]{transform:scale(1.5);transform-origin:center}',
     '.gcd-wbody{flex:1 1 auto;min-width:0;padding:12px 18px;display:flex;align-items:center;gap:12px}',
     '.gcd-amt{flex:none;min-width:52px;display:flex;flex-direction:column;align-items:center;line-height:1}',
     '.gcd-amt b{font-family:Montserrat,Arial,sans-serif;font-weight:900;font-size:34px}',
