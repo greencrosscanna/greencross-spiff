@@ -1478,6 +1478,23 @@
         if (r && r.needsAuth) { clearSession(); openSignIn(); }
         return r;
       },
+      /* Make square: the picture comes through the engine (a read, not hedged), and the square copy
+         goes back by POST as text/plain (too big for a URL, no CORS preflight). Never retried: a
+         repeat is harmless (the engine answers the copy it already made) but pointless. A reply the
+         browser cannot read comes back null, and marketing.js finds the copy by its name. */
+      imageSource: async function (p, fileId) {
+        var r = await ENG.jsonp('webImageSource', { token: (session() || {}).token, id: p.program_id, file: fileId }, { timeoutMs: 60000, retries: 1 });
+        if (r && r.needsAuth) { clearSession(); openSignIn(); }
+        return r;
+      },
+      squareSave: async function (p, fileId, sq) {
+        var res;
+        try {
+          res = await fetch(ENGINE, { method: 'POST', body: JSON.stringify({ action: 'webSquareSave', token: (session() || {}).token,
+            id: p.program_id, file: fileId, mime: sq.mime, data: sq.data }) });
+        } catch (e) { return null; }
+        try { return await res.json(); } catch (e) { return null; }
+      },
       tick: function (key, on) {
         mkApply(MK.doneOp(key, on, (session() || {}).user || '', new Date().toISOString()));
       }

@@ -744,12 +744,87 @@
     return '<div class="mk-imggrid" role="list">' + r.files.map(function (f) {
       var bad = f.problem ? 'This image ' + f.problem + '.' : '';
       var on = cur && cur === f.id;
-      return '<button type="button" role="listitem" class="mk-imgtile' + (bad ? ' bad' : '') + (on ? ' on' : '') + '"'
+      var tile = '<button type="button" role="listitem" class="mk-imgtile' + (bad ? ' bad' : '') + (on ? ' on' : '') + '"'
         + ' data-mk-imgchoose="' + esc(f.url) + '"' + (bad ? ' disabled' : '') + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
         + ' title="' + esc(f.name + (bad ? ': ' + bad : f.width ? ' (' + f.width + ' × ' + f.height + ')' : '')) + '">'
         + '<img src="https://lh3.googleusercontent.com/d/' + esc(f.id) + '=s240" alt="" loading="lazy" width="96" height="96">'
         + '<span>' + esc(f.name) + '</span>' + (bad ? '<small>' + esc(bad) + '</small>' : '') + '</button>';
-    }).join('') + '</div><p class="mk-sub">Newest first. Greyed images do not meet the spec.' + open + '</p>';
+      var fix = fixLabel(f);
+      if (!fix) return tile;
+      return '<div class="mk-imgcell">' + tile + '<button type="button" class="gx-btn mk-imgfix" data-mk-imgfix="' + esc(f.id) + '"'
+        + ' title="Makes a 1200 × 1200 copy in the vendor folder and picks it. Nothing is cut off; the original stays as it is.">'
+        + esc(fix) + '</button><small class="mk-sub" role="status" data-mk-imgfixnote></small></div>';
+    }).join('') + '</div><p class="mk-sub">Newest first. Greyed images do not meet the spec; '
+      + '“Make square” makes a 1200 × 1200 copy with nothing cut off.' + open + '</p>';
+  }
+
+  /* MAKE SQUARE (Sky, 2026-11-24). A greyed image whose size Drive reports can be fixed in one click:
+     the picture is padded out to a square with its own edge color (never cropped, so a headline near
+     an edge survives), sized to 1200 × 1200, filed beside the original as "<name> (square)" and
+     picked. The engine serves and files only images in this program's vendor folder. */
+  var SQUARE_SIDE = 1200;
+  /* The copy's file name. The engine's webSquareSave_ names it the same way. */
+  function squareName(name, mime) {
+    return String(name || 'image').replace(/\.[A-Za-z0-9]{2,4}$/, '').replace(/[\\/]/g, '-').slice(0, 100)
+      + ' (square).' + (mime === 'image/png' ? 'png' : 'jpg');
+  }
+  function fixLabel(f) {
+    if (!f || !f.problem || !f.width || !f.height) return '';
+    return f.width !== f.height ? 'Make square' : 'Resize to fit';
+  }
+  /* Where the picture goes on the square: scaled so its long side is the square's side, centered. */
+  function squareLayout(w, h, side) {
+    side = side || SQUARE_SIDE;
+    var s = side / Math.max(w, h), dw = Math.round(w * s), dh = Math.round(h * s);
+    return { side: side, dw: dw, dh: dh, dx: Math.floor((side - dw) / 2), dy: Math.floor((side - dh) / 2),
+             pad: w > h ? 'y' : h > w ? 'x' : '' };
+  }
+  /* The average color of the edges that get padded: left and right for a tall picture, top and
+     bottom for a wide one, all four for a square one. `px` is RGBA bytes, w × h. */
+  function edgeColor(px, w, h, pad) {
+    var r = 0, g = 0, b = 0, n = 0;
+    var add = function (x, y) { var i = (y * w + x) * 4; if (px[i + 3] < 16) return; r += px[i]; g += px[i + 1]; b += px[i + 2]; n++; };
+    var x, y;
+    if (pad !== 'y') for (y = 0; y < h; y++) { add(0, y); add(w - 1, y); }
+    if (pad !== 'x') for (x = 0; x < w; x++) { add(x, 0); add(x, h - 1); }
+    if (!n) return 'rgb(255,255,255)';
+    return 'rgb(' + Math.round(r / n) + ',' + Math.round(g / n) + ',' + Math.round(b / n) + ')';
+  }
+  /* Browser only: a data: URI in, {mime, data (base64), name} out, under the 2 MB limit. */
+  function squareImage(dataUri, srcMime) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      img.onerror = function () { reject(new Error('The picture could not be opened.')); };
+      img.onload = function () {
+        var w = img.naturalWidth, h = img.naturalHeight;
+        if (!w || !h) return reject(new Error('The picture has no size.'));
+        var L = squareLayout(w, h);
+        var probe = document.createElement('canvas');
+        probe.width = w; probe.height = h;
+        var pc = probe.getContext('2d');
+        pc.drawImage(img, 0, 0);
+        var bg = edgeColor(pc.getImageData(0, 0, w, h).data, w, h, L.pad);
+        var c = document.createElement('canvas');
+        c.width = c.height = L.side;
+        var cx = c.getContext('2d');
+        cx.fillStyle = bg;
+        cx.fillRect(0, 0, L.side, L.side);
+        cx.imageSmoothingQuality = 'high';
+        cx.drawImage(img, L.dx, L.dy, L.dw, L.dh);
+        var tries = (srcMime === 'image/png' ? [['image/png']] : []).concat([['image/jpeg', 0.92], ['image/jpeg', 0.85], ['image/jpeg', 0.75]]);
+        (function next(i) {
+          if (i >= tries.length) return reject(new Error('The square copy came out over 2 MB.'));
+          c.toBlob(function (blob) {
+            if (!blob || blob.size > 2097152) return next(i + 1);
+            var fr = new FileReader();
+            fr.onload = function () { resolve({ mime: tries[i][0], data: String(fr.result).split(',')[1] || '' }); };
+            fr.onerror = function () { reject(new Error('The square copy could not be read back.')); };
+            fr.readAsDataURL(blob);
+          }, tries[i][0], tries[i][1]);
+        })(0);
+      };
+      img.src = dataUri;
+    });
   }
 
   /* The Featured image spec (mockups/deals-wix-handover.md; Sky: "make sure this is noted wherever the
@@ -1128,6 +1203,44 @@
   function wire(host, api) {
     if (host.__mkWired) return;
     host.__mkWired = true;
+    /* "Make square" on a greyed tile: fetch, draw, file the copy, pick it, redraw the grid. A POST
+       whose reply cannot be read comes back null; the copy is then found by its name in the folder. */
+    function makeSquare(t, p) {
+      var id = t.dataset.mkImgfix, cell = t.closest ? t.closest('.mk-imgcell') : null;
+      var note = cell && cell.querySelector('[data-mk-imgfixnote]');
+      var grid = t.closest ? t.closest('[data-mk-imggrid]') : null;
+      var say = function (m) { if (note) note.textContent = m; };
+      if (!api.imageSource || !api.squareSave) return;
+      t.disabled = true;
+      say('Making a square copy…');
+      var want = '';
+      return Promise.resolve(api.imageSource(p, id)).then(function (src) {
+        if (!src || !src.ok) throw new Error((src && src.error) || 'Could not fetch the picture.');
+        var mime = (String(src.data || '').match(/^data:([^;,]+)/) || [])[1] || '';
+        return (api.squareImage || squareImage)(src.data, mime).then(function (sq) {
+          want = squareName(src.name, sq.mime);
+          return api.squareSave(p, id, sq);
+        });
+      }).then(function (r) {
+        if (r) return r;
+        return Promise.resolve(api.images(p)).then(function (list) {
+          var hit = ((list && list.files) || []).filter(function (f) { return f.name === want; })[0];
+          return hit ? { ok: true, url: hit.url, name: hit.name } : { ok: false, error: 'The copy may not have saved. Look in the vendor folder, then try again.' };
+        });
+      }).then(function (r) {
+        if (!r || !r.ok) throw new Error((r && r.error) || 'The copy did not save.');
+        api.apply(webDetailOp(api.program() || p, 'image', r.url));
+        say('Done. Picked “' + r.name + '”.');
+        if (grid && api.images) {
+          return Promise.resolve(api.images(p)).then(function (list) {
+            if (list && list.ok) grid.innerHTML = imageGridHtml(list, r.url);
+          });
+        }
+      }).catch(function (err) {
+        say(String((err && err.message) || err));
+        t.disabled = false;
+      });
+    }
     /* The featured image preview reports its own shape against the spec. `load` does not bubble, so
        this listens in the capture phase. */
     host.addEventListener('load', function (e) {
@@ -1152,6 +1265,7 @@
       if (t.dataset.mkCopyname) return copyName(t);
       if (t.dataset.mkPlan) return api.plan(t.dataset.mkPlan, t);
       if (t.dataset.mkImgchoose) return api.apply(webDetailOp(p, 'image', t.dataset.mkImgchoose));
+      if (t.dataset.mkImgfix) return makeSquare(t, p);
       if (t.dataset.mkHeroprompt) {
         var box = t.parentNode && t.parentNode.querySelector('[data-mk-herobox]');
         if (!box) return;
@@ -1729,6 +1843,7 @@
     makeSaver: makeSaver, halfTypedDate: halfTypedDate, listLine: listLine, foldNote: foldNote, sectionHtml: sectionHtml, wire: wire,
     FEATURED_SPEC: FEATURED_SPEC, imageShapeProblem: imageShapeProblem, driveFileId: driveFileId,
     heroPrompt: heroPrompt, autoAlt: autoAlt, webDetailOp: webDetailOp, imageFieldHtml: imageFieldHtml, imageGridHtml: imageGridHtml,
+    fixLabel: fixLabel, squareLayout: squareLayout, edgeColor: edgeColor, squareName: squareName, squareImage: squareImage,
     wixImagePreview: wixImagePreview,
     COPY_RULES: COPY_RULES, copyProblem: copyProblem, COPY_LIMITS: COPY_LIMITS, lengthProblem: lengthProblem,
     smsCostLine: smsCostLine, smsCostHtml: smsCostHtml,
