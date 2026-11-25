@@ -180,6 +180,10 @@ select.mk-own { border: 0; font: inherit; font-size: 11px; font-weight: 700; cur
 .mk-imgtile:hover:not([disabled]), .mk-imgtile:focus-visible { border-color: var(--mk-green); }
 .mk-imgtile.on { border-color: var(--mk-green); box-shadow: 0 0 0 2px var(--mk-green) inset; }
 .mk-imgtile.bad { opacity: .55; cursor: not-allowed; }
+.mk-imgcell { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.mk-imgcell > .mk-imgtile { flex: 1; }
+.mk-imgfix { font-size: 12px; padding: 4px 8px; }
+.mk-imgcell > small { font-size: 10px; line-height: 1.2; text-align: center; }
 .mk-imgpaste { font-size: 12px; }
 .mk-imgfld a { color: var(--mk-green); }
 .mk-lrow { margin: 0 0 10px; }

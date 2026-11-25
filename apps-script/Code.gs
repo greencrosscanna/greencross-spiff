@@ -511,6 +511,7 @@ function doGet(e) {
       case 'siteMedia':       out = siteMediaSearch_(p);                            break;
       /* The Featured image picker: images in the program's vendor folder. Editor session, a read. */
       case 'webImages':       out = webImages_(p);                                  break;
+      case 'webImageSource':  out = webImageSource_(p);                             break;
       case 'brandImages':     out = brandImages_(p);                                break;
       case 'siteImportLogo':  out = siteImportLogo_(p);                             break;
       case 'siteLogoStatus':  out = siteLogoStatus_(p);                             break;
@@ -639,6 +640,8 @@ function doPost(e) {
          browser sends them as text/plain so no CORS preflight is needed. See MEDIA POST-MORTEMS. */
       case 'postmortemUpload': out = postmortemUpload_(body);         break;
       case 'postmortemSave':   out = postmortemSave_(body);           break;
+      /* The Featured image's square copy (MAKE SQUARE, near webImages_). */
+      case 'webSquareSave':    out = webSquareSave_(body);            break;
       default:              out = { ok: false, error: 'Unknown action: ' + (body.action || '(none)') };
     }
   } catch (err) {
@@ -11315,12 +11318,10 @@ function driveList_(q, fields) {
   if (code >= 300) throw new Error('Drive said ' + code + ': ' + String(text).slice(0, 200));
   return (JSON.parse(text || '{}').files) || [];
 }
-function webImages_(p) {
-  var who = mktEditor_(p, 'edit the deals page');
-  if (who.fail) return who.fail;
-  var res = getProgram_(p.id);
-  if (!res.ok) return res;
-  var prog = res.program, plan = normalizeMarketing_(prog.marketing_json) || {};
+/* The program's vendor folder: its files link when that is a Drive folder, else the vendor's folder
+   under Marketing ▸ Vendors (never made here). {id:'', url:''} when there is none. */
+function webFolderOf_(prog) {
+  var plan = normalizeMarketing_(prog.marketing_json) || {};
   var url = String(((plan.d || {}).files || {}).url || '');
   var folder = webFolderId_(url);
   if (!folder) {
@@ -11328,8 +11329,84 @@ function webImages_(p) {
     try { v = vendorFolderFor_(prog.vendor, false); } catch (e) { v = null; }
     if (v && v.id) { folder = v.id; url = v.url; }
   }
-  if (!folder) return { ok: true, folder_url: '', files: [], why: 'no_folder' };
-  return folderImages_(folder, url, wixImageProblem_);
+  return folder ? { id: folder, url: url } : { id: '', url: '' };
+}
+function webImages_(p) {
+  var who = mktEditor_(p, 'edit the deals page');
+  if (who.fail) return who.fail;
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var f = webFolderOf_(res.program);
+  if (!f.id) return { ok: true, folder_url: '', files: [], why: 'no_folder' };
+  return folderImages_(f.id, f.url, wixImageProblem_);
+}
+
+/* MAKE SQUARE (Sky, 2026-11-24: vendor art arrives 1122 × 1232 and the picker greys it out). The
+   browser draws the square: it fetches the picture through webImageSource, pads the short sides with
+   the picture's own edge color (nothing is cropped, so text near an edge survives), sizes it to
+   1200 × 1200 and posts it to webSquareSave, which files the copy beside the original. The original
+   is never changed. Both routes serve or write only a file that is in THIS program's vendor folder
+   listing, the same list the picker shows, so neither can read or write anywhere else in Drive. */
+var WEB_SQUARE_TAG_ = 'spiff-square-of:';
+function webPickerFile_(p) {
+  var who = mktEditor_(p, 'edit the deals page');
+  if (who.fail) return who.fail;
+  var res = getProgram_(p.id);
+  if (!res.ok) return res;
+  var f = webFolderOf_(res.program);
+  if (!f.id) return { ok: false, error: 'This program has no vendor folder.' };
+  var list = folderImages_(f.id, f.url, wixImageProblem_);
+  if (!list.ok) return list;
+  var id = String(p.file || '');
+  var hit = (list.files || []).filter(function (x) { return x.id === id; })[0];
+  if (!id || !hit) return { ok: false, error: 'That image is not in this program\'s vendor folder.' };
+  return { ok: true, file: hit, who: who };
+}
+function webImageSource_(p) {
+  var r = webPickerFile_(p);
+  if (!r.ok) return r;
+  try {
+    return { ok: true, id: r.file.id, name: r.file.name, width: r.file.width, height: r.file.height, data: pmImageData_(r.file.id) };
+  } catch (e) {
+    return { ok: false, error: 'Drive could not hand over that image: ' + scrubSecrets_((e && e.message) || e) };
+  }
+}
+/* POST: the square copy. Saving the same original twice answers the copy already made. */
+function webSquareSave_(b) {
+  var r = webPickerFile_(b);
+  if (!r.ok) return r;
+  var mime = String(b.mime || '');
+  if (WIX_FEATURED_SPEC_.types.indexOf(mime) < 0) return { ok: false, error: 'The square copy must be a JPG or PNG.' };
+  var bytes;
+  try { bytes = Utilities.base64Decode(String(b.data || '')); } catch (e) { return { ok: false, error: 'The image did not arrive whole. Try again.' }; }
+  if (!bytes.length) return { ok: false, error: 'The image was empty.' };
+  if (bytes.length > WIX_FEATURED_SPEC_.bytes) return { ok: false, error: 'The square copy came out over 2 MB.' };
+  var b0 = bytes[0] & 255, b1 = bytes[1] & 255;
+  if (mime === 'image/jpeg' ? !(b0 === 0xFF && b1 === 0xD8) : !(b0 === 0x89 && b1 === 0x50)) return { ok: false, error: 'That is not the image it claims to be.' };
+  var src = r.file, meta;
+  try { meta = driveApi_('get', encodeURIComponent(src.id) + '?supportsAllDrives=true&fields=parents'); }
+  catch (e) { return { ok: false, error: 'Drive could not read the original: ' + scrubSecrets_((e && e.message) || e) }; }
+  var parent = ((meta && meta.parents) || [])[0];
+  if (!parent) return { ok: false, error: 'Drive did not say which folder the original is in.' };
+  var name = String(src.name || 'image').replace(/\.[A-Za-z0-9]{2,4}$/, '').replace(/[\\/]/g, '-').slice(0, 100)
+    + ' (square).' + (mime === 'image/png' ? 'png' : 'jpg');
+  var tag = WEB_SQUARE_TAG_ + src.id;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return { ok: false, error: 'Another save is in progress. Try again in a moment.' };
+  try {
+    var folder = DriveApp.getFolderById(parent), same = folder.getFilesByName(name);
+    while (same.hasNext()) {
+      var had = same.next();
+      if (!had.isTrashed() && had.getDescription() === tag) {
+        return { ok: true, replay: true, file_id: had.getId(), name: name, url: 'https://drive.google.com/file/d/' + had.getId() + '/view' };
+      }
+    }
+    var file = folder.createFile(Utilities.newBlob(bytes, mime, name));
+    file.setDescription(tag);
+    return { ok: true, file_id: file.getId(), name: name, url: 'https://drive.google.com/file/d/' + file.getId() + '/view' };
+  } finally {
+    lock.releaseLock();
+  }
 }
 /* The images in one Drive folder and one level of subfolders, newest first, capped, each with the
    reason (if any) it breaks the spec `problemOf` checks. Shared by the Featured image picker and the

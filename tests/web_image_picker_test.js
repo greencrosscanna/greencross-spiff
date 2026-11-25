@@ -32,7 +32,7 @@ function engine(o) {
   const prog = Object.assign({ program_id: 'all-products-202610', vendor: 'Gron', end_date: '2026-11-08',
     marketing_json: { v: 1, sel: { web: true }, d: { files: { url: 'https://drive.google.com/drive/folders/FOLDERaaaaaaaaaaaa' } } } }, o.prog || {});
   const api = G.load({
-    real: ['webFolderId_', 'webImages_', 'folderImages_', 'wixImageProblem_', 'normalizeMarketing_', 'brandImages_', 'siteLogoProblem_'],
+    real: ['webFolderId_', 'webFolderOf_', 'webImages_', 'folderImages_', 'wixImageProblem_', 'normalizeMarketing_', 'brandImages_', 'siteLogoProblem_'],
     vars: ['WEB_IMAGES_MAX_', 'WEB_IMAGES_SUBFOLDERS_', 'WIX_FEATURED_SPEC_', 'SITE_LOGO_SPEC_'],
     stubs: {
       mktEditor_: () => (o.viewer ? { fail: { ok: false, error: 'Your role (viewer) cannot edit the deals page' } } : { auth: { user: 'tawny' } }),
